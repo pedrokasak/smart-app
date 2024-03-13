@@ -30,14 +30,21 @@ model SignIn {
 }
 
 model Profile {
-  id          String   @id @default(uuid())
+  id          String        @id @default(uuid())
   user        User[]
-  userId      String   @unique
+  userId      String        @unique
   address     String?
-  cpf         String?  @unique
-  permissions String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @default(now()) @updatedAt
+  cpf         String?       @unique
+  permissions Permissions[]
+  createdAt   DateTime      @default(now())
+  updatedAt   DateTime      @default(now()) @updatedAt
+}
+
+model Permissions {
+  id      String  @id @default(uuid())
+  name    String
+  profile Profile @relation(fields: [profileId], references: [id])
+  profileId String
 }
 
 model Subscription {

@@ -1,26 +1,62 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { PrismaService } from 'src/database/prisma.service';
 
 @Injectable()
 export class ProfileService {
-  create(createProfileDto: CreateProfileDto) {
-    return 'This action adds a new profile';
-  }
+	constructor(private readonly prisma: PrismaService) {}
+	async create(createProfileDto: CreateProfileDto) {
+		const { address, cpf, userId, permissionId } = createProfileDto;
 
-  findAll() {
-    return `This action returns all profile`;
-  }
+		const findUser = await this.prisma.user.findUnique({
+			where: {
+				id: userId,
+			},
+		});
 
-  findOne(id: number) {
-    return `This action returns a #${id} profile`;
-  }
+		if (!findUser)
+			throw new NotFoundException(`User with ID ${userId} not found`);
 
-  update(id: number, updateProfileDto: UpdateProfileDto) {
-    return `This action updates a #${id} profile`;
-  }
+		const findPermission = await this.prisma.permissions.findUnique({
+			where: {
+				id: permissionId,
+			},
+		});
 
-  remove(id: number) {
-    return `This action removes a #${id} profile`;
-  }
+		if (!findPermission)
+			throw new NotFoundException(`User with ID ${findPermission} not found`);
+
+		const profile = await this.prisma.profile.create({
+			data: {
+				address,
+				cpf,
+				user: { connect: { id: userId } },
+				userId: userId,
+				permissions: { connect: { id: permissionId } },
+			},
+		});
+
+		return profile;
+	}
+
+	findAll() {
+		return this.prisma.profile.findMany();
+	}
+
+	findOne(id: string) {
+		return this.prisma.profile.findUnique({
+			where: {
+				id: id,
+			},
+		});
+	}
+
+	update(id: number, updateProfileDto: UpdateProfileDto) {
+		return `This action updates a #${id} profile ${updateProfileDto}`;
+	}
+
+	remove(id: number) {
+		return `This action removes a #${id} profile`;
+	}
 }
