@@ -7,11 +7,11 @@ import { SigninEntity } from './entities/signin.entity';
 @Controller('auth')
 @ApiTags('auth')
 export class SigninController {
-  constructor(private readonly authService: SigninService) {}
+	constructor(private readonly authService: SigninService) {}
 
-  @Post('login')
-  @ApiOkResponse({ type: SigninEntity })
-  login(@Body() authSignIn: CreateSigninDto) {
-    return this.authService.login(authSignIn);
-  }
+	@Post('login')
+	@ApiOkResponse({ type: SigninEntity })
+	login(@Body() authSignIn: CreateSigninDto) {
+		return this.authService.login(authSignIn);
+	}
 }

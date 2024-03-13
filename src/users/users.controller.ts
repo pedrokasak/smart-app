@@ -1,49 +1,66 @@
 import {
-  Controller,
-  Get,
-  Post,
-  Body,
-  Patch,
-  Param,
-  Delete,
-  UseGuards,
+	Controller,
+	Get,
+	Post,
+	Body,
+	Patch,
+	Param,
+	Delete,
+	UseGuards,
+	UsePipes,
+	HttpException,
+	HttpStatus,
 } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from 'src/signin/jwt-auth.guard';
+import { EmailValidationPipe } from './decorators/emailValidatorPipe';
 
 @Controller('users')
 export class UsersController {
-  constructor(private readonly usersService: UsersService) {}
+	constructor(private readonly usersService: UsersService) {}
 
-  @Post('create')
-  @UseGuards(JwtAuthGuard)
-  async create(@Body() createUserDto: CreateUserDto) {
-    this.usersService.create(createUserDto);
-  }
+	@Post('create')
+	@UseGuards(JwtAuthGuard)
+	@UsePipes(new EmailValidationPipe())
+	async create(@Body() createUserDto: CreateUserDto) {
+		try {
+			const response = await this.usersService.create(createUserDto);
+			return response;
+		} catch (error) {
+			if (error instanceof HttpException) {
+				throw new HttpException(error.getResponse(), error.getStatus());
+			} else {
+				throw new HttpException(
+					'Unexpected error',
+					HttpStatus.INTERNAL_SERVER_ERROR
+				);
+			}
+		}
+	}
 
-  @Get()
-  @UseGuards(JwtAuthGuard)
-  findAll() {
-    return this.usersService.findMany();
-  }
+	@Get()
+	@UseGuards(JwtAuthGuard)
+	findAll() {
+		return this.usersService.findMany();
+	}
 
-  @Get(':id')
-  @UseGuards(JwtAuthGuard)
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id);
-  }
+	@Get(':id')
+	@UseGuards(JwtAuthGuard)
+	findOne(@Param('id') id: string) {
+		return this.usersService.findOne(id);
+	}
 
-  @Patch(':id')
-  @UseGuards(JwtAuthGuard)
-  update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return this.usersService.update(id, updateUserDto);
-  }
+	@Patch(':id')
+	@UseGuards(JwtAuthGuard)
+	update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
+		return this.usersService.update(id, updateUserDto);
+	}
 
-  @Delete(':id')
-  @UseGuards(JwtAuthGuard)
-  remove(@Param('id') id: string) {
-    return this.usersService.delete(id);
-  }
+	@Delete(':id')
+	@UseGuards(JwtAuthGuard)
+	remove(@Param('id') id: string) {
+		return this.usersService.delete(id);
+	}
 }

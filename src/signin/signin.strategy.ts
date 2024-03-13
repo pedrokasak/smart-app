@@ -7,20 +7,20 @@ import { jwtSecret } from './signin.module';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
-  constructor(private usersService: UsersService) {
-    super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      secretOrKey: jwtSecret,
-    });
-  }
+	constructor(private usersService: UsersService) {
+		super({
+			jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+			secretOrKey: jwtSecret,
+		});
+	}
 
-  async validate(payload: { userId: string }) {
-    const user = this.usersService.findOne(payload.userId);
+	async validate(payload: { userId: string }) {
+		const user = this.usersService.findOne(payload.userId);
 
-    if (!user) {
-      throw new UnauthorizedException();
-    }
+		if (!user) {
+			throw new UnauthorizedException();
+		}
 
-    return user;
-  }
+		return user;
+	}
 }

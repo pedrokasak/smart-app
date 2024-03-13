@@ -1,62 +1,89 @@
-import { Injectable } from '@nestjs/common';
+import {
+	BadRequestException,
+	HttpException,
+	HttpStatus,
+	Injectable,
+} from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { PrismaService } from 'src/database/prisma.service';
-import { randomUUID } from 'node:crypto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+	constructor(private readonly prisma: PrismaService) {}
 
-  async create(createUserDto: CreateUserDto) {
-    const { first_name, last_name, email, password, repeat_password } =
-      createUserDto;
-    await this.prisma.user.create({
-      data: {
-        id: randomUUID(),
-        first_name,
-        last_name,
-        email,
-        password,
-        repeat_password,
-      },
-    });
-    return createUserDto;
-  }
+	async create(createUserDto: CreateUserDto) {
+		try {
+			const { first_name, last_name, email, password, repeat_password } =
+				createUserDto;
 
-  async findMany() {
-    return await this.prisma.user.findMany();
-  }
+			const verifyIsEmailExists = await this.prisma.user.findUnique({
+				where: {
+					email: email,
+				},
+			});
+			if (verifyIsEmailExists)
+				throw new BadRequestException(`Email ${email} already exists`);
 
-  async findOne(id: string) {
-    const data = await this.prisma.user.findUnique({
-      where: {
-        id,
-      },
-    });
+			if (password != repeat_password)
+				throw new BadRequestException(
+					'Password is a different de repeat password'
+				);
 
-    return data;
-  }
+			await this.prisma.user.create({
+				data: {
+					first_name,
+					last_name,
+					email,
+					password,
+					repeat_password,
+				},
+			});
+			return createUserDto;
+		} catch (error) {
+			throw new HttpException(
+				{
+					status: HttpStatus.BAD_REQUEST,
+					error: error.message,
+				},
+				HttpStatus.BAD_REQUEST
+			);
+		}
+	}
 
-  async update(id: string, updateUserDto: UpdateUserDto) {
-    const response = await this.prisma.user.update({
-      where: {
-        id,
-      },
-      data: {
-        ...updateUserDto,
-      },
-    });
+	async findMany() {
+		return await this.prisma.user.findMany();
+	}
 
-    return response;
-  }
+	async findOne(id: string) {
+		const data = await this.prisma.user.findUnique({
+			where: {
+				id,
+			},
+		});
 
-  async delete(id: string) {
-    const response = await this.prisma.user.delete({
-      where: {
-        id,
-      },
-    });
-    return response;
-  }
+		return data;
+	}
+
+	async update(id: string, updateUserDto: UpdateUserDto) {
+		const response = await this.prisma.user.update({
+			where: {
+				id,
+			},
+			data: {
+				...updateUserDto,
+			},
+		});
+
+		return response;
+	}
+
+	async delete(id: string) {
+		const response = await this.prisma.user.delete({
+			where: {
+				id,
+			},
+		});
+		return response;
+	}
 }

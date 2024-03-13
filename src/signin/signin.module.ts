@@ -12,15 +12,15 @@ export const jwtSecret: string = process.env.JWT_SECRET;
 export const expireKeepAliveConected = process.env.EXPIRES_IN;
 
 @Module({
-  imports: [
-    PassportModule,
-    JwtModule.register({
-      secret: jwtSecret,
-      signOptions: { expiresIn: expireKeepAliveConected },
-    }),
-    UsersModule,
-  ],
-  controllers: [SigninController],
-  providers: [SigninService, PrismaService, UsersService, JwtStrategy],
+	imports: [
+		PassportModule,
+		JwtModule.register({
+			secret: jwtSecret,
+			signOptions: { expiresIn: expireKeepAliveConected },
+		}),
+		UsersModule,
+	],
+	controllers: [SigninController],
+	providers: [SigninService, PrismaService, UsersService, JwtStrategy],
 })
 export class SigninModule {}
