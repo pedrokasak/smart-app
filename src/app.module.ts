@@ -6,9 +6,16 @@ import { UsersModule } from './users/users.module';
 import { SigninModule } from './signin/signin.module';
 import { ProfileModule } from './profile/profile.module';
 import { PermissionsModule } from './permissions/permissions.module';
+import { KafkaController } from './listener/kafkaController';
 
 @Module({
-	imports: [UsersModule, SigninModule, ProfileModule, PermissionsModule],
+	imports: [
+		UsersModule,
+		SigninModule,
+		ProfileModule,
+		PermissionsModule,
+		KafkaController,
+	],
 	controllers: [AppController],
 	providers: [AppService, PrismaService],
 })

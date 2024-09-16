@@ -29,7 +29,6 @@ export class SigninService {
 
 		const isPasswordValid = verifyIfUserExists.password === password;
 
-		// If password does not match, throw an error
 		if (!isPasswordValid) {
 			throw new UnauthorizedException('Invalid password');
 		}

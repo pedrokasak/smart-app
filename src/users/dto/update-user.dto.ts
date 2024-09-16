@@ -22,9 +22,4 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
 		message: 'The password is not empty',
 	})
 	password: string;
-
-	@IsNotEmpty({
-		message: 'The reapeat password is not empty',
-	})
-	repeat_password: string;
 }

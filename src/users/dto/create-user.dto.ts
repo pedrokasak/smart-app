@@ -26,9 +26,4 @@ export class CreateUserDto {
 		minLowercase: 1,
 	})
 	password: string;
-
-	@IsNotEmpty({
-		message: 'The repeat_password is not empty',
-	})
-	repeat_password: string;
 }

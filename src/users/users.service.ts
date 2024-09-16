@@ -7,6 +7,7 @@ import {
 import { CreateUserDto } from './dto/create-user.dto';
 import { PrismaService } from 'src/database/prisma.service';
 import { UpdateUserDto } from './dto/update-user.dto';
+import * as bcrypt from 'bcrypt';
 
 @Injectable()
 export class UsersService {
@@ -14,8 +15,7 @@ export class UsersService {
 
 	async create(createUserDto: CreateUserDto) {
 		try {
-			const { first_name, last_name, email, password, repeat_password } =
-				createUserDto;
+			const { first_name, last_name, email, password } = createUserDto;
 
 			const verifyIsEmailExists = await this.prisma.user.findUnique({
 				where: {
@@ -25,18 +25,20 @@ export class UsersService {
 			if (verifyIsEmailExists)
 				throw new BadRequestException(`Email ${email} already exists`);
 
-			if (password != repeat_password)
-				throw new BadRequestException(
-					'Password is a different de repeat password'
-				);
+			const saltRounds = 10;
+			const hashedPassword = await bcrypt.hash(password, saltRounds);
+
+			// if (password)
+			// 	throw new BadRequestException(
+			// 		'Password is a different de repeat password'
+			// 	);
 
 			await this.prisma.user.create({
 				data: {
 					first_name,
 					last_name,
 					email,
-					password,
-					repeat_password,
+					password: hashedPassword,
 				},
 			});
 			return createUserDto;

@@ -1,28 +1,31 @@
 generator client {
-  provider = "prisma-client-js"
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextIndex"]
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "mongodb"
   url      = env("DATABASE_URL")
 }
 
 model User {
-  id              String             @id @default(uuid())
-  email           String             @unique
-  first_name      String?
-  last_name       String?
-  password        String
-  repeat_password String
-  profile         Profile?           @relation(fields: [profileId], references: [id])
-  profileId       String?
-  subscriptions   UserSubscription[]
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @default(now()) @updatedAt
+  id            String             @id @default(cuid()) @map("_id")
+  email         String             @unique
+  first_name    String?
+  last_name     String?
+  password      String
+  profile       Profile?           @relation(fields: [profileId], references: [id])
+  profileId     String?
+  subscriptions UserSubscription[]
+  portifolios   Portifolio[]
+  createdAt     DateTime           @default(now())
+  updatedAt     DateTime           @default(now()) @updatedAt
+
+  @@fulltext([email(sort: Desc)])
 }
 
 model SignIn {
-  email         String   @id
+  email         String   @id @map("_id")
   password      String
   keepConnected Boolean
   token         String
@@ -30,25 +33,26 @@ model SignIn {
 }
 
 model Profile {
-  id          String        @id @default(uuid())
+  id          String        @id @default(cuid()) @map("_id")
   user        User[]
   userId      String        @unique
-  address     String?
   cpf         String?       @unique
   permissions Permissions[]
   createdAt   DateTime      @default(now())
   updatedAt   DateTime      @default(now()) @updatedAt
+
+  @@fulltext([userId(sort: Desc)])
 }
 
 model Permissions {
-  id      String  @id @default(uuid())
-  name    String
-  profile Profile @relation(fields: [profileId], references: [id])
+  id        String  @id @default(uuid()) @map("_id")
+  name      String
+  profile   Profile @relation(fields: [profileId], references: [id])
   profileId String
 }
 
 model Subscription {
-  id        String             @id @default(uuid())
+  id        String             @id @default(cuid()) @map("_id")
   name      String
   price     Float
   type      String
@@ -58,11 +62,27 @@ model Subscription {
 }
 
 model UserSubscription {
-  id             String       @id @default(uuid())
+  id             String       @id @default(cuid()) @map("_id")
   user           User         @relation(fields: [userId], references: [id])
   userId         String
   subscription   Subscription @relation(fields: [subscriptionId], references: [id])
   subscriptionId String
   createdAt      DateTime     @default(now())
   updatedAt      DateTime     @default(now()) @updatedAt
+}
+
+model Asset {
+  id          String     @id @default(cuid()) @map("_id")
+  symbol      String
+  quantity    Int
+  price       Float
+  portfolio   Portifolio @relation(fields: [portfolioId], references: [id])
+  portfolioId String
+}
+
+model Portifolio {
+  id     String  @id @default(cuid()) @map("_id")
+  user   User    @relation(fields: [userId], references: [id])
+  userId String  @unique
+  assets Asset[]
 }
