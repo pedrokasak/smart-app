@@ -1,6 +1,6 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { CreateProfileDto } from './create-profile.dto';
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
 export class UpdateProfileDto extends PartialType(CreateProfileDto) {
 	@ApiProperty()
@@ -10,7 +10,7 @@ export class UpdateProfileDto extends PartialType(CreateProfileDto) {
 
 	@ApiProperty()
 	@IsString()
-	@IsNotEmpty({ message: 'The permission ID is required' })
+	@IsOptional()
 	permissionId: string;
 
 	@ApiProperty()

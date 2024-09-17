@@ -1,12 +1,12 @@
 import { Module } from '@nestjs/common';
 import { AppController } from './app.controller';
-import { PrismaService } from './database/prisma.service';
+import { ConnectDatabase } from './database/database.service';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { SigninModule } from './signin/signin.module';
 import { ProfileModule } from './profile/profile.module';
 import { PermissionsModule } from './permissions/permissions.module';
-import { KafkaController } from './listener/kafkaController';
+import { MongooseModule } from '@nestjs/mongoose';
 
 @Module({
 	imports: [
@@ -14,9 +14,9 @@ import { KafkaController } from './listener/kafkaController';
 		SigninModule,
 		ProfileModule,
 		PermissionsModule,
-		KafkaController,
+		MongooseModule.forRoot(process.env.DATABASE_URL),
 	],
 	controllers: [AppController],
-	providers: [AppService, PrismaService],
+	providers: [AppService, ConnectDatabase],
 })
 export class AppModule {}

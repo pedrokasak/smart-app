@@ -14,7 +14,7 @@ describe('SigninController', () => {
 		controller = module.get<SigninController>(SigninController);
 	});
 
-	it('should be defined', () => {
+	it('should be authentication', () => {
 		expect(controller).toBeDefined();
 	});
 });

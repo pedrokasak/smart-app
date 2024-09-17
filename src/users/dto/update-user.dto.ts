@@ -6,12 +6,12 @@ export class UpdateUserDto extends PartialType(CreateUserDto) {
 	@IsNotEmpty({
 		message: 'The fist name is not empty',
 	})
-	first_name: string;
+	firstName: string;
 
 	@IsNotEmpty({
 		message: 'The last name is not empty',
 	})
-	last_name: string;
+	lastName: string;
 
 	@IsNotEmpty({
 		message: 'The email is not empty',

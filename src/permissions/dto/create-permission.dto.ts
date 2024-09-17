@@ -1,10 +1,10 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsNotEmpty } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
 
 export class CreatePermissionDto {
 	@ApiProperty()
 	@IsString()
-	@IsNotEmpty({ message: 'The profile ID is required' })
+	@IsOptional()
 	profileId: string;
 
 	@ApiProperty()

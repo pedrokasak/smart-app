@@ -22,7 +22,6 @@ export class UsersController {
 	constructor(private readonly usersService: UsersService) {}
 
 	@Post('create')
-	@UseGuards(JwtAuthGuard)
 	@UsePipes(new EmailValidationPipe())
 	async create(@Body() createUserDto: CreateUserDto) {
 		try {

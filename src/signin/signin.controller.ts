@@ -9,9 +9,9 @@ import { SigninEntity } from './entities/signin.entity';
 export class SigninController {
 	constructor(private readonly authService: SigninService) {}
 
-	@Post('login')
+	@Post('signin')
 	@ApiOkResponse({ type: SigninEntity })
-	login(@Body() authSignIn: CreateSigninDto) {
-		return this.authService.login(authSignIn);
+	signin(@Body() authSignIn: CreateSigninDto) {
+		return this.authService.signin(authSignIn);
 	}
 }

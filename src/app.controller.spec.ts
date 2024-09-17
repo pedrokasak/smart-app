@@ -1,11 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { PrismaService } from './database/prisma.service';
 
 describe('AppController', () => {
 	let appController: AppController;
-	const prisma = new PrismaService();
+	// const database = new ConnectDatabase();
 
 	beforeEach(async () => {
 		const app: TestingModule = await Test.createTestingModule({
@@ -17,9 +16,9 @@ describe('AppController', () => {
 	});
 
 	describe('root', () => {
-		const response = prisma.signIn.findMany();
-		it('should return login', () => {
-			expect(appController.getUser()).toBe(response);
+		// const response = database.onModuleInit();
+		it('connnect to database', () => {
+			expect(appController.home()).toBe('Hello World');
 		});
 	});
 });

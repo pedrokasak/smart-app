@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ProfileController } from './profile.controller';
 import { ProfileService } from './profile.service';
+import { ProfileModel } from './schema/profile.model';
 
 describe('ProfileController', () => {
 	let controller: ProfileController;
@@ -14,7 +15,8 @@ describe('ProfileController', () => {
 		controller = module.get<ProfileController>(ProfileController);
 	});
 
-	it('should be defined', () => {
-		expect(controller).toBeDefined();
+	it('should be get profile', () => {
+		const response = ProfileModel.find().exec();
+		expect(controller).toBe(response);
 	});
 });

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PermissionsController } from './permissions.controller';
 import { PermissionsService } from './permissions.service';
+import { PermissionModel } from './schema/permissions.model';
 
 describe('PermissionsController', () => {
 	let controller: PermissionsController;
@@ -14,7 +15,8 @@ describe('PermissionsController', () => {
 		controller = module.get<PermissionsController>(PermissionsController);
 	});
 
-	it('should be defined', () => {
-		expect(controller).toBeDefined();
+	it('should be get permissions', () => {
+		const response = PermissionModel.find().exec();
+		expect(controller).toBe(response);
 	});
 });

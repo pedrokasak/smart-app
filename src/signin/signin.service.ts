@@ -4,37 +4,34 @@ import {
 	UnauthorizedException,
 } from '@nestjs/common';
 import { CreateSigninDto } from './dto/create-signin.dto';
-import { PrismaService } from 'src/database/prisma.service';
 import { JwtService } from '@nestjs/jwt';
 import { SigninEntity } from './entities/signin.entity';
-import { expireKeepAliveConected } from './signin.module';
+import { UserModel } from 'src/users/schema/user.model';
+import * as bcrypt from 'bcrypt';
+import { expireKeepAliveConected } from 'src/env';
 
 @Injectable()
 export class SigninService {
-	constructor(
-		private prisma: PrismaService,
-		private jwtService: JwtService
-	) {}
+	constructor(private jwtService: JwtService) {}
 
-	async login(createSigninDto: CreateSigninDto): Promise<SigninEntity> {
+	async signin(createSigninDto: CreateSigninDto): Promise<SigninEntity> {
 		const { email, password } = createSigninDto;
-		const verifyIfUserExists = await this.prisma.user.findUnique({
-			where: {
-				email: email,
-				password: password,
-			},
-		});
-		if (!verifyIfUserExists)
+
+		const verifyUser = await UserModel.findOne({
+			email,
+		}).exec();
+
+		if (!verifyUser)
 			throw new NotFoundException(`No user found for email: ${email}`);
 
-		const isPasswordValid = verifyIfUserExists.password === password;
+		const isPasswordValid = await bcrypt.compare(password, verifyUser.password);
 
 		if (!isPasswordValid) {
 			throw new UnauthorizedException('Invalid password');
 		}
 
 		return {
-			token: this.jwtService.sign({ userId: verifyIfUserExists.id }),
+			token: this.jwtService.sign({ userId: verifyUser.id }),
 			expiresIn: expireKeepAliveConected,
 		};
 	}
