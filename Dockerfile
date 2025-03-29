@@ -26,10 +26,6 @@ RUN apt-get update -qq && \
 COPY package.json yarn.lock ./
 RUN yarn install --frozen-lockfile --production=false
 
-# Generate Prisma Client
-COPY prisma .
-RUN npx prisma generate
-
 # Copy application code
 COPY . .
 
@@ -49,5 +45,7 @@ RUN apt-get update -qq && \
 COPY --from=build /app /app
 
 # Start the server by default, this can be overwritten at runtime
-EXPOSE 3000
-CMD [ "yarn", "run", "start" ]
+# EXPOSE 3000
+EXPOSE 8080
+# CMD [ "yarn", "run", "start" ]
+CMD ["yarn", "run", "start:prod"]
