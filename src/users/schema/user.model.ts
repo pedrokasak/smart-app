@@ -11,7 +11,7 @@ export interface User extends Document {
 }
 
 const userSchema = new Schema<User>({
-	profile: { type: Schema.Types.ObjectId, ref: 'Profile', required: true },
+	profile: { type: Schema.Types.ObjectId, ref: 'Profile', required: false },
 	firstName: String,
 	lastName: String,
 	email: { type: String, unique: true },
