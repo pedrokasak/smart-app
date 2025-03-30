@@ -1,6 +1,6 @@
 import { Schema, Document, model } from 'mongoose';
 
-export interface SignIn extends Document {
+export interface Authentication extends Document {
 	email: string;
 	password: string;
 	keepConnected: boolean;
@@ -8,7 +8,7 @@ export interface SignIn extends Document {
 	logon: Date;
 }
 
-const signinSchema = new Schema<SignIn>({
+const AuthenticationSchema = new Schema<Authentication>({
 	email: { type: String, required: true, unique: true },
 	password: { type: String, required: true },
 	keepConnected: { type: Boolean, required: true },
@@ -16,4 +16,7 @@ const signinSchema = new Schema<SignIn>({
 	logon: { type: Date, default: Date.now },
 });
 
-export const SignInModel = model<SignIn>('SignIn', signinSchema);
+export const AuthenticationModel = model<Authentication>(
+	'SignIn',
+	AuthenticationSchema
+);

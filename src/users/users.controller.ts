@@ -14,7 +14,7 @@ import {
 import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import { JwtAuthGuard } from 'src/signin/jwt-auth.guard';
+import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { EmailValidationPipe } from './decorators/emailValidatorPipe';
 
 @Controller('users')
