@@ -11,7 +11,7 @@ import {
 import { ProfileService } from './profile.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { JwtAuthGuard } from 'src/signin/jwt-auth.guard';
+import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 
 @Controller('profile')
 export class ProfileController {

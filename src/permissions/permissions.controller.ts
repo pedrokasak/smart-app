@@ -11,7 +11,7 @@ import {
 import { PermissionsService } from './permissions.service';
 import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';
-import { JwtAuthGuard } from 'src/signin/jwt-auth.guard';
+import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 
 @Controller('permissions')
 export class PermissionsController {
