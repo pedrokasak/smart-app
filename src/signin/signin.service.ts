@@ -1,14 +1,11 @@
-import {
-	Injectable,
-	NotFoundException,
-	UnauthorizedException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { CreateSigninDto } from './dto/create-signin.dto';
 import { JwtService } from '@nestjs/jwt';
 import { SigninEntity } from './entities/signin.entity';
 import { UserModel } from 'src/users/schema/user.model';
 import * as bcrypt from 'bcrypt';
 import { expireKeepAliveConected } from 'src/env';
+import { AuthErrorService } from 'src/utils/erros-handler';
 
 @Injectable()
 export class SigninService {
@@ -17,17 +14,16 @@ export class SigninService {
 	async signin(createSigninDto: CreateSigninDto): Promise<SigninEntity> {
 		const { email, password } = createSigninDto;
 
-		const verifyUser = await UserModel.findOne({
-			email,
-		}).exec();
+		const verifyUser = await UserModel.findOne({ email }).exec();
 
-		if (!verifyUser)
-			throw new NotFoundException(`No user found for email: ${email}`);
+		if (!verifyUser) {
+			AuthErrorService.handleUserNotFound(email);
+		}
 
 		const isPasswordValid = await bcrypt.compare(password, verifyUser.password);
 
 		if (!isPasswordValid) {
-			throw new UnauthorizedException('Invalid password');
+			AuthErrorService.handleInvalidPassword();
 		}
 
 		return {
