@@ -20,6 +20,11 @@ async function bootstrap() {
 	// });
 
 	// await app.startAllMicroservices();
+	app.enableCors({
+		origin: ['http://localhost:8080'], // Permite o frontend acessar
+		methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+		credentials: true, // Permite cookies e headers de autenticação
+	});
 
 	app.useGlobalPipes(new ValidationPipe());
 
