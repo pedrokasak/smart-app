@@ -9,6 +9,7 @@ import { PermissionsModule } from './permissions/permissions.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './authentication/jwt-auth.guard';
+import { SchedulerModule } from './scheduler/scheduler.module';
 
 @Module({
 	imports: [
@@ -17,6 +18,7 @@ import { JwtAuthGuard } from './authentication/jwt-auth.guard';
 		ProfileModule,
 		PermissionsModule,
 		MongooseModule.forRoot(process.env.DATABASE_URL),
+		SchedulerModule,
 	],
 	controllers: [AppController],
 	providers: [
