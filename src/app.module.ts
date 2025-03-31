@@ -7,16 +7,22 @@ import { AuthenticateModule } from './authentication/authentication.module';
 import { ProfileModule } from './profile/profile.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { MongooseModule } from '@nestjs/mongoose';
+import { APP_GUARD } from '@nestjs/core';
+import { JwtAuthGuard } from './authentication/jwt-auth.guard';
 
 @Module({
 	imports: [
-		UsersModule,
 		AuthenticateModule,
+		UsersModule,
 		ProfileModule,
 		PermissionsModule,
 		MongooseModule.forRoot(process.env.DATABASE_URL),
 	],
 	controllers: [AppController],
-	providers: [AppService, ConnectDatabase],
+	providers: [
+		AppService,
+		ConnectDatabase,
+		{ provide: APP_GUARD, useClass: JwtAuthGuard },
+	],
 })
 export class AppModule {}
