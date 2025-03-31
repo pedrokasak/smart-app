@@ -7,6 +7,8 @@ import { UsersModule } from 'src/users/users.module';
 import { JwtStrategy } from './authentication.strategy';
 import { UsersService } from 'src/users/users.service';
 import { jwtSecret, expireKeepAliveConected } from '../env';
+import { TokenBlacklistModule } from 'src/token-blacklist/token-blacklist.module';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Module({
 	imports: [
@@ -14,10 +16,13 @@ import { jwtSecret, expireKeepAliveConected } from '../env';
 		JwtModule.register({
 			secret: jwtSecret,
 			signOptions: { expiresIn: expireKeepAliveConected },
+			global: true,
 		}),
 		UsersModule,
+		TokenBlacklistModule.forRoot(),
 	],
 	controllers: [AuthenticationController],
-	providers: [AuthenticationService, UsersService, JwtStrategy],
+	providers: [AuthenticationService, UsersService, JwtStrategy, JwtAuthGuard],
+	exports: [JwtAuthGuard, TokenBlacklistModule],
 })
 export class AuthenticateModule {}

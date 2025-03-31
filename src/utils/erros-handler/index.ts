@@ -8,4 +8,8 @@ export class AuthErrorService {
 	static handleInvalidPassword(): never {
 		throw new UnauthorizedException('Invalid password');
 	}
+
+	static handleInvalidToken(): never {
+		throw new UnauthorizedException('Invalid token');
+	}
 }
