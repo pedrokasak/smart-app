@@ -6,6 +6,7 @@ export interface User extends Document {
 	email: string;
 	password: string;
 	profile: Types.ObjectId;
+	refreshToken?: string;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -16,6 +17,7 @@ const userSchema = new Schema<User>({
 	lastName: String,
 	email: { type: String, unique: true },
 	password: String,
+	refreshToken: { type: String, default: null },
 	createdAt: { type: Date, default: Date.now },
 	updatedAt: { type: Date, default: Date.now },
 });
