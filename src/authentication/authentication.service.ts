@@ -32,8 +32,18 @@ export class AuthenticationService {
 			AuthErrorService.handleInvalidPassword();
 		}
 
+		const refreshToken = this.jwtService.sign(
+			{ userId: verifyUser.id },
+			{ expiresIn: '7d' } // Expira em 7 dias
+		);
+
+		// Salvar o refresh token no banco de dados
+		verifyUser.refreshToken = refreshToken;
+		await verifyUser.save();
+
 		return {
 			token: this.jwtService.sign({ userId: verifyUser.id }),
+			refreshToken,
 			expiresIn: expireKeepAliveConected,
 		};
 	}

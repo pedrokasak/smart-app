@@ -4,6 +4,7 @@ const envSchema = z.object({
 	DATABASE_URL: z.string().url(),
 	JWT_SECRET: z.string(),
 	EXPIRES_IN: z.string(),
+	EXPIRES_IN_REFRESH_TOKEN: z.string(),
 });
 
 // Parse the environment variables
