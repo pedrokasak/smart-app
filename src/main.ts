@@ -3,6 +3,7 @@ config();
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { urlDevelopment, urlProduction } from './env';
 // import { Transport, MicroserviceOptions } from '@nestjs/microservices';
 
 async function bootstrap() {
@@ -21,8 +22,9 @@ async function bootstrap() {
 
 	// await app.startAllMicroservices();
 	app.enableCors({
-		origin: ['http://localhost:8080'], // Permite o frontend acessar
+		origin: [urlProduction, urlDevelopment], // Permite o frontend acessar
 		methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
+		allowedHeaders: 'Content-Type, Authorization',
 		credentials: true, // Permite cookies e headers de autenticação
 	});
 
