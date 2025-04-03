@@ -3,6 +3,7 @@ config();
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
+import { urlDevelopment } from './env';
 // import { Transport, MicroserviceOptions } from '@nestjs/microservices';
 
 async function bootstrap() {
@@ -21,7 +22,11 @@ async function bootstrap() {
 
 	// await app.startAllMicroservices();
 	app.enableCors({
-		origin: ['https://smartfolioai.netlify.app', 'http://localhost:8080'], // Permite o frontend acessar
+		origin: [
+			'https://smartfolioai.netlify.app',
+			'http://localhost:8080',
+			urlDevelopment,
+		], // Permite o frontend acessar
 		methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
 		credentials: true, // Permite cookies e headers de autenticação
 	});
