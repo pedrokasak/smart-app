@@ -1,4 +1,5 @@
 import { IsEmail, IsNotEmpty, IsStrongPassword } from 'class-validator';
+import { Match } from '../../utils/decorators';
 
 export class CreateUserDto {
 	@IsNotEmpty({
@@ -26,4 +27,7 @@ export class CreateUserDto {
 		minLowercase: 1,
 	})
 	password: string;
+
+	@Match('password', { message: 'Passwords do not match' })
+	confirmPassword: string;
 }

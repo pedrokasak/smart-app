@@ -15,12 +15,14 @@ import { UsersService } from './users.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { EmailValidationPipe } from './decorators/emailValidatorPipe';
-import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
+import { JwtAuthGuard } from '../authentication/jwt-auth.guard';
+import { Public } from 'src/utils/constants';
 
 @Controller('users')
 export class UsersController {
 	constructor(private readonly usersService: UsersService) {}
 
+	@Public()
 	@Post('create')
 	@UsePipes(new EmailValidationPipe())
 	async create(@Body() createUserDto: CreateUserDto) {

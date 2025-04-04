@@ -7,19 +7,25 @@ import {
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcrypt';
-import { UserModel } from './schema/user.model';
+import { UserModel } from '../users/schema/user.model';
+import { AuthErrorService } from '../utils/errors-handler';
 
 @Injectable()
 export class UsersService {
 	async create(createUserDto: CreateUserDto) {
 		try {
-			const { firstName, lastName, email, password } = createUserDto;
+			const { firstName, lastName, email, password, confirmPassword } =
+				createUserDto;
 
 			const verifyIsEmailExists = await UserModel.findOne({
 				email,
 			});
 			if (verifyIsEmailExists)
 				throw new BadRequestException(`Email ${email} already exists`);
+
+			if (password !== confirmPassword) {
+				throw AuthErrorService.handleInvalidConfirmPassword();
+			}
 
 			const saltRounds = 10;
 			const hashedPassword = await bcrypt.hash(password, saltRounds);
