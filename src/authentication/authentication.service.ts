@@ -5,7 +5,7 @@ import { AuthenticationEntity } from './entities/authentication-entity';
 import { UserModel } from 'src/users/schema/user.model';
 import * as bcrypt from 'bcrypt';
 import { expireKeepAliveConected } from 'src/env';
-import { AuthErrorService } from 'src/utils/erros-handler';
+import { AuthErrorService } from 'src/utils/errors-handler';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 
 @Injectable()
