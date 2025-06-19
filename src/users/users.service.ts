@@ -9,9 +9,11 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcrypt';
 import { UserModel } from '../users/schema/user.model';
 import { AuthErrorService } from '../utils/errors-handler';
+import { JwtService } from '@nestjs/jwt';
 
 @Injectable()
 export class UsersService {
+	constructor(private readonly jwtService: JwtService) {}
 	async create(createUserDto: CreateUserDto) {
 		try {
 			const { firstName, lastName, email, password, confirmPassword } =
@@ -39,7 +41,21 @@ export class UsersService {
 
 			await newUser.save();
 
-			return { message: 'User created successfully', user: newUser };
+			// Gera o token JWT
+			const payload = { sub: newUser._id, email: newUser.email };
+			const accessToken = this.jwtService.sign(payload);
+
+			return {
+				message: 'User created successfully',
+				user: {
+					_id: newUser._id,
+					firstName: newUser.firstName,
+					lastName: newUser.lastName,
+					email: newUser.email,
+					// Retorna o token JWT
+				},
+				accessToken,
+			};
 		} catch (error) {
 			throw new HttpException(
 				{
