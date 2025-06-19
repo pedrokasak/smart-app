@@ -15,14 +15,6 @@ export class UpdateProfileDto extends PartialType(CreateProfileDto) {
 
 	@ApiProperty()
 	@IsString()
-	@IsNotEmpty({
-		message: 'The Address is not empty',
-	})
-	@ApiProperty()
-	address: string;
-
-	@ApiProperty()
-	@IsString()
 	@IsNotEmpty({ message: 'CPF is required' })
 	cpf: string;
 }
