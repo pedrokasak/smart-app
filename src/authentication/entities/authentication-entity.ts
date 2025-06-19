@@ -1,5 +1,19 @@
 import { ApiProperty } from '@nestjs/swagger';
 
+export class UserResponse {
+	@ApiProperty()
+	id: string;
+
+	@ApiProperty()
+	email: string;
+
+	@ApiProperty()
+	firstName?: string;
+
+	@ApiProperty()
+	lastName?: string;
+}
+
 export class AuthenticationEntity {
 	@ApiProperty({
 		description: 'Access token para autenticação de requisições',
@@ -18,4 +32,16 @@ export class AuthenticationEntity {
 		example: '15m',
 	})
 	expiresIn: string;
+
+	@ApiProperty({
+		description: 'Dados do usuário',
+		type: String,
+		example: {
+			id: '123',
+			email: 'teste@teste.com',
+			firstName: 'John',
+			lastName: 'Doe',
+		},
+	})
+	user: UserResponse;
 }
