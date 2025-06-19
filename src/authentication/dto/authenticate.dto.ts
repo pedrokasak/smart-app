@@ -37,13 +37,3 @@ export class AuthSignoutDto {
 	@IsString()
 	token: string;
 }
-
-export class RefreshTokenDto {
-	@ApiProperty({
-		description: 'Refresh token to get new access token',
-		example: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...',
-	})
-	@IsNotEmpty({ message: 'The refresh token is not empty' })
-	@IsString()
-	refreshToken: string;
-}

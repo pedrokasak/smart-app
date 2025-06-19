@@ -12,12 +12,4 @@ export class AuthErrorService {
 	static handleInvalidToken(): never {
 		throw new UnauthorizedException('Invalid token');
 	}
-
-	static handleUserAlreadyExists(email: string): never {
-		throw new NotFoundException(`User already exists for email: ${email}`);
-	}
-
-	static handleInvalidConfirmPassword(): never {
-		throw new UnauthorizedException('Invalid confirm password');
-	}
 }

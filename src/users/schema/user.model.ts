@@ -12,11 +12,11 @@ export interface User extends Document {
 }
 
 const userSchema = new Schema<User>({
+	profile: { type: Schema.Types.ObjectId, ref: 'Profile', required: false },
 	firstName: String,
 	lastName: String,
 	email: { type: String, unique: true },
 	password: String,
-	profile: { type: Schema.Types.ObjectId, ref: 'Profile', required: false },
 	refreshToken: { type: String, default: null },
 	createdAt: { type: Date, default: Date.now },
 	updatedAt: { type: Date, default: Date.now },

@@ -6,9 +6,9 @@ import {
 import { Reflector } from '@nestjs/core';
 import { JwtService } from '@nestjs/jwt';
 import { AuthGuard } from '@nestjs/passport';
-import { jwtSecret } from '../env';
-import { TokenBlacklistService } from '../token-blacklist/token-blacklist.service';
-import { IS_PUBLIC_KEY } from '../utils/constants';
+import { jwtSecret } from 'src/env';
+import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
+import { IS_PUBLIC_KEY } from 'src/utils/constants';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {

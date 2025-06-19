@@ -7,27 +7,19 @@ import {
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import * as bcrypt from 'bcrypt';
-import { UserModel } from '../users/schema/user.model';
-import { AuthErrorService } from '../utils/errors-handler';
-import { JwtService } from '@nestjs/jwt';
+import { UserModel } from './schema/user.model';
 
 @Injectable()
 export class UsersService {
-	constructor(private readonly jwtService: JwtService) {}
 	async create(createUserDto: CreateUserDto) {
 		try {
-			const { firstName, lastName, email, password, confirmPassword } =
-				createUserDto;
+			const { firstName, lastName, email, password } = createUserDto;
 
 			const verifyIsEmailExists = await UserModel.findOne({
 				email,
 			});
 			if (verifyIsEmailExists)
 				throw new BadRequestException(`Email ${email} already exists`);
-
-			if (password !== confirmPassword) {
-				throw AuthErrorService.handleInvalidConfirmPassword();
-			}
 
 			const saltRounds = 10;
 			const hashedPassword = await bcrypt.hash(password, saltRounds);
@@ -41,21 +33,7 @@ export class UsersService {
 
 			await newUser.save();
 
-			// Gera o token JWT
-			const payload = { sub: newUser._id, email: newUser.email };
-			const accessToken = this.jwtService.sign(payload);
-
-			return {
-				message: 'User created successfully',
-				user: {
-					_id: newUser._id,
-					firstName: newUser.firstName,
-					lastName: newUser.lastName,
-					email: newUser.email,
-					// Retorna o token JWT
-				},
-				accessToken,
-			};
+			return { message: 'User created successfully', user: newUser };
 		} catch (error) {
 			throw new HttpException(
 				{
