@@ -12,14 +12,6 @@ export class CreateProfileDto {
 	@IsString()
 	permissionId?: string;
 
-	@ApiProperty()
-	@IsString()
-	@IsNotEmpty({
-		message: 'The Address is not empty',
-	})
-	@ApiProperty()
-	address: string;
-
 	@IsString()
 	@IsNotEmpty({ message: 'CPF is required' })
 	cpf: string;

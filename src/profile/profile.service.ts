@@ -6,6 +6,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Profile, ProfileModel } from './schema/profile.model';
 import { Permission } from 'src/permissions/schema/permissions.model';
+import { ProfileErrorService } from 'src/utils/errors-handler';
 
 @Injectable()
 export class ProfileService {
@@ -16,7 +17,7 @@ export class ProfileService {
 		private readonly permissionModel: Model<Permission>
 	) {}
 	async create(createProfileDto: CreateProfileDto) {
-		const { address, cpf, userId, permissions } = createProfileDto;
+		const { cpf, userId, permissions } = createProfileDto;
 
 		const findUser = await this.userModel
 			.find({
@@ -37,14 +38,19 @@ export class ProfileService {
 				throw new NotFoundException('Some permissions were not found');
 			}
 		}
+		if (cpf) {
+			const findCpf = await this.profileModel.findOne({ cpf });
+			if (findCpf) {
+				ProfileErrorService.handleCpfAlreadyExists(cpf);
+			}
+		}
 		// if (!findPermission)
 		// 	throw new NotFoundException(`User with ID ${findPermission} not found`);
 
 		const profile = new ProfileModel({
-			address,
 			cpf,
 			user: userId,
-			permissions, // Passa os IDs das permissões para o perfil
+			permissions,
 		});
 
 		await profile.save();
@@ -53,15 +59,18 @@ export class ProfileService {
 	}
 
 	findAll() {
-		return this.profileModel.find();
+		return this.profileModel.find().populate('addresses');
 	}
 
 	findOne(id: string) {
-		return this.profileModel.findById(id);
+		return this.profileModel.findById(id).populate('addresses');
 	}
 
 	update(id: number, updateProfileDto: UpdateProfileDto) {
-		return this.profileModel.findByIdAndUpdate(id, updateProfileDto, {
+		// Remove o campo address se vier no DTO por engano
+		const dto = { ...updateProfileDto };
+		delete (dto as any).address;
+		return this.profileModel.findByIdAndUpdate(id, dto, {
 			new: true,
 		});
 	}

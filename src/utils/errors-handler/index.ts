@@ -1,4 +1,8 @@
-import { NotFoundException, UnauthorizedException } from '@nestjs/common';
+import {
+	BadRequestException,
+	NotFoundException,
+	UnauthorizedException,
+} from '@nestjs/common';
 
 export class AuthErrorService {
 	static handleUserNotFound(email: string): never {
@@ -19,5 +23,11 @@ export class AuthErrorService {
 
 	static handleInvalidConfirmPassword(): never {
 		throw new UnauthorizedException('Invalid confirm password');
+	}
+}
+
+export class ProfileErrorService {
+	static handleCpfAlreadyExists(cpf: string): never {
+		throw new BadRequestException(`CPF already exists: ${cpf}`);
 	}
 }

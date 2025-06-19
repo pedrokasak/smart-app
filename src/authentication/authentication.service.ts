@@ -53,6 +53,12 @@ export class AuthenticationService {
 			accessToken: accessToken,
 			refreshToken,
 			expiresIn: expireKeepAliveConected,
+			user: {
+				id: verifyUser.id,
+				email: verifyUser.email,
+				firstName: verifyUser.firstName,
+				lastName: verifyUser.lastName,
+			},
 		};
 	}
 
