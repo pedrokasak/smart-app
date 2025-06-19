@@ -1,27 +1,19 @@
+import { Controller, Post, Body, UnauthorizedException } from '@nestjs/common';
 import {
-	Controller,
-	Post,
-	Body,
-	UseGuards,
-	UnauthorizedException,
-} from '@nestjs/common';
-import { AuthenticateDto, AuthSignoutDto } from './dto/authenticate.dto';
+	AuthenticateDto,
+	AuthSignoutDto,
+	RefreshTokenDto,
+} from './dto/authenticate.dto';
 import { AuthenticationService } from './authentication.service';
 import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { AuthenticationEntity } from './entities/authentication-entity';
 
 import { Public } from 'src/utils/constants';
-import { JwtAuthGuard } from './jwt-auth.guard';
-import { UserModel } from 'src/users/schema/user.model';
-import { JwtService } from '@nestjs/jwt';
 
 @Controller('auth')
 @ApiTags('auth')
 export class AuthenticationController {
-	constructor(
-		private readonly authService: AuthenticationService,
-		private readonly jwtService: JwtService
-	) {}
+	constructor(private readonly authService: AuthenticationService) {}
 
 	@Public()
 	@Post('signin')
@@ -30,38 +22,40 @@ export class AuthenticationController {
 		return this.authService.signin(authSignIn);
 	}
 
+	@Public()
 	@Post('signout')
-	@UseGuards(JwtAuthGuard)
 	@ApiOkResponse({ type: AuthenticationEntity })
 	signout(@Body() authSignOut: AuthSignoutDto) {
 		return this.authService.signout(authSignOut.token);
 	}
 
+	@Public()
 	@Post('refresh-token')
-	@UseGuards(JwtAuthGuard)
-	@ApiOkResponse({ type: AuthenticationEntity })
-	async refreshToken(@Body() body: { refreshToken: string }) {
+	@ApiOkResponse({
+		description: 'Renew access token using refresh token',
+		schema: {
+			type: 'object',
+			properties: {
+				accessToken: {
+					type: 'string',
+					description: 'New access token',
+				},
+				expiresIn: {
+					type: 'string',
+					description: 'Token expiration time',
+				},
+			},
+		},
+	})
+	async refreshToken(@Body() body: RefreshTokenDto) {
 		const { refreshToken } = body;
 		if (!refreshToken) {
 			throw new UnauthorizedException('Refresh Token is required');
 		}
 
 		try {
-			// Verificar se o token é válido
-			const payload = this.jwtService.verify(refreshToken);
-			const user = await UserModel.findById(payload.userId);
-
-			if (!user || user.refreshToken !== refreshToken) {
-				throw new UnauthorizedException('Invalid Refresh Token');
-			}
-
-			// Criar um novo access token
-			const newAccessToken = this.jwtService.sign(
-				{ userId: user.id },
-				{ expiresIn: '15m' }
-			);
-
-			return { accessToken: newAccessToken };
+			const result = await this.authService.refreshAccessToken(refreshToken);
+			return result;
 		} catch (error) {
 			throw new UnauthorizedException('Invalid or Expired Refresh Token');
 		}

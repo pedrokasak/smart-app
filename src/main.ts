@@ -3,32 +3,16 @@ config();
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
-import { urlDevelopment } from './env';
-// import { Transport, MicroserviceOptions } from '@nestjs/microservices';
+import { urlDevelopment, urlProduction } from './env';
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule);
-	// app.connectMicroservice<MicroserviceOptions>({
-	// 	transport: Transport.KAFKA,
-	// 	options: {
-	// 		client: {
-	// 			brokers: ['localhost:9092'], // Endereço do seu broker Kafka
-	// 		},
-	// 		consumer: {
-	// 			groupId: 'your-group-id',
-	// 		},
-	// 	},
-	// });
 
-	// await app.startAllMicroservices();
 	app.enableCors({
-		origin: [
-			'https://smartfolioai.netlify.app',
-			'http://localhost:8080',
-			urlDevelopment,
-		], // Permite o frontend acessar
+		origin: [urlProduction, urlDevelopment],
 		methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-		credentials: true, // Permite cookies e headers de autenticação
+		allowedHeaders: 'Content-Type, Authorization',
+		credentials: true,
 	});
 
 	app.useGlobalPipes(new ValidationPipe());
