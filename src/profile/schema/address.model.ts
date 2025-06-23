@@ -1,7 +1,7 @@
-import { Schema, Document, model } from 'mongoose';
+import { Schema, Document, model, Types } from 'mongoose';
 
 export interface Address extends Document {
-	profileId: string;
+	userId: Types.ObjectId;
 	street: string;
 	number?: string;
 	complement?: string;
@@ -9,7 +9,6 @@ export interface Address extends Document {
 	city: string;
 	state: string;
 	zipCode: string;
-	isDefault: boolean;
 	type: AddressType;
 	createdAt?: Date;
 	updatedAt?: Date;
@@ -24,7 +23,7 @@ export enum AddressType {
 }
 
 const addressSchema = new Schema<Address>({
-	profileId: { type: String, required: true, ref: 'Profile' },
+	userId: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 	street: { type: String, required: true },
 	number: { type: String, required: false },
 	complement: { type: String, required: false },
@@ -32,7 +31,6 @@ const addressSchema = new Schema<Address>({
 	city: { type: String, required: true },
 	state: { type: String, required: true },
 	zipCode: { type: String, required: true },
-	isDefault: { type: Boolean, default: false },
 	type: {
 		type: String,
 		enum: Object.values(AddressType),
@@ -42,13 +40,10 @@ const addressSchema = new Schema<Address>({
 	updatedAt: { type: Date, default: Date.now },
 });
 
-// Índices para melhor performance
-addressSchema.index({ profileId: 1 });
-addressSchema.index({ zipCode: 1 });
+addressSchema.index({ userId: 1 });
 addressSchema.index({ city: 1 });
-addressSchema.index({ isDefault: 1 });
+addressSchema.index({ zipCode: 1 });
 
-// Middleware para atualizar updatedAt
 addressSchema.pre('save', function (next) {
 	this.updatedAt = new Date();
 	next();

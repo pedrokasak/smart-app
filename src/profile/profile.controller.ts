@@ -41,9 +41,15 @@ export class ProfileController {
 		return this.profileService.update(+id, updateProfileDto);
 	}
 
-	@Delete(':id')
+	@Delete('remove/:id')
 	@UseGuards(JwtAuthGuard)
 	remove(@Param('id') id: string) {
-		return this.profileService.remove(+id);
+		return this.profileService.remove(id);
+	}
+
+	@Delete('remove/all')
+	@UseGuards(JwtAuthGuard)
+	removeAll() {
+		return this.removeAll();
 	}
 }
