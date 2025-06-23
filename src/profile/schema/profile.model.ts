@@ -1,18 +1,19 @@
-import { Schema, Document, model } from 'mongoose';
+import { Schema, Document, model, Types } from 'mongoose';
 
 export interface Profile extends Document {
-	users: string[];
-	userId: string;
+	user: Types.ObjectId;
 	cpf?: string;
-	permissions: string[];
+	permissions: Types.ObjectId[];
+	address?: Types.ObjectId;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
 
 const profileSchema = new Schema<Profile>({
-	users: [{ type: Schema.Types.ObjectId, ref: 'User' }], // Um perfil pode ter vários usuários
+	user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 	cpf: { type: String, unique: true, required: false },
-	permissions: [{ type: Schema.Types.ObjectId, ref: 'Permission' }], // Várias permissões
+	permissions: [{ type: Schema.Types.ObjectId, ref: 'Permission' }],
+	address: { type: Schema.Types.ObjectId, ref: 'Address' },
 	createdAt: { type: Date, default: Date.now },
 	updatedAt: { type: Date, default: Date.now },
 });

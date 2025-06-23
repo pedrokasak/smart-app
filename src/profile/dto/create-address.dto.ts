@@ -1,8 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsBoolean, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsEnum } from 'class-validator';
 import { AddressType } from '../schema/address.model';
 
 export class CreateAddressDto {
+	@ApiProperty()
+	userId: string;
+
 	@ApiProperty({
 		description: 'Rua/Avenida do endereço',
 		example: 'Rua das Flores',
@@ -55,15 +58,6 @@ export class CreateAddressDto {
 	})
 	@IsString()
 	zipCode: string;
-
-	@ApiProperty({
-		description: 'Se é o endereço principal',
-		example: true,
-		default: false,
-	})
-	@IsOptional()
-	@IsBoolean()
-	isDefault?: boolean;
 
 	@ApiProperty({
 		description: 'Tipo do endereço',

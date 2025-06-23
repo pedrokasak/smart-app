@@ -1,119 +1,91 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { AddressModel, Address, AddressType } from './schema/address.model';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { Address, AddressType } from './schema/address.model';
 import { CreateAddressDto } from './dto/create-address.dto';
 import { UpdateAddressDto } from './dto/update-address.dto';
+import { User } from 'src/users/schema/user.model';
 
 @Injectable()
 export class AddressService {
+	constructor(
+		@InjectModel('Address') private readonly addressModel: Model<Address>,
+		@InjectModel('User') private readonly userModel: Model<User>
+	) {}
+
 	async create(
-		profileId: string,
+		userId: string,
 		createAddressDto: CreateAddressDto
 	): Promise<Address> {
-		const { isDefault, ...addressData } = createAddressDto;
-
-		if (isDefault) {
-			await AddressModel.updateMany(
-				{ profileId, isDefault: true },
-				{ isDefault: false }
-			);
+		const user = await this.userModel.findById(userId);
+		if (!user) {
+			throw new NotFoundException(`User with ID ${userId} not found`);
 		}
 
-		const address = new AddressModel({
-			...addressData,
-			profileId,
-			isDefault: isDefault || false,
-		});
+		// Check if user already has an address
+		const existingAddress = await this.addressModel.findOne({ userId });
+		if (existingAddress) {
+			// Update existing address
+			const updatedAddress = await this.addressModel.findByIdAndUpdate(
+				existingAddress._id,
+				createAddressDto,
+				{ new: true }
+			);
+			return updatedAddress;
+		}
 
-		return await address.save();
+		// Create new address and link it to user
+		const newAddress = new this.addressModel({
+			...createAddressDto,
+			userId: user._id.toString(),
+		});
+		await newAddress.save();
+
+		return newAddress;
 	}
 
 	async findAll(): Promise<Address[]> {
-		return await AddressModel.find().sort({
-			isDefault: -1,
+		return await this.addressModel.find().sort({
 			createdAt: -1,
 		});
 	}
 
-	async findAllByProfileId(profileId: string): Promise<Address[]> {
-		return await AddressModel.find({ profileId }).sort({
-			isDefault: -1,
-			createdAt: -1,
-		});
-	}
-
-	async findOne(id: string): Promise<Address> {
-		const address = await AddressModel.findById(id);
+	async findOne(userId: string): Promise<Address> {
+		const address = await this.addressModel.findOne({ userId });
 		if (!address) {
-			throw new NotFoundException(`Endereço com ID ${id} não encontrado`);
+			throw new NotFoundException(
+				`Endereço para usuário com ID ${userId} não encontrado`
+			);
 		}
 		return address;
 	}
 
-	async findDefaultByProfile(profileId: string): Promise<Address | null> {
-		return await AddressModel.findOne({ profileId, isDefault: true });
-	}
-
-	async findByType(profileId: string, type: AddressType): Promise<Address[]> {
-		return await AddressModel.find({ profileId, type }).sort({
-			isDefault: -1,
+	async findByType(userId: string, type: AddressType): Promise<Address[]> {
+		return await this.addressModel.find({ userId, type }).sort({
 			createdAt: -1,
 		});
 	}
 
 	async update(
-		id: string,
+		userId: string,
 		updateAddressDto: UpdateAddressDto
 	): Promise<Address> {
-		const address = await this.findOne(id);
-		const { isDefault, ...updateData } = updateAddressDto;
-
-		// Se este endereço será o padrão, remover o padrão dos outros
-		if (isDefault) {
-			await AddressModel.updateMany(
-				{ profileId: address.profileId, isDefault: true, _id: { $ne: id } },
-				{ isDefault: false }
-			);
-		}
+		const address = await this.findOne(userId);
+		const { ...updateData } = updateAddressDto;
 
 		Object.assign(address, updateData);
 		return await address.save();
 	}
 
-	async setAsDefault(id: string): Promise<Address> {
-		const address = await this.findOne(id);
-
-		// Remover o padrão dos outros endereços do mesmo perfil
-		await AddressModel.updateMany(
-			{ profileId: address.profileId, isDefault: true, _id: { $ne: id } },
-			{ isDefault: false }
-		);
-
-		// Definir este como padrão
-		address.isDefault = true;
-		return await address.save();
-	}
-
-	async remove(id: string): Promise<void> {
-		const address = await this.findOne(id);
-
-		// Se for o endereço padrão, definir outro como padrão
-		if (address.isDefault) {
-			const otherAddress = await AddressModel.findOne({
-				profileId: address.profileId,
-				_id: { $ne: id },
-			});
-
-			if (otherAddress) {
-				otherAddress.isDefault = true;
-				await otherAddress.save();
-			}
+	async remove(userId: string): Promise<void> {
+		const address = await this.addressModel.findOne({ userId });
+		if (!address) {
+			throw new NotFoundException(
+				`Address for user with ID ${userId} not found`
+			);
 		}
 
-		await AddressModel.findByIdAndDelete(id);
-	}
-
-	async removeAllByProfile(profileId: string): Promise<void> {
-		await AddressModel.deleteMany({ profileId });
+		await this.addressModel.findByIdAndDelete(address._id);
 	}
 
 	// Método para validar CEP (pode ser integrado com API externa)

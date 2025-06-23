@@ -22,22 +22,8 @@ import { AddressType } from './schema/address.model';
 export class AddressController {
 	constructor(private readonly addressService: AddressService) {}
 
-	@Post(':profileId')
-	@ApiOperation({ summary: 'Criar um novo endereço para um perfil' })
-	@ApiResponse({
-		status: 201,
-		description: 'Endereço criado com sucesso',
-		type: AddressResponseDto,
-	})
-	create(
-		@Param('profileId') profileId: string,
-		@Body() createAddressDto: CreateAddressDto
-	) {
-		return this.addressService.create(profileId, createAddressDto);
-	}
-
-	@Get('profile/')
-	@ApiOperation({ summary: 'Buscar todos os endereços de um perfil' })
+	@Get()
+	@ApiOperation({ summary: 'Buscar todos os endereços' })
 	@ApiResponse({
 		status: 200,
 		description: 'Lista de endereços',
@@ -47,29 +33,33 @@ export class AddressController {
 		return this.addressService.findAll();
 	}
 
-	@Get('profile/:profileId')
-	@ApiOperation({ summary: 'Buscar todos os endereços de um perfil' })
+	@Get('user/:userId')
+	@ApiOperation({ summary: 'Buscar o endereço de um usuário específico' })
 	@ApiResponse({
 		status: 200,
-		description: 'Lista de endereços',
-		type: [AddressResponseDto],
-	})
-	findAllByProfile(@Param('profileId') profileId: string) {
-		return this.addressService.findAllByProfileId(profileId);
-	}
-
-	@Get('profile/:profileId/default')
-	@ApiOperation({ summary: 'Buscar o endereço padrão de um perfil' })
-	@ApiResponse({
-		status: 200,
-		description: 'Endereço padrão',
+		description: 'Endereço do usuário',
 		type: AddressResponseDto,
 	})
-	findDefaultByProfile(@Param('profileId') profileId: string) {
-		return this.addressService.findDefaultByProfile(profileId);
+	findByUser(@Param('userId') userId: string) {
+		console.log('Received userId:', userId);
+		return this.addressService.findOne(userId);
 	}
 
-	@Get('profile/:profileId/type/:type')
+	@Post('user/:userId')
+	@ApiOperation({ summary: 'Criar ou atualizar o endereço de um usuário' })
+	@ApiResponse({
+		status: 201,
+		description: 'Endereço criado/atualizado com sucesso',
+		type: AddressResponseDto,
+	})
+	create(
+		@Param('userId') userId: string,
+		@Body() createAddressDto: CreateAddressDto
+	) {
+		return this.addressService.create(userId, createAddressDto);
+	}
+
+	@Get('user/:userId/type/:type')
 	@ApiOperation({ summary: 'Buscar endereços por tipo' })
 	@ApiResponse({
 		status: 200,
@@ -77,56 +67,30 @@ export class AddressController {
 		type: [AddressResponseDto],
 	})
 	findByType(
-		@Param('profileId') profileId: string,
+		@Param('userId') userId: string,
 		@Param('type') type: AddressType
 	) {
-		return this.addressService.findByType(profileId, type);
+		return this.addressService.findByType(userId, type);
 	}
 
-	@Get(':id')
-	@ApiOperation({ summary: 'Buscar um endereço específico' })
-	@ApiResponse({
-		status: 200,
-		description: 'Endereço encontrado',
-		type: AddressResponseDto,
-	})
-	findOne(@Param('id') id: string) {
-		return this.addressService.findOne(id);
-	}
-
-	@Patch(':id')
-	@ApiOperation({ summary: 'Atualizar um endereço' })
+	@Patch('user/:userId')
+	@ApiOperation({ summary: 'Atualizar o endereço de um usuário' })
 	@ApiResponse({
 		status: 200,
 		description: 'Endereço atualizado',
 		type: AddressResponseDto,
 	})
-	update(@Param('id') id: string, @Body() updateAddressDto: UpdateAddressDto) {
-		return this.addressService.update(id, updateAddressDto);
+	update(
+		@Param('userId') userId: string,
+		@Body() updateAddressDto: UpdateAddressDto
+	) {
+		return this.addressService.update(userId, updateAddressDto);
 	}
 
-	@Patch(':id/default')
-	@ApiOperation({ summary: 'Definir um endereço como padrão' })
-	@ApiResponse({
-		status: 200,
-		description: 'Endereço definido como padrão',
-		type: AddressResponseDto,
-	})
-	setAsDefault(@Param('id') id: string) {
-		return this.addressService.setAsDefault(id);
-	}
-
-	@Delete(':id')
-	@ApiOperation({ summary: 'Remover um endereço' })
+	@Delete('user/:userId')
+	@ApiOperation({ summary: 'Remover o endereço de um usuário' })
 	@ApiResponse({ status: 200, description: 'Endereço removido com sucesso' })
-	remove(@Param('id') id: string) {
-		return this.addressService.remove(id);
-	}
-
-	@Delete('profile/:profileId/all')
-	@ApiOperation({ summary: 'Remover todos os endereços de um perfil' })
-	@ApiResponse({ status: 200, description: 'Todos os endereços removidos' })
-	removeAllByProfile(@Param('profileId') profileId: string) {
-		return this.addressService.removeAllByProfile(profileId);
+	remove(@Param('userId') userId: string) {
+		return this.addressService.remove(userId);
 	}
 }
