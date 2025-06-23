@@ -7,12 +7,14 @@ import { Model } from 'mongoose';
 import { Profile, ProfileModel } from './schema/profile.model';
 import { Permission } from 'src/permissions/schema/permissions.model';
 import { ProfileErrorService } from 'src/utils/errors-handler';
+import { Address, AddressModel } from './schema/address.model';
 
 @Injectable()
 export class ProfileService {
 	constructor(
 		@InjectModel('Profile') private readonly profileModel: Model<Profile>,
 		@InjectModel('User') private readonly userModel: Model<User>,
+		@InjectModel('Address') private readonly addressModel: Model<Address>,
 		@InjectModel('Permission')
 		private readonly permissionModel: Model<Permission>
 	) {}
@@ -44,8 +46,6 @@ export class ProfileService {
 				ProfileErrorService.handleCpfAlreadyExists(cpf);
 			}
 		}
-		// if (!findPermission)
-		// 	throw new NotFoundException(`User with ID ${findPermission} not found`);
 
 		const profile = new ProfileModel({
 			cpf,
@@ -58,16 +58,24 @@ export class ProfileService {
 		return { message: 'Profile created successfully', data: profile };
 	}
 
-	findAll() {
-		return this.profileModel.find().populate('addresses');
+	async findAll() {
+		return await this.profileModel.find().populate('address');
 	}
 
-	findOne(id: string) {
-		return this.profileModel.findById(id).populate('addresses');
+	async findOne(userId: string) {
+		const profile = await this.profileModel
+			.findOne({ user: userId })
+			.populate('address');
+		if (!profile) {
+			throw new NotFoundException(`Profile for user ${userId} not found`);
+		}
+
+		return {
+			profile,
+		};
 	}
 
 	update(id: number, updateProfileDto: UpdateProfileDto) {
-		// Remove o campo address se vier no DTO por engano
 		const dto = { ...updateProfileDto };
 		delete (dto as any).address;
 		return this.profileModel.findByIdAndUpdate(id, dto, {
@@ -75,7 +83,15 @@ export class ProfileService {
 		});
 	}
 
-	remove(id: number) {
-		return this.profileModel.findByIdAndDelete(id);
+	async remove(profileId: string) {
+		const deleted = await this.profileModel.findByIdAndDelete(profileId);
+		if (!deleted) {
+			throw new NotFoundException(`Profile with ID ${profileId} not found`);
+		}
+		return { message: `Profile deleted successfully`, id: profileId };
+	}
+
+	async removeAll(): Promise<void> {
+		await AddressModel.deleteMany();
 	}
 }

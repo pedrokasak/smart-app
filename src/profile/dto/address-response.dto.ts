@@ -6,7 +6,7 @@ export class AddressResponseDto {
 	id: string;
 
 	@ApiProperty()
-	profileId: string;
+	userId: string;
 
 	@ApiProperty()
 	street: string;
@@ -28,9 +28,6 @@ export class AddressResponseDto {
 
 	@ApiProperty()
 	zipCode: string;
-
-	@ApiProperty()
-	isDefault: boolean;
 
 	@ApiProperty({ enum: AddressType })
 	type: AddressType;
