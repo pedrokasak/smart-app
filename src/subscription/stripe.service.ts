@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import Stripe from 'stripe';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Subscription, UserSubscription } from './schema';
+import { Subscription } from './schema';
+import { User } from 'src/users/schema/user.model';
 
 @Injectable()
 export class StripeService {
@@ -11,8 +12,7 @@ export class StripeService {
 
 	constructor(
 		@InjectModel('Subscription') private subscriptionModel: Model<Subscription>,
-		@InjectModel('UserSubscription')
-		private userSubscriptionModel: Model<UserSubscription>
+		@InjectModel('User') private userModel: Model<User>
 	) {
 		this.stripe = new Stripe(process.env.STRIPE_PRIVATE_API_KEY, {
 			apiVersion: '2025-06-30.basil',
@@ -174,20 +174,43 @@ export class StripeService {
 		}
 	}
 
-	// Criar sessão de checkout
 	async createCheckoutSession(
-		priceId: string,
-		customerId: string,
+		userId: string,
+		subscriptionId: string,
 		successUrl: string,
 		cancelUrl: string
 	): Promise<Stripe.Checkout.Session> {
 		try {
+			// Busca o usuário
+			const user = await this.userModel.findById(userId);
+			if (!user) {
+				throw new NotFoundException('Usuário não encontrado');
+			}
+
+			// Busca o plano
+			const plan = await this.subscriptionModel.findById(subscriptionId);
+			if (!plan) {
+				throw new NotFoundException('Plano não encontrado');
+			}
+
+			// Verifica se o user já tem customerId
+			let stripeCustomerId = user.stripeCustomerId;
+
+			if (!stripeCustomerId) {
+				const customer = await this.createCustomer(user.email, user.firstName);
+				stripeCustomerId = customer.id;
+
+				// Salva no banco
+				user.stripeCustomerId = stripeCustomerId;
+				await user.save();
+			}
+
 			const session = await this.stripe.checkout.sessions.create({
-				customer: customerId,
+				customer: stripeCustomerId,
 				payment_method_types: ['card'],
 				line_items: [
 					{
-						price: priceId,
+						price: plan.stripePriceId,
 						quantity: 1,
 					},
 				],
@@ -195,7 +218,6 @@ export class StripeService {
 				success_url: successUrl,
 				cancel_url: cancelUrl,
 			});
-
 			this.logger.log(`Sessão de checkout criada: ${session.id}`);
 			return session;
 		} catch (error) {
