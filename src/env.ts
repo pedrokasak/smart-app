@@ -7,6 +7,8 @@ const envSchema = z.object({
 	EXPIRES_IN_REFRESH_TOKEN: z.string(),
 	URL_PRODUCTION: z.string(),
 	URL_DEVELOPMENT: z.string(),
+	TWELVE_DATA_API_KEY: z.string(),
+	BRAPI_DATA_API_KEY: z.string(),
 });
 
 // Parse the environment variables
@@ -22,3 +24,5 @@ export const expireKeepAliveConectedRefreshToken: string =
 	env.data.EXPIRES_IN_REFRESH_TOKEN;
 export const urlProduction: string = env.data.URL_PRODUCTION;
 export const urlDevelopment: string = env.data.URL_DEVELOPMENT;
+export const twelveDataApiKey: string = env.data.TWELVE_DATA_API_KEY;
+export const brapiApiKey: string = env.data.BRAPI_DATA_API_KEY;

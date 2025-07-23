@@ -11,6 +11,7 @@ import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './authentication/jwt-auth.guard';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { SubscriptionModule } from './subscription/subscription.module';
+import { StockModule } from './stocks/stocks.module';
 
 @Module({
 	imports: [
@@ -21,6 +22,7 @@ import { SubscriptionModule } from './subscription/subscription.module';
 		MongooseModule.forRoot(process.env.DATABASE_URL),
 		SchedulerModule,
 		SubscriptionModule,
+		StockModule,
 	],
 	controllers: [AppController],
 	providers: [

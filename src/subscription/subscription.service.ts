@@ -12,6 +12,8 @@ import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { Subscription, UserSubscription } from './schema';
 import { StripeService } from './stripe.service';
 import { WebhooksService } from './webhooks.service';
+import { UpdateFeaturesDto } from './dto/update-features.dto';
+import { User } from 'src/users/schema/user.model';
 
 @Injectable()
 export class SubscriptionService {
@@ -21,6 +23,7 @@ export class SubscriptionService {
 		@InjectModel('Subscription') private subscriptionModel: Model<Subscription>,
 		@InjectModel('UserSubscription')
 		private userSubscriptionModel: Model<UserSubscription>,
+		@InjectModel('User') private userModel: Model<User>,
 		private stripeService: StripeService,
 		private webhooksService: WebhooksService
 	) {}
@@ -116,6 +119,22 @@ export class SubscriptionService {
 			this.logger.error('Erro ao atualizar plano:', error);
 			throw error;
 		}
+	}
+
+	async updateSubscriptionFeatures(
+		id: string,
+		updateFeaturesDto: UpdateFeaturesDto
+	) {
+		const subscription = await this.subscriptionModel.findById(id);
+		if (!subscription) {
+			throw new NotFoundException('Plano não encontrado');
+		}
+
+		subscription.features = updateFeaturesDto.features;
+		await subscription.save();
+
+		this.logger.log(`Features atualizadas para o plano: ${subscription.name}`);
+		return subscription;
 	}
 
 	// Remover plano
@@ -275,29 +294,20 @@ export class SubscriptionService {
 		successUrl: string,
 		cancelUrl: string
 	) {
-		try {
-			const plan = await this.subscriptionModel.findById(subscriptionId);
-			if (!plan) {
-				throw new NotFoundException('Plano não encontrado');
-			}
+		// lógica de negócio
+		const user = await this.userModel.findById(userId);
+		if (!user) throw new NotFoundException('Usuário não encontrado');
 
-			// Aqui você precisaria buscar o customer ID do usuário
-			// const userSubscription = await this.findUserSubscription(userId);
-			// const customerId = userSubscription.stripeCustomerId;
+		const plan = await this.subscriptionModel.findById(subscriptionId);
+		if (!plan) throw new NotFoundException('Plano não encontrado');
 
-			// Por enquanto, vamos criar uma sessão sem customer
-			const session = await this.stripeService.createCheckoutSession(
-				plan.stripePriceId,
-				null, // customerId
-				successUrl,
-				cancelUrl
-			);
-
-			return { sessionId: session.id, url: session.url };
-		} catch (error) {
-			this.logger.error('Erro ao criar sessão de checkout:', error);
-			throw error;
-		}
+		// chama a integração do Stripe para criar sessão
+		return this.stripeService.createCheckoutSession(
+			user._id.toString(),
+			plan._id.toString(),
+			successUrl,
+			cancelUrl
+		);
 	}
 
 	// Criar sessão do portal do cliente
