@@ -7,14 +7,13 @@ import { Model } from 'mongoose';
 import { Profile, ProfileModel } from './schema/profile.model';
 import { Permission } from 'src/permissions/schema/permissions.model';
 import { ProfileErrorService } from 'src/utils/errors-handler';
-import { Address, AddressModel } from './schema/address.model';
+import Cpf from 'src/profile/entity/cpf';
 
 @Injectable()
 export class ProfileService {
 	constructor(
 		@InjectModel('Profile') private readonly profileModel: Model<Profile>,
 		@InjectModel('User') private readonly userModel: Model<User>,
-		@InjectModel('Address') private readonly addressModel: Model<Address>,
 		@InjectModel('Permission')
 		private readonly permissionModel: Model<Permission>
 	) {}
@@ -42,6 +41,7 @@ export class ProfileService {
 		}
 		if (cpf) {
 			const findCpf = await this.profileModel.findOne({ cpf });
+			new Cpf(cpf);
 			if (findCpf) {
 				ProfileErrorService.handleCpfAlreadyExists(cpf);
 			}
@@ -59,13 +59,11 @@ export class ProfileService {
 	}
 
 	async findAll() {
-		return await this.profileModel.find().populate('address');
+		return await this.profileModel.find();
 	}
 
 	async findOne(userId: string) {
-		const profile = await this.profileModel
-			.findOne({ user: userId })
-			.populate('address');
+		const profile = await this.profileModel.findOne({ user: userId });
 		if (!profile) {
 			throw new NotFoundException(`Profile for user ${userId} not found`);
 		}
@@ -75,8 +73,20 @@ export class ProfileService {
 		};
 	}
 
-	update(id: number, updateProfileDto: UpdateProfileDto) {
+	async update(id: string, updateProfileDto: UpdateProfileDto) {
 		const dto = { ...updateProfileDto };
+
+		try {
+			new Cpf(dto.cpf);
+		} catch (error) {
+			ProfileErrorService.handleInvalidCpf(dto.cpf);
+		}
+
+		const profile = await this.profileModel.findById(id);
+		if (!profile) {
+			throw new NotFoundException(`Profile with ID ${id} not found`);
+		}
+
 		delete (dto as any).address;
 		return this.profileModel.findByIdAndUpdate(id, dto, {
 			new: true,
@@ -92,6 +102,6 @@ export class ProfileService {
 	}
 
 	async removeAll(): Promise<void> {
-		await AddressModel.deleteMany();
+		await this.profileModel.deleteMany();
 	}
 }

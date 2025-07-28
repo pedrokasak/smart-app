@@ -46,7 +46,6 @@ const userSubscriptionSchema = new Schema<UserSubscription>({
 });
 
 userSubscriptionSchema.index({ user: 1 });
-userSubscriptionSchema.index({ stripeSubscriptionId: 1 });
 userSubscriptionSchema.index({ status: 1 });
 userSubscriptionSchema.index({ currentPeriodEnd: 1 });
 

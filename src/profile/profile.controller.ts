@@ -38,7 +38,7 @@ export class ProfileController {
 	@Patch(':id')
 	@UseGuards(JwtAuthGuard)
 	update(@Param('id') id: string, @Body() updateProfileDto: UpdateProfileDto) {
-		return this.profileService.update(+id, updateProfileDto);
+		return this.profileService.update(id, updateProfileDto);
 	}
 
 	@Delete('remove/:id')
@@ -50,6 +50,6 @@ export class ProfileController {
 	@Delete('remove/all')
 	@UseGuards(JwtAuthGuard)
 	removeAll() {
-		return this.removeAll();
+		return this.profileService.removeAll();
 	}
 }
