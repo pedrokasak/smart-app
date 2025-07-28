@@ -1,9 +1,11 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsString, IsOptional, IsEnum } from 'class-validator';
+import { IsString, IsOptional, IsEnum, IsNotEmpty } from 'class-validator';
 import { AddressType } from '../schema/address.model';
 
 export class CreateAddressDto {
 	@ApiProperty()
+	@IsString()
+	@IsNotEmpty({ message: 'O ID do usuário é obrigatório' })
 	userId: string;
 
 	@ApiProperty({
@@ -11,6 +13,7 @@ export class CreateAddressDto {
 		example: 'Rua das Flores',
 	})
 	@IsString()
+	@IsNotEmpty({ message: 'A rua é obrigatória' })
 	street: string;
 
 	@ApiProperty({
@@ -36,6 +39,7 @@ export class CreateAddressDto {
 		example: 'Centro',
 	})
 	@IsString()
+	@IsNotEmpty({ message: 'O bairro é obrigatório' })
 	neighborhood: string;
 
 	@ApiProperty({
@@ -43,6 +47,7 @@ export class CreateAddressDto {
 		example: 'São Paulo',
 	})
 	@IsString()
+	@IsNotEmpty({ message: 'A cidade é obrigatória' })
 	city: string;
 
 	@ApiProperty({
@@ -50,6 +55,7 @@ export class CreateAddressDto {
 		example: 'SP',
 	})
 	@IsString()
+	@IsNotEmpty({ message: 'O estado é obrigatório' })
 	state: string;
 
 	@ApiProperty({
@@ -57,15 +63,15 @@ export class CreateAddressDto {
 		example: '01234-567',
 	})
 	@IsString()
+	@IsNotEmpty({ message: 'O CEP é obrigatório' })
 	zipCode: string;
 
 	@ApiProperty({
 		description: 'Tipo do endereço',
 		enum: AddressType,
-		example: AddressType.HOME,
 		default: AddressType.HOME,
 	})
-	@IsOptional()
 	@IsEnum(AddressType)
+	@IsOptional()
 	type?: AddressType;
 }

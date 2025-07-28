@@ -1,5 +1,6 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { IsArray, IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsCpf } from 'src/utils/decorators';
 
 export class CreateProfileDto {
 	@ApiProperty()
@@ -13,6 +14,7 @@ export class CreateProfileDto {
 	permissionId?: string;
 
 	@IsString()
+	@IsCpf()
 	@IsNotEmpty({ message: 'CPF is required' })
 	cpf: string;
 

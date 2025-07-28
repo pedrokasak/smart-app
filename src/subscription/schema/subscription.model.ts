@@ -38,7 +38,6 @@ const subscriptionSchema = new Schema<Subscription>({
 });
 
 subscriptionSchema.index({ name: 1 });
-subscriptionSchema.index({ stripePriceId: 1 });
 subscriptionSchema.index({ isActive: 1 });
 
 export const SubscriptionModel = model<Subscription>(
