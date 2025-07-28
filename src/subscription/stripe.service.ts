@@ -19,7 +19,6 @@ export class StripeService {
 		});
 	}
 
-	// Criar produto no Stripe
 	async createProduct(
 		name: string,
 		description?: string
@@ -37,7 +36,6 @@ export class StripeService {
 		}
 	}
 
-	// Criar preço no Stripe
 	async createPrice(
 		productId: string,
 		price: number,
@@ -63,7 +61,6 @@ export class StripeService {
 		}
 	}
 
-	// Criar cliente no Stripe
 	async createCustomer(email: string, name?: string): Promise<Stripe.Customer> {
 		try {
 			const customer = await this.stripe.customers.create({
@@ -78,7 +75,6 @@ export class StripeService {
 		}
 	}
 
-	// Criar assinatura no Stripe
 	async createSubscription(
 		customerId: string,
 		priceId: string,
@@ -107,7 +103,6 @@ export class StripeService {
 		}
 	}
 
-	// Cancelar assinatura no Stripe
 	async cancelSubscription(
 		subscriptionId: string,
 		cancelAtPeriodEnd: boolean = true
@@ -127,7 +122,6 @@ export class StripeService {
 		}
 	}
 
-	// Atualizar assinatura no Stripe
 	async updateSubscription(
 		subscriptionId: string,
 		priceId: string,
@@ -158,7 +152,6 @@ export class StripeService {
 		}
 	}
 
-	// Buscar assinatura no Stripe
 	async getSubscription(subscriptionId: string): Promise<Stripe.Subscription> {
 		try {
 			const subscription = await this.stripe.subscriptions.retrieve(
@@ -181,31 +174,30 @@ export class StripeService {
 		cancelUrl: string
 	): Promise<Stripe.Checkout.Session> {
 		try {
-			// Busca o usuário
 			const user = await this.userModel.findById(userId);
 			if (!user) {
 				throw new NotFoundException('Usuário não encontrado');
 			}
 
-			// Busca o plano
 			const plan = await this.subscriptionModel.findById(subscriptionId);
 			if (!plan) {
 				throw new NotFoundException('Plano não encontrado');
 			}
-
-			// Verifica se o user já tem customerId
 			let stripeCustomerId = user.stripeCustomerId;
 
 			if (!stripeCustomerId) {
 				const customer = await this.createCustomer(user.email, user.firstName);
 				stripeCustomerId = customer.id;
 
-				// Salva no banco
 				user.stripeCustomerId = stripeCustomerId;
 				await user.save();
 			}
 
 			const session = await this.stripe.checkout.sessions.create({
+				metadata: {
+					userId,
+					subscriptionId,
+				},
 				customer: stripeCustomerId,
 				payment_method_types: ['card'],
 				line_items: [
