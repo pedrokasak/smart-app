@@ -5,6 +5,7 @@ import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
 import { AuthenticateModule } from './authentication/authentication.module';
 import { ProfileModule } from './profile/profile.module';
+import { AddressModule } from './address/address.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { APP_GUARD } from '@nestjs/core';
@@ -18,6 +19,7 @@ import { StockModule } from './stocks/stocks.module';
 		AuthenticateModule,
 		UsersModule,
 		ProfileModule,
+		AddressModule,
 		PermissionsModule,
 		MongooseModule.forRoot(process.env.DATABASE_URL),
 		SchedulerModule,

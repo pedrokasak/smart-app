@@ -30,4 +30,7 @@ export class ProfileErrorService {
 	static handleCpfAlreadyExists(cpf: string): never {
 		throw new BadRequestException(`CPF already exists: ${cpf}`);
 	}
+	static handleInvalidCpf(cpf: string): never {
+		throw new BadRequestException(`Invalid CPF: ${cpf}`);
+	}
 }
