@@ -71,7 +71,6 @@ export class WebhooksService {
 				return;
 			}
 
-			// Buscar o plano no banco de dados
 			const plan = await this.subscriptionModel.findOne({
 				stripePriceId: subscription.items.data[0].price.id,
 			});
@@ -83,7 +82,6 @@ export class WebhooksService {
 				return;
 			}
 
-			// Criar nova assinatura do usuário
 			const newUserSubscription = new this.userSubscriptionModel({
 				user: subscription.metadata.userId || null, // Assumindo que userId está nos metadados
 				subscription: plan._id,
@@ -263,16 +261,12 @@ export class WebhooksService {
 			this.logger.log(
 				`Período de teste vai terminar para assinatura: ${subscription.id}`
 			);
-
-			// Aqui você pode implementar lógica para notificar o usuário
-			// sobre o fim do período de teste
 		} catch (error) {
 			this.logger.error('Erro ao processar fim do período de teste:', error);
 			throw error;
 		}
 	}
 
-	// Verificar assinatura expirada
 	async checkExpiredSubscriptions(): Promise<void> {
 		try {
 			const expiredSubscriptions = await this.userSubscriptionModel.find({

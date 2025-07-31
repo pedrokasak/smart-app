@@ -98,6 +98,15 @@ export class SubscriptionService {
 		}
 	}
 
+	async findCurrentSubscriptionByUser(userId: string) {
+		return this.userSubscriptionModel
+			.findOne({
+				user: userId,
+				status: { $in: ['active', 'trialing'] },
+			})
+			.populate('subscription');
+	}
+
 	// Atualizar plano
 	async updateSubscription(
 		id: string,
@@ -301,7 +310,6 @@ export class SubscriptionService {
 		const plan = await this.subscriptionModel.findById(subscriptionId);
 		if (!plan) throw new NotFoundException('Plano não encontrado');
 
-		// chama a integração do Stripe para criar sessão
 		return this.stripeService.createCheckoutSession(
 			user._id.toString(),
 			plan._id.toString(),
@@ -310,7 +318,6 @@ export class SubscriptionService {
 		);
 	}
 
-	// Criar sessão do portal do cliente
 	async createPortalSession(userId: string, returnUrl: string) {
 		try {
 			const userSubscription = await this.findUserSubscription(userId);
@@ -326,7 +333,6 @@ export class SubscriptionService {
 		}
 	}
 
-	// Verificar assinaturas expiradas (para ser executado por um cron job)
 	async checkExpiredSubscriptions() {
 		return this.webhooksService.checkExpiredSubscriptions();
 	}
