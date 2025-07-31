@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
 config();
+import * as bodyParser from 'body-parser';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
@@ -16,6 +17,10 @@ async function bootstrap() {
 	});
 
 	app.useGlobalPipes(new ValidationPipe());
+
+	app.use(bodyParser.json());
+
+	app.use('/webhooks/stripe', bodyParser.raw({ type: '*/*' }));
 
 	await app.listen(3000);
 }
