@@ -6,6 +6,7 @@ import {
 	Patch,
 	Param,
 	Delete,
+	Req,
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
@@ -39,6 +40,12 @@ export class SubscriptionController {
 		return this.subscriptionService.findAllSubscriptions();
 	}
 
+	@Get('current')
+	getCurrentSubscription(@Req() req) {
+		const userId = req.user.id;
+		return this.subscriptionService.findCurrentSubscriptionByUser(userId);
+	}
+
 	@Get(':id')
 	findOne(@Param('id') id: string) {
 		return this.subscriptionService.findSubscriptionById(id);
@@ -66,7 +73,12 @@ export class SubscriptionController {
 		);
 	}
 
-	@Delete(':id')
+	@Post('cancel')
+	async cancelSubscription(@Body() body: { userId: string }) {
+		return this.subscriptionService.cancelUserSubscription(body.userId);
+	}
+
+	@Delete('delete/:id')
 	remove(@Param('id') id: string) {
 		return this.subscriptionService.removeSubscription(id);
 	}
