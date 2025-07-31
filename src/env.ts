@@ -9,6 +9,9 @@ const envSchema = z.object({
 	URL_DEVELOPMENT: z.string(),
 	TWELVE_DATA_API_KEY: z.string(),
 	BRAPI_DATA_API_KEY: z.string(),
+	STRIPE_PRIVATE_API_KEY: z.string(),
+	STRIPE_PUBLIC_API_KEY: z.string(),
+	STRIPE_WEBHOOK_SECRET: z.string(),
 });
 
 // Parse the environment variables
@@ -26,3 +29,6 @@ export const urlProduction: string = env.data.URL_PRODUCTION;
 export const urlDevelopment: string = env.data.URL_DEVELOPMENT;
 export const twelveDataApiKey: string = env.data.TWELVE_DATA_API_KEY;
 export const brapiApiKey: string = env.data.BRAPI_DATA_API_KEY;
+export const stripePrivateApiKey: string = env.data.STRIPE_PRIVATE_API_KEY;
+export const stripePublicApiKey: string = env.data.STRIPE_PUBLIC_API_KEY;
+export const stripeWebhookSecret: string = env.data.STRIPE_WEBHOOK_SECRET;
