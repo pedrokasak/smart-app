@@ -20,7 +20,7 @@ async function bootstrap() {
 
 	app.use(bodyParser.json());
 
-	app.use('/webhooks/stripe', bodyParser.raw({ type: '*/*' }));
+	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
 
 	await app.listen(3000);
 }
