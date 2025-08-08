@@ -26,6 +26,13 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 	}
 
 	async canActivate(context: ExecutionContext): Promise<boolean> {
+		const request = context.switchToHttp().getRequest();
+
+		// Permite acesso público à rota de webhooks do Stripe
+		if (request.url.includes('/webhooks/stripe')) {
+			return true;
+		}
+
 		const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
 			context.getHandler(),
 			context.getClass(),
@@ -35,7 +42,6 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 			return true;
 		}
 
-		const request = context.switchToHttp().getRequest();
 		const token = this.extractTokenFromHeader(request);
 
 		if (!token) {

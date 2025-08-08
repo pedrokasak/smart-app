@@ -21,9 +21,9 @@ async function bootstrap() {
 
 	app.useGlobalPipes(new ValidationPipe());
 
-	app.use(bodyParser.json());
+	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
 
-	app.use('/webhooks/stripe', bodyParser.raw({ type: '*/*' }));
+	app.use(bodyParser.json());
 
 	await app.listen(3000);
 }
