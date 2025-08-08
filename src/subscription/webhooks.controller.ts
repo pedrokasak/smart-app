@@ -3,6 +3,7 @@ import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { WebhooksService } from './webhooks.service';
 import { stripeWebhookSecret } from 'src/env';
+import { Public } from 'src/utils/constants';
 
 @Controller('webhooks')
 export class WebhooksController {
@@ -16,6 +17,7 @@ export class WebhooksController {
 	}
 
 	@Post('stripe')
+	@Public()
 	async handleStripeWebhook(@Req() req: Request, @Res() res: Response) {
 		const sig = req.headers['stripe-signature'];
 		const endpointSecret = stripeWebhookSecret;
