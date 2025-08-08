@@ -185,31 +185,44 @@ export class WebhooksService {
 	// Pagamento realizado com sucesso
 	private async handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
 		try {
-			if (!(invoice as any).subscription) {
-				this.logger.log('Invoice sem assinatura, ignorando');
-				return;
-			}
-
-			const userSubscription = await this.userSubscriptionModel.findOne({
-				stripeSubscriptionId: (invoice as any).subscription as string,
-			});
-
-			if (!userSubscription) {
-				this.logger.error(
-					`Assinatura não encontrada para invoice: ${invoice.id}`
+			const subscriptionId = (
+				invoice as Stripe.Invoice & { subscription: string }
+			).subscription;
+			if (!subscriptionId) {
+				this.logger.log(
+					`Invoice ${invoice.id} não está associada a uma assinatura, ignorando.`
 				);
 				return;
 			}
 
-			// Atualizar status se necessário
-			if (userSubscription.status !== 'active') {
-				userSubscription.status = 'active';
-				await userSubscription.save();
+			const userSubscription = await this.userSubscriptionModel.findOne({
+				stripeSubscriptionId: subscriptionId,
+			});
+
+			if (!userSubscription) {
+				this.logger.error(
+					`Assinatura ${subscriptionId} não encontrada para a invoice ${invoice.id}`
+				);
+				return;
 			}
 
-			this.logger.log(`Pagamento realizado com sucesso: ${invoice.id}`);
+			// Atualiza as informações com base na fatura paga
+			userSubscription.status = 'active'; // Garante que está ativa
+			userSubscription.currentPeriodStart = new Date(
+				invoice.period_start * 1000
+			);
+			userSubscription.currentPeriodEnd = new Date(invoice.period_end * 1000);
+
+			await userSubscription.save();
+
+			this.logger.log(
+				`Pagamento bem-sucedido e assinatura atualizada para a invoice: ${invoice.id}`
+			);
 		} catch (error) {
-			this.logger.error('Erro ao processar pagamento realizado:', error);
+			this.logger.error(
+				`Erro ao processar pagamento bem-sucedido para a invoice ${invoice.id}:`,
+				error
+			);
 			throw error;
 		}
 	}
@@ -217,13 +230,16 @@ export class WebhooksService {
 	// Pagamento falhou
 	private async handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
 		try {
-			if (!(invoice as any).subscription) {
+			const subscriptionId = (
+				invoice as Stripe.Invoice & { subscription: string }
+			).subscription;
+			if (!subscriptionId) {
 				this.logger.log('Invoice sem assinatura, ignorando');
 				return;
 			}
 
 			const userSubscription = await this.userSubscriptionModel.findOne({
-				stripeSubscriptionId: (invoice as any).subscription as string,
+				stripeSubscriptionId: subscriptionId,
 			});
 
 			if (!userSubscription) {
