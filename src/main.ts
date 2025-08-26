@@ -23,6 +23,7 @@ async function bootstrap() {
 
 	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
 
+	// Para o resto da aplicação, usa JSON normalmente
 	app.use(bodyParser.json());
 
 	await app.listen(3000);

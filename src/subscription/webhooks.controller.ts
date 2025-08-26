@@ -19,7 +19,7 @@ export class WebhooksController {
 	@Post('stripe')
 	@Public()
 	async handleStripeWebhook(@Req() req: Request, @Res() res: Response) {
-		const sig = req.headers['stripe-signature'];
+		const sig = req.headers['stripe-signature'] as string;
 		const endpointSecret = stripeWebhookSecret;
 
 		if (!endpointSecret) {
@@ -32,7 +32,6 @@ export class WebhooksController {
 		let event: Stripe.Event;
 
 		try {
-			// Verificar assinatura do webhook
 			event = this.stripe.webhooks.constructEvent(
 				req.body,
 				sig as string,
@@ -46,7 +45,6 @@ export class WebhooksController {
 		}
 
 		try {
-			// Processar o webhook
 			await this.webhooksService.handleWebhook(event);
 
 			this.logger.log(`Webhook processado com sucesso: ${event.type}`);
