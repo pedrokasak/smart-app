@@ -12,6 +12,7 @@ const envSchema = z.object({
 	STRIPE_PRIVATE_API_KEY: z.string(),
 	STRIPE_PUBLIC_API_KEY: z.string(),
 	STRIPE_WEBHOOK_SECRET: z.string(),
+	STRIPE_WEBHOOK_SECRET_PROD: z.string(),
 });
 
 // Parse the environment variables
@@ -32,3 +33,5 @@ export const brapiApiKey: string = env.data.BRAPI_DATA_API_KEY;
 export const stripePrivateApiKey: string = env.data.STRIPE_PRIVATE_API_KEY;
 export const stripePublicApiKey: string = env.data.STRIPE_PUBLIC_API_KEY;
 export const stripeWebhookSecret: string = env.data.STRIPE_WEBHOOK_SECRET;
+export const stripeWebhookSecretProduction: string =
+	env.data.STRIPE_WEBHOOK_SECRET_PROD;
