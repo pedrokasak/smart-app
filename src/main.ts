@@ -4,7 +4,7 @@ import * as bodyParser from 'body-parser';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
-import { urlDevelopment, urlProduction, port } from './env';
+import { urlDevelopment, urlProduction } from './env';
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule);
@@ -25,6 +25,6 @@ async function bootstrap() {
 
 	app.use(bodyParser.json());
 
-	await app.listen(port || 3000, '0.0.0.0');
+	await app.listen(process.env.PORT || 3000, '0.0.0.0');
 }
 bootstrap();
