@@ -4,7 +4,7 @@ import * as bodyParser from 'body-parser';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
-import { urlDevelopment, urlProduction } from './env';
+import { urlDevelopment, urlProduction, port } from './env';
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule);
@@ -23,9 +23,8 @@ async function bootstrap() {
 
 	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
 
-	// Para o resto da aplicação, usa JSON normalmente
 	app.use(bodyParser.json());
 
-	await app.listen(3000);
+	await app.listen(port || 3000, '0.0.0.0');
 }
 bootstrap();
