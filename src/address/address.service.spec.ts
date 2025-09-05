@@ -6,7 +6,7 @@ import {
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { AxiosResponse } from 'axios';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { AddressService } from './address.service';
 import { AddressModel } from './schema/address.model';
 
@@ -50,7 +50,6 @@ describe('AddressService', () => {
 
 	describe('findByZipCode', () => {
 		it('should return address data for valid zipcode', async () => {
-			// Mock da resposta da API com todas as propriedades do AxiosResponse
 			const mockResponse: AxiosResponse = {
 				data: {
 					cep: '01001-000',
@@ -119,7 +118,7 @@ describe('AddressService', () => {
 
 		it('should throw InternalServerErrorException when HTTP request fails', async () => {
 			jest.spyOn(httpService, 'get').mockImplementation(() => {
-				throw new Error('Network error');
+				return throwError(() => new Error('Network error'));
 			});
 
 			await expect(service.findByZipCode('01001000')).rejects.toThrow(
