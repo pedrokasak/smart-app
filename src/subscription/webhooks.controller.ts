@@ -2,7 +2,7 @@ import { Controller, Post, Req, Res, HttpStatus, Logger } from '@nestjs/common';
 import { Request, Response } from 'express';
 import Stripe from 'stripe';
 import { WebhooksService } from './webhooks.service';
-import { stripeWebhookSecret } from 'src/env';
+import { stripeWebhookSecret, stripeWebhookSecretProduction } from 'src/env';
 import { Public } from 'src/utils/constants';
 
 @Controller('webhooks')
@@ -19,8 +19,11 @@ export class WebhooksController {
 	@Post('stripe')
 	@Public()
 	async handleStripeWebhook(@Req() req: Request, @Res() res: Response) {
-		const sig = req.headers['stripe-signature'];
-		const endpointSecret = stripeWebhookSecret;
+		const sig = req.headers['stripe-signature'] as string;
+		const endpointSecret =
+			process.env.NODE_ENV === 'production'
+				? stripeWebhookSecretProduction
+				: stripeWebhookSecret;
 
 		if (!endpointSecret) {
 			this.logger.error('STRIPE_WEBHOOK_SECRET não configurado');
@@ -32,7 +35,6 @@ export class WebhooksController {
 		let event: Stripe.Event;
 
 		try {
-			// Verificar assinatura do webhook
 			event = this.stripe.webhooks.constructEvent(
 				req.body,
 				sig as string,
@@ -46,7 +48,6 @@ export class WebhooksController {
 		}
 
 		try {
-			// Processar o webhook
 			await this.webhooksService.handleWebhook(event);
 
 			this.logger.log(`Webhook processado com sucesso: ${event.type}`);

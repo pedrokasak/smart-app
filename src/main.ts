@@ -8,6 +8,9 @@ import { urlDevelopment, urlProduction } from './env';
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule);
+	if (!(global as any).crypto) {
+		(global as any).crypto = require('crypto');
+	}
 
 	app.enableCors({
 		origin: [urlProduction, urlDevelopment],
@@ -18,10 +21,13 @@ async function bootstrap() {
 
 	app.useGlobalPipes(new ValidationPipe());
 
+	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
+
 	app.use(bodyParser.json());
 
-	app.use('/webhooks/stripe', bodyParser.raw({ type: '*/*' }));
+	const port = process.env.PORT || 3000;
 
-	await app.listen(3000);
+	await app.listen(port, '0.0.0.0');
+	console.log(`Nest application is listening on port ${port}`);
 }
 bootstrap();

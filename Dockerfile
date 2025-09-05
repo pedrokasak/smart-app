@@ -4,7 +4,7 @@
 ARG NODE_VERSION=20.18.0
 FROM node:${NODE_VERSION}-slim AS base
 
-LABEL fly_launch_runtime="NestJS/Prisma"
+LABEL fly_launch_runtime="NestJS"
 
 # NestJS/Prisma app lives here
 WORKDIR /app
@@ -46,4 +46,5 @@ COPY --from=build /app /app
 
 # Start the server by default, this can be overwritten at runtime
 EXPOSE 3000
-CMD [ "yarn", "run", "start" ]
+# CMD [ "yarn", "run", "start" ]
+CMD ["node", "dist/main.js"]
