@@ -45,7 +45,6 @@ export class AuthenticationService {
 			{ expiresIn: expireKeepAliveConectedRefreshToken }
 		);
 
-		// Salvar o refresh token no banco de dados
 		verifyUser.refreshToken = refreshToken;
 		await verifyUser.save();
 
@@ -88,10 +87,8 @@ export class AuthenticationService {
 		refreshToken: string
 	): Promise<{ accessToken: string; expiresIn: string }> {
 		try {
-			// Verificar se o refresh token é válido
 			const payload = this.jwtService.verify(refreshToken);
 
-			// Verificar se é realmente um refresh token
 			if (payload.type !== 'refresh') {
 				throw new Error('Invalid token type');
 			}
