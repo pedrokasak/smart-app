@@ -17,7 +17,7 @@ RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 COPY .yarn ./.yarn
 COPY .yarnrc.yml package.json yarn.lock ./
 
-RUN yarn install --immutable
+RUN yarn install
 
 COPY . .
 RUN yarn build
@@ -31,7 +31,7 @@ RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 COPY .yarn ./.yarn
 COPY .yarnrc.yml package.json yarn.lock ./
 
-RUN yarn install --production --immutable
+RUN yarn install --production
 
 COPY --from=build /app/dist ./dist
 
