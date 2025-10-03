@@ -18,7 +18,7 @@ RUN apk add --no-cache python3 make g++ openssl
 RUN npm install
 
 # Copiar configurações do npm
-COPY package.json package-lock.json ./
+COPY package.json ./
 
 COPY . .
 RUN npm build
@@ -26,7 +26,7 @@ RUN npm build
 # ---------------- STAGE FINAL ----------------
 FROM base
 
-RUN corepack enable && corepack prepare yarn@4.5.0 --activate
+# RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 
 
 # COPY .yarn ./.yarn
@@ -35,7 +35,7 @@ RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 RUN npm install
 
 # Copiar configurações do npm
-COPY package.json package-lock.json ./
+COPY package.json ./
 
 COPY --from=build /app/dist ./dist
 
