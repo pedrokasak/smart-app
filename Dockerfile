@@ -11,9 +11,6 @@ WORKDIR /app
 
 # Definir env de produção
 ENV NODE_ENV="production"
-ARG YARN_VERSION=1.22.21
-RUN npm install -g yarn@$YARN_VERSION --force
-
 
 # ---------------- STAGE DE BUILD ----------------
 FROM base AS build
@@ -28,7 +25,7 @@ RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 COPY package.json yarn.lock ./
 
 # Instalar todas as dependências (incluindo dev)
-RUN yarn install --frozen-lockfile
+RUN yarn workspaces focus --all --production --immutable
 
 # Copiar código da aplicação
 COPY . .
@@ -45,7 +42,7 @@ RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 
 # Apenas dependências de produção
 COPY package.json yarn.lock ./
-RUN yarn install --immutable --production
+RUN yarn workspaces focus --all --production --immutable
 
 # Copiar build e node_modules da build stage
 COPY --from=build /app/dist ./dist
