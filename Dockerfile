@@ -26,7 +26,7 @@ RUN npm build
 # ---------------- STAGE FINAL ----------------
 FROM base
 
-RUN corepack enable && corepack prepare yarn@4.5.0 --activate
+# RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 
 
 # COPY .yarn ./.yarn
