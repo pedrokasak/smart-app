@@ -1,44 +1,37 @@
 # syntax = docker/dockerfile:1
-
 ARG NODE_VERSION=20.18.0
 FROM node:${NODE_VERSION}-alpine AS base
 
 WORKDIR /app
-ENV NODE_ENV="production"
 
 # ---------------- STAGE DE BUILD ----------------
 FROM base AS build
 
+# Dependências de compilação
 RUN apk add --no-cache python3 make g++ openssl
-# RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 
-# Copiar configurações do npm
-COPY package.json ./
+# Não defina NODE_ENV=production aqui para incluir devDependencies
+COPY package.json package-lock.json ./
+RUN npm ci
 
-# COPY .yarnrc.yml package.json yarn.lock ./
-
-RUN npm install
-
-
+# Copiar código e buildar
 COPY . .
 RUN npm run build
 
 # ---------------- STAGE FINAL ----------------
 FROM base
 
-# RUN corepack enable && corepack prepare yarn@4.5.0 --activate
+# Agora sim, produção
+ENV NODE_ENV=production
 
-# Copiar configurações do npm
-COPY package.json ./
+# Instalar apenas prod
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev
 
-# COPY .yarn ./.yarn
-# COPY .yarnrc.yml package.json yarn.lock ./
-
-RUN npm install
-
-
+# Copiar artefatos do build
 COPY --from=build /app/dist ./dist
 
+# Usuário e porta
 USER node
 EXPOSE 3000
 CMD ["node", "dist/main.js"]
