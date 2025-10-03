@@ -21,6 +21,9 @@ FROM base AS build
 # Instalar pacotes necessários para build (no Alpine!)
 RUN apk add --no-cache python3 make g++ openssl
 
+# Ative Corepack e prepare Yarn 4.5.0
+RUN corepack enable && corepack prepare yarn@4.5.0 --activate
+
 # Copiar package.json e lock
 COPY package.json yarn.lock ./
 
@@ -39,7 +42,7 @@ FROM base
 
 # Apenas dependências de produção
 COPY package.json yarn.lock ./
-RUN yarn install --frozen-lockfile --production
+RUN yarn install --immutable --production
 
 # Copiar build e node_modules da build stage
 COPY --from=build /app/dist ./dist
