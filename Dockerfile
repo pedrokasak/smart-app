@@ -12,13 +12,13 @@ FROM base AS build
 RUN apk add --no-cache python3 make g++ openssl
 # RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 
+# Copiar configurações do npm
+COPY package.json ./
 
 # COPY .yarnrc.yml package.json yarn.lock ./
 
 RUN npm install
 
-# Copiar configurações do npm
-COPY package.json ./
 
 COPY . .
 RUN npm build
@@ -28,14 +28,14 @@ FROM base
 
 # RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 
+# Copiar configurações do npm
+COPY package.json ./
 
 # COPY .yarn ./.yarn
 # COPY .yarnrc.yml package.json yarn.lock ./
 
 RUN npm install
 
-# Copiar configurações do npm
-COPY package.json ./
 
 COPY --from=build /app/dist ./dist
 
