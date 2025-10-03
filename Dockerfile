@@ -18,35 +18,30 @@ FROM base AS build
 # Instalar pacotes necessários para build (no Alpine!)
 RUN apk add --no-cache python3 make g++ openssl
 
-# Ative Corepack e prepare Yarn 4.5.0
-RUN corepack enable && corepack prepare yarn@4.5.0 --activate
+# Copiar package.json e yarn.lock
+COPY package.json yarn.lock* package-lock.json* ./
 
-# Copiar package.json e lock
-COPY package.json yarn.lock ./
-
-# Instalar todas as dependências (incluindo dev para fazer o build)
-RUN yarn install
+# Gerar package-lock.json se não existir e instalar dependências
+RUN npm install
 
 # Copiar código da aplicação
 COPY . .
 
 # Build do projeto
-RUN yarn build
+RUN npm run build
 
 # ---------------- STAGE FINAL ----------------
 FROM base
 
-# Ative Corepack e prepare Yarn 4.5.0
-RUN corepack enable && corepack prepare yarn@4.5.0 --activate
-
-# Copiar package.json e lock
-COPY package.json yarn.lock ./
+# Copiar package.json
+COPY package.json yarn.lock* package-lock.json* ./
 
 # Instalar apenas dependências de produção
-RUN yarn workspaces focus --all --production
+RUN npm ci --omit=dev || npm install --omit=dev
 
 # Copiar build da build stage
 COPY --from=build /app/dist ./dist
+COPY --from=build /app/node_modules ./node_modules
 
 # Rodar como user não-root
 USER node
