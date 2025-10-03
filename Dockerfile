@@ -24,8 +24,8 @@ RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 # Copiar package.json e lock
 COPY package.json yarn.lock ./
 
-# Instalar todas as dependências (incluindo dev)
-RUN yarn workspaces focus --all --production --immutable
+# Instalar todas as dependências (incluindo dev para fazer o build)
+RUN yarn install
 
 # Copiar código da aplicação
 COPY . .
@@ -33,18 +33,19 @@ COPY . .
 # Build do projeto
 RUN yarn build
 
-
 # ---------------- STAGE FINAL ----------------
 FROM base
 
 # Ative Corepack e prepare Yarn 4.5.0
 RUN corepack enable && corepack prepare yarn@4.5.0 --activate
 
-# Apenas dependências de produção
+# Copiar package.json e lock
 COPY package.json yarn.lock ./
-RUN yarn workspaces focus --all --production --immutable
 
-# Copiar build e node_modules da build stage
+# Instalar apenas dependências de produção
+RUN yarn workspaces focus --all --production
+
+# Copiar build da build stage
 COPY --from=build /app/dist ./dist
 
 # Rodar como user não-root
