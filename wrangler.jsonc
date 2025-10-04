@@ -4,4 +4,15 @@
 	"assets": {
 		"directory": "./dist",
 	},
+	"build": {
+		"command": "npm run build",
+		"cwd": "./",
+		"watch_dir": "./src",
+	},
+	"routes": [
+		{
+			"pattern": "/*",
+			"script": "worker-trakker-server",
+		},
+	],
 }
