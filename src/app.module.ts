@@ -3,7 +3,7 @@ import { AppController } from './app.controller';
 import { ConnectDatabase } from './database/database.service';
 import { AppService } from './app.service';
 import { UsersModule } from './users/users.module';
-import { AuthenticateModule } from './authentication/authentication.module';
+import { AuthenticationModule } from './authentication/authentication.module';
 import { ProfileModule } from './profile/profile.module';
 import { AddressModule } from './address/address.module';
 import { PermissionsModule } from './permissions/permissions.module';
@@ -16,7 +16,7 @@ import { StockModule } from './stocks/stocks.module';
 
 @Module({
 	imports: [
-		AuthenticateModule,
+		AuthenticationModule,
 		UsersModule,
 		ProfileModule,
 		AddressModule,
