@@ -1,4 +1,12 @@
-import { Controller, Post, Body, UnauthorizedException } from '@nestjs/common';
+import {
+	Controller,
+	Post,
+	Body,
+	UnauthorizedException,
+	Patch,
+	UseGuards,
+	Request,
+} from '@nestjs/common';
 import {
 	AuthenticateDto,
 	AuthSignoutDto,
@@ -9,6 +17,8 @@ import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { AuthenticationEntity } from './entities/authentication-entity';
 
 import { Public } from 'src/utils/constants';
+import { UpdatePasswordDto } from './dto/update-password.dto';
+import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
 @ApiTags('auth')
@@ -59,5 +69,13 @@ export class AuthenticationController {
 		} catch (error) {
 			throw new UnauthorizedException('Invalid or Expired Refresh Token');
 		}
+	}
+
+	@UseGuards(JwtAuthGuard)
+	@Patch('update-password')
+	@ApiOkResponse({ description: 'Password updated successfully' })
+	updatePassword(@Request() req, @Body() updatePasswordDto: UpdatePasswordDto) {
+		const userId = req.user.userId;
+		return this.authService.updatePassword(userId, updatePasswordDto);
 	}
 }

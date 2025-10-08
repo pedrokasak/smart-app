@@ -1,4 +1,8 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+	Injectable,
+	UnauthorizedException,
+	NotFoundException,
+} from '@nestjs/common';
 import { AuthenticateDto } from './dto/authenticate.dto';
 import { JwtService } from '@nestjs/jwt';
 import { AuthenticationEntity } from './entities/authentication-entity';
@@ -10,6 +14,7 @@ import {
 } from 'src/env';
 import { AuthErrorService } from 'src/utils/errors-handler';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
+import { UpdatePasswordDto } from './dto/update-password.dto';
 
 @Injectable()
 export class AuthenticationService {
@@ -110,5 +115,32 @@ export class AuthenticationService {
 		} catch (error) {
 			throw new UnauthorizedException('Invalid or expired refresh token');
 		}
+	}
+
+	async updatePassword(
+		userId: string,
+		updatePasswordDto: UpdatePasswordDto
+	): Promise<{ message: string }> {
+		const user = await UserModel.findById(userId);
+
+		if (!user) {
+			throw new NotFoundException('User not found');
+		}
+
+		const isPasswordValid = await bcrypt.compare(
+			updatePasswordDto.oldPassword,
+			user.password
+		);
+
+		if (!isPasswordValid) {
+			throw new UnauthorizedException('Invalid old password');
+		}
+
+		const hashedPassword = await bcrypt.hash(updatePasswordDto.newPassword, 10);
+
+		user.password = hashedPassword;
+		await user.save();
+
+		return { message: 'Password updated successfully' };
 	}
 }
