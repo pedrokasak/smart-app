@@ -31,7 +31,7 @@ export const serverDockerImage = new docker.Image('trakker-server-image', {
 
 const cluster = new awsx.classic.ecs.Cluster('trakker-cluster');
 
-const trakkerService = new awsx.classic.ecs.FargateService('trakker-service', {
+new awsx.classic.ecs.FargateService('trakker-service', {
 	cluster,
 	desiredCount: 1,
 	waitForSteadyState: false,

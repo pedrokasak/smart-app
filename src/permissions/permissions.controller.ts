@@ -12,13 +12,27 @@ import { PermissionsService } from './permissions.service';
 import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
+import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
 
 @Controller('permissions')
+@ApiTags('permissions')
 export class PermissionsController {
 	constructor(private readonly permissionsService: PermissionsService) {}
 
 	@Post('create')
 	@UseGuards(JwtAuthGuard)
+	@ApiOkResponse({
+		description: 'Create a new permission',
+		schema: {
+			type: 'object',
+			properties: {
+				permission: {
+					type: 'string',
+					description: 'The created permission',
+				},
+			},
+		},
+	})
 	create(@Body() createPermissionDto: CreatePermissionDto) {
 		return this.permissionsService.create(createPermissionDto);
 	}
