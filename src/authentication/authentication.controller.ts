@@ -21,7 +21,7 @@ import { UpdatePasswordDto } from './dto/update-password.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
-@ApiTags('auth')
+@ApiTags('authentication')
 export class AuthenticationController {
 	constructor(private readonly authService: AuthenticationService) {}
 

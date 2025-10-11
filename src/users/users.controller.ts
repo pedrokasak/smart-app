@@ -17,14 +17,49 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { EmailValidationPipe } from './decorators/emailValidatorPipe';
 import { JwtAuthGuard } from '../authentication/jwt-auth.guard';
 import { Public } from 'src/utils/constants';
+import {
+	ApiOkResponse,
+	ApiOperation,
+	ApiResponse,
+	ApiTags,
+} from '@nestjs/swagger';
 
 @Controller('users')
+@ApiTags('users')
 export class UsersController {
 	constructor(private readonly usersService: UsersService) {}
 
 	@Public()
 	@Post('create')
 	@UsePipes(new EmailValidationPipe())
+	@ApiOperation({ summary: 'Cria um novo usuário' })
+	@ApiResponse({
+		status: 201,
+		description: 'Usuário criado com sucesso',
+		type: CreateUserDto,
+	})
+	@ApiResponse({
+		status: 400,
+		description: 'Dados inválidos',
+	})
+	@ApiResponse({
+		status: 500,
+		description: 'Erro interno inesperado',
+	})
+	@ApiOkResponse({
+		description: 'Create a new user',
+		type: CreateUserDto,
+		schema: {
+			type: 'object',
+			properties: {
+				firstName: { type: 'string' },
+				lastName: { type: 'string' },
+				email: { type: 'string' },
+				password: { type: 'string' },
+				confirmPassword: { type: 'string' },
+			},
+		},
+	})
 	async create(@Body() createUserDto: CreateUserDto) {
 		try {
 			const response = await this.usersService.create(createUserDto);
