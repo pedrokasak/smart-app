@@ -75,6 +75,14 @@ export class UsersService {
 		return await UserModel.findById(id);
 	}
 
+	async findByEmail(email: string) {
+		return await UserModel.findOne({ email });
+	}
+
+	async findByCpf(cpf: string) {
+		return await UserModel.findOne({ cpf });
+	}
+
 	async update(id: string, updateUserDto: UpdateUserDto) {
 		return await UserModel.findByIdAndUpdate(id, updateUserDto, { new: true });
 	}
