@@ -3,6 +3,15 @@ import { StockService } from './stocks.service';
 import { TwelveDataAdapter } from 'src/stocks/adapter/twelveDataApi';
 import { BrapiAdapter } from 'src/stocks/adapter/brapiDataApi';
 
+jest.mock('../env.ts', () => ({
+	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
+}));
+
+jest.mock('../authentication/jwt-auth.guard', () => ({
+	JwtAuthGuard: jest.fn().mockImplementation(() => true),
+}));
+jest.mock('bcrypt');
+
 describe('TwelveDataService', () => {
 	let service: StockService;
 	let brapi: BrapiAdapter;
@@ -28,10 +37,6 @@ describe('TwelveDataService', () => {
 		service = module.get<StockService>(StockService);
 		brapi = module.get<BrapiAdapter>(BrapiAdapter);
 		twelveData = module.get<TwelveDataAdapter>(TwelveDataAdapter);
-	});
-
-	it('should be defined', () => {
-		expect(service).toBeDefined();
 	});
 
 	describe('getAllNational', () => {

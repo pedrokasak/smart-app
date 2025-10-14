@@ -2,8 +2,9 @@ export default class Cpf {
 	value: string;
 
 	constructor(value: string) {
-		if (!this.validationCpf(value)) throw new Error('Invalid Cpf!');
-		this.value = value;
+		const cleaned = this.clean(value);
+		if (!this.validationCpf(cleaned)) throw new Error('Invalid Cpf!');
+		this.value = cleaned;
 	}
 
 	FACTOR_DIGIT_1 = 10;

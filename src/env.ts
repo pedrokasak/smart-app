@@ -14,6 +14,8 @@ const envSchema = z.object({
 	STRIPE_WEBHOOK_SECRET: z.string(),
 	STRIPE_WEBHOOK_SECRET_PROD: z.string(),
 	PORT: z.string().optional(),
+	ASAAS_API_KEY: z.string(),
+	ASAAS_URL_SANDBOX: z.string(),
 });
 
 // Parse the environment variables
@@ -37,3 +39,5 @@ export const stripeWebhookSecret: string = env.data.STRIPE_WEBHOOK_SECRET;
 export const stripeWebhookSecretProduction: string =
 	env.data.STRIPE_WEBHOOK_SECRET_PROD;
 export const port: string = env.data.PORT;
+export const asaasApiKey: string = env.data.ASAAS_API_KEY;
+export const asaasUrlSandbox: string = env.data.ASAAS_URL_SANDBOX;

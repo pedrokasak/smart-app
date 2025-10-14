@@ -78,24 +78,44 @@ export class UsersController {
 
 	@Get()
 	@UseGuards(JwtAuthGuard)
+	@ApiOperation({ summary: 'Retorna uma lista de usuários' })
+	@ApiResponse({
+		status: 200,
+		description: 'Retorna uma lista de usuários',
+	})
 	findAll() {
 		return this.usersService.findMany();
 	}
 
 	@Get(':id')
 	@UseGuards(JwtAuthGuard)
+	@ApiOperation({ summary: 'Retorna um usuário pelo ID' })
+	@ApiResponse({
+		status: 200,
+		description: 'Retorna um usuário pelo ID',
+	})
 	findOne(@Param('id') id: string) {
 		return this.usersService.findOne(id);
 	}
 
 	@Patch('update/:id')
 	@UseGuards(JwtAuthGuard)
+	@ApiOperation({ summary: 'Atualiza um usuário pelo ID' })
+	@ApiResponse({
+		status: 200,
+		description: 'Usuário atualizado com sucesso',
+	})
 	update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
 		return this.usersService.update(id, updateUserDto);
 	}
 
 	@Delete(':id')
 	@UseGuards(JwtAuthGuard)
+	@ApiOperation({ summary: 'Remove um usuário pelo ID' })
+	@ApiResponse({
+		status: 200,
+		description: 'Usuário removido com sucesso',
+	})
 	remove(@Param('id') id: string) {
 		return this.usersService.delete(id);
 	}
