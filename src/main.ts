@@ -33,6 +33,8 @@ async function bootstrap() {
 		.setDescription('The Trakker API description')
 		.addTag('trakker-api')
 		.setVersion('1.0')
+		.addBearerAuth()
+		.addBasicAuth()
 		.build();
 
 	const document = SwaggerModule.createDocument(app, configSwagger);

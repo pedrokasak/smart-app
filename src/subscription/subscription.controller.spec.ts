@@ -3,6 +3,41 @@ import { SubscriptionController } from './subscription.controller';
 import { SubscriptionService } from './subscription.service';
 import { NotFoundException } from '@nestjs/common';
 import { CreateSubscriptionDto, UpdateSubscriptionDto } from './dto';
+import { WebhooksService } from 'src/subscription/webhooks.service';
+import { StripeService } from 'src/subscription/stripe.service';
+
+const mockSubscriptionModel = {
+	create: jest.fn(),
+	find: jest.fn(),
+	findById: jest.fn(),
+	findByIdAndUpdate: jest.fn(),
+	findByIdAndDelete: jest.fn(),
+};
+
+const mockUserSubscriptionModel = {
+	create: jest.fn(),
+	find: jest.fn(),
+};
+
+const mockUserModel = {
+	findById: jest.fn(),
+};
+
+const mockStripeService = {
+	createCheckoutSession: jest.fn(),
+};
+
+const mockWebhooksService = {
+	handleWebhook: jest.fn(),
+};
+
+jest.mock('../env.ts', () => ({
+	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
+}));
+
+jest.mock('../authentication/jwt-auth.guard', () => ({
+	JwtAuthGuard: jest.fn().mockImplementation(() => true),
+}));
 
 describe('SubscriptionController', () => {
 	let controller: SubscriptionController;
@@ -19,16 +54,19 @@ describe('SubscriptionController', () => {
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
-			controllers: [SubscriptionController],
 			providers: [
+				SubscriptionService,
+				{ provide: 'SubscriptionModel', useValue: mockSubscriptionModel },
 				{
-					provide: SubscriptionService,
-					useValue: mockSubscriptionService,
+					provide: 'UserSubscriptionModel',
+					useValue: mockUserSubscriptionModel,
 				},
+				{ provide: 'UserModel', useValue: mockUserModel },
+				{ provide: StripeService, useValue: mockStripeService },
+				{ provide: WebhooksService, useValue: mockWebhooksService },
 			],
 		}).compile();
 
-		controller = module.get<SubscriptionController>(SubscriptionController);
 		service = module.get<SubscriptionService>(SubscriptionService);
 	});
 

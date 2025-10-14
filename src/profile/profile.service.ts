@@ -59,11 +59,11 @@ export class ProfileService {
 	}
 
 	async findAll() {
-		return await this.profileModel.find();
+		return await this.profileModel.find().exec();
 	}
 
 	async findOne(userId: string) {
-		const profile = await this.profileModel.findOne({ user: userId });
+		const profile = await this.profileModel.findOne({ user: userId }).exec();
 		if (!profile) {
 			throw new NotFoundException(`Profile for user ${userId} not found`);
 		}

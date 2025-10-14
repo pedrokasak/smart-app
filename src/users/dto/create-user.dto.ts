@@ -46,6 +46,13 @@ export class CreateUserDto {
 	})
 	password: string;
 
+	@ApiProperty({
+		example: 'StrongPass123',
+		description: 'Confirmação da senha do usuário',
+	})
+	@IsNotEmpty({
+		message: 'The confirm password is not empty',
+	})
 	@Match('password', { message: 'Passwords do not match' })
 	confirmPassword: string;
 }
