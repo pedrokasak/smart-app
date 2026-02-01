@@ -54,7 +54,12 @@ describe('SubscriptionController', () => {
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
+			controllers: [SubscriptionController],
 			providers: [
+				{
+					provide: SubscriptionService,
+					useValue: mockSubscriptionService,
+				},
 				SubscriptionService,
 				{ provide: 'SubscriptionModel', useValue: mockSubscriptionModel },
 				{
@@ -68,6 +73,7 @@ describe('SubscriptionController', () => {
 		}).compile();
 
 		service = module.get<SubscriptionService>(SubscriptionService);
+		controller = module.get<SubscriptionController>(SubscriptionController);
 	});
 
 	it('should be defined', () => {

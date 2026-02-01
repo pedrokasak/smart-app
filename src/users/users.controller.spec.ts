@@ -44,6 +44,8 @@ describe('UsersController', () => {
 				email: 'pedro@example.com',
 				password: 'Password123@',
 				confirmPassword: 'Password123@',
+				cpf: '123.456.789-00',
+				avatar: 'http://example.com/avatar.jpg',
 			};
 
 			const fakeResponse = {
@@ -67,6 +69,8 @@ describe('UsersController', () => {
 				email: 'pedro@example.com',
 				password: 'Password123@',
 				confirmPassword: 'Password123@',
+				cpf: '123.456.789-00',
+				avatar: 'http://example.com/avatar.jpg',
 			};
 
 			service.create.mockRejectedValue(new HttpException('Erro', 400));
@@ -112,8 +116,8 @@ describe('UsersController', () => {
 				firstName: 'Updated',
 				lastName: 'User',
 				email: 'teste@user.com',
-				password: 'Password123@',
-				confirmPassword: 'Password123@',
+				cpf: '123.456.789-00',
+				avatar: 'http://example.com/avatar.jpg',
 			};
 			const updatedUser = { _id: '1', firstName: 'Updated 2' };
 			service.update.mockResolvedValue(updatedUser);
