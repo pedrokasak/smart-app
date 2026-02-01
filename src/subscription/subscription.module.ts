@@ -9,6 +9,7 @@ import { SubscriptionModel, UserSubscriptionModel } from './schema';
 import { UsersService } from 'src/users/users.service';
 import { UsersController } from 'src/users/users.controller';
 import { UsersModule } from 'src/users/users.module';
+import Stripe from 'stripe';
 
 @Module({
 	imports: [
@@ -24,6 +25,13 @@ import { UsersModule } from 'src/users/users.module';
 		StripeService,
 		WebhooksService,
 		UsersService,
+		{
+			provide: Stripe,
+			useFactory: () =>
+				new Stripe(process.env.STRIPE_PRIVATE_API_KEY!, {
+					apiVersion: '2025-08-27.basil',
+				}),
+		},
 	],
 	exports: [SubscriptionService, StripeService, WebhooksService],
 })

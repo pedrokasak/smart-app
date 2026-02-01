@@ -39,7 +39,7 @@ describe('ProfileController', () => {
 		mockProfileService.create.mockResolvedValue(fakeResponse);
 		const result = await controller.create(dto.userId, dto);
 		expect(result).toEqual(fakeResponse);
-		expect(mockProfileService.create).toHaveBeenCalledWith(dto);
+		expect(mockProfileService.create).toHaveBeenCalledWith(dto.userId, dto);
 	});
 
 	it('should get all profiles', async () => {
@@ -50,10 +50,30 @@ describe('ProfileController', () => {
 	});
 
 	it('should get one profile', async () => {
-		const fakeProfile = { cpf: '123' };
+		const fakeProfile = {
+			_id: { toString: () => 'profile-id' },
+			user: { toString: () => 'user-id' },
+			phone: '99999999',
+			birthDate: new Date(),
+		};
+
 		mockProfileService.findOne.mockResolvedValue(fakeProfile);
-		const result = await controller.findOne('user1');
-		expect(result).toEqual(fakeProfile);
+
+		const req = {
+			user: {
+				id: 'user-id',
+			},
+		};
+
+		const result = await controller.findOne(req);
+
+		expect(mockProfileService.findOne).toHaveBeenCalledWith('user-id');
+		expect(result).toEqual(
+			expect.objectContaining({
+				id: 'profile-id',
+				userId: 'user-id',
+			})
+		);
 	});
 
 	it('should update a profile', async () => {

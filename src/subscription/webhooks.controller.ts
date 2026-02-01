@@ -8,13 +8,12 @@ import { Public } from 'src/utils/constants';
 @Controller('webhooks')
 export class WebhooksController {
 	private readonly logger = new Logger(WebhooksController.name);
-	private readonly stripe: Stripe;
+	// private readonly stripe: Stripe;
 
-	constructor(private webhooksService: WebhooksService) {
-		this.stripe = new Stripe(process.env.STRIPE_PRIVATE_API_KEY, {
-			apiVersion: '2025-08-27.basil',
-		});
-	}
+	constructor(
+		private readonly webhooksService: WebhooksService,
+		private readonly stripe: Stripe
+	) {}
 
 	@Post('stripe')
 	@Public()
