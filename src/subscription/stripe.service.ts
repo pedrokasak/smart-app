@@ -183,13 +183,13 @@ export class StripeService {
 			if (!plan) {
 				throw new NotFoundException('Plano não encontrado');
 			}
-			let stripeCustomerId = user.stripeCustomerId;
+			let stripeCustomerId = user.userSubscription;
 
 			if (!stripeCustomerId) {
 				const customer = await this.createCustomer(user.email, user.firstName);
 				stripeCustomerId = customer.id;
 
-				user.stripeCustomerId = stripeCustomerId;
+				user.userSubscription = stripeCustomerId;
 				await user.save();
 			}
 

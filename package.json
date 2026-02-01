@@ -40,9 +40,11 @@
 		"mongoose": "^8.6.2",
 		"passport": "^0.7.0",
 		"passport-jwt": "^4.0.1",
+		"puppeteer": "^24.25.0",
 		"reflect-metadata": "^0.2.0",
 		"rxjs": "^7.8.1",
 		"stripe": "^18.3.0",
+		"tsconfig-paths": "^4.2.0",
 		"wrangler": "^4.42.0",
 		"zod": "^3.23.8"
 	},

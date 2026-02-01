@@ -1,5 +1,11 @@
-import { IsEmail, IsNotEmpty, IsStrongPassword } from 'class-validator';
-import { Match } from '../../utils/decorators';
+import {
+	IsEmail,
+	IsEmpty,
+	IsNotEmpty,
+	IsString,
+	IsStrongPassword,
+} from 'class-validator';
+import { IsCpf, Match } from '../../utils/decorators';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateUserDto {
@@ -20,6 +26,27 @@ export class CreateUserDto {
 		message: 'The last name is not empty',
 	})
 	lastName: string;
+
+	@ApiProperty({
+		example: '123.456.789-00',
+		description: 'CPF do usuário',
+	})
+	@IsEmpty({
+		message: 'The cpf is empty',
+	})
+	@IsCpf()
+	cpf: string;
+
+	@ApiProperty({
+		example:
+			'https://images.unsplash.com/photo-1499714608240-22fc6ad53fb2?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=100&q=80',
+		description: 'URL da imagem do usuário',
+	})
+	@IsEmpty({
+		message: 'The avatar is empty',
+	})
+	@IsString()
+	avatar: string;
 
 	@IsNotEmpty({
 		message: 'The email is not empty',

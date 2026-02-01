@@ -1,28 +1,38 @@
 import {
 	Controller,
 	Get,
-	Post,
 	Body,
 	Patch,
 	Param,
 	Delete,
 	UseGuards,
+	Req,
+	Post,
 } from '@nestjs/common';
 import { ProfileService } from './profile.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { ApiOkResponse, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { ProfileResponseDto } from 'src/profile/dto/profile-response.dto';
+import { ProfileMapper } from 'src/profile/mappers/profile.mapper';
 
 @Controller('profile')
+@ApiTags('profile')
 export class ProfileController {
 	constructor(private readonly profileService: ProfileService) {}
 
-	@Post('create')
+	@Post(':id')
 	@UseGuards(JwtAuthGuard)
-	@ApiTags('profile')
-	create(@Body() createProfileDto: CreateProfileDto) {
-		return this.profileService.create(createProfileDto);
+	@ApiOkResponse({ type: CreateProfileDto, description: 'Success' })
+	@ApiResponse({ status: 403, description: 'Forbidden.' })
+	@ApiResponse({ status: 401, description: 'Unauthorized.' })
+	@ApiResponse({ status: 200, description: 'Ok.' })
+	create(
+		@Param('id') userId: string,
+		@Body() createProfileDto: CreateProfileDto
+	) {
+		return this.profileService.create(userId, createProfileDto);
 	}
 
 	@Get()
@@ -41,8 +51,9 @@ export class ProfileController {
 	@ApiResponse({ status: 403, description: 'Forbidden.' })
 	@ApiResponse({ status: 401, description: 'Unauthorized.' })
 	@ApiResponse({ status: 200, description: 'Ok.' })
-	findOne(@Param('id') id: string) {
-		return this.profileService.findOne(id);
+	async findOne(@Req() req: any): Promise<ProfileResponseDto> {
+		const profile = await this.profileService.findOne(req.user.id);
+		return ProfileMapper.toResponseDto(profile);
 	}
 
 	@Patch(':id')

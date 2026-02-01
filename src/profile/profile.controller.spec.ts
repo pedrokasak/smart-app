@@ -37,7 +37,7 @@ describe('ProfileController', () => {
 		const dto = { cpf: '123', userId: 'user1', permissions: [] };
 		const fakeResponse = { message: 'ok' };
 		mockProfileService.create.mockResolvedValue(fakeResponse);
-		const result = await controller.create(dto);
+		const result = await controller.create(dto.userId, dto);
 		expect(result).toEqual(fakeResponse);
 		expect(mockProfileService.create).toHaveBeenCalledWith(dto);
 	});
