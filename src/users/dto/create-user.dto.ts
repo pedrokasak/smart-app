@@ -1,7 +1,7 @@
 import {
 	IsEmail,
-	IsEmpty,
 	IsNotEmpty,
+	IsOptional,
 	IsString,
 	IsStrongPassword,
 } from 'class-validator';
@@ -31,8 +31,8 @@ export class CreateUserDto {
 		example: '123.456.789-00',
 		description: 'CPF do usuário',
 	})
-	@IsEmpty({
-		message: 'The cpf is empty',
+	@IsNotEmpty({
+		message: 'The cpf is not empty',
 	})
 	@IsCpf()
 	cpf: string;
@@ -42,9 +42,7 @@ export class CreateUserDto {
 			'https://images.unsplash.com/photo-1499714608240-22fc6ad53fb2?ixlib=rb-1.2.1&ixid=eyJhcHBfaWQiOjEyMDd9&auto=format&fit=crop&w=100&q=80',
 		description: 'URL da imagem do usuário',
 	})
-	@IsEmpty({
-		message: 'The avatar is empty',
-	})
+	@IsOptional()
 	@IsString()
 	avatar: string;
 
