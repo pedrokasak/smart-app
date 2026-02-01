@@ -4,8 +4,8 @@ import * as bodyParser from 'body-parser';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
-import { urlDevelopment, urlProduction } from './env';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+// import { urlDevelopment, urlProduction } from 'src/env';
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule);
@@ -14,9 +14,9 @@ async function bootstrap() {
 	}
 
 	app.enableCors({
-		origin: [urlProduction, urlDevelopment],
-		methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
-		allowedHeaders: 'Content-Type, Authorization',
+		origin: ['https://trakkerwallet.com.br', 'http://localhost:8080'],
+		methods: 'GET,PUT,PATCH,POST,DELETE',
+		allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
 		credentials: true,
 	});
 
@@ -33,7 +33,14 @@ async function bootstrap() {
 		.setDescription('The Trakker API description')
 		.addTag('trakker-api')
 		.setVersion('1.0')
-		.addBearerAuth()
+		.addBearerAuth(
+			{
+				type: 'http',
+				scheme: 'bearer',
+				bearerFormat: 'JWT',
+			},
+			'access-token'
+		)
 		.addBasicAuth()
 		.build();
 

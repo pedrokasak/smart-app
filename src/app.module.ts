@@ -13,6 +13,7 @@ import { JwtAuthGuard } from './authentication/jwt-auth.guard';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { StockModule } from './stocks/stocks.module';
+import { AssetsModule } from './assets/assets.module';
 
 @Module({
 	imports: [
@@ -25,6 +26,7 @@ import { StockModule } from './stocks/stocks.module';
 		SchedulerModule,
 		SubscriptionModule,
 		StockModule,
+		AssetsModule,
 	],
 	controllers: [AppController],
 	providers: [

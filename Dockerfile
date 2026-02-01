@@ -1,6 +1,5 @@
 # syntax = docker/dockerfile:1
-ARG NODE_VERSION=20.18.0
-FROM node:${NODE_VERSION}-alpine AS base
+FROM oven/bun:1-alpine AS base
 
 WORKDIR /app
 
@@ -10,28 +9,29 @@ FROM base AS build
 # Dependências de compilação
 RUN apk add --no-cache python3 make g++ openssl
 
-# Não defina NODE_ENV=production aqui para incluir devDependencies
-COPY package.json package-lock.json ./
-RUN npm ci
-
-# Copiar código e buildar
+# Não defina NODE_ENV=production aqui para incluir devDependencies. Copiar todo o código.
 COPY . .
-RUN npm run build
+RUN bun install
+
+# Buildar
+RUN bun run build
 
 # ---------------- STAGE FINAL ----------------
 FROM base
 
 # Agora sim, produção
 ENV NODE_ENV=production
+ENV NODE_PATH=./dist
 
 # Instalar apenas prod
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev
+COPY package.json ./
+COPY --from=build /app/bun.lock ./
+RUN bun install --production
 
 # Copiar artefatos do build
 COPY --from=build /app/dist ./dist
 
 # Usuário e porta
-USER node
+USER bun
 EXPOSE 3000
-CMD ["node", "dist/src/main.js"]
+CMD ["bun", "run", "--require", "tsconfig-paths/register", "dist/src/main.js"]

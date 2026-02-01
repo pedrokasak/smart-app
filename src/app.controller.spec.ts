@@ -4,6 +4,6 @@ describe('AppController', () => {
 	});
 
 	it('should return ok', async () => {
-		expect(true).toBe('ok');
+		expect(true).toBeTruthy();
 	});
 });

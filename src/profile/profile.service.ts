@@ -1,96 +1,53 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
-import { User } from 'src/users/schema/user.model';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { Profile, ProfileModel } from './schema/profile.model';
-import { Permission } from 'src/permissions/schema/permissions.model';
-import { ProfileErrorService } from 'src/utils/errors-handler';
-import Cpf from 'src/profile/entity/cpf';
+import { Profile } from './schema/profile.model';
 
 @Injectable()
 export class ProfileService {
 	constructor(
-		@InjectModel('Profile') private readonly profileModel: Model<Profile>,
-		@InjectModel('User') private readonly userModel: Model<User>,
-		@InjectModel('Permission')
-		private readonly permissionModel: Model<Permission>
+		@InjectModel('Profile') private readonly profileModel: Model<Profile>
 	) {}
-	async create(createProfileDto: CreateProfileDto) {
-		const { cpf, userId, permissions } = createProfileDto;
 
-		const findUser = await this.userModel
-			.find({
-				id: userId,
-			})
-			.exec();
-
-		if (!findUser)
-			throw new NotFoundException(`User with ID ${userId} not found`);
-
-		if (permissions) {
-			const findPermissions = await this.permissionModel
-				.find({
-					_id: { $in: permissions },
-				})
-				.exec();
-			if (findPermissions.length !== permissions.length) {
-				throw new NotFoundException('Some permissions were not found');
-			}
-		}
-		if (cpf) {
-			const findCpf = await this.profileModel.findOne({ cpf });
-			new Cpf(cpf);
-			if (findCpf) {
-				ProfileErrorService.handleCpfAlreadyExists(cpf);
-			}
-		}
-
-		const profile = new ProfileModel({
-			cpf,
+	async create(
+		userId: string,
+		createProfileDto: CreateProfileDto
+	): Promise<Profile> {
+		return this.profileModel.create({
 			user: userId,
-			permissions,
+			...createProfileDto,
+			isProfileComplete: this.isProfileComplete(createProfileDto),
 		});
-
-		await profile.save();
-
-		return { message: 'Profile created successfully', data: profile };
 	}
 
 	async findAll() {
 		return await this.profileModel.find().exec();
 	}
 
-	async findOne(userId: string) {
+	async findOne(userId: string): Promise<Profile> {
 		const profile = await this.profileModel.findOne({ user: userId }).exec();
 		if (!profile) {
 			throw new NotFoundException(`Profile for user ${userId} not found`);
 		}
 
-		return {
-			profile,
-		};
+		return this.profileModel.findOne({ user: userId }).exec();
 	}
 
 	async update(id: string, updateProfileDto: UpdateProfileDto) {
 		const dto = { ...updateProfileDto };
 
-		try {
-			new Cpf(dto.cpf);
-		} catch (error) {
-			ProfileErrorService.handleInvalidCpf(dto.cpf);
-		}
-
+		const userId = updateProfileDto.userId;
 		const profile = await this.profileModel.findById(id);
 		if (!profile) {
 			throw new NotFoundException(`Profile with ID ${id} not found`);
 		}
 
 		delete (dto as any).address;
-		return this.profileModel.findByIdAndUpdate(id, dto, {
-			new: true,
-		});
+		return this.profileModel
+			.findOneAndUpdate({ user: userId }, updateProfileDto, { new: true })
+			.exec();
 	}
 
 	async remove(profileId: string) {
@@ -103,5 +60,8 @@ export class ProfileService {
 
 	async removeAll(): Promise<void> {
 		await this.profileModel.deleteMany();
+	}
+	private isProfileComplete(profile: CreateProfileDto): boolean {
+		return !!(profile.phone && profile.address && profile.birthDate);
 	}
 }

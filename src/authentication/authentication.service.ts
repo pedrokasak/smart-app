@@ -2,6 +2,7 @@ import {
 	Injectable,
 	UnauthorizedException,
 	NotFoundException,
+	InternalServerErrorException,
 } from '@nestjs/common';
 import { AuthenticateDto } from './dto/authenticate.dto';
 import { JwtService } from '@nestjs/jwt';
@@ -28,10 +29,18 @@ export class AuthenticationService {
 	): Promise<AuthenticationEntity> {
 		const { email, password } = createSigninDto;
 
-		const verifyUser = await UserModel.findOne({ email }).exec();
+		const verifyUser = await UserModel.findOne({ email })
+			.select('+password')
+			.exec();
 
 		if (!verifyUser) {
 			AuthErrorService.handleUserNotFound(email);
+		}
+
+		if (!verifyUser.password) {
+			throw new InternalServerErrorException(
+				'Senha não configurada para este usuário'
+			);
 		}
 
 		const isPasswordValid = await bcrypt.compare(password, verifyUser.password);
