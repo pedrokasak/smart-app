@@ -1,2 +1,34 @@
 config:
   aws:region: us-east-1
+  trakker-server:databaseUrl:
+    secure: AAABAJpXBjgAxDePEf+el4t5UZMYy8JGVfcEXmL/MTV5tNgfFj8ysI/i/+z0beMuPA6kKJxGhXGoPO5TFX6OwgG6G2Orc8tPrfufr5RxhT2zpSLNrNCHGoqoJ0GrErV5HVdwfpc3z5ZULH7NCPtrapM2vnFMnN4LhRZ3SxVqyp9H/1d3hhP8m42E92T9GP0/ur9ZWw1zhIxSOEAA
+  trakker-server:MONGO_INITDB_ROOT_USERNAME:
+    secure: AAABAC2dU1hzUJgAdOaDppki9UsS29O7rUHRSEOmAe2gkNxA
+  trakker-server:MONGO_INITDB_ROOT_PASSWORD:
+    secure: AAABAHXCqP2rLzOlOKZ9WrotSyv1vihXVd4k9HzQqnBX30Ko
+  trakker-server:JWT_SECRET:
+    secure: AAABAKYBSyvzFbSnSf8ANrrMJmRHPlZFvsqtdhPRhfDoNVTCmafd+Krfs9SorWEuN02ejzyyt4fgHyVKaLa5+29hdWkr4qfy1SaK+BKc7Is+B1FeQwd12Pt1FAOQbOvk9jcvi+J9EzRSkdOOOKMy9d+RUjsVX+7ke3hNFD2g9KKUzyA=
+  trakker-server:EXPIRES_IN:
+    secure: AAABAOBHptGTHSbdxI2/ZnyeAnG43K3MBqL05SOQC4eXFQ8=
+  trakker-server:EXPIRES_IN_REFRESH_TOKEN:
+    secure: AAABAI4XlZM8kxGHWwaTTjjV4I7HLYLS38NNzQ0T/5e2Hg==
+  trakker-server:URL_PRODUCTION:
+    secure: AAABAMuoo1gvhcA/djuIoD5f/g2vDvlerXTYObJMX7awXTyhsodOUyK2+z0Rej6Nll56l+7wT8xX4adL
+  trakker-server:URL_DEVELOPMENT:
+    secure: AAABAIAddqEqhniQWETG8kNRWCeJWm5RK1mHmoZom6GzWH9Z0zazRhmrmX/isEF6n98JSsg=
+  trakker-server:TWELVE_DATA_API_KEY:
+    secure: AAABAHIarPGeqtpKWwGoqQvTWzobORqYjmvDmmwU4bT9WVNNnjchBGBEn5SPNIB89UQVP6idMbLL9FMqxuYcpA==
+  trakker-server:BRAPI_DATA_API_KEY:
+    secure: AAABAHqXp0lb9pvOZEQ3D0XF/R6gUae5w3wQOeTOzbOAfPm/8mQGVfDtauOf09LfqnVCZ4+u
+  trakker-server:STRIPE_PRIVATE_API_KEY:
+    secure: AAABAPQ9QowKf6I5VSbilcDPY32rJVoX38QED3GWLh2RTXwAO/kmJNLlTCsRzo9KLiddbFxFB0qQ9HwHVokMsRN/Nf0ivCWmSt2JxgITNaQaNOVlfdUD8awg0nPs676TEOMlgNf7dZhFlLKKocGrfTACgxODnlqHK3PvatQm4wl3KA38Wk1O3c88jA==
+  trakker-server:STRIPE_PUBLIC_API_KEY:
+    secure: AAABAPOmfX3pEI5MajsfcbSLy1ElsrX/zBTsvxqWBYydZGPk0LWdTOc//vddVTCHvp+a7rOZ0kQrGbEIzymSq8ud1SktWxVsbsMhlF8tid58PIm/T7sW5IZOn5+Rvr+J5uyh5B48EKBFOZjqEoH0kazis+8Xp1qrnGj42cRU1NmTeBMbhrIZ5XCQ+A==
+  trakker-server:STRIPE_WEBHOOK_SECRET:
+    secure: AAABAKZqx9VhOsVjx9Yr9McMu1aAbVAHVKTuK9K8ZyjZKXrLyIaDib8aK04JIe9MXLCqyGjok8Cp0DPZkl1AJO9RZq3+3w==
+  trakker-server:STRIPE_WEBHOOK_SECRET_PROD:
+    secure: AAABACkZFRgEQbycd5gFKt63V+Z2SphoZxsSrruRg/OyDmbjOSAI28mvMXRAAYgt2T9UY/v1XeqQAflJ1HR5U1GgZqtYWg==
+  trakker-server:ASAAS_API_KEY:
+    secure: AAABAFD5aRD30CsnYwzrYfXSTPN2GRYzy6OoDAqiXmgSGvHfaFVc+TNylngVVKrmtm1U3g6+z1RMCdh/FhrT9ZdfTyv/cmYpxX5PU68F8H9KIHiZpHv192oZO4lrLwAJ+/QGhbipu9SpRZI0H9QEP68wYzNOY61PLOAWKJxuSpyzGAzeE8mY8nxz4sSNw97GqXpzEXdmnsPq+BnQCm3u1nLrf8jNkhlN4osnVvYVijkI+i05TwOYF/CRQTbePBg+bKFhp2IO
+  trakker-server:ASAAS_URL_SANDBOX:
+    secure: AAABAPo0b1kdtrICSXj2veiuFU2xd0nRqb0FVNvZ9obpUyM+30jf+IjrsIH5R9AAt0qo2id0WPkiHtDMovw=

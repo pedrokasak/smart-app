@@ -1,6 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsArray, IsNotEmpty, IsOptional, IsString } from 'class-validator';
-import { IsCpf } from 'src/utils/decorators';
+import { IsNotEmpty, IsOptional, IsString, Matches } from 'class-validator';
 
 export class CreateProfileDto {
 	@ApiProperty()
@@ -11,16 +10,41 @@ export class CreateProfileDto {
 	@ApiProperty({ required: false })
 	@IsOptional()
 	@IsString()
-	permissionId?: string;
+	@Matches(/^\(\d{2}\) \d{4,5}-\d{4}$/, {
+		message: 'Telefone deve estar no formato: (11) 99999-9999',
+	})
+	phone?: string;
 
-	@IsString()
-	@IsCpf()
-	@IsNotEmpty({ message: 'CPF is required' })
-	cpf: string;
-
-	@ApiProperty({ type: [String], required: false })
+	@ApiProperty({ required: false })
 	@IsOptional()
-	@IsArray()
-	@IsString({ each: true })
-	permissions?: string[];
+	birthDate?: Date;
+
+	@ApiProperty({ required: false })
+	@IsOptional()
+	address?: {
+		street?: string;
+		number?: string;
+		complement?: string;
+		city?: string;
+		state?: string;
+		zipCode?: string;
+		country?: string;
+	};
+
+	@ApiProperty({ required: false })
+	@IsOptional()
+	preferences?: {
+		language?: 'pt-BR' | 'en-US' | 'es-ES';
+		theme?: 'light' | 'dark';
+		notifications?: boolean;
+		twoFactorEnabled?: boolean;
+	};
+
+	@ApiProperty({ required: false, default: 3 })
+	@IsOptional()
+	maxPortfolios?: number;
+
+	@ApiProperty({ required: false, default: false })
+	@IsOptional()
+	isProfileComplete?: boolean;
 }
