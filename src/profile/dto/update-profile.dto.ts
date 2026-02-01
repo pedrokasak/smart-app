@@ -1,6 +1,7 @@
 import { ApiProperty, PartialType } from '@nestjs/swagger';
 import { CreateProfileDto } from './create-profile.dto';
 import { IsString, IsOptional, Matches, IsNotEmpty } from 'class-validator';
+import { IsCpf } from 'src/utils/decorators';
 
 export class UpdateProfileDto extends PartialType(CreateProfileDto) {
 	@ApiProperty()
@@ -40,4 +41,9 @@ export class UpdateProfileDto extends PartialType(CreateProfileDto) {
 		notifications?: boolean;
 		twoFactorEnabled?: boolean;
 	};
+
+	@ApiProperty({ required: false })
+	@IsOptional({ message: 'CPF cannot be empty' })
+	@IsCpf()
+	cpf: string;
 }

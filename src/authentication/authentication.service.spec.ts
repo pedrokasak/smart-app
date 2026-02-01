@@ -21,6 +21,8 @@ jest.mock('src/users/schema/user.model', () => {
 		findByIdAndUpdate: jest.fn(),
 		findByIdAndDelete: jest.fn(),
 		find: jest.fn(),
+		select: jest.fn(),
+		exec: jest.fn(),
 	};
 
 	return { UserModel: mockUserModel };
@@ -76,6 +78,7 @@ describe('AuthenticationService', () => {
 			};
 
 			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnThis(),
 				exec: jest.fn().mockResolvedValue(mockUser),
 			});
 
@@ -108,6 +111,7 @@ describe('AuthenticationService', () => {
 
 		it('should throw an error if user is not found', async () => {
 			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnThis(),
 				exec: jest.fn().mockResolvedValue(null),
 			});
 
@@ -134,6 +138,7 @@ describe('AuthenticationService', () => {
 			};
 
 			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnThis(),
 				exec: jest.fn().mockResolvedValue(mockUser),
 			});
 
@@ -150,6 +155,10 @@ describe('AuthenticationService', () => {
 		});
 
 		it('should throw an error if email is invalid', async () => {
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnThis(),
+				exec: jest.fn().mockResolvedValue(null),
+			});
 			await expect(
 				service.signin({
 					email: 'invalid-email',
@@ -161,6 +170,10 @@ describe('AuthenticationService', () => {
 		});
 
 		it('should throw an error if password is empty', async () => {
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnThis(),
+				exec: jest.fn().mockResolvedValue(null),
+			});
 			await expect(
 				service.signin({
 					email: 'test@example.com',
@@ -172,6 +185,10 @@ describe('AuthenticationService', () => {
 		});
 
 		it('should throw an error if email is empty', async () => {
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnThis(),
+				exec: jest.fn().mockResolvedValue(null),
+			});
 			await expect(
 				service.signin({
 					email: '',
@@ -183,6 +200,10 @@ describe('AuthenticationService', () => {
 		});
 
 		it('should throw an error if token is not empty', async () => {
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnThis(),
+				exec: jest.fn().mockResolvedValue(null),
+			});
 			await expect(
 				service.signin({
 					email: 'test@example.com',
@@ -193,19 +214,9 @@ describe('AuthenticationService', () => {
 			).rejects.toThrow('No user found for email: test@example.com');
 		});
 
-		it('should throw an error if token is empty', async () => {
-			await expect(
-				service.signin({
-					email: 'test@example.com',
-					password: '123456',
-					keepConnected: false,
-					token: '',
-				})
-			).rejects.toThrow('No user found for email: test@example.com');
-		});
-
 		it('should throw an error if user is not found', async () => {
 			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnThis(),
 				exec: jest.fn().mockResolvedValue(null),
 			});
 

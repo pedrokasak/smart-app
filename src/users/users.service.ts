@@ -16,7 +16,7 @@ export class UsersService {
 	constructor(private readonly jwtService: JwtService) {}
 	async create(createUserDto: CreateUserDto) {
 		try {
-			const { firstName, lastName, email, password, confirmPassword } =
+			const { firstName, lastName, email, password, confirmPassword, cpf } =
 				createUserDto;
 
 			const verifyIsEmailExists = await UserModel.findOne({
@@ -24,6 +24,12 @@ export class UsersService {
 			});
 			if (verifyIsEmailExists)
 				throw new BadRequestException(`Email ${email} already exists`);
+
+			const verifyIsCpfExists = await UserModel.findOne({
+				cpf,
+			});
+			if (verifyIsCpfExists)
+				throw new BadRequestException(`CPF ${cpf} already exists`);
 
 			if (password !== confirmPassword) {
 				throw AuthErrorService.handleInvalidConfirmPassword();
@@ -36,6 +42,7 @@ export class UsersService {
 				firstName,
 				lastName,
 				email,
+				cpf,
 				password: hashedPassword,
 			});
 

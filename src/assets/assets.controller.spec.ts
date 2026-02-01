@@ -4,11 +4,12 @@ import { AssetsService } from './assets.service';
 
 describe('AssetsController', () => {
 	let controller: AssetsController;
+	const mockAssetsService = {};
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
 			controllers: [AssetsController],
-			providers: [AssetsService],
+			providers: [{ provide: AssetsService, useValue: mockAssetsService }],
 		}).compile();
 
 		controller = module.get<AssetsController>(AssetsController);

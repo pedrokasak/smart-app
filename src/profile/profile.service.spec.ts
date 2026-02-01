@@ -11,13 +11,14 @@ import { getModelToken } from '@nestjs/mongoose';
 import { NotFoundException } from '@nestjs/common';
 
 const mockProfileModel = {
-	find: jest.fn(),
-	findOne: jest.fn(),
+	create: jest.fn(),
+	find: jest.fn().mockReturnThis(),
+	findOne: jest.fn().mockReturnThis(),
 	findById: jest.fn(),
-	findByIdAndUpdate: jest.fn(),
 	findByIdAndDelete: jest.fn(),
+	findOneAndUpdate: jest.fn().mockReturnThis(),
 	deleteMany: jest.fn(),
-	save: jest.fn(),
+	exec: jest.fn(),
 };
 
 const mockPermissionModel = {
@@ -43,9 +44,10 @@ describe('ProfileService', () => {
 	afterEach(() => {
 		jest.clearAllMocks();
 	});
+
 	describe('findAll', () => {
 		it('should return all profiles', async () => {
-			const profiles = [{ cpf: '12623958793,' }];
+			const profiles = [{ cpf: '12623958793' }];
 			mockProfileModel.find.mockReturnValue({
 				exec: jest.fn().mockResolvedValue(profiles),
 			});
@@ -64,7 +66,7 @@ describe('ProfileService', () => {
 			});
 
 			const result = await service.findOne('userId');
-			expect(result).toEqual({ profile });
+			expect(result).toEqual(profile);
 			expect(mockProfileModel.findOne).toHaveBeenCalledWith({ user: 'userId' });
 		});
 
@@ -81,21 +83,28 @@ describe('ProfileService', () => {
 
 	describe('update', () => {
 		it('should update a profile', async () => {
-			const dto = { cpf: '71253281050', userId: 'user123', permissions: [] };
+			const updateDto = {
+				phone: '123456789',
+				userId: 'userId',
+				cpf: '12345678901',
+			};
+			const updatedProfile = {
+				user: 'userId',
+				...updateDto,
+			};
 
-			const profile = { _id: '1' };
-
-			mockProfileModel.findById.mockResolvedValue(profile);
-			mockProfileModel.findByIdAndUpdate.mockResolvedValue({
-				...profile,
-				...dto,
+			mockProfileModel.findById.mockResolvedValue({ user: 'userId' });
+			mockProfileModel.findOneAndUpdate.mockReturnValue({
+				exec: jest.fn().mockResolvedValue(updatedProfile),
 			});
 
-			const result = await service.update('1', dto);
-			expect(result).toEqual({ ...profile, ...dto });
-			expect(mockProfileModel.findByIdAndUpdate).toHaveBeenCalledWith(
-				'1',
-				dto,
+			const result = await service.update('profileId', updateDto);
+
+			expect(result).toEqual(updatedProfile);
+			expect(mockProfileModel.findById).toHaveBeenCalledWith('profileId');
+			expect(mockProfileModel.findOneAndUpdate).toHaveBeenCalledWith(
+				{ user: updateDto.userId },
+				updateDto,
 				{ new: true }
 			);
 		});
@@ -103,9 +112,12 @@ describe('ProfileService', () => {
 		it('should throw NotFoundException if profile does not exist', async () => {
 			mockProfileModel.findById.mockResolvedValue(null);
 
-			await expect(service.update('1', { cpf: '12345678901' })).rejects.toThrow(
-				NotFoundException
-			);
+			await expect(
+				service.update('1', {
+					cpf: '12345678901',
+					userId: '',
+				})
+			).rejects.toThrow(NotFoundException);
 		});
 	});
 
@@ -128,6 +140,7 @@ describe('ProfileService', () => {
 
 	describe('removeAll', () => {
 		it('should delete all profiles', async () => {
+			mockProfileModel.deleteMany.mockResolvedValue({ deletedCount: 5 });
 			await service.removeAll();
 			expect(mockProfileModel.deleteMany).toHaveBeenCalled();
 		});

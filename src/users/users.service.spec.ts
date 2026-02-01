@@ -49,6 +49,7 @@ describe('UsersService', () => {
 				firstName: 'Pedro',
 				lastName: 'SantAnna',
 				email: 'pedro@example.com',
+				cpf: '123.456.789-00',
 				password: 'Password123@',
 				confirmPassword: 'Password123@',
 			};
@@ -63,8 +64,10 @@ describe('UsersService', () => {
 				firstName: 'Pedro',
 				lastName: 'SantAnna',
 				email: 'pedro@example.com',
+				cpf: '123.456.789-00',
 				password: 'Password123@',
 				confirmPassword: 'Password123@',
+				avatar: 'http://example.com/avatar.jpg',
 			});
 
 			expect(result.message).toBe('User created successfully');
@@ -83,6 +86,8 @@ describe('UsersService', () => {
 					email: 'pedro@example.com',
 					password: '123456',
 					confirmPassword: '123456',
+					cpf: '123.456.789-00',
+					avatar: 'http://example.com/avatar.jpg',
 				})
 			).rejects.toThrow(HttpException);
 		});
@@ -97,6 +102,8 @@ describe('UsersService', () => {
 					email: 'pedro@example.com',
 					password: 'Password123@',
 					confirmPassword: 'DifferentPassword123@',
+					cpf: '123.456.789-00',
+					avatar: 'http://example.com/avatar.jpg',
 				})
 			).rejects.toThrow(HttpException);
 		});
