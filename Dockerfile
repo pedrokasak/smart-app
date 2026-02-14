@@ -35,4 +35,4 @@ COPY --from=build /app/dist ./dist
 # Usuário e porta
 USER bun
 EXPOSE 3000
-CMD ["bun", "dist/main.js"]
+CMD ["bun", "--require", "tsconfig-paths/register", "dist/main.js"]
