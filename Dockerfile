@@ -25,7 +25,7 @@ ENV NODE_PATH=./dist
 
 # Instalar apenas prod
 COPY package.json ./
-COPY bun.lockb ./
+COPY bun.lock ./
 
 RUN bun install --production
 
