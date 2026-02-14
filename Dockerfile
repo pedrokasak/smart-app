@@ -26,6 +26,8 @@ ENV NODE_PATH=./dist
 # Instalar apenas prod
 COPY package.json ./
 COPY bun.lock ./
+COPY tsconfig.json ./
+COPY tsconfig.build.json ./
 
 RUN bun install --production
 
