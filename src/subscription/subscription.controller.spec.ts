@@ -60,7 +60,6 @@ describe('SubscriptionController', () => {
 					provide: SubscriptionService,
 					useValue: mockSubscriptionService,
 				},
-				SubscriptionService,
 				{ provide: 'SubscriptionModel', useValue: mockSubscriptionModel },
 				{
 					provide: 'UserSubscriptionModel',
