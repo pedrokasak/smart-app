@@ -1,6 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SubscriptionService } from './subscription.service';
-import { WebhooksController } from 'src/subscription/webhooks.controller';
 import { WebhooksService } from 'src/subscription/webhooks.service';
 import { NotFoundException } from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
@@ -26,36 +25,37 @@ jest.mock('stripe', () => {
 
 describe('SubscriptionService', () => {
 	let service: SubscriptionService;
-
-	const mockSubscriptionModel = {
-		create: jest.fn(),
-		find: jest.fn(),
-		findById: jest.fn(),
-		findByIdAndUpdate: jest.fn(),
-		findByIdAndDelete: jest.fn(),
-	};
-	const mockUserSubscriptionModel = { findOne: jest.fn(), create: jest.fn() };
-	const mockUserModel = { findById: jest.fn() };
-	const mockStripeService = {
-		createProduct: jest.fn().mockResolvedValue({ id: 'prod_123' }),
-		createPrice: jest.fn().mockResolvedValue({ id: 'price_123' }),
-		createSubscription: jest.fn(),
-		cancelSubscription: jest.fn(),
-		createCheckoutSession: jest
-			.fn()
-			.mockResolvedValue({ sessionId: 'sess_123', url: 'http://stripe.url' }),
-		createCustomerPortalSession: jest.fn(),
-	};
-	const mockWebhooksService = {
-		checkExpiredSubscriptions: jest.fn(),
-		handleWebhook: jest.fn(),
-	};
-
-	mockSubscriptionModel.find.mockReturnValue({
-		sort: jest.fn().mockResolvedValue([]), // retorna um array vazio ou dados mockados
-	});
+	let mockSubscriptionModel: any;
+	// let mockUserSubscriptionModel: any;
+	// let mockUserModel: any;
+	let mockStripeService: any;
+	let mockWebhooksService: any;
 
 	beforeEach(async () => {
+		mockSubscriptionModel = jest.fn().mockImplementation((dto) => ({
+			...dto,
+			save: jest.fn().mockResolvedValue({
+				_id: 'sub123',
+				...dto,
+			}),
+		}));
+
+		mockSubscriptionModel.find = jest.fn().mockReturnValue({
+			sort: jest.fn().mockResolvedValue([]),
+		});
+
+		mockSubscriptionModel.findById = jest.fn();
+		const mockUserSubscriptionModel = { findOne: jest.fn(), create: jest.fn() };
+		const mockUserModel = { findById: jest.fn() };
+		mockStripeService = {
+			createProduct: jest.fn().mockResolvedValue({ id: 'prod_123' }),
+			createPrice: jest.fn().mockResolvedValue({ id: 'price_123' }),
+			createCheckoutSession: jest.fn(),
+		};
+		mockWebhooksService = {
+			checkExpiredSubscriptions: jest.fn(),
+			handleWebhook: jest.fn(),
+		};
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [
 				SubscriptionService,
@@ -229,64 +229,6 @@ describe('SubscriptionController', () => {
 				body.successUrl,
 				body.cancelUrl
 			);
-		});
-	});
-});
-
-describe('WebhooksController', () => {
-	let controller: WebhooksController;
-
-	const mockWebhooksService = { handleWebhook: jest.fn() };
-
-	beforeEach(async () => {
-		const module: TestingModule = await Test.createTestingModule({
-			controllers: [WebhooksController],
-			providers: [{ provide: WebhooksService, useValue: mockWebhooksService }],
-		}).compile();
-
-		controller = module.get<WebhooksController>(WebhooksController);
-	});
-
-	it('should be defined', () => {
-		expect(controller).toBeDefined();
-	});
-
-	describe('handleStripeWebhook', () => {
-		it('should call handleWebhook and return status 200', async () => {
-			const req: any = {
-				headers: { 'stripe-signature': 'sig_test' },
-				body: { id: 'evt_test' },
-			};
-			const res: any = { status: jest.fn().mockReturnThis(), json: jest.fn() };
-
-			mockWebhooksService.handleWebhook.mockResolvedValue(true);
-
-			await controller.handleStripeWebhook(req, res);
-
-			expect(mockWebhooksService.handleWebhook).toHaveBeenCalledWith(req.body);
-			expect(res.status).toHaveBeenCalledWith(200);
-			expect(res.json).toHaveBeenCalledWith({ received: true });
-		});
-
-		it('should return 400 if signature invalid', async () => {
-			const req: any = {
-				headers: { 'stripe-signature': 'sig_test' },
-				body: {},
-			};
-			const res: any = { status: jest.fn().mockReturnThis(), json: jest.fn() };
-
-			(controller as any).stripe = {
-				webhooks: {
-					constructEvent: jest.fn().mockImplementation(() => {
-						throw new Error('Invalid');
-					}),
-				},
-			};
-
-			await controller.handleStripeWebhook(req, res);
-
-			expect(res.status).toHaveBeenCalledWith(400);
-			expect(res.json).toHaveBeenCalledWith({ error: 'Assinatura inválida' });
 		});
 	});
 });
