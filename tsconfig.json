@@ -20,5 +20,6 @@
 		"paths": {
 			"src/*": ["./src/*"] // Certifique-se de que está assim
 		}
-	}
+	},
+	"exclude": ["infra", "node_modules", "dist", "test"]
 }
