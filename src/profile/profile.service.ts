@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Profile } from './schema/profile.model';
 
 @Injectable()
@@ -26,13 +26,30 @@ export class ProfileService {
 		return await this.profileModel.find().exec();
 	}
 
+	// async findOne(userId: string): Promise<Profile> {
+	// 	const profile = await this.profileModel.findOne({ user: userId }).exec();
+	// 	if (!profile) {
+	// 		throw new NotFoundException(`Profile for user ${userId} not found`);
+	// 	}
+
+	// 	return this.profileModel.findOne({ user: userId }).exec();
+	// }
 	async findOne(userId: string): Promise<Profile> {
-		const profile = await this.profileModel.findOne({ user: userId }).exec();
+		// Valida se userId é um ObjectId válido
+		if (!Types.ObjectId.isValid(userId)) {
+			throw new NotFoundException(`Invalid user ID format: ${userId}`);
+		}
+
+		const profile = await this.profileModel
+			.findOne({ user: userId })
+			.populate('user')
+			.exec();
+
 		if (!profile) {
 			throw new NotFoundException(`Profile for user ${userId} not found`);
 		}
 
-		return this.profileModel.findOne({ user: userId }).exec();
+		return profile; // ✅ Retorna uma única vez
 	}
 
 	async update(id: string, updateProfileDto: UpdateProfileDto) {
