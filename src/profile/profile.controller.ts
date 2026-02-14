@@ -6,7 +6,6 @@ import {
 	Param,
 	Delete,
 	UseGuards,
-	Req,
 	Post,
 	BadRequestException,
 } from '@nestjs/common';
@@ -23,7 +22,7 @@ import { ProfileMapper } from 'src/profile/mappers/profile.mapper';
 export class ProfileController {
 	constructor(private readonly profileService: ProfileService) {}
 
-	@Post(':id')
+	@Post('create/:id')
 	@UseGuards(JwtAuthGuard)
 	@ApiOkResponse({ type: CreateProfileDto, description: 'Success' })
 	@ApiResponse({ status: 403, description: 'Forbidden.' })
@@ -55,8 +54,8 @@ export class ProfileController {
 	@ApiResponse({ status: 403, description: 'Forbidden.' })
 	@ApiResponse({ status: 401, description: 'Unauthorized.' })
 	@ApiResponse({ status: 200, description: 'Ok.' })
-	async findOne(@Req() req: any): Promise<ProfileResponseDto> {
-		const profile = await this.profileService.findOne(req.user.id);
+	async findOne(@Param('id') id: string): Promise<ProfileResponseDto> {
+		const profile = await this.profileService.findOne(id);
 		return ProfileMapper.toResponseDto(profile);
 	}
 

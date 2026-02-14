@@ -1,5 +1,5 @@
 import { Schema, Document, model, Types } from 'mongoose';
-import { Address, AddressModel } from 'src/address/schema/address.model';
+import { Address } from 'src/address/schema/address.model';
 
 export interface Profile extends Document {
 	user: Types.ObjectId;
@@ -28,6 +28,20 @@ export interface Preferences {
 	notifications?: boolean;
 	twoFactorEnabled?: boolean;
 }
+
+const addressSchema = new Schema<Address>(
+	{
+		street: { type: String },
+		number: { type: String },
+		complement: { type: String },
+		neighborhood: { type: String },
+		city: { type: String },
+		state: { type: String },
+		zipCode: { type: String },
+		country: { type: String },
+	},
+	{ _id: false }
+);
 
 const preferencesSchema = new Schema<Preferences>(
 	{
@@ -59,18 +73,21 @@ const profileSchema = new Schema<Profile>(
 			type: Schema.Types.ObjectId,
 			ref: 'User',
 			required: true,
-			unique: true, // Um profile por user
+			unique: true,
 		},
 
 		phone: {
 			type: String,
-			match: /^\(\d{2}\) \d{4,5}-\d{4}$/, // Formato: (11) 99999-9999
+			match: /^\(\d{2}\) \d{4,5}-\d{4}$/,
 		},
 
 		birthDate: Date,
 
-		// Endereço
-		address: AddressModel.schema,
+		address: {
+			type: addressSchema,
+			required: false,
+			default: null,
+		},
 
 		// Preferências
 		preferences: {
@@ -83,7 +100,6 @@ const profileSchema = new Schema<Profile>(
 			default: 1,
 		},
 
-		// Status
 		isProfileComplete: {
 			type: Boolean,
 			default: false,
@@ -96,8 +112,6 @@ const profileSchema = new Schema<Profile>(
 
 // Índices
 profileSchema.index({ user: 1 });
-profileSchema.index({ cpf: 1 });
-profileSchema.index({ plan: 1 });
 
 profileSchema.set('toJSON', { virtuals: true });
 profileSchema.set('toObject', { virtuals: true });

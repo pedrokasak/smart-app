@@ -1,4 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+	ConflictException,
+	Injectable,
+	NotFoundException,
+} from '@nestjs/common';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { InjectModel } from '@nestjs/mongoose';
@@ -15,6 +19,13 @@ export class ProfileService {
 		userId: string,
 		createProfileDto: CreateProfileDto
 	): Promise<Profile> {
+		const existingProfile = await this.profileModel.findOne({ user: userId });
+		if (existingProfile) {
+			throw new ConflictException(
+				`Profile already exists for user ${userId}. Use PATCH to update it.`
+			);
+		}
+
 		return this.profileModel.create({
 			user: userId,
 			...createProfileDto,
@@ -26,18 +37,10 @@ export class ProfileService {
 		return await this.profileModel.find().exec();
 	}
 
-	// async findOne(userId: string): Promise<Profile> {
-	// 	const profile = await this.profileModel.findOne({ user: userId }).exec();
-	// 	if (!profile) {
-	// 		throw new NotFoundException(`Profile for user ${userId} not found`);
-	// 	}
-
-	// 	return this.profileModel.findOne({ user: userId }).exec();
-	// }
 	async findOne(userId: string): Promise<Profile> {
 		// Valida se userId é um ObjectId válido
 		if (!Types.ObjectId.isValid(userId)) {
-			throw new NotFoundException(`Invalid user ID format: ${userId}`);
+			throw new NotFoundException(`Invalid user ID format: ${typeof userId}`);
 		}
 
 		const profile = await this.profileModel
@@ -49,22 +52,30 @@ export class ProfileService {
 			throw new NotFoundException(`Profile for user ${userId} not found`);
 		}
 
-		return profile; // ✅ Retorna uma única vez
+		return profile;
 	}
 
 	async update(id: string, updateProfileDto: UpdateProfileDto) {
-		const dto = { ...updateProfileDto };
+		if (!Types.ObjectId.isValid(id)) {
+			throw new NotFoundException(`Invalid profile ID format: ${id}`);
+		}
 
-		const userId = updateProfileDto.userId;
 		const profile = await this.profileModel.findById(id);
 		if (!profile) {
 			throw new NotFoundException(`Profile with ID ${id} not found`);
 		}
 
-		delete (dto as any).address;
-		return this.profileModel
-			.findOneAndUpdate({ user: userId }, updateProfileDto, { new: true })
+		const { ...dto } = updateProfileDto;
+
+		const updated = await this.profileModel
+			.findByIdAndUpdate(id, dto, { new: true })
+			.populate('user')
 			.exec();
+
+		if (!updated) {
+			throw new NotFoundException(`Profile with ID ${id} not found`);
+		}
+		return updated;
 	}
 
 	async remove(profileId: string) {
