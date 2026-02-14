@@ -25,7 +25,8 @@ ENV NODE_PATH=./dist
 
 # Instalar apenas prod
 COPY package.json ./
-COPY --from=build /app/bun.lockb ./
+COPY bun.lockb ./
+
 RUN bun install --production
 
 # Copiar artefatos do build
