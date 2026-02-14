@@ -9,6 +9,7 @@ export interface Address extends Document {
 	city: string;
 	state: string;
 	zipCode: string;
+	country?: string;
 	type: AddressType;
 	createdAt?: Date;
 	updatedAt?: Date;
@@ -30,6 +31,7 @@ const addressSchema = new Schema<Address>({
 	neighborhood: { type: String, required: true },
 	city: { type: String, required: true },
 	state: { type: String, required: true },
+	country: { type: String, required: false },
 	zipCode: { type: String, required: true },
 	type: {
 		type: String,
