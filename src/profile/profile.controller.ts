@@ -8,6 +8,7 @@ import {
 	UseGuards,
 	Req,
 	Post,
+	BadRequestException,
 } from '@nestjs/common';
 import { ProfileService } from './profile.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
@@ -32,6 +33,9 @@ export class ProfileController {
 		@Param('id') userId: string,
 		@Body() createProfileDto: CreateProfileDto
 	) {
+		if (!createProfileDto.userId) {
+			throw new BadRequestException('userId é obrigatório');
+		}
 		return this.profileService.create(userId, createProfileDto);
 	}
 
