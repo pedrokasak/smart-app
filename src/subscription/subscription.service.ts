@@ -75,7 +75,7 @@ export class SubscriptionService {
 	async findAllSubscriptions() {
 		try {
 			const subscriptions = await this.subscriptionModel
-				.find({ isActive: true })
+				.find({ isActive: false })
 				.sort({ price: 1 });
 			return subscriptions;
 		} catch (error) {
