@@ -5,7 +5,7 @@ import {
 	BadRequestException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { CreateUserSubscriptionDto } from './dto/create-user-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
@@ -99,12 +99,18 @@ export class SubscriptionService {
 	}
 
 	async findCurrentSubscriptionByUser(userId: string) {
-		return this.userSubscriptionModel
+		const userSubscription = await this.userSubscriptionModel
 			.findOne({
-				user: userId,
+				user: new Types.ObjectId(userId),
 				status: { $in: ['active', 'trialing'] },
 			})
-			.populate('subscription');
+			.populate('plan');
+
+		if (!userSubscription) {
+			return null;
+		}
+
+		return userSubscription;
 	}
 
 	// Atualizar plano
@@ -190,12 +196,17 @@ export class SubscriptionService {
 			}
 
 			// Criar cliente no Stripe se não existir
-			const stripeCustomerId = createUserSubscriptionDto.stripeCustomerId;
+			let stripeCustomerId = createUserSubscriptionDto.stripeCustomerId;
 			if (!stripeCustomerId) {
 				// Aqui você precisaria buscar o email do usuário
-				// const user = await this.userService.findById(createUserSubscriptionDto.userId);
-				// const customer = await this.stripeService.createCustomer(user.email, user.name);
-				// stripeCustomerId = customer.id;
+				const user = await this.userModel.findById(
+					createUserSubscriptionDto.userId
+				);
+				const customer = await this.stripeService.createCustomer(
+					user.email,
+					user.firstName + ' ' + user.lastName
+				);
+				stripeCustomerId = customer.id;
 			}
 
 			// Criar assinatura no Stripe
@@ -245,7 +256,7 @@ export class SubscriptionService {
 		try {
 			const userSubscription = await this.userSubscriptionModel
 				.findOne({ user: userId })
-				.populate('subscription')
+				.populate('plan')
 				.sort({ createdAt: -1 });
 
 			if (!userSubscription) {
@@ -288,7 +299,10 @@ export class SubscriptionService {
 			}
 			await userSubscription.save();
 
-			this.logger.log(`Assinatura cancelada para usuário: ${userId}`);
+			this.logger.log(
+				`Assinatura cancelada para usuário: ${userId}` +
+					`(plano: ${userSubscription.plan._id})`
+			);
 			return { message: 'Assinatura cancelada com sucesso' };
 		} catch (error) {
 			this.logger.error('Erro ao cancelar assinatura:', error);

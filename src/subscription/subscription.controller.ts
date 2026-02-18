@@ -25,6 +25,20 @@ import {
 export class SubscriptionController {
 	constructor(private readonly subscriptionService: SubscriptionService) {}
 
+	@Get('current')
+	async getCurrentSubscription(@Req() req: any) {
+		const subscription =
+			await this.subscriptionService.findCurrentSubscriptionByUser(
+				req.user.userId
+			);
+
+		return {
+			hasSubscription: !!subscription,
+			subscription,
+			plan: subscription?.plan,
+		};
+	}
+
 	@Get()
 	@ApiOperation({ summary: 'Listar todos os planos' })
 	findAll() {
@@ -55,12 +69,6 @@ export class SubscriptionController {
 	@Post('create')
 	create(@Body() createSubscriptionDto: CreateSubscriptionDto) {
 		return this.subscriptionService.createSubscription(createSubscriptionDto);
-	}
-
-	@Get('current')
-	getCurrentSubscription(@Req() req) {
-		const userId = req.user.id;
-		return this.subscriptionService.findCurrentSubscriptionByUser(userId);
 	}
 
 	@Patch(':id')

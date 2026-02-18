@@ -65,7 +65,7 @@ describe('ProfileController', () => {
 			},
 		};
 
-		const result = await controller.findOne(req);
+		const result = await controller.findOne(req.user.id);
 
 		expect(mockProfileService.findOne).toHaveBeenCalledWith('user-id');
 		expect(result).toEqual(

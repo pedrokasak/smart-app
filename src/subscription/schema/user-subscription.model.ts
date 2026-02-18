@@ -2,7 +2,7 @@ import { Schema, Document, model, Types } from 'mongoose';
 
 export interface UserSubscription extends Document {
 	user: Types.ObjectId;
-	subscription: Types.ObjectId;
+	plan: Types.ObjectId;
 	stripeSubscriptionId?: string;
 	stripeCustomerId?: string;
 	status: 'active' | 'canceled' | 'past_due' | 'unpaid' | 'trialing' | 'paused';
@@ -20,7 +20,7 @@ export interface UserSubscription extends Document {
 
 const userSubscriptionSchema = new Schema<UserSubscription>({
 	user: { type: Schema.Types.ObjectId, ref: 'User', required: true },
-	subscription: {
+	plan: {
 		type: Schema.Types.ObjectId,
 		ref: 'Subscription',
 		required: true,

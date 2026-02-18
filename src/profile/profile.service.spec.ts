@@ -9,6 +9,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ProfileService } from './profile.service';
 import { getModelToken } from '@nestjs/mongoose';
 import { NotFoundException } from '@nestjs/common';
+import { Types } from 'mongoose';
 
 const mockProfileModel = {
 	create: jest.fn(),
@@ -17,6 +18,10 @@ const mockProfileModel = {
 	findById: jest.fn(),
 	findByIdAndDelete: jest.fn(),
 	findOneAndUpdate: jest.fn().mockReturnThis(),
+	findByIdAndUpdate: jest.fn().mockReturnValue({
+		populate: jest.fn().mockReturnThis(),
+		exec: jest.fn(),
+	}),
 	deleteMany: jest.fn(),
 	exec: jest.fn(),
 };
@@ -61,13 +66,18 @@ describe('ProfileService', () => {
 	describe('findOne', () => {
 		it('should return a profile by userId', async () => {
 			const profile = { cpf: '12345678901' };
+			const validUserId = new Types.ObjectId().toString();
+
 			mockProfileModel.findOne.mockReturnValue({
+				populate: jest.fn().mockReturnThis(),
 				exec: jest.fn().mockResolvedValue(profile),
 			});
 
-			const result = await service.findOne('userId');
+			const result = await service.findOne(validUserId);
 			expect(result).toEqual(profile);
-			expect(mockProfileModel.findOne).toHaveBeenCalledWith({ user: 'userId' });
+			expect(mockProfileModel.findOne).toHaveBeenCalledWith({
+				user: validUserId,
+			});
 		});
 
 		it('should throw NotFoundException if profile not found', async () => {
@@ -83,40 +93,44 @@ describe('ProfileService', () => {
 
 	describe('update', () => {
 		it('should update a profile', async () => {
+			const validProfileId = new Types.ObjectId().toString();
+
 			const updateDto = {
 				phone: '123456789',
-				userId: 'userId',
+				userId: new Types.ObjectId().toString(),
 				cpf: '12345678901',
 			};
+
 			const updatedProfile = {
-				user: 'userId',
+				_id: validProfileId,
 				...updateDto,
 			};
 
-			mockProfileModel.findById.mockResolvedValue({ user: 'userId' });
-			mockProfileModel.findOneAndUpdate.mockReturnValue({
+			mockProfileModel.findById.mockResolvedValue({ _id: validProfileId });
+
+			mockProfileModel.findByIdAndUpdate.mockReturnValue({
+				populate: jest.fn().mockReturnThis(),
 				exec: jest.fn().mockResolvedValue(updatedProfile),
 			});
 
-			const result = await service.update('profileId', updateDto);
+			const result = await service.update(validProfileId, updateDto);
 
 			expect(result).toEqual(updatedProfile);
-			expect(mockProfileModel.findById).toHaveBeenCalledWith('profileId');
-			expect(mockProfileModel.findOneAndUpdate).toHaveBeenCalledWith(
-				{ user: updateDto.userId },
-				updateDto,
+			expect(mockProfileModel.findById).toHaveBeenCalledWith(validProfileId);
+			expect(mockProfileModel.findByIdAndUpdate).toHaveBeenCalledWith(
+				validProfileId,
+				expect.any(Object),
 				{ new: true }
 			);
 		});
 
 		it('should throw NotFoundException if profile does not exist', async () => {
+			const validProfileId = new Types.ObjectId().toString();
+
 			mockProfileModel.findById.mockResolvedValue(null);
 
 			await expect(
-				service.update('1', {
-					cpf: '12345678901',
-					userId: '',
-				})
+				service.update(validProfileId, { phone: '123' })
 			).rejects.toThrow(NotFoundException);
 		});
 	});
