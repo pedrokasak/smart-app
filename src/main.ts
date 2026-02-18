@@ -5,26 +5,33 @@ import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-// import { urlDevelopment, urlProduction } from 'src/env';
+import { urlDevelopment, urlProduction } from 'src/env';
 
 async function bootstrap() {
-	const app = await NestFactory.create(AppModule);
+	const app = await NestFactory.create(AppModule, {
+		bodyParser: false,
+	});
+
 	if (!(global as any).crypto) {
 		(global as any).crypto = require('crypto');
 	}
 
+	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
+	app.use(bodyParser.json());
+
 	app.enableCors({
-		origin: ['https://trakkerwallet.com.br', 'http://localhost:8080'],
+		origin: [urlDevelopment, urlProduction],
 		methods: 'GET,PUT,PATCH,POST,DELETE',
-		allowedHeaders: ['Content-Type', 'Authorization', 'Accept'],
+		allowedHeaders: [
+			'Content-Type',
+			'Authorization',
+			'Accept',
+			'stripe-signature',
+		],
 		credentials: true,
 	});
 
 	app.useGlobalPipes(new ValidationPipe());
-
-	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
-
-	app.use(bodyParser.json());
 
 	const port = process.env.PORT || 3000;
 

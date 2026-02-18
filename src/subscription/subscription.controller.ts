@@ -12,19 +12,41 @@ import { SubscriptionService } from './subscription.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { UpdateFeaturesDto } from './dto/update-features.dto';
+import {
+	ApiBearerAuth,
+	ApiOperation,
+	ApiResponse,
+	ApiTags,
+} from '@nestjs/swagger';
 
 @Controller('subscription')
+@ApiTags('subscription')
+@ApiBearerAuth('access-token')
 export class SubscriptionController {
 	constructor(private readonly subscriptionService: SubscriptionService) {}
 
-	@Post(':id/checkout')
+	@Get()
+	@ApiOperation({ summary: 'Listar todos os planos' })
+	findAll() {
+		return this.subscriptionService.findAllSubscriptions();
+	}
+
+	@Get(':id')
+	@ApiOperation({ summary: 'Buscar plano por ID' })
+	@ApiResponse({ status: 200, description: 'Plano encontrado' })
+	@ApiResponse({ status: 404, description: 'Plano não encontrado' })
+	findOne(@Param('id') id: string) {
+		return this.subscriptionService.findSubscriptionById(id);
+	}
+
+	@Post(':subscriptionId/checkout')
 	createCheckout(
-		@Param('id') id: string,
+		@Param('subscriptionId') subscriptionId: string,
 		@Body() body: { userId: string; successUrl: string; cancelUrl: string }
 	) {
 		return this.subscriptionService.createCheckoutSession(
 			body.userId,
-			id,
+			subscriptionId,
 			body.successUrl,
 			body.cancelUrl
 		);
@@ -35,20 +57,10 @@ export class SubscriptionController {
 		return this.subscriptionService.createSubscription(createSubscriptionDto);
 	}
 
-	@Get()
-	findAll() {
-		return this.subscriptionService.findAllSubscriptions();
-	}
-
 	@Get('current')
 	getCurrentSubscription(@Req() req) {
 		const userId = req.user.id;
 		return this.subscriptionService.findCurrentSubscriptionByUser(userId);
-	}
-
-	@Get(':id')
-	findOne(@Param('id') id: string) {
-		return this.subscriptionService.findSubscriptionById(id);
 	}
 
 	@Patch(':id')

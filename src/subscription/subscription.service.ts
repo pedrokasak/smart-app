@@ -75,7 +75,7 @@ export class SubscriptionService {
 	async findAllSubscriptions() {
 		try {
 			const subscriptions = await this.subscriptionModel
-				.find({ isActive: false })
+				.find()
 				.sort({ price: 1 });
 			return subscriptions;
 		} catch (error) {
@@ -312,7 +312,7 @@ export class SubscriptionService {
 
 		return this.stripeService.createCheckoutSession(
 			user._id.toString(),
-			plan._id.toString(),
+			plan.stripePriceId,
 			successUrl,
 			cancelUrl
 		);

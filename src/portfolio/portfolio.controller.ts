@@ -1,5 +1,5 @@
 import { Body, Controller, Get, Param, Post, Req } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AssetsService } from 'src/assets/assets.service';
 import { AssetResponseDto } from 'src/assets/dto/asset-response.dto';
 import { CreateAssetDto } from 'src/assets/dto/create-asset.dto';
@@ -12,6 +12,7 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 
 @Controller('portfolio')
 @ApiTags('Portfolio')
+@ApiBearerAuth('access-token')
 export class PortfolioController {
 	constructor(
 		private portfolioService: PortfolioService,

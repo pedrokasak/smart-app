@@ -169,40 +169,36 @@ export class StripeService {
 
 	async createCheckoutSession(
 		userId: string,
-		subscriptionId: string,
+		priceId: string,
 		successUrl: string,
 		cancelUrl: string
 	): Promise<Stripe.Checkout.Session> {
 		try {
 			const user = await this.userModel.findById(userId);
+			console.log(user);
 			if (!user) {
 				throw new NotFoundException('Usuário não encontrado');
 			}
 
-			const plan = await this.subscriptionModel.findById(subscriptionId);
-			if (!plan) {
-				throw new NotFoundException('Plano não encontrado');
-			}
-			let stripeCustomerId = user.userSubscription;
+			let stripeCustomerId = user.stripeCustomerId;
 
 			if (!stripeCustomerId) {
 				const customer = await this.createCustomer(user.email, user.firstName);
 				stripeCustomerId = customer.id;
 
-				user.userSubscription = stripeCustomerId;
+				user.stripeCustomerId = stripeCustomerId;
 				await user.save();
 			}
 
 			const session = await this.stripe.checkout.sessions.create({
 				metadata: {
 					userId,
-					subscriptionId,
 				},
 				customer: stripeCustomerId,
-				payment_method_types: ['card'],
+				payment_method_types: ['card', 'boleto'],
 				line_items: [
 					{
-						price: plan.stripePriceId,
+						price: priceId,
 						quantity: 1,
 					},
 				],

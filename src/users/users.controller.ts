@@ -18,6 +18,7 @@ import { EmailValidationPipe } from './decorators/emailValidatorPipe';
 import { JwtAuthGuard } from '../authentication/jwt-auth.guard';
 import { Public } from 'src/utils/constants';
 import {
+	ApiBearerAuth,
 	ApiOkResponse,
 	ApiOperation,
 	ApiResponse,
@@ -26,6 +27,7 @@ import {
 
 @Controller('users')
 @ApiTags('users')
+@ApiBearerAuth('access-token')
 export class UsersController {
 	constructor(private readonly usersService: UsersService) {}
 

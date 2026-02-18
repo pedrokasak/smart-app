@@ -13,12 +13,18 @@ import { ProfileService } from './profile.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
-import { ApiOkResponse, ApiResponse, ApiTags } from '@nestjs/swagger';
+import {
+	ApiBearerAuth,
+	ApiOkResponse,
+	ApiResponse,
+	ApiTags,
+} from '@nestjs/swagger';
 import { ProfileResponseDto } from 'src/profile/dto/profile-response.dto';
 import { ProfileMapper } from 'src/profile/mappers/profile.mapper';
 
 @Controller('profile')
 @ApiTags('profile')
+@ApiBearerAuth('access-token')
 export class ProfileController {
 	constructor(private readonly profileService: ProfileService) {}
 

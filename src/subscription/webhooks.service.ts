@@ -3,13 +3,17 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import Stripe from 'stripe';
 import { Subscription, UserSubscription } from './schema';
+import { User } from 'src/users/schema/user.model';
 
 @Injectable()
 export class WebhooksService {
 	private readonly logger = new Logger(WebhooksService.name);
 
 	constructor(
-		@InjectModel('Subscription') private subscriptionModel: Model<Subscription>,
+		@InjectModel('User')
+		private userModel: Model<User>,
+		@InjectModel('Subscription')
+		private subscriptionModel: Model<Subscription>,
 		@InjectModel('UserSubscription')
 		private userSubscriptionModel: Model<UserSubscription>
 	) {}
@@ -82,18 +86,30 @@ export class WebhooksService {
 				return;
 			}
 
+			const stripeCustomerId = subscription.customer as string;
+			console.log('=== customer chegando no webhook:', stripeCustomerId);
+			const user = await this.userModel.findOne({ stripeCustomerId });
+			console.log('=== user encontrado:', user?._id);
+
+			if (!user) {
+				this.logger.error(
+					`Usuário não encontrado para stripeCustomerId: ${stripeCustomerId}`
+				);
+				return;
+			}
+
 			const newUserSubscription = new this.userSubscriptionModel({
-				user: subscription.metadata.userId || null, // Assumindo que userId está nos metadados
+				user: user._id,
 				subscription: plan._id,
 				stripeSubscriptionId: subscription.id,
 				stripeCustomerId: subscription.customer as string,
 				status: subscription.status,
-				currentPeriodStart: new Date(
-					(subscription as any).current_period_start * 1000
-				),
-				currentPeriodEnd: new Date(
-					(subscription as any).current_period_end * 1000
-				),
+				currentPeriodStart: (subscription as any).current_period_start
+					? new Date((subscription as any).current_period_start * 1000)
+					: new Date(),
+				currentPeriodEnd: (subscription as any).current_period_end
+					? new Date((subscription as any).current_period_end * 1000)
+					: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
 				cancelAtPeriodEnd: subscription.cancel_at_period_end,
 				trialStart: (subscription as any).trial_start
 					? new Date((subscription as any).trial_start * 1000)

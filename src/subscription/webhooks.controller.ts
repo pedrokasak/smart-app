@@ -4,8 +4,11 @@ import Stripe from 'stripe';
 import { WebhooksService } from './webhooks.service';
 import { stripeWebhookSecret, stripeWebhookSecretProduction } from 'src/env';
 import { Public } from 'src/utils/constants';
+import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
 
 @Controller('webhooks')
+@ApiTags('webhooks')
+@ApiBearerAuth('access-token')
 export class WebhooksController {
 	private readonly logger = new Logger(WebhooksController.name);
 	// private readonly stripe: Stripe;
@@ -17,13 +20,16 @@ export class WebhooksController {
 
 	@Post('stripe')
 	@Public()
+	@ApiResponse({ status: 403, description: 'Forbidden.' })
+	@ApiResponse({ status: 401, description: 'Unauthorized.' })
+	@ApiResponse({ status: 200, description: 'Ok.' })
 	async handleStripeWebhook(@Req() req: Request, @Res() res: Response) {
 		const sig = req.headers['stripe-signature'] as string;
+		const rawBody = req.body;
 		const endpointSecret =
 			process.env.NODE_ENV === 'production'
 				? stripeWebhookSecretProduction
 				: stripeWebhookSecret;
-
 		if (!endpointSecret) {
 			this.logger.error('STRIPE_WEBHOOK_SECRET não configurado');
 			return res.status(HttpStatus.INTERNAL_SERVER_ERROR).json({
@@ -35,7 +41,7 @@ export class WebhooksController {
 
 		try {
 			event = this.stripe.webhooks.constructEvent(
-				req.body,
+				rawBody,
 				sig as string,
 				endpointSecret
 			);

@@ -11,6 +11,7 @@ export interface User extends Document {
 	profile: Types.ObjectId;
 	permissions: Types.ObjectId[];
 	userSubscription?: string;
+	stripeCustomerId?: string;
 	refreshToken?: string;
 	isEmailVerified?: boolean;
 	isActive: boolean;
@@ -84,6 +85,7 @@ const userSchema = new Schema<User>(
 
 		// Billing
 		userSubscription: String,
+		stripeCustomerId: String,
 
 		// Auditoria
 		lastLogin: Date,

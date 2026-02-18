@@ -12,10 +12,11 @@ import { PermissionsService } from './permissions.service';
 import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
-import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 
 @Controller('permissions')
 @ApiTags('permissions')
+@ApiBearerAuth('access-token')
 export class PermissionsController {
 	constructor(private readonly permissionsService: PermissionsService) {}
 
