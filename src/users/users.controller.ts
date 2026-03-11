@@ -16,6 +16,9 @@ import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { EmailValidationPipe } from './decorators/emailValidatorPipe';
 import { JwtAuthGuard } from '../authentication/jwt-auth.guard';
+import { RolesGuard } from 'src/auth/guards/roles.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/enums/role.enum';
 import { Public } from 'src/utils/constants';
 import {
 	ApiBearerAuth,
@@ -79,8 +82,9 @@ export class UsersController {
 	}
 
 	@Get()
-	@UseGuards(JwtAuthGuard)
-	@ApiOperation({ summary: 'Retorna uma lista de usuários' })
+	@UseGuards(JwtAuthGuard, RolesGuard)
+	@Roles(Role.Admin)
+	@ApiOperation({ summary: 'Retorna uma lista de usuários (admin)' })
 	@ApiResponse({
 		status: 200,
 		description: 'Retorna uma lista de usuários',
@@ -112,13 +116,26 @@ export class UsersController {
 	}
 
 	@Delete(':id')
-	@UseGuards(JwtAuthGuard)
-	@ApiOperation({ summary: 'Remove um usuário pelo ID' })
+	@UseGuards(JwtAuthGuard, RolesGuard)
+	@Roles(Role.Admin)
+	@ApiOperation({ summary: 'Remove um usuário pelo ID (admin)' })
 	@ApiResponse({
 		status: 200,
 		description: 'Usuário removido com sucesso',
 	})
 	remove(@Param('id') id: string) {
 		return this.usersService.delete(id);
+	}
+
+	@Patch(':id/role')
+	@UseGuards(JwtAuthGuard, RolesGuard)
+	@Roles(Role.Admin)
+	@ApiOperation({ summary: 'Altera o role de um usuário (admin)' })
+	@ApiResponse({ status: 200, description: 'Role atualizado com sucesso' })
+	async updateRole(
+		@Param('id') id: string,
+		@Body() body: { role: Role }
+	) {
+		return this.usersService.updateUserRole(id, body.role);
 	}
 }

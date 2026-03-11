@@ -11,6 +11,9 @@ import { PortfolioEnrichService } from 'src/portfolio/portfolio-enrich.service';
 import { PortfolioController } from 'src/portfolio/portfolio.controller';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { portfolioSchema } from 'src/portfolio/schema/portfolio.model';
+import { portfolioHistorySchema } from 'src/portfolio/schema/portfolio-history.model';
+
+import { SubscriptionModule } from 'src/subscription/subscription.module';
 
 @Module({
 	imports: [
@@ -19,9 +22,14 @@ import { portfolioSchema } from 'src/portfolio/schema/portfolio.model';
 				name: 'Portfolio',
 				schema: portfolioSchema,
 			},
+			{
+				name: 'PortfolioHistory',
+				schema: portfolioHistorySchema,
+			},
 		]),
 		HttpModule,
 		forwardRef(() => AssetsModule),
+		SubscriptionModule,
 	],
 	providers: [
 		// Adapters
@@ -36,7 +44,6 @@ import { portfolioSchema } from 'src/portfolio/schema/portfolio.model';
 		// Services
 		PortfolioService,
 		PortfolioEnrichService,
-		PortfolioService,
 	],
 	controllers: [PortfolioController],
 	exports: [PortfolioService],

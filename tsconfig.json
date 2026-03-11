@@ -19,7 +19,8 @@
 		"noFallthroughCasesInSwitch": false,
 		"paths": {
 			"src/*": ["./src/*"] // Certifique-se de que está assim
-		}
+		},
+		"esModuleInterop": true
 	},
 	"exclude": ["infra", "node_modules", "dist"]
 }

@@ -66,6 +66,14 @@ export class SubscriptionController {
 		);
 	}
 
+	@Post('portal')
+	createPortalSession(@Body() body: { userId: string; returnUrl: string }) {
+		return this.subscriptionService.createPortalSession(
+			body.userId,
+			body.returnUrl
+		);
+	}
+
 	@Post('create')
 	create(@Body() createSubscriptionDto: CreateSubscriptionDto) {
 		return this.subscriptionService.createSubscription(createSubscriptionDto);

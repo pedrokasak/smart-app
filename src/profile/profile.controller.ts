@@ -8,7 +8,15 @@ import {
 	UseGuards,
 	Post,
 	BadRequestException,
+	Request,
+	UploadedFile,
+	UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
+import * as crypto from 'crypto';
+import { UserModel } from 'src/users/schema/user.model';
 import { ProfileService } from './profile.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
@@ -28,7 +36,40 @@ import { ProfileMapper } from 'src/profile/mappers/profile.mapper';
 export class ProfileController {
 	constructor(private readonly profileService: ProfileService) {}
 
-	@Post('create/:id')
+	/** Upload de foto de perfil */
+	@Post('avatar')
+	@UseGuards(JwtAuthGuard)
+	@UseInterceptors(
+		FileInterceptor('file', {
+			storage: diskStorage({
+				destination: join(process.cwd(), 'uploads', 'avatars'),
+				filename: (_req, file, cb) => {
+					const uniqueName = `${crypto.randomUUID()}${extname(file.originalname)}`;
+					cb(null, uniqueName);
+				},
+			}),
+			fileFilter: (_req, file, cb) => {
+				if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+					return cb(
+						new BadRequestException(
+							'Apenas imagens JPG, PNG ou WebP são permitidas.'
+						),
+						false
+					);
+				}
+				cb(null, true);
+			},
+			limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+		})
+	)
+	async uploadAvatar(@UploadedFile() file: any, @Request() req: any) {
+		if (!file) throw new BadRequestException('Arquivo não enviado.');
+		const userId = req.user?.userId || req.user?.sub;
+		const avatarUrl = `/uploads/avatars/${file.filename}`;
+		await UserModel.findByIdAndUpdate(userId, { avatar: avatarUrl });
+		return { avatarUrl };
+	}
+
 	@UseGuards(JwtAuthGuard)
 	@ApiOkResponse({ type: CreateProfileDto, description: 'Success' })
 	@ApiResponse({ status: 403, description: 'Forbidden.' })
@@ -42,6 +83,19 @@ export class ProfileController {
 			throw new BadRequestException('userId é obrigatório');
 		}
 		return this.profileService.create(userId, createProfileDto);
+	}
+
+	@Get('me')
+	@UseGuards(JwtAuthGuard)
+	@ApiOkResponse({
+		type: ProfileResponseDto,
+		description: 'Perfil do usuário autenticado',
+	})
+	@ApiResponse({ status: 401, description: 'Unauthorized.' })
+	async getMyProfile(@Request() req: any): Promise<ProfileResponseDto> {
+		const userId = req.user?.userId || req.user?.sub;
+		const profile = await this.profileService.findOne(userId);
+		return ProfileMapper.toResponseDto(profile);
 	}
 
 	@Get()

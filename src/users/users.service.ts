@@ -3,6 +3,7 @@ import {
 	HttpException,
 	HttpStatus,
 	Injectable,
+	NotFoundException,
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
@@ -10,6 +11,7 @@ import * as bcrypt from 'bcrypt';
 import { UserModel } from '../users/schema/user.model';
 import { AuthErrorService } from '../utils/errors-handler';
 import { JwtService } from '@nestjs/jwt';
+import { Role } from 'src/auth/enums/role.enum';
 
 @Injectable()
 export class UsersService {
@@ -48,8 +50,8 @@ export class UsersService {
 
 			await newUser.save();
 
-			// Gera o token JWT
-			const payload = { sub: newUser._id, email: newUser.email };
+			// Gera o token JWT com o formato aceito pelo JwtStrategy
+			const payload = { userId: newUser.id, type: 'access' };
 			const accessToken = this.jwtService.sign(payload);
 
 			return {
@@ -96,5 +98,16 @@ export class UsersService {
 
 	async delete(id: string) {
 		return await UserModel.findByIdAndDelete(id);
+	}
+
+	async updateUserRole(id: string, role: Role) {
+		const user = await UserModel.findById(id);
+		if (!user) throw new NotFoundException('Usuário não encontrado');
+		if (!Object.values(Role).includes(role)) {
+			throw new BadRequestException(`Role inválido: ${role}. Use: ${Object.values(Role).join(', ')}`);
+		}
+		user.role = role;
+		await user.save();
+		return { message: `Role atualizado para '${role}' com sucesso`, userId: id, role };
 	}
 }

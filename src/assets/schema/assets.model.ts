@@ -15,7 +15,7 @@ export interface IAssetIndicators {
 export interface Asset extends Document {
 	portfolioId: Types.ObjectId;
 	symbol: string;
-	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund';
+	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
 	quantity: number;
 	price: number; // Preço de entrada
 	total: number; // quantity * price
@@ -44,7 +44,7 @@ export const assetSchema = new Schema<Asset>(
 		},
 		type: {
 			type: String,
-			enum: ['stock', 'fii', 'crypto', 'etf', 'fund'],
+			enum: ['stock', 'fii', 'crypto', 'etf', 'fund', 'other'],
 			required: true,
 		},
 		quantity: {

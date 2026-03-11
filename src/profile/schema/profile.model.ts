@@ -27,6 +27,7 @@ export interface Preferences {
 	theme?: 'light' | 'dark';
 	notifications?: boolean;
 	twoFactorEnabled?: boolean;
+	sessionTimeout?: number;
 }
 
 const addressSchema = new Schema<Address>(
@@ -62,6 +63,10 @@ const preferencesSchema = new Schema<Preferences>(
 		twoFactorEnabled: {
 			type: Boolean,
 			default: false,
+		},
+		sessionTimeout: {
+			type: Number,
+			default: 30,
 		},
 	},
 	{ _id: false }

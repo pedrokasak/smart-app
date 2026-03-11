@@ -25,6 +25,13 @@ export class AssetsService {
 		return this.assetModel.findById(assetId);
 	}
 
+	async findAssetBySymbolAndPortfolio(portfolioId: string, symbol: string) {
+		return this.assetModel.findOne({
+			portfolioId,
+			symbol: new RegExp(`^${symbol}$`, 'i'),
+		});
+	}
+
 	async findPortfolioById(portfolioId: string) {
 		return this.portfolioModel.findById(portfolioId).populate('assets');
 	}

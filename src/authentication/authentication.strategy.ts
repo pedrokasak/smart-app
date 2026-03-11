@@ -20,7 +20,7 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
 			throw new UnauthorizedException('Invalid token type');
 		}
 
-		const user = this.usersService.findOne(payload.userId);
+		const user = await this.usersService.findOne(payload.userId);
 
 		if (!user) {
 			throw new UnauthorizedException();

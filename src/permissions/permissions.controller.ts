@@ -12,16 +12,20 @@ import { PermissionsService } from './permissions.service';
 import { CreatePermissionDto } from './dto/create-permission.dto';
 import { UpdatePermissionDto } from './dto/update-permission.dto';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
+import { RolesGuard } from 'src/auth/guards/roles.guard';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { Role } from 'src/auth/enums/role.enum';
 import { ApiBearerAuth, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 
 @Controller('permissions')
 @ApiTags('permissions')
 @ApiBearerAuth('access-token')
+@UseGuards(JwtAuthGuard, RolesGuard)
+@Roles(Role.Admin) // All permission routes require Admin role
 export class PermissionsController {
 	constructor(private readonly permissionsService: PermissionsService) {}
 
 	@Post('create')
-	@UseGuards(JwtAuthGuard)
 	@ApiOkResponse({
 		description: 'Create a new permission',
 		schema: {
@@ -39,19 +43,16 @@ export class PermissionsController {
 	}
 
 	@Get()
-	@UseGuards(JwtAuthGuard)
 	findAll() {
 		return this.permissionsService.findAll();
 	}
 
 	@Get(':id')
-	@UseGuards(JwtAuthGuard)
 	findOne(@Param('id') id: string) {
 		return this.permissionsService.findOne(+id);
 	}
 
 	@Patch(':id')
-	@UseGuards(JwtAuthGuard)
 	update(
 		@Param('id') id: string,
 		@Body() updatePermissionDto: UpdatePermissionDto

@@ -2,7 +2,7 @@ export class AssetResponseDto {
 	id: string;
 	portfolioId: string;
 	symbol: string;
-	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund';
+	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
 	quantity: number;
 	price: number;
 	total: number;

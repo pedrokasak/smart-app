@@ -1,4 +1,5 @@
 import { Schema, Types, model } from 'mongoose';
+import { Role } from 'src/auth/enums/role.enum';
 
 export interface User extends Document {
 	_id?: Types.ObjectId;
@@ -16,6 +17,9 @@ export interface User extends Document {
 	isEmailVerified?: boolean;
 	isActive: boolean;
 	lastLogin?: Date;
+	twoFactorSecret?: string;
+	twoFactorEnabled: boolean;
+	role: Role;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -86,6 +90,23 @@ const userSchema = new Schema<User>(
 		// Billing
 		userSubscription: String,
 		stripeCustomerId: String,
+
+		// 2FA
+		twoFactorSecret: {
+			type: String,
+			select: false,
+		},
+		twoFactorEnabled: {
+			type: Boolean,
+			default: false,
+		},
+
+		// RBAC
+		role: {
+			type: String,
+			enum: Object.values(Role),
+			default: Role.User,
+		},
 
 		// Auditoria
 		lastLogin: Date,

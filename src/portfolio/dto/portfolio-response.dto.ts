@@ -7,7 +7,7 @@ export class PortfolioResponseDto {
 	ownerType: 'self' | 'spouse' | 'child' | 'other';
 	ownerName?: string;
 	totalValue: number;
-	plan: 'free' | 'premium' | 'pro';
+	plan: string;
 	assetCount: number;
 	syncedWithB3At?: Date;
 	createdAt: Date;

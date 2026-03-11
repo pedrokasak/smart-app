@@ -18,9 +18,13 @@ export class StocksController {
 	@ApiResponse({ status: 400, description: 'Bad Request' })
 	@ApiResponse({ status: 500, description: 'Internal Server Error' })
 	@ApiOkResponse({ description: 'OK', type: [Object] })
-	async getAllNational() {
-		console.log('Fetching all national stocks');
-		return this.stockService.getAllNational();
+	async getAllNational(
+		@Query('search') search = '',
+		@Query('limit') limit = '100',
+		@Query('page') page = '1',
+		@Query('sortBy') sortBy = 'name',
+	) {
+		return this.stockService.getAllNational(search, parseInt(limit), parseInt(page), sortBy);
 	}
 
 	@Get('global/quote')

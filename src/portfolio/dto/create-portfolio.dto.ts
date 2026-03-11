@@ -30,7 +30,4 @@ export class CreatePortfolioDto {
 	@IsOptional()
 	@IsString()
 	ownerName?: string;
-
-	@IsEnum(['free', 'premium', 'pro'])
-	plan: 'free' | 'premium' | 'pro';
 }

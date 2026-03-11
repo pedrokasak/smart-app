@@ -12,7 +12,7 @@ export interface Portfolio extends Document {
 	assets: ObjectId[]; // Referência para Assets
 
 	totalValue: number;
-	plan: 'free' | 'premium' | 'pro';
+	plan: string;
 
 	createdAt: Date;
 	updatedAt: Date;
@@ -66,7 +66,6 @@ export const portfolioSchema = new Schema<Portfolio>(
 		},
 		plan: {
 			type: String,
-			enum: ['free', 'premium', 'pro'],
 			default: 'free',
 		},
 		syncedWithB3At: {

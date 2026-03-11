@@ -10,8 +10,8 @@ export class StockService implements StockRepository {
 		private readonly twelveData: TwelveDataAdapter
 	) {}
 
-	async getAllNational() {
-		return this.brapi.listAllStocks();
+	async getAllNational(search = '', limit = 100, page = 1, sortBy = 'name') {
+		return this.brapi.listAllStocks(search, sortBy, 'asc', limit, page);
 	}
 
 	async getNationalQuote(symbol: string) {

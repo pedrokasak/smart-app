@@ -4,8 +4,8 @@ export class CreateAssetDto {
 	@IsString()
 	symbol: string; // VALE3, BTC, etc
 
-	@IsEnum(['stock', 'fii', 'crypto', 'etf', 'fund'])
-	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund';
+	@IsEnum(['stock', 'fii', 'crypto', 'etf', 'fund', 'other'])
+	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
 
 	@IsNumber()
 	@Min(0.00001)

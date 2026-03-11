@@ -14,6 +14,9 @@ import { SchedulerModule } from './scheduler/scheduler.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { StockModule } from './stocks/stocks.module';
 import { AssetsModule } from './assets/assets.module';
+import { AiModule } from './ai/ai.module';
+import { TwoFactorModule } from './two-factor/two-factor.module';
+import { BrokerSyncModule } from './broker-sync/broker-sync.module';
 
 @Module({
 	imports: [
@@ -27,6 +30,9 @@ import { AssetsModule } from './assets/assets.module';
 		SubscriptionModule,
 		StockModule,
 		AssetsModule,
+		AiModule,
+		TwoFactorModule,
+		BrokerSyncModule,
 	],
 	controllers: [AppController],
 	providers: [

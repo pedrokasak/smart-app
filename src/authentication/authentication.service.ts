@@ -12,6 +12,7 @@ import * as bcrypt from 'bcrypt';
 import {
 	expireKeepAliveConected,
 	expireKeepAliveConectedRefreshToken,
+	jwtSecret,
 } from 'src/env';
 import { AuthErrorService } from 'src/utils/errors-handler';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
@@ -49,8 +50,17 @@ export class AuthenticationService {
 			AuthErrorService.handleInvalidPassword();
 		}
 
+		// Se 2FA está habilitado, retorna um tempToken para verificação
+		if (verifyUser.twoFactorEnabled) {
+			const tempToken = this.jwtService.sign(
+				{ userId: verifyUser.id, type: 'temp_2fa' },
+				{ expiresIn: '5m' }
+			);
+			return { requiresTwoFactor: true, tempToken } as any;
+		}
+
 		const accessToken = this.jwtService.sign(
-			{ userId: verifyUser.id, type: 'access' },
+			{ userId: verifyUser.id, type: 'access', role: verifyUser.role ?? 'user' },
 			{ expiresIn: expireKeepAliveConected }
 		);
 
@@ -113,7 +123,7 @@ export class AuthenticationService {
 			}
 
 			const newAccessToken = this.jwtService.sign(
-				{ userId: user.id, type: 'access' },
+				{ userId: user.id, type: 'access', role: user.role ?? 'user' },
 				{ expiresIn: expireKeepAliveConected }
 			);
 

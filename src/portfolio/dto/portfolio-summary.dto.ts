@@ -5,7 +5,7 @@ export class PortfolioSummaryDto {
 	ownerName?: string;
 	totalValue: number;
 	assetCount: number;
-	plan: 'free' | 'premium' | 'pro';
+	plan: string;
 	allocation: {
 		symbol: string;
 		quantity: number;
