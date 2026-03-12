@@ -3,7 +3,7 @@ import { model, ObjectId, Schema } from 'mongoose';
 export interface Portfolio extends Document {
 	id: ObjectId;
 	userId: ObjectId; // ← Dono
-	cpf: string; // CPF para sincronização B3
+	cpf?: string | null; // CPF opcional – só para sincronização B3
 	name: string; // "Minha Carteira" ou "Carteira do Filho"
 	description?: string; // Descrição
 	ownerType: 'self' | 'spouse' | 'child' | 'other'; // ← Tipo de carteira
@@ -29,7 +29,8 @@ export const portfolioSchema = new Schema<Portfolio>(
 		},
 		cpf: {
 			type: String,
-			required: true,
+			required: false,
+			default: null,
 			match: /^\d{3}\.\d{3}\.\d{3}-\d{2}$/,
 		},
 		name: {

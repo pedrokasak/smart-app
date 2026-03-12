@@ -10,7 +10,7 @@ export class PortfolioMapper {
 		return {
 			id: portfolio.id.toString(),
 			userId: portfolio.userId.toString(),
-			cpf: portfolio.cpf,
+			cpf: portfolio.cpf ?? undefined,
 			name: portfolio.name,
 			description: portfolio.description,
 			ownerType: portfolio.ownerType,
@@ -31,7 +31,7 @@ export class PortfolioMapper {
 		return {
 			id: portfolio.id.toString(),
 			userId: portfolio.userId.toString(),
-			cpf: portfolio.cpf,
+			cpf: portfolio.cpf ?? undefined,
 			name: portfolio.name,
 			description: portfolio.description,
 			ownerType: portfolio.ownerType,

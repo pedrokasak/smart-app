@@ -90,7 +90,7 @@ export class PortfolioService {
 			name: createDto.name,
 			ownerType: createDto.ownerType, // 'self', 'spouse', 'child'
 			ownerName: createDto.ownerName,
-			cpf: createDto.cpf,
+			cpf: createDto.cpf ?? null,
 			assets: [],
 			plan: userPlan,
 		});

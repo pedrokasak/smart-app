@@ -1,7 +1,7 @@
 export class PortfolioResponseDto {
 	id: string;
 	userId: string;
-	cpf: string;
+	cpf?: string | null;
 	name: string;
 	description?: string;
 	ownerType: 'self' | 'spouse' | 'child' | 'other';

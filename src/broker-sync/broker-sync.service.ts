@@ -150,7 +150,9 @@ export class BrokerSyncService {
 					name: provider,
 					ownerType: 'self',
 					ownerName: 'Autosync',
-					cpf: connection.cpf || user?.cpf || '000.000.000-00',
+					...(connection.cpf || user?.cpf
+						? { cpf: connection.cpf || user?.cpf }
+						: {}),
 				});
 			}
 
