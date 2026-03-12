@@ -18,6 +18,7 @@ export interface Asset extends Document {
 	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
 	quantity: number;
 	price: number; // Preço de entrada
+	avgPrice?: number; // Preço médio/custo (quando conhecido)
 	total: number; // quantity * price
 	currentPrice?: number;
 	change24h?: number;
@@ -55,6 +56,11 @@ export const assetSchema = new Schema<Asset>(
 		price: {
 			type: Number,
 			required: true,
+			min: 0,
+		},
+		avgPrice: {
+			type: Number,
+			default: null,
 			min: 0,
 		},
 		total: {

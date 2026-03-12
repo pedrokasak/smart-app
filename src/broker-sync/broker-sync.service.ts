@@ -12,6 +12,8 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
 
 import { UserModel } from 'src/users/schema/user.model';
+import { ProviderRegistry } from 'src/broker-sync/providers/provider-registry';
+import { SubscriptionService } from 'src/subscription/subscription.service';
 
 const ENCRYPTION_KEY =
 	process.env.BROKER_ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef'; // 32 bytes
@@ -21,8 +23,13 @@ const IV_LENGTH = 16;
 export class BrokerSyncService {
 	constructor(
 		private readonly portfolioService: PortfolioService,
-		private readonly assetsService: AssetsService
+		private readonly assetsService: AssetsService,
+		private readonly subscriptionService: SubscriptionService
 	) {}
+
+	private readonly logger = new Logger(BrokerSyncService.name);
+
+	private readonly providerRegistry = new ProviderRegistry();
 
 	private encrypt(text: string): string {
 		const iv = crypto.randomBytes(IV_LENGTH);
@@ -96,18 +103,24 @@ export class BrokerSyncService {
 	}
 
 	async syncConnection(userId: string, provider: string) {
+		const sub = await this.subscriptionService.findCurrentSubscriptionByUser(userId);
+		if (!sub) {
+			throw new BadRequestException('PLANO_UPGRADE_NECESSARIO');
+		}
+
 		const connection = await BrokerConnectionModel.findOne({
 			userId: new Types.ObjectId(userId),
 			provider,
-		});
+		}).select('+apiKeyEncrypted +apiSecretEncrypted');
 
 		if (!connection) {
 			throw new NotFoundException(`Conexão com ${provider} não encontrada.`);
 		}
 
-		if (provider !== 'binance' && provider !== 'coinbase') {
+		const providerImpl = this.providerRegistry.get(provider);
+		if (!providerImpl) {
 			throw new BadRequestException(
-				'Sincronização via API automática apenas suporta Binance e Coinbase no momento.'
+				`Provider ${provider} não suportado para sincronização no momento.`
 			);
 		}
 
@@ -122,11 +135,7 @@ export class BrokerSyncService {
 
 		let exchange: ccxt.Exchange;
 		try {
-			if (provider === 'binance') {
-				exchange = new ccxt.binance({ apiKey, secret });
-			} else {
-				exchange = new ccxt.coinbase({ apiKey, secret });
-			}
+			exchange = providerImpl.createClient({ apiKey, secret });
 		} catch (error) {
 			throw new BadRequestException(
 				`Erro ao instanciar corretora: ${error.message}`
@@ -134,11 +143,57 @@ export class BrokerSyncService {
 		}
 
 		try {
-			const balance = await exchange.fetchBalance();
-			const totalBalances = balance.total || {};
+			let totalBalances: Record<string, number> = {};
+
+			if (provider === 'binance') {
+				// Para Binance, tentamos consolidar Spot, Funding e Margin se possível
+				const walletTypes = ['spot', 'funding', 'margin'];
+				for (const type of walletTypes) {
+					try {
+						const bal = await exchange.fetchBalance({ type });
+						const total = bal.total || {};
+						for (const symbol in total) {
+							if (total[symbol] > 0) {
+								totalBalances[symbol] = (totalBalances[symbol] || 0) + total[symbol];
+							}
+						}
+					} catch (e) {
+						this.logger.warn(`Erro ao buscar balance ${type} na Binance: ${e.message}`);
+					}
+				}
+			} else {
+				const balance = await exchange.fetchBalance();
+				totalBalances = balance.total || {};
+			}
+
 			const positiveAssets = Object.keys(totalBalances).filter(
 				(symbol) => totalBalances[symbol] > 0
 			);
+
+			this.logger.log(
+				`Sincronizando ${provider} para usuário ${userId}. Ativos encontrados com saldo: ${positiveAssets.length}`
+			);
+
+			const quoteCandidates = ['USDT', 'USD', 'USDC'];
+			const tryGetQuote = async (base: string): Promise<number | null> => {
+				for (const quote of quoteCandidates) {
+					const market = `${base}/${quote}`;
+					try {
+						const ticker = await exchange.fetchTicker(market);
+						const last = ticker?.last;
+						if (
+							typeof last === 'number' &&
+							Number.isFinite(last) &&
+							last > 0
+						) {
+							return last;
+						}
+					} catch {
+						// ignore
+					}
+				}
+				return null;
+			};
 
 			let portfolio = await this.portfolioService.findPortfolioByName(
 				userId,
@@ -173,12 +228,13 @@ export class BrokerSyncService {
 						price: existingAsset.price,
 					});
 				} else {
+					const currentQuote = await tryGetQuote(assetCode);
 					await this.portfolioService.addAssetToPortfolio(
 						portfolio._id.toString(),
 						{
 							symbol: assetCode,
 							quantity,
-							price: 0,
+							price: currentQuote ?? 1,
 							type: 'crypto',
 						}
 					);

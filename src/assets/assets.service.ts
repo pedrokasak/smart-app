@@ -43,12 +43,30 @@ export class AssetsService {
 
 	// Atualizar asset
 	async update(assetId: string, updateDto: UpdateAssetDto) {
+		const existing = await this.assetModel.findById(assetId);
+		if (!existing) return null;
+
+		const quantity =
+			typeof updateDto.quantity === 'number'
+				? updateDto.quantity
+				: existing.quantity;
+		const price =
+			typeof updateDto.price === 'number' ? updateDto.price : existing.price;
+		const avgPrice =
+			typeof (updateDto as any).avgPrice === 'number'
+				? (updateDto as any).avgPrice
+				: (existing as any).avgPrice;
+		const costBasis = typeof avgPrice === 'number' ? avgPrice : price;
+
 		return this.assetModel.findByIdAndUpdate(
 			assetId,
 			{
-				quantity: updateDto.quantity,
-				price: updateDto.price,
-				total: updateDto.quantity * updateDto.price,
+				...(typeof updateDto.quantity === 'number' ? { quantity } : {}),
+				...(typeof updateDto.price === 'number' ? { price } : {}),
+				...(typeof (updateDto as any).avgPrice === 'number'
+					? { avgPrice }
+					: {}),
+				total: quantity * costBasis,
 				updatedAt: new Date(),
 			},
 			{ new: true }

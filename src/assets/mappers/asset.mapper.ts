@@ -10,6 +10,7 @@ export class AssetMapper {
 			type: asset.type,
 			quantity: asset.quantity,
 			price: asset.price,
+			avgPrice: (asset as any).avgPrice ?? undefined,
 			total: asset.total,
 			currentPrice: asset.currentPrice,
 			change24h: asset.change24h,

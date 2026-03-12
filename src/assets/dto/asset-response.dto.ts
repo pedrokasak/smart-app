@@ -5,6 +5,7 @@ export class AssetResponseDto {
 	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
 	quantity: number;
 	price: number;
+	avgPrice?: number;
 	total: number;
 	currentPrice?: number;
 	change24h?: number;

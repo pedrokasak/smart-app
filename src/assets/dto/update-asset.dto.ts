@@ -12,4 +12,9 @@ export class UpdateAssetDto extends PartialType(CreateAssetDto) {
 	@IsNumber()
 	@Min(0.01)
 	price?: number;
+
+	@IsOptional()
+	@IsNumber()
+	@Min(0)
+	avgPrice?: number;
 }

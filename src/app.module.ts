@@ -17,6 +17,7 @@ import { AssetsModule } from './assets/assets.module';
 import { AiModule } from './ai/ai.module';
 import { TwoFactorModule } from './two-factor/two-factor.module';
 import { BrokerSyncModule } from './broker-sync/broker-sync.module';
+import { FiscalModule } from './fiscal/fiscal.module';
 
 @Module({
 	imports: [
@@ -33,6 +34,7 @@ import { BrokerSyncModule } from './broker-sync/broker-sync.module';
 		AiModule,
 		TwoFactorModule,
 		BrokerSyncModule,
+		FiscalModule,
 	],
 	controllers: [AppController],
 	providers: [

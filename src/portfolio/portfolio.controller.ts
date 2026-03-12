@@ -16,6 +16,7 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { AssetsService } from 'src/assets/assets.service';
 import { AssetResponseDto } from 'src/assets/dto/asset-response.dto';
 import { CreateAssetDto } from 'src/assets/dto/create-asset.dto';
+import { UpdateAssetDto } from 'src/assets/dto/update-asset.dto';
 import { AssetMapper } from 'src/assets/mappers/asset.mapper';
 import { PortfolioMapper } from 'src/portfolio/mappers/portfolio.mapper.ts';
 import { CreatePortfolioDto } from 'src/portfolio/dto/create-portfolio.dto';
@@ -112,6 +113,15 @@ export class PortfolioController {
 			if (asset) return AssetMapper.toResponseDto(asset);
 		}
 		return null;
+	}
+
+	@Put('assets/:assetId')
+	async updateAsset(
+		@Param('assetId') assetId: string,
+		@Body() updateAssetDto: UpdateAssetDto
+	): Promise<AssetResponseDto | null> {
+		const updated = await this.assetService.update(assetId, updateAssetDto);
+		return updated ? AssetMapper.toResponseDto(updated as any) : null;
 	}
 
 	@Get('summary')
