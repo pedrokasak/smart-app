@@ -8,6 +8,8 @@ services:
       - "3000:3000"
     env_file:
       - .env
+    volumes:
+      - uploads_data:/app/uploads
     depends_on:
       - mongo
 
@@ -25,3 +27,4 @@ services:
 
 volumes:
   mongodb_data:
+  uploads_data:

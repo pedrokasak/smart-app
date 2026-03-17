@@ -15,6 +15,7 @@ FROM base
 ENV NODE_ENV=production
 
 COPY --from=build /app ./
+RUN mkdir -p /app/uploads && chown -R bun:bun /app/uploads
 
 USER bun
 EXPOSE 3000
