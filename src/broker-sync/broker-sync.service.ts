@@ -2,6 +2,7 @@ import {
 	BadRequestException,
 	Injectable,
 	NotFoundException,
+	Logger,
 } from '@nestjs/common';
 import { BrokerConnectionModel } from './schema/broker-connection.model';
 import { BrokerConnectDto } from './dto/broker-connect.dto';
@@ -10,7 +11,6 @@ import { Types } from 'mongoose';
 import * as ccxt from 'ccxt';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
-
 import { UserModel } from 'src/users/schema/user.model';
 import { ProviderRegistry } from 'src/broker-sync/providers/provider-registry';
 import { SubscriptionService } from 'src/subscription/subscription.service';
@@ -103,7 +103,8 @@ export class BrokerSyncService {
 	}
 
 	async syncConnection(userId: string, provider: string) {
-		const sub = await this.subscriptionService.findCurrentSubscriptionByUser(userId);
+		const sub =
+			await this.subscriptionService.findCurrentSubscriptionByUser(userId);
 		if (!sub) {
 			throw new BadRequestException('PLANO_UPGRADE_NECESSARIO');
 		}
@@ -154,16 +155,20 @@ export class BrokerSyncService {
 						const total = bal.total || {};
 						for (const symbol in total) {
 							if (total[symbol] > 0) {
-								totalBalances[symbol] = (totalBalances[symbol] || 0) + total[symbol];
+								totalBalances[symbol] =
+									(totalBalances[symbol] || 0) + total[symbol];
 							}
 						}
 					} catch (e) {
-						this.logger.warn(`Erro ao buscar balance ${type} na Binance: ${e.message}`);
+						this.logger.warn(
+							`Erro ao buscar balance ${type} na Binance: ${e.message}`
+						);
 					}
 				}
 			} else {
 				const balance = await exchange.fetchBalance();
-				totalBalances = balance.total || {};
+				totalBalances =
+					(balance.total as unknown as Record<string, number>) || {};
 			}
 
 			const positiveAssets = Object.keys(totalBalances).filter(
@@ -181,11 +186,7 @@ export class BrokerSyncService {
 					try {
 						const ticker = await exchange.fetchTicker(market);
 						const last = ticker?.last;
-						if (
-							typeof last === 'number' &&
-							Number.isFinite(last) &&
-							last > 0
-						) {
+						if (typeof last === 'number' && Number.isFinite(last) && last > 0) {
 							return last;
 						}
 					} catch {
