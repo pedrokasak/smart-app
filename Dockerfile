@@ -15,9 +15,14 @@ FROM base
 ENV NODE_ENV=production
 
 COPY --from=build /app ./
-RUN mkdir -p /app/uploads && chown -R bun:bun /app/uploads
 
-USER bun
+RUN echo '#!/bin/sh' > /entrypoint.sh && \
+    echo 'mkdir -p /app/uploads' >> /entrypoint.sh && \
+    echo 'exec bun dist/main.js' >> /entrypoint.sh && \
+    chmod +x /entrypoint.sh
+
+# USER bun
 EXPOSE 3000
 
-CMD ["bun", "dist/main.js"]
+CMD ["/entrypoint.sh"]
+# CMD ["bun", "dist/main.js"]
