@@ -35,4 +35,25 @@ export class AiService {
 			throw new InternalServerErrorException(msg);
 		}
 	}
+
+	async simulate(payload: any): Promise<any> {
+		try {
+			const response = await firstValueFrom(
+				this.httpService.post<any>(
+					`${this.trackerIaUrl}/api/simulate`,
+					payload,
+					{
+						headers: { 'Content-Type': 'application/json' }
+					}
+				)
+			);
+			return response.data;
+		} catch (error) {
+			const msg =
+				error?.response?.data?.detail ||
+				error?.message ||
+				'Erro ao conectar ao serviço de simulação';
+			throw new InternalServerErrorException(msg);
+		}
+	}
 }

@@ -19,11 +19,32 @@ export interface TradeDocument extends Document {
 
 export const tradeSchema = new Schema<TradeDocument>(
 	{
-		userId: { type: Schema.Types.ObjectId, ref: 'User', required: true, index: true },
-		portfolioId: { type: Schema.Types.ObjectId, ref: 'Portfolio', required: false, index: true },
-		uploadId: { type: Schema.Types.ObjectId, ref: 'BrokerageNoteUpload', required: false, index: true },
+		userId: {
+			type: Schema.Types.ObjectId,
+			ref: 'User',
+			required: true,
+			index: true,
+		},
+		portfolioId: {
+			type: Schema.Types.ObjectId,
+			ref: 'Portfolio',
+			required: false,
+			index: true,
+		},
+		uploadId: {
+			type: Schema.Types.ObjectId,
+			ref: 'BrokerageNoteUpload',
+			required: false,
+			index: true,
+		},
 		provider: { type: String, required: true, index: true },
-		symbol: { type: String, required: true, uppercase: true, trim: true, index: true },
+		symbol: {
+			type: String,
+			required: true,
+			uppercase: true,
+			trim: true,
+			index: true,
+		},
 		side: { type: String, enum: ['buy', 'sell'], required: true },
 		quantity: { type: Number, required: true, min: 0.00000001 },
 		price: { type: Number, required: true, min: 0 },
@@ -36,4 +57,3 @@ export const tradeSchema = new Schema<TradeDocument>(
 tradeSchema.index({ userId: 1, provider: 1, symbol: 1, date: 1 });
 
 export const TradeModel = model<TradeDocument>('Trade', tradeSchema);
-

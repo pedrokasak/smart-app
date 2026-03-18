@@ -3,12 +3,12 @@ import { PortfolioService } from './portfolio.service';
 import { getModelToken } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Portfolio } from './schema/portfolio.model';
-import { Asset } from 'src/assets/schema/assets.model';
 import { PortfolioEnrichService } from './portfolio-enrich.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 
 describe('PortfolioService', () => {
 	let service: PortfolioService;
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	let portfolioModel: Model<Portfolio>;
 
 	const mockPortfolioModel = {
@@ -35,6 +35,10 @@ describe('PortfolioService', () => {
 				{
 					provide: getModelToken('Portfolio'),
 					useValue: mockPortfolioModel,
+				},
+				{
+					provide: getModelToken('PortfolioHistory'),
+					useValue: {},
 				},
 				{
 					provide: getModelToken('Asset'),

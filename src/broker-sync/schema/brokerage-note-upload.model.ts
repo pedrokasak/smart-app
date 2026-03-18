@@ -1,6 +1,10 @@
 import { Schema, model, Types, Document } from 'mongoose';
 
-export type BrokerageNoteStatus = 'received' | 'queued' | 'processed' | 'failed';
+export type BrokerageNoteStatus =
+	| 'received'
+	| 'queued'
+	| 'processed'
+	| 'failed';
 
 export interface BrokerageNoteUpload extends Document {
 	userId: Types.ObjectId;
@@ -40,4 +44,3 @@ export const BrokerageNoteUploadModel = model<BrokerageNoteUpload>(
 	'BrokerageNoteUpload',
 	brokerageNoteUploadSchema
 );
-

@@ -21,6 +21,9 @@ describe('AuthenticationController', () => {
 		signout: jest.fn(),
 		refreshAccessToken: jest.fn(),
 		updatePassword: jest.fn(),
+		forgotPassword: jest.fn(),
+		verifyResetToken: jest.fn(),
+		resetPassword: jest.fn(),
 	};
 
 	beforeEach(async () => {
@@ -116,6 +119,41 @@ describe('AuthenticationController', () => {
 
 			expect(authService.updatePassword).toHaveBeenCalledWith('user123', dto);
 			expect(result).toEqual({ success: true });
+		});
+	});
+
+	// --- FORGOT PASSWORD ---
+	describe('forgotPassword', () => {
+		it('should call authService.forgotPassword', async () => {
+			const dto = { email: 'test@test.com' };
+			mockAuthService.forgotPassword.mockResolvedValue({ message: 'Success' });
+			const result = await controller.forgotPassword(dto);
+			expect(authService.forgotPassword).toHaveBeenCalledWith(dto);
+			expect(result).toEqual({ message: 'Success' });
+		});
+	});
+
+	// --- VERIFY RESET TOKEN ---
+	describe('verifyResetToken', () => {
+		it('should call authService.verifyResetToken', async () => {
+			mockAuthService.verifyResetToken.mockResolvedValue({
+				valid: true,
+				requiresMfa: false,
+			});
+			const result = await controller.verifyResetToken('mock-token');
+			expect(authService.verifyResetToken).toHaveBeenCalledWith('mock-token');
+			expect(result).toEqual({ valid: true, requiresMfa: false });
+		});
+	});
+
+	// --- RESET PASSWORD ---
+	describe('resetPassword', () => {
+		it('should call authService.resetPassword', async () => {
+			const dto = { token: 'mock-token', newPassword: '123' };
+			mockAuthService.resetPassword.mockResolvedValue({ message: 'Success' });
+			const result = await controller.resetPassword(dto);
+			expect(authService.resetPassword).toHaveBeenCalledWith(dto);
+			expect(result).toEqual({ message: 'Success' });
 		});
 	});
 });

@@ -4,6 +4,10 @@ import { PortfolioService } from './portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 
+jest.mock('src/authentication/jwt-auth.guard', () => ({
+	JwtAuthGuard: jest.fn().mockImplementation(() => true),
+}));
+
 describe('PortfolioController', () => {
 	let controller: PortfolioController;
 	let portfolioService: PortfolioService;

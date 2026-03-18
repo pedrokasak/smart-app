@@ -8,4 +8,3 @@ export interface Trade {
 	fees?: number; // corretagem/emolumentos etc
 	date: Date;
 }
-

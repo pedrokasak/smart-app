@@ -65,7 +65,8 @@ export class BrokerSyncController {
 			return { message: 'Arquivo não enviado', status: 'failed' };
 		}
 
-		const userId = req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
+		const userId =
+			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
 		const provider = body?.provider || 'unknown';
 
 		const originalName = file.originalname || '';
@@ -94,12 +95,11 @@ export class BrokerSyncController {
 			};
 		}
 
-		let trades =
-			isCsv
-				? parseTradesFromCsv(
-						Buffer.from((file as any).buffer || '').toString('utf8')
-				  )
-				: [];
+		let trades = isCsv
+			? parseTradesFromCsv(
+					Buffer.from((file as any).buffer || '').toString('utf8')
+				)
+			: [];
 
 		if (isPdf) {
 			// PDF: implementado inicialmente para layout BTG (negócios realizados)
@@ -116,17 +116,19 @@ export class BrokerSyncController {
 			doc.status = 'failed';
 			await doc.save();
 			return {
-				message:
-					isCsv
-						? 'CSV recebido, mas não consegui extrair operações. Use colunas: date,symbol,side,quantity,price,fees (ou equivalentes em PT).'
-						: 'PDF recebido, mas não consegui extrair operações. No momento o parser está ajustado para a nota do BTG (seção “Negócios realizados”).',
+				message: isCsv
+					? 'CSV recebido, mas não consegui extrair operações. Use colunas: date,symbol,side,quantity,price,fees (ou equivalentes em PT).'
+					: 'PDF recebido, mas não consegui extrair operações. No momento o parser está ajustado para a nota do BTG (seção “Negócios realizados”).',
 				uploadId: doc._id,
 				status: doc.status,
 			};
 		}
 
 		// Portfólio por provider (ex.: xp, btg, clear, etc.)
-		let portfolio = await this.portfolioService.findPortfolioByName(userId, provider);
+		let portfolio = await this.portfolioService.findPortfolioByName(
+			userId,
+			provider
+		);
 		if (!portfolio) {
 			portfolio = await this.portfolioService.createPortfolio(userId, {
 				name: provider,
@@ -179,11 +181,10 @@ export class BrokerSyncController {
 				}))
 			);
 
-			const existing =
-				await this.assetsService.findAssetBySymbolAndPortfolio(
-					portfolio._id.toString(),
-					symbol
-				);
+			const existing = await this.assetsService.findAssetBySymbolAndPortfolio(
+				portfolio._id.toString(),
+				symbol
+			);
 
 			if (existing) {
 				await this.assetsService.update(existing._id.toString(), {
@@ -192,18 +193,20 @@ export class BrokerSyncController {
 				} as any);
 			} else {
 				// Create requires price; we store cost also in avgPrice
-				await this.portfolioService.addAssetToPortfolio(portfolio._id.toString(), {
-					symbol,
-					type: inferType(symbol) as any,
-					quantity: result.quantity,
-					price: Math.max(result.averagePrice || 0.01, 0.01),
-				} as any);
+				await this.portfolioService.addAssetToPortfolio(
+					portfolio._id.toString(),
+					{
+						symbol,
+						type: inferType(symbol) as any,
+						quantity: result.quantity,
+						price: Math.max(result.averagePrice || 0.01, 0.01),
+					} as any
+				);
 				// Ensure avgPrice is stored even for new assets
-				const created =
-					await this.assetsService.findAssetBySymbolAndPortfolio(
-						portfolio._id.toString(),
-						symbol
-					);
+				const created = await this.assetsService.findAssetBySymbolAndPortfolio(
+					portfolio._id.toString(),
+					symbol
+				);
 				if (created) {
 					await this.assetsService.update(created._id.toString(), {
 						avgPrice: result.averagePrice,

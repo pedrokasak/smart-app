@@ -5,6 +5,7 @@ import * as bcrypt from 'bcrypt';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { UserModel } from 'src/users/schema/user.model';
 import { NotFoundException } from '@nestjs/common';
+import { EmailService } from 'src/notifications/email/email.service';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -50,6 +51,7 @@ describe('AuthenticationService', () => {
 				AuthenticationService,
 				{ provide: JwtService, useValue: mockJwtService },
 				{ provide: TokenBlacklistService, useValue: mockTokenBlacklistService },
+				{ provide: EmailService, useValue: EmailService },
 			],
 		}).compile();
 
@@ -228,6 +230,83 @@ describe('AuthenticationService', () => {
 					token: '',
 				})
 			).rejects.toThrow('No user found for email: test@example.com');
+		});
+	});
+
+	describe('forgotPassword', () => {
+		it('should send email if user exists', async () => {
+			const mockUser = {
+				email: 'test@example.com',
+				save: jest.fn(),
+			};
+			(UserModel.findOne as jest.Mock).mockResolvedValue(mockUser);
+
+			const result = await service.forgotPassword({
+				email: 'test@example.com',
+			});
+
+			expect(UserModel.findOne).toHaveBeenCalledWith({
+				email: 'test@example.com',
+			});
+			expect(mockUser.save).toHaveBeenCalled();
+			expect(result.message).toEqual(
+				'If the email is valid, a password reset link has been sent'
+			);
+		});
+
+		it('should return same message if user does not exist', async () => {
+			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
+
+			const result = await service.forgotPassword({
+				email: 'nonexistent@example.com',
+			});
+
+			expect(result.message).toEqual(
+				'If the email is valid, a password reset link has been sent'
+			);
+		});
+	});
+
+	describe('verifyResetToken', () => {
+		it('should verify token successfully', async () => {
+			const mockUser = { twoFactorEnabled: false };
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(mockUser),
+			});
+
+			const result = await service.verifyResetToken('some-token');
+			expect(result).toEqual({ valid: true, requiresMfa: false });
+		});
+
+		it('should throw if token is invalid', async () => {
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(null),
+			});
+
+			await expect(service.verifyResetToken('bad-token')).rejects.toThrowError(
+				'Token inválido ou expirado'
+			);
+		});
+	});
+
+	describe('resetPassword', () => {
+		it('should reset password successfully without MFA', async () => {
+			const mockUser = {
+				twoFactorEnabled: false,
+				save: jest.fn(),
+			};
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(mockUser),
+			});
+			(bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed');
+
+			const result = await service.resetPassword({
+				token: 'some-token',
+				newPassword: 'new-password',
+			});
+
+			expect(mockUser.save).toHaveBeenCalled();
+			expect(result.message).toEqual('Senha redefinida com sucesso');
 		});
 	});
 });

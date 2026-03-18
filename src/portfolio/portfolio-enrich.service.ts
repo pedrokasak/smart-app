@@ -16,8 +16,13 @@ export class PortfolioEnrichService {
 	// Enriquece um asset com web scraping
 	async enrichAsset(asset: any) {
 		try {
-			// Detecta tipo
-			const assetType = this.assetAdapterFactory.detectAssetType(asset.symbol);
+			if (asset.type === 'other') return asset;
+
+			// Usa o tipo já definido quando disponível para evitar sobrescrever (ex: ETF)
+			const assetType =
+				asset.type && asset.type !== 'other'
+					? asset.type
+					: this.assetAdapterFactory.detectAssetType(asset.symbol);
 
 			// Pega adapter apropriado
 			const adapter = this.assetAdapterFactory.getAdapter(assetType);

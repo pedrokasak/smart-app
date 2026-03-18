@@ -5,7 +5,6 @@ import { AssetsService } from 'src/assets/assets.service';
 import { BrokerConnectionModel } from './schema/broker-connection.model';
 import { Types } from 'mongoose';
 import { SubscriptionService } from 'src/subscription/subscription.service';
-import * as crypto from 'crypto';
 
 jest.mock('ccxt', () => {
 	return {
@@ -91,13 +90,17 @@ describe('BrokerSyncService', () => {
 		jest.spyOn(service as any, 'decrypt').mockReturnValue('decryptedValue');
 
 		// Mock subscription
-		mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({ status: 'active' });
+		mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+			status: 'active',
+		});
 
 		const selectSpy = jest.fn().mockReturnThis();
-		const findOneSpy = jest.spyOn(BrokerConnectionModel, 'findOne').mockReturnValue({
-			select: selectSpy,
-			exec: jest.fn().mockResolvedValue(mockConnection),
-		} as any);
+		const findOneSpy = jest
+			.spyOn(BrokerConnectionModel, 'findOne')
+			.mockReturnValue({
+				select: selectSpy,
+				exec: jest.fn().mockResolvedValue(mockConnection),
+			} as any);
 
 		// O método agora encadeia .select(), que retorna o próprio query (ou algo que tenha .then)
 		// Para simplificar, vamos fazer o selectSpy retornar um objeto que o await consiga processar
@@ -125,7 +128,9 @@ describe('BrokerSyncService', () => {
 			userId: new Types.ObjectId(userId),
 			provider,
 		});
-		expect(selectSpy).toHaveBeenCalledWith('+apiKeyEncrypted +apiSecretEncrypted');
+		expect(selectSpy).toHaveBeenCalledWith(
+			'+apiKeyEncrypted +apiSecretEncrypted'
+		);
 		expect(mockPortfolioService.addAssetToPortfolio).toHaveBeenCalledTimes(1);
 		expect(mockAssetsService.update).toHaveBeenCalledTimes(1);
 		expect(mockConnection.save).toHaveBeenCalled();
@@ -135,7 +140,9 @@ describe('BrokerSyncService', () => {
 		const userId = new Types.ObjectId().toString();
 		const provider = 'binance';
 
-		mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue(null);
+		mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue(
+			null
+		);
 
 		await expect(service.syncConnection(userId, provider)).rejects.toThrow(
 			'PLANO_UPGRADE_NECESSARIO'

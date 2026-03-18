@@ -9,6 +9,7 @@ export class AssetResponseDto {
 	total: number;
 	currentPrice?: number;
 	change24h?: number;
+	dividendHistory?: { date: Date; value: number }[];
 	indicators?: {
 		dividendYield?: number;
 		priceToEarnings?: number;

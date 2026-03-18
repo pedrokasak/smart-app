@@ -22,9 +22,14 @@ export class StocksController {
 		@Query('search') search = '',
 		@Query('limit') limit = '100',
 		@Query('page') page = '1',
-		@Query('sortBy') sortBy = 'name',
+		@Query('sortBy') sortBy = 'name'
 	) {
-		return this.stockService.getAllNational(search, parseInt(limit), parseInt(page), sortBy);
+		return this.stockService.getAllNational(
+			search,
+			parseInt(limit),
+			parseInt(page),
+			sortBy
+		);
 	}
 
 	@Get('global/quote')
@@ -42,10 +47,21 @@ export class StocksController {
 	@ApiResponse({ status: 200, description: 'OK' })
 	@ApiResponse({ status: 400, description: 'Bad Request' })
 	@ApiResponse({ status: 500, description: 'Internal Server Error' })
-	async getStockQuoteNational(@Query('symbol') symbol: string) {
+	async getStockQuoteNational(
+		@Query('symbol') symbol: string,
+		@Query('fundamental') fundamental?: string,
+		@Query('dividends') dividends?: string,
+		@Query('range') range?: string,
+		@Query('interval') interval?: string
+	) {
 		if (!symbol) {
 			return { error: 'O parâmetro symbol é obrigatório' };
 		}
-		return this.stockService.getNationalQuote(symbol);
+		return this.stockService.getNationalQuote(symbol, {
+			fundamental: fundamental === 'true',
+			dividends: dividends === 'true',
+			range,
+			interval,
+		});
 	}
 }

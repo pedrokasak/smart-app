@@ -10,4 +10,3 @@ export interface ExchangeProvider {
 	readonly id: string;
 	createClient(credentials: ExchangeCredentials): ccxt.Exchange;
 }
-

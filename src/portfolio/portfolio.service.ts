@@ -17,7 +17,8 @@ import { PortfolioHistory } from 'src/portfolio/schema/portfolio-history.model';
 export class PortfolioService {
 	constructor(
 		@InjectModel('Portfolio') private portfolioModel: Model<Portfolio>,
-		@InjectModel('PortfolioHistory') private portfolioHistoryModel: Model<PortfolioHistory>,
+		@InjectModel('PortfolioHistory')
+		private portfolioHistoryModel: Model<PortfolioHistory>,
 		@InjectModel('Asset') private assetModel: Model<Asset>,
 		private portfolioEnrichService: PortfolioEnrichService
 	) {}
@@ -34,19 +35,24 @@ export class PortfolioService {
 	}
 
 	async recordHistorySnapshot(portfolioId: string) {
-		const portfolio = await this.portfolioModel.findById(portfolioId).populate('assets');
+		const portfolio = await this.portfolioModel
+			.findById(portfolioId)
+			.populate('assets');
 		if (!portfolio) return;
-		
+
 		const assets = portfolio.assets as unknown as Asset[];
-		const totalValue = assets.reduce((acc, asset) => acc + (asset.total || 0), 0);
-		
+		const totalValue = assets.reduce(
+			(acc, asset) => acc + (asset.total || 0),
+			0
+		);
+
 		const today = new Date().toISOString().split('T')[0];
 
 		await this.portfolioHistoryModel.findOneAndUpdate(
 			{ portfolioId, date: today },
-			{ 
+			{
 				userId: portfolio.userId,
-				totalValue 
+				totalValue,
 			},
 			{ upsert: true, new: true }
 		);
@@ -100,7 +106,8 @@ export class PortfolioService {
 
 	async addAssetToPortfolio(
 		portfolioId: string,
-		createAssetDto: CreateAssetDto
+		createAssetDto: CreateAssetDto,
+		source: 'manual' | 'b3' | 'webscrape' = 'manual'
 	) {
 		const asset = await this.assetModel.create({
 			portfolioId,
@@ -109,7 +116,7 @@ export class PortfolioService {
 			quantity: createAssetDto.quantity,
 			price: createAssetDto.price,
 			total: createAssetDto.quantity * createAssetDto.price,
-			source: 'manual',
+			source,
 		});
 
 		const enriched = await this.portfolioEnrichService.enrichAsset(asset);
@@ -117,7 +124,7 @@ export class PortfolioService {
 		await this.portfolioModel.findByIdAndUpdate(portfolioId, {
 			$push: { assets: enriched._id },
 		});
-		
+
 		await this.recordHistorySnapshot(portfolioId);
 
 		return enriched;

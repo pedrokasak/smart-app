@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { StockService } from './stocks.service';
 import { TwelveDataAdapter } from 'src/stocks/adapter/twelveDataApi';
 import { BrapiAdapter } from 'src/stocks/adapter/brapiDataApi';
+import { jest } from '@jest/globals';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -41,7 +42,7 @@ describe('TwelveDataService', () => {
 
 	describe('getAllNational', () => {
 		it('should call brapi.listAllStocks', async () => {
-			(brapi.listAllStocks as jest.Mock).mockResolvedValue([
+			(brapi.listAllStocks as jest.Mock<any>).mockResolvedValue([
 				'stock1',
 				'stock2',
 			]);
@@ -53,7 +54,7 @@ describe('TwelveDataService', () => {
 
 	describe('getNationalQuote', () => {
 		it('should call brapi.getStockQuote with formatted symbol', async () => {
-			(brapi.getStockQuote as jest.Mock).mockResolvedValue({ price: 10 });
+			(brapi.getStockQuote as jest.Mock<any>).mockResolvedValue({ price: 10 });
 			const result = await service.getNationalQuote(' petr4.sa ');
 			expect(brapi.getStockQuote).toHaveBeenCalledWith('PETR4.SA');
 			expect(result).toEqual({ price: 10 });
@@ -62,7 +63,9 @@ describe('TwelveDataService', () => {
 
 	describe('getStockQuoteGlobal', () => {
 		it('should call twelveData.getStockQuote with symbol', async () => {
-			(twelveData.getStockQuote as jest.Mock).mockResolvedValue({ price: 20 });
+			(twelveData.getStockQuote as jest.Mock<any>).mockResolvedValue({
+				price: 20,
+			});
 			const result = await service.getStockQuoteGlobal('AAPL');
 			expect(twelveData.getStockQuote).toHaveBeenCalledWith('AAPL');
 			expect(result).toEqual({ price: 20 });
