@@ -1,11 +1,7 @@
 import { Trade } from 'src/fiscal/domain/trade';
 
 const parseNumberPtBr = (v: string) => {
-	const s = (v ?? '')
-		.toString()
-		.trim()
-		.replace(/\./g, '')
-		.replace(',', '.');
+	const s = (v ?? '').toString().trim().replace(/\./g, '').replace(',', '.');
 	const n = Number(s);
 	return Number.isFinite(n) ? n : NaN;
 };
@@ -87,4 +83,3 @@ export function parseTradesFromBtgPdfText(pdfText: string): Trade[] {
 
 	return trades;
 }
-

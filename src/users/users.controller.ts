@@ -132,10 +132,7 @@ export class UsersController {
 	@Roles(Role.Admin)
 	@ApiOperation({ summary: 'Altera o role de um usuário (admin)' })
 	@ApiResponse({ status: 200, description: 'Role atualizado com sucesso' })
-	async updateRole(
-		@Param('id') id: string,
-		@Body() body: { role: Role }
-	) {
+	async updateRole(@Param('id') id: string, @Body() body: { role: Role }) {
 		return this.usersService.updateUserRole(id, body.role);
 	}
 }

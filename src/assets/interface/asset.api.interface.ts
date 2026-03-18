@@ -4,6 +4,7 @@ export interface AssetQuote {
 	change: number;
 	changePercent: number;
 	lastUpdate: Date;
+	restrictedData?: string[];
 }
 
 export interface AssetWithIndicators extends AssetQuote {

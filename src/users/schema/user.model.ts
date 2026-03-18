@@ -14,6 +14,8 @@ export interface User extends Document {
 	userSubscription?: string;
 	stripeCustomerId?: string;
 	refreshToken?: string;
+	resetPasswordToken?: string;
+	resetPasswordExpires?: Date;
 	isEmailVerified?: boolean;
 	isActive: boolean;
 	lastLogin?: Date;
@@ -66,6 +68,14 @@ const userSchema = new Schema<User>(
 		refreshToken: {
 			type: String,
 			default: null,
+			select: false,
+		},
+		resetPasswordToken: {
+			type: String,
+			select: false,
+		},
+		resetPasswordExpires: {
+			type: Date,
 			select: false,
 		},
 

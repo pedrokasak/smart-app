@@ -58,19 +58,27 @@ export class AssetsService {
 				: (existing as any).avgPrice;
 		const costBasis = typeof avgPrice === 'number' ? avgPrice : price;
 
-		return this.assetModel.findByIdAndUpdate(
-			assetId,
-			{
-				...(typeof updateDto.quantity === 'number' ? { quantity } : {}),
-				...(typeof updateDto.price === 'number' ? { price } : {}),
-				...(typeof (updateDto as any).avgPrice === 'number'
-					? { avgPrice }
-					: {}),
-				total: quantity * costBasis,
-				updatedAt: new Date(),
-			},
-			{ new: true }
-		);
+		const setUpdate: Record<string, any> = {
+			total: quantity * costBasis,
+			updatedAt: new Date(),
+		};
+
+		if (typeof updateDto.quantity === 'number') setUpdate.quantity = quantity;
+		if (typeof updateDto.price === 'number') setUpdate.price = price;
+		if (typeof (updateDto as any).avgPrice === 'number')
+			setUpdate.avgPrice = avgPrice;
+
+		const update: Record<string, any> = { $set: setUpdate };
+
+		if (Array.isArray((updateDto as any).dividendHistory)) {
+			update.$push = {
+				dividendHistory: {
+					$each: (updateDto as any).dividendHistory,
+				},
+			};
+		}
+
+		return this.assetModel.findByIdAndUpdate(assetId, update, { new: true });
 	}
 
 	// Deletar asset

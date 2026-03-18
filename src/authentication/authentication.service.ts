@@ -12,17 +12,22 @@ import * as bcrypt from 'bcrypt';
 import {
 	expireKeepAliveConected,
 	expireKeepAliveConectedRefreshToken,
-	jwtSecret,
 } from 'src/env';
 import { AuthErrorService } from 'src/utils/errors-handler';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { UpdatePasswordDto } from './dto/update-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
+import * as crypto from 'crypto';
+import { EmailService } from 'src/notifications/email/email.service';
+import { authenticator } from 'otplib';
 
 @Injectable()
 export class AuthenticationService {
 	constructor(
 		private jwtService: JwtService,
-		private tokenBlacklistService: TokenBlacklistService
+		private tokenBlacklistService: TokenBlacklistService,
+		private readonly emailService: EmailService
 	) {}
 
 	async signin(
@@ -60,7 +65,11 @@ export class AuthenticationService {
 		}
 
 		const accessToken = this.jwtService.sign(
-			{ userId: verifyUser.id, type: 'access', role: verifyUser.role ?? 'user' },
+			{
+				userId: verifyUser.id,
+				type: 'access',
+				role: verifyUser.role ?? 'user',
+			},
 			{ expiresIn: expireKeepAliveConected }
 		);
 
@@ -161,5 +170,101 @@ export class AuthenticationService {
 		await user.save();
 
 		return { message: 'Password updated successfully' };
+	}
+
+	async forgotPassword(
+		forgotPasswordDto: ForgotPasswordDto
+	): Promise<{ message: string }> {
+		const user = await UserModel.findOne({ email: forgotPasswordDto.email });
+
+		if (!user) {
+			// Do not reveal that a user does not exist
+			return {
+				message: 'If the email is valid, a password reset link has been sent',
+			};
+		}
+
+		// Generate token
+		const resetToken = crypto.randomBytes(32).toString('hex');
+		const hash = crypto.createHash('sha256').update(resetToken).digest('hex');
+
+		// Set expiration (1 hour)
+		const resetPasswordExpires = new Date();
+		resetPasswordExpires.setHours(resetPasswordExpires.getHours() + 1);
+
+		user.resetPasswordToken = hash;
+		user.resetPasswordExpires = resetPasswordExpires;
+		await user.save();
+
+		// Send email
+		await this.emailService.sendPasswordResetEmail(user.email, resetToken);
+
+		return {
+			message: 'If the email is valid, a password reset link has been sent',
+		};
+	}
+
+	async verifyResetToken(
+		token: string
+	): Promise<{ valid: boolean; requiresMfa: boolean }> {
+		const hash = crypto.createHash('sha256').update(token).digest('hex');
+
+		const user = await UserModel.findOne({
+			resetPasswordToken: hash,
+			resetPasswordExpires: { $gt: new Date() },
+		}).select('+resetPasswordToken +resetPasswordExpires');
+
+		if (!user) {
+			throw new UnauthorizedException('Token inválido ou expirado');
+		}
+
+		return { valid: true, requiresMfa: user.twoFactorEnabled };
+	}
+
+	async resetPassword(
+		resetPasswordDto: ResetPasswordDto
+	): Promise<{ message: string }> {
+		const hash = crypto
+			.createHash('sha256')
+			.update(resetPasswordDto.token)
+			.digest('hex');
+
+		const user = await UserModel.findOne({
+			resetPasswordToken: hash,
+			resetPasswordExpires: { $gt: new Date() },
+		}).select(
+			'+resetPasswordToken +resetPasswordExpires +password +twoFactorSecret'
+		);
+
+		if (!user) {
+			throw new UnauthorizedException('Token inválido ou expirado');
+		}
+
+		// Verify MFA if enabled
+		if (user.twoFactorEnabled) {
+			if (!resetPasswordDto.tfCode) {
+				throw new UnauthorizedException(
+					'Código de autenticação de dois fatores é obrigatório'
+				);
+			}
+
+			const isCodeValid = authenticator.verify({
+				token: resetPasswordDto.tfCode,
+				secret: user.twoFactorSecret,
+			});
+
+			if (!isCodeValid) {
+				throw new UnauthorizedException('Código de dois fatores inválido');
+			}
+		}
+
+		const hashedPassword = await bcrypt.hash(resetPasswordDto.newPassword, 10);
+
+		user.password = hashedPassword;
+		user.resetPasswordToken = undefined;
+		user.resetPasswordExpires = undefined;
+		await user.save();
+
+		return { message: 'Senha redefinida com sucesso' };
 	}
 }

@@ -104,10 +104,16 @@ export class UsersService {
 		const user = await UserModel.findById(id);
 		if (!user) throw new NotFoundException('Usuário não encontrado');
 		if (!Object.values(Role).includes(role)) {
-			throw new BadRequestException(`Role inválido: ${role}. Use: ${Object.values(Role).join(', ')}`);
+			throw new BadRequestException(
+				`Role inválido: ${role}. Use: ${Object.values(Role).join(', ')}`
+			);
 		}
 		user.role = role;
 		await user.save();
-		return { message: `Role atualizado para '${role}' com sucesso`, userId: id, role };
+		return {
+			message: `Role atualizado para '${role}' com sucesso`,
+			userId: id,
+			role,
+		};
 	}
 }

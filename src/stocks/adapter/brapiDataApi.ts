@@ -24,15 +24,23 @@ export class BrapiAdapter implements StockApiAdapter {
 			dividends?: boolean;
 		}
 	): Promise<any> {
-		try {
+		const apiKey = brapiApiKey;
+		if (!apiKey) throw new Error('BRAPI_API_KEY não definida');
+
+		const restricted: string[] = [];
+		let currentFundamental = options?.fundamental;
+		let currentDividends = options?.dividends;
+
+		const makeRequest = async (fund: boolean, div: boolean) => {
 			const params = new URLSearchParams();
+			params.append('token', apiKey);
 			if (options?.range) params.append('range', options.range);
 			if (options?.interval) params.append('interval', options.interval);
-			if (options?.fundamental) params.append('fundamental', 'true');
-			if (options?.dividends) params.append('dividends', 'true');
+			if (fund) params.append('fundamental', 'true');
+			if (div) params.append('dividends', 'true');
 
-			const url = `${this.baseUrl}/quote/${symbols}${params.toString() ? `?${params.toString()}` : ''}`;
-			const response = await firstValueFrom(
+			const url = `${this.baseUrl}/quote/${symbols}?${params.toString()}`;
+			return firstValueFrom(
 				this.httpService.get(url, {
 					headers: {
 						'User-Agent': 'SmartFolio App',
@@ -40,10 +48,58 @@ export class BrapiAdapter implements StockApiAdapter {
 					},
 				})
 			);
-			console.log('BRAPI Response:', response.data);
+		};
 
+		try {
+			const response = await makeRequest(!!currentFundamental, !!currentDividends);
 			return response.data;
 		} catch (error) {
+			const errorData = error?.response?.data;
+			if (errorData?.code === 'FEATURE_NOT_AVAILABLE' || errorData?.error) {
+				const msg = errorData.message || '';
+				console.warn('Brapi restriction detected:', msg);
+
+				if (currentDividends && (msg.includes('dividend') || msg.includes('dividendo'))) {
+					restricted.push('dividends');
+					currentDividends = false;
+				} else if (currentFundamental && (msg.includes('fundamental') || msg.includes('indicadores'))) {
+					restricted.push('fundamental');
+					currentFundamental = false;
+				} else {
+					// If we can't identify or it's both, try disabling dividends first then fundamental
+					if (currentDividends) {
+						restricted.push('dividends');
+						currentDividends = false;
+					} else if (currentFundamental) {
+						restricted.push('fundamental');
+						currentFundamental = false;
+					} else {
+						throw error; // Not something we can fix by stripping params
+					}
+				}
+
+				try {
+					const secondTry = await makeRequest(!!currentFundamental, !!currentDividends);
+					if (secondTry.data.results?.[0]) {
+						secondTry.data.results[0].restrictedData = restricted;
+					}
+					return secondTry.data;
+				} catch (retryError) {
+					// Last resort: try without both if it failed again
+					if (currentFundamental || currentDividends) {
+						const lastTry = await makeRequest(false, false);
+						if (lastTry.data.results?.[0]) {
+							lastTry.data.results[0].restrictedData = [
+								...(currentFundamental ? ['fundamental'] : []),
+								...(currentDividends ? ['dividends'] : []),
+								...restricted,
+							];
+						}
+						return lastTry.data;
+					}
+					throw retryError;
+				}
+			}
 			console.error('Erro ao buscar cotação:', error);
 			throw error;
 		}

@@ -29,4 +29,3 @@ export class ProviderRegistry {
 		return Array.from(this.providers.keys());
 	}
 }
-

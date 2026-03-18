@@ -21,4 +21,3 @@ export class CcxtExchangeProvider implements ExchangeProvider {
 		});
 	}
 }
-

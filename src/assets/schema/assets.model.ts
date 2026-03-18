@@ -22,6 +22,7 @@ export interface Asset extends Document {
 	total: number; // quantity * price
 	currentPrice?: number;
 	change24h?: number;
+	dividendHistory?: { date: Date; value: number }[];
 	indicators?: IAssetIndicators;
 	source: 'manual' | 'b3' | 'webscrape';
 	lastEnrichedAt?: Date;
@@ -76,6 +77,12 @@ export const assetSchema = new Schema<Asset>(
 			type: Number,
 			default: null,
 		},
+		dividendHistory: [
+			{
+				date: { type: Date, required: true },
+				value: { type: Number, required: true, min: 0 },
+			},
+		],
 		indicators: {
 			dividendYield: { type: Number, default: null },
 			priceToEarnings: { type: Number, default: null },

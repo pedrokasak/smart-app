@@ -14,9 +14,17 @@ export class StockService implements StockRepository {
 		return this.brapi.listAllStocks(search, sortBy, 'asc', limit, page);
 	}
 
-	async getNationalQuote(symbol: string) {
+	async getNationalQuote(
+		symbol: string,
+		options?: {
+			range?: string;
+			interval?: string;
+			fundamental?: boolean;
+			dividends?: boolean;
+		}
+	) {
 		const cleanSymbol = symbol.trim().toUpperCase();
-		return this.brapi.getStockQuote(cleanSymbol);
+		return this.brapi.getStockQuote(cleanSymbol, options);
 	}
 
 	async getStockQuoteGlobal(symbol: string): Promise<any> {

@@ -14,6 +14,7 @@ export class AssetMapper {
 			total: asset.total,
 			currentPrice: asset.currentPrice,
 			change24h: asset.change24h,
+			dividendHistory: (asset as any).dividendHistory ?? undefined,
 			indicators: asset.indicators,
 			source: asset.source,
 			lastEnrichedAt: asset.lastEnrichedAt,

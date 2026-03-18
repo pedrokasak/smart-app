@@ -95,10 +95,19 @@ export function parseTradesFromCsv(csvText: string): Trade[] {
 			const date = parseDate(
 				get(r, ['date', 'data', 'dt', 'data_operacao', 'dataoperacao'])
 			);
-			const symbol = get(r, ['symbol', 'ativo', 'ticker', 'codigo']).toUpperCase();
-			const side = mapSide(get(r, ['side', 'operacao', 'tipo', 'compra_venda']));
+			const symbol = get(r, [
+				'symbol',
+				'ativo',
+				'ticker',
+				'codigo',
+			]).toUpperCase();
+			const side = mapSide(
+				get(r, ['side', 'operacao', 'tipo', 'compra_venda'])
+			);
 			const quantity = parseNumber(get(r, ['quantity', 'quantidade', 'qtd']));
-			const price = parseNumber(get(r, ['price', 'preco', 'preco_unitario', 'valor_unitario']));
+			const price = parseNumber(
+				get(r, ['price', 'preco', 'preco_unitario', 'valor_unitario'])
+			);
 			const feesRaw = get(r, ['fees', 'taxas', 'corretagem', 'emolumentos']);
 			const fees = feesRaw ? parseNumber(feesRaw) : 0;
 
@@ -118,4 +127,3 @@ export function parseTradesFromCsv(csvText: string): Trade[] {
 		})
 		.filter(Boolean) as Trade[];
 }
-

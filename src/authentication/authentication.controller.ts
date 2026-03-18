@@ -6,6 +6,8 @@ import {
 	Patch,
 	UseGuards,
 	Request,
+	Get,
+	Param,
 } from '@nestjs/common';
 import {
 	AuthenticateDto,
@@ -18,6 +20,8 @@ import { AuthenticationEntity } from './entities/authentication-entity';
 
 import { Public } from 'src/utils/constants';
 import { UpdatePasswordDto } from './dto/update-password.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 
 @Controller('auth')
@@ -77,5 +81,26 @@ export class AuthenticationController {
 	updatePassword(@Request() req, @Body() updatePasswordDto: UpdatePasswordDto) {
 		const userId = req.user.userId;
 		return this.authService.updatePassword(userId, updatePasswordDto);
+	}
+
+	@Public()
+	@Post('forgot-password')
+	@ApiOkResponse({ description: 'Password reset email sent (if email exists)' })
+	forgotPassword(@Body() forgotPasswordDto: ForgotPasswordDto) {
+		return this.authService.forgotPassword(forgotPasswordDto);
+	}
+
+	@Public()
+	@Get('reset-password/:token')
+	@ApiOkResponse({ description: 'Verify token and check MFA requirements' })
+	verifyResetToken(@Param('token') token: string) {
+		return this.authService.verifyResetToken(token);
+	}
+
+	@Public()
+	@Post('reset-password')
+	@ApiOkResponse({ description: 'Password successfully reset' })
+	resetPassword(@Body() resetPasswordDto: ResetPasswordDto) {
+		return this.authService.resetPassword(resetPasswordDto);
 	}
 }
