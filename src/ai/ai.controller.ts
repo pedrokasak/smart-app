@@ -50,4 +50,11 @@ export class AiController {
 
 		return this.aiService.analyzePortfolio(payload);
 	}
+
+	@Post('simulate')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async simulate(@Body() body: any): Promise<any> {
+		return this.aiService.simulate(body);
+	}
 }
