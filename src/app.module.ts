@@ -18,6 +18,7 @@ import { AiModule } from './ai/ai.module';
 import { TwoFactorModule } from './two-factor/two-factor.module';
 import { BrokerSyncModule } from './broker-sync/broker-sync.module';
 import { FiscalModule } from './fiscal/fiscal.module';
+import { PortfolioModule } from './portfolio/portfolio.module';
 
 @Module({
 	imports: [
@@ -34,6 +35,7 @@ import { FiscalModule } from './fiscal/fiscal.module';
 		AiModule,
 		TwoFactorModule,
 		BrokerSyncModule,
+		PortfolioModule,
 		FiscalModule,
 	],
 	controllers: [AppController],
