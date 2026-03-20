@@ -12,6 +12,7 @@ jest.mock('../authentication/jwt-auth.guard', () => ({
 
 const mockAiService = {
 	analyzePortfolio: jest.fn(),
+	simulate: jest.fn(),
 };
 
 describe('AiController', () => {
@@ -93,5 +94,32 @@ describe('AiController', () => {
 
 		const result = await controller.analyze(req, body);
 		expect(result).toEqual(fakeResponse);
+	});
+
+	it('should call simulate and return simulation payload', async () => {
+		const fakeSimulation = {
+			total_invested: 120000,
+			scenarios: {
+				optimistic: 180000,
+				neutral: 150000,
+				pessimistic: 130000,
+			},
+			message: 'ok',
+		};
+		mockAiService.simulate.mockResolvedValue(fakeSimulation);
+
+		const result = await controller.simulate({
+			monthly_investment: 1000,
+			years: 10,
+			current_portfolio_value: 15000,
+		});
+
+		expect(result).toEqual(fakeSimulation);
+		expect(mockAiService.simulate).toHaveBeenCalledWith(
+			expect.objectContaining({
+				monthly_investment: 1000,
+				years: 10,
+			})
+		);
 	});
 });
