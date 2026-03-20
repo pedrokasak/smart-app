@@ -25,7 +25,9 @@ jest.mock('ccxt', () => {
 
 describe('BrokerSyncService', () => {
 	let service: BrokerSyncService;
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	let portfolioService: PortfolioService;
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	let assetsService: AssetsService;
 
 	const mockPortfolioService = {

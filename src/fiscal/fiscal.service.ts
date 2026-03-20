@@ -8,6 +8,30 @@ export interface MonthlyPnl {
 	realizedPnl: number;
 }
 
+export interface MonthlyTaxSummary {
+	year: number;
+	month: number;
+	stockSales: number;
+	stockProfit: number;
+	fiiProfit: number;
+	cryptoProfit: number;
+	stockTax: number;
+	fiiTax: number;
+	cryptoTax: number;
+	totalTax: number;
+	stockExempt: boolean;
+}
+
+type FiscalCategory = 'stock' | 'fii' | 'crypto';
+type PositionState = { qty: number; totalCost: number };
+
+export interface FiscalAccumulatedLossSummary {
+	stock: number;
+	fii: number;
+	crypto: number;
+	total: number;
+}
+
 @Injectable()
 export class FiscalService {
 	constructor(private readonly averagePriceService: AveragePriceService) {}
@@ -62,5 +86,236 @@ export class FiscalService {
 		return Array.from(byMonth.values()).sort((a, b) =>
 			a.year !== b.year ? a.year - b.year : a.month - b.month
 		);
+	}
+
+	private getCategory(symbol: string, explicitType?: string): FiscalCategory {
+		const type = (explicitType || '').toLowerCase();
+		if (type === 'crypto') return 'crypto';
+		if (type === 'fii' || /11$/.test(symbol.toUpperCase())) return 'fii';
+		return 'stock';
+	}
+
+	getCategoryForAsset(symbol: string, explicitType?: string): FiscalCategory {
+		return this.getCategory(symbol, explicitType);
+	}
+
+	calculateAccumulatedLosses(
+		trades: Trade[],
+		assetTypeBySymbol: Record<string, string> = {},
+		year?: number
+	): FiscalAccumulatedLossSummary {
+		const sorted = [...trades]
+			.filter((trade) =>
+				typeof year === 'number' ? trade.date.getFullYear() <= year : true
+			)
+			.sort((a, b) => a.date.getTime() - b.date.getTime());
+
+		const positionBySymbol = new Map<string, PositionState>();
+		const cumulativeByCategory: Record<FiscalCategory, number> = {
+			stock: 0,
+			fii: 0,
+			crypto: 0,
+		};
+
+		for (const trade of sorted) {
+			const symbol = String(trade.assetSymbol || '').toUpperCase();
+			if (!symbol) continue;
+			const category = this.getCategory(symbol, assetTypeBySymbol[symbol]);
+			const position = positionBySymbol.get(symbol) ?? { qty: 0, totalCost: 0 };
+			const quantity = Number(trade.quantity || 0);
+			const price = Number(trade.price || 0);
+			const fees = Number(trade.fees || 0);
+
+			if (trade.side === 'buy') {
+				position.qty += quantity;
+				position.totalCost += quantity * price + fees;
+				positionBySymbol.set(symbol, position);
+				continue;
+			}
+
+			const averagePrice = position.qty > 0 ? position.totalCost / position.qty : 0;
+			const realizedPnl = (price - averagePrice) * quantity - fees;
+			cumulativeByCategory[category] += realizedPnl;
+
+			position.qty -= quantity;
+			position.totalCost -= averagePrice * quantity;
+			if (position.qty <= 0) {
+				position.qty = 0;
+				position.totalCost = 0;
+			}
+			positionBySymbol.set(symbol, position);
+		}
+
+		const stock = cumulativeByCategory.stock < 0 ? Math.abs(cumulativeByCategory.stock) : 0;
+		const fii = cumulativeByCategory.fii < 0 ? Math.abs(cumulativeByCategory.fii) : 0;
+		const crypto =
+			cumulativeByCategory.crypto < 0 ? Math.abs(cumulativeByCategory.crypto) : 0;
+
+		return {
+			stock: this.round(stock),
+			fii: this.round(fii),
+			crypto: this.round(crypto),
+			total: this.round(stock + fii + crypto),
+		};
+	}
+
+	calculateMonthlyTaxSummary(
+		trades: Trade[],
+		assetTypeBySymbol: Record<string, string> = {}
+	): MonthlyTaxSummary[] {
+		const sorted = [...trades].sort(
+			(a, b) => a.date.getTime() - b.date.getTime()
+		);
+
+		const positionBySymbol = new Map<string, { qty: number; totalCost: number }>();
+		const monthAcc = new Map<
+			string,
+			{
+				year: number;
+				month: number;
+				stockSales: number;
+				stockProfit: number;
+				fiiProfit: number;
+				cryptoProfit: number;
+			}
+		>();
+
+		for (const t of sorted) {
+			const symbol = t.assetSymbol.toUpperCase();
+			const fees = t.fees ?? 0;
+			const pos = positionBySymbol.get(symbol) ?? { qty: 0, totalCost: 0 };
+			const category = this.getCategory(symbol, assetTypeBySymbol[symbol]);
+
+			if (t.side === 'buy') {
+				pos.totalCost += t.quantity * t.price + fees;
+				pos.qty += t.quantity;
+				positionBySymbol.set(symbol, pos);
+				continue;
+			}
+
+			const avg = pos.qty > 0 ? pos.totalCost / pos.qty : 0;
+			const pnl = (t.price - avg) * t.quantity - fees;
+			pos.qty -= t.quantity;
+			pos.totalCost -= avg * t.quantity;
+			if (pos.qty <= 0) {
+				pos.qty = 0;
+				pos.totalCost = 0;
+			}
+			positionBySymbol.set(symbol, pos);
+
+			const year = t.date.getFullYear();
+			const month = t.date.getMonth() + 1;
+			const key = `${year}-${month}`;
+			const acc = monthAcc.get(key) ?? {
+				year,
+				month,
+				stockSales: 0,
+				stockProfit: 0,
+				fiiProfit: 0,
+				cryptoProfit: 0,
+			};
+
+			if (category === 'stock') {
+				acc.stockSales += t.price * t.quantity;
+				acc.stockProfit += pnl;
+			}
+			if (category === 'fii') acc.fiiProfit += pnl;
+			if (category === 'crypto') acc.cryptoProfit += pnl;
+
+			monthAcc.set(key, acc);
+		}
+
+		let carryStock = 0;
+		let carryFii = 0;
+		let carryCrypto = 0;
+
+		const months = Array.from(monthAcc.values()).sort((a, b) =>
+			a.year !== b.year ? a.year - b.year : a.month - b.month
+		);
+
+		return months.map((m) => {
+			const stockExempt = m.stockSales <= 20000;
+			const stockBase = m.stockProfit + carryStock;
+			const fiiBase = m.fiiProfit + carryFii;
+			const cryptoBase = m.cryptoProfit + carryCrypto;
+
+			const stockTaxableBase = stockExempt ? 0 : Math.max(stockBase, 0);
+			const fiiTaxableBase = Math.max(fiiBase, 0);
+			const cryptoTaxableBase = Math.max(cryptoBase, 0);
+
+			const stockTax = stockTaxableBase * 0.15;
+			const fiiTax = fiiTaxableBase * 0.2;
+			const cryptoTax = cryptoTaxableBase * 0.15;
+
+			carryStock = stockBase < 0 ? stockBase : 0;
+			carryFii = fiiBase < 0 ? fiiBase : 0;
+			carryCrypto = cryptoBase < 0 ? cryptoBase : 0;
+
+			return {
+				year: m.year,
+				month: m.month,
+				stockSales: m.stockSales,
+				stockProfit: m.stockProfit,
+				fiiProfit: m.fiiProfit,
+				cryptoProfit: m.cryptoProfit,
+				stockTax,
+				fiiTax,
+				cryptoTax,
+				totalTax: stockTax + fiiTax + cryptoTax,
+				stockExempt,
+			};
+		});
+	}
+
+	estimateSaleTax(params: {
+		symbol: string;
+		quantity: number;
+		sellPrice: number;
+		averagePrice: number;
+		monthStockSales?: number;
+		assetType?: string;
+	}) {
+		const category = this.getCategory(params.symbol, params.assetType);
+		const gross = params.quantity * params.sellPrice;
+		const pnl = (params.sellPrice - params.averagePrice) * params.quantity;
+		const stockSalesMonth = (params.monthStockSales ?? 0) + gross;
+		if (pnl <= 0) {
+			return {
+				category,
+				gross,
+				pnl,
+				tax: 0,
+				exempt: true,
+				stockSalesMonth,
+				stockExemptionLimit: 20000,
+			};
+		}
+
+		if (category === 'stock' && stockSalesMonth <= 20000) {
+			return {
+				category,
+				gross,
+				pnl,
+				tax: 0,
+				exempt: true,
+				stockSalesMonth,
+				stockExemptionLimit: 20000,
+			};
+		}
+
+		const rate = category === 'fii' ? 0.2 : 0.15;
+		return {
+			category,
+			gross,
+			pnl,
+			tax: pnl * rate,
+			exempt: false,
+			stockSalesMonth,
+			stockExemptionLimit: 20000,
+		};
+	}
+
+	private round(value: number): number {
+		return Math.round((Number(value) || 0) * 100) / 100;
 	}
 }
