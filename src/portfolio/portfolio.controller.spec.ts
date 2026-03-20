@@ -10,6 +10,7 @@ jest.mock('src/authentication/jwt-auth.guard', () => ({
 
 describe('PortfolioController', () => {
 	let controller: PortfolioController;
+	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	let portfolioService: PortfolioService;
 
 	const mockPortfolioService = {
