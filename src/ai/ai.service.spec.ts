@@ -126,4 +126,44 @@ describe('AiService', () => {
 			InternalServerErrorException
 		);
 	});
+
+	it('should call chat endpoint and return answer', async () => {
+		const fakeData = {
+			answer: 'Estimativa de imposto: R$ 0,00',
+		};
+
+		const axiosResponse: AxiosResponse = {
+			data: fakeData,
+			status: 200,
+			statusText: 'OK',
+			headers: {},
+			config: {} as any,
+		};
+
+		mockHttpService.post.mockReturnValue(of(axiosResponse));
+
+		const result = await service.chat({
+			question: 'Se eu vender metade de PETR4, quanto imposto pago?',
+		});
+
+		expect(result).toEqual(fakeData);
+		expect(mockHttpService.post).toHaveBeenCalledWith(
+			expect.stringContaining('/api/chat'),
+			expect.any(Object),
+			expect.any(Object)
+		);
+	});
+
+	it('should throw InternalServerErrorException on chat failure', async () => {
+		mockHttpService.post.mockReturnValue(
+			throwError(() => ({
+				message: 'Connection refused',
+				response: { data: { detail: 'Chat service down' } },
+			}))
+		);
+
+		await expect(service.chat({})).rejects.toThrow(
+			InternalServerErrorException
+		);
+	});
 });

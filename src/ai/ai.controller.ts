@@ -57,4 +57,11 @@ export class AiController {
 	async simulate(@Body() body: any): Promise<any> {
 		return this.aiService.simulate(body);
 	}
+
+	@Post('chat')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async chat(@Body() body: any): Promise<any> {
+		return this.aiService.chat(body);
+	}
 }

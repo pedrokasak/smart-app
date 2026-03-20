@@ -13,6 +13,7 @@ jest.mock('../authentication/jwt-auth.guard', () => ({
 const mockAiService = {
 	analyzePortfolio: jest.fn(),
 	simulate: jest.fn(),
+	chat: jest.fn(),
 };
 
 describe('AiController', () => {
@@ -119,6 +120,26 @@ describe('AiController', () => {
 			expect.objectContaining({
 				monthly_investment: 1000,
 				years: 10,
+			})
+		);
+	});
+
+	it('should call chat and return answer', async () => {
+		const fakeChat = {
+			answer: 'Com base na sua carteira, o risco está moderado.',
+		};
+		mockAiService.chat.mockResolvedValue(fakeChat);
+
+		const result = await controller.chat({
+			question: 'Minha carteira está muito arriscada?',
+			profile_plan: 'pro',
+			context: { portfolioSummary: { totalValue: 10000 } },
+		});
+
+		expect(result).toEqual(fakeChat);
+		expect(mockAiService.chat).toHaveBeenCalledWith(
+			expect.objectContaining({
+				question: 'Minha carteira está muito arriscada?',
 			})
 		);
 	});

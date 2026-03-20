@@ -18,6 +18,7 @@ describe('AiController (e2e)', () => {
 	const aiServiceMock = {
 		analyzePortfolio: jest.fn(),
 		simulate: jest.fn(),
+		chat: jest.fn(),
 	};
 
 	beforeEach(async () => {
@@ -69,8 +70,29 @@ describe('AiController (e2e)', () => {
 				current_portfolio_value: 10000,
 			})
 			.expect(200)
+				.expect({
+					scenarios: { optimistic: 100, neutral: 80, pessimistic: 60 },
+				});
+	});
+
+	it('/ai/chat (POST)', async () => {
+		aiServiceMock.chat.mockResolvedValue({
+			answer: 'Com base na carteira, seu risco está moderado.',
+		});
+
+		await request(app.getHttpServer())
+			.post('/ai/chat')
+			.send({
+				question: 'Minha carteira está muito arriscada?',
+				profile_plan: 'pro',
+				context: {
+					portfolioSummary: { totalValue: 15000 },
+					assets: [{ symbol: 'PETR4', quantity: 100, current_price: 35 }],
+				},
+			})
+			.expect(200)
 			.expect({
-				scenarios: { optimistic: 100, neutral: 80, pessimistic: 60 },
+				answer: 'Com base na carteira, seu risco está moderado.',
 			});
 	});
 });
