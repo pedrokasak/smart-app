@@ -5,7 +5,6 @@ import { PassportModule } from '@nestjs/passport';
 import { JwtModule } from '@nestjs/jwt';
 import { UsersModule } from 'src/users/users.module';
 import { JwtStrategy } from './authentication.strategy';
-import { UsersService } from 'src/users/users.service';
 import { EmailModule } from 'src/notifications/email/email.module';
 import { jwtSecret, expireKeepAliveConected } from '../env';
 import { TokenBlacklistModule } from 'src/token-blacklist/token-blacklist.module';
@@ -24,7 +23,7 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 		EmailModule,
 	],
 	controllers: [AuthenticationController],
-	providers: [AuthenticationService, UsersService, JwtStrategy, JwtAuthGuard],
+	providers: [AuthenticationService, JwtStrategy, JwtAuthGuard],
 	exports: [JwtAuthGuard, TokenBlacklistModule],
 })
 export class AuthenticationModule {}

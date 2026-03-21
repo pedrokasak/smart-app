@@ -97,7 +97,9 @@ export class PortfolioController {
 
 		const tradeFilter: any = {
 			userId: new Types.ObjectId(userId),
-			portfolioId: { $in: portfolioIds.map((id: any) => new Types.ObjectId(id)) },
+			portfolioId: {
+				$in: portfolioIds.map((id: any) => new Types.ObjectId(id)),
+			},
 		};
 
 		if (symbolFilter) {
@@ -223,10 +225,11 @@ export class PortfolioController {
 		let assetsUpdated = 0;
 
 		for (const assetData of parsedAssets) {
-			const existingAsset = await this.assetService.findAssetBySymbolAndPortfolio(
-				id,
-				assetData.symbol
-			);
+			const existingAsset =
+				await this.assetService.findAssetBySymbolAndPortfolio(
+					id,
+					assetData.symbol
+				);
 
 			let asset: any = existingAsset;
 
@@ -248,16 +251,27 @@ export class PortfolioController {
 					type: assetData.type,
 				};
 
-				asset = await this.portfolioService.addAssetToPortfolio(id, assetDto, 'b3');
+				asset = await this.portfolioService.addAssetToPortfolio(
+					id,
+					assetDto,
+					'b3'
+				);
 				assetsCreated += 1;
 			}
 
 			const dividendValue = dividendsBySymbol.get(assetData.symbol);
-			if (asset && dividendValue && dividendValue > 0 && assetData.quantity > 0) {
+			if (
+				asset &&
+				dividendValue &&
+				dividendValue > 0 &&
+				assetData.quantity > 0
+			) {
 				const dividendPerShare = dividendValue / assetData.quantity;
 				const alreadyHasDividend = Array.isArray(asset.dividendHistory)
 					? asset.dividendHistory.some((entry: any) => {
-							const entryDate = new Date(entry?.date).toISOString().slice(0, 10);
+							const entryDate = new Date(entry?.date)
+								.toISOString()
+								.slice(0, 10);
 							const reportDateKey = reportDate.toISOString().slice(0, 10);
 							const entryValue = Number(entry?.value || 0);
 							return (
@@ -308,7 +322,8 @@ export class PortfolioController {
 
 		const userId =
 			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
-		const userPortfolios = await this.portfolioService.getUserPortfolios(userId);
+		const userPortfolios =
+			await this.portfolioService.getUserPortfolios(userId);
 		const selected = userPortfolios.find(
 			(portfolio: any) => String(portfolio._id || portfolio.id) === portfolioId
 		);
@@ -351,10 +366,18 @@ export class PortfolioController {
 			provider: 'b3',
 			date: {
 				$gte: new Date(
-					Math.min(...parsedTransactions.map((transaction) => transaction.date.getTime()))
+					Math.min(
+						...parsedTransactions.map((transaction) =>
+							transaction.date.getTime()
+						)
+					)
 				),
 				$lte: new Date(
-					Math.max(...parsedTransactions.map((transaction) => transaction.date.getTime()))
+					Math.max(
+						...parsedTransactions.map((transaction) =>
+							transaction.date.getTime()
+						)
+					)
 				),
 			},
 		})
@@ -494,7 +517,9 @@ const normalizeNumber = (value: unknown): number | null => {
 };
 
 const normalizeSymbol = (value: unknown, kind?: SheetKind): string => {
-	const text = String(value ?? '').trim().toUpperCase();
+	const text = String(value ?? '')
+		.trim()
+		.toUpperCase();
 	if (!text) return '';
 	if (kind === 'lca') {
 		return text.replace(/\s+/g, '_');
@@ -529,7 +554,12 @@ const parseB3Workbook = (
 	void reportDate;
 	const assetsByKey = new Map<
 		string,
-		{ symbol: string; type: ParsedAsset['type']; quantity: number; total: number }
+		{
+			symbol: string;
+			type: ParsedAsset['type'];
+			quantity: number;
+			total: number;
+		}
 	>();
 	const dividendsBySymbol = new Map<string, number>();
 	const quantityBySymbol = new Map<string, number>();
@@ -571,7 +601,7 @@ const parseB3Workbook = (
 
 			const rawSymbol =
 				kind === 'lca'
-					? row[COLUMN_LCA_CODE] ?? row['Produto']
+					? (row[COLUMN_LCA_CODE] ?? row['Produto'])
 					: row[COLUMN_SYMBOL];
 			const symbol = normalizeSymbol(rawSymbol, kind);
 			if (!symbol || symbol.toLowerCase() === 'total') continue;
@@ -663,14 +693,9 @@ const normalizeHeaderKey = (value: string) =>
 const toTradeSide = (value: unknown): 'buy' | 'sell' | null => {
 	const side = normalizeHeaderKey(String(value || ''));
 	if (
-		[
-			'c',
-			'compra',
-			'buy',
-			'entrada',
-			'credito',
-			'debito de venda',
-		].includes(side)
+		['c', 'compra', 'buy', 'entrada', 'credito', 'debito de venda'].includes(
+			side
+		)
 	) {
 		return 'buy';
 	}
@@ -725,7 +750,10 @@ const parseB3NegotiationWorkbook = (
 			if (!row || isTotalRow(row as Record<string, any>)) continue;
 
 			const normalizedRow = new Map<string, unknown>(
-				Object.entries(row).map(([key, value]) => [normalizeHeaderKey(key), value])
+				Object.entries(row).map(([key, value]) => [
+					normalizeHeaderKey(key),
+					value,
+				])
 			);
 			const get = (keys: string[]) => {
 				for (const key of keys) {

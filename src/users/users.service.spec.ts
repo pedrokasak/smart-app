@@ -4,6 +4,7 @@ import { UserModel } from './schema/user.model';
 import * as bcrypt from 'bcrypt';
 import { HttpException } from '@nestjs/common';
 import { JwtModule, JwtService } from '@nestjs/jwt';
+import { EmailService } from 'src/notifications/email/email.service';
 
 jest.mock('./schema/user.model', () => {
 	const mockUserModel = jest.fn().mockImplementation(() => ({
@@ -26,11 +27,22 @@ describe('UsersService', () => {
 
 	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	let jwtService: JwtService;
+	let emailService: { sendWelcomeEmail: jest.Mock };
 
 	beforeEach(async () => {
+		emailService = {
+			sendWelcomeEmail: jest.fn().mockResolvedValue(undefined),
+		};
+
 		const module: TestingModule = await Test.createTestingModule({
 			imports: [JwtModule.register({ secret: 'test-secret' })],
-			providers: [UsersService],
+			providers: [
+				UsersService,
+				{
+					provide: EmailService,
+					useValue: emailService,
+				},
+			],
 		}).compile();
 
 		service = module.get<UsersService>(UsersService);
@@ -72,6 +84,10 @@ describe('UsersService', () => {
 
 			expect(result.message).toBe('User created successfully');
 			expect(mockSave).toHaveBeenCalled();
+			expect(emailService.sendWelcomeEmail).toHaveBeenCalledWith(
+				'pedro@example.com',
+				'Pedro'
+			);
 		});
 
 		it('deve lançar erro se o email já existir', async () => {

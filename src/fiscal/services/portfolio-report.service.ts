@@ -75,7 +75,11 @@ export class PortfolioReportService {
 	private formatCell(field: string, value: unknown): string {
 		if (field === 'side') {
 			const v = String(value || '').toLowerCase();
-			return v === 'buy' ? 'Compra' : v === 'sell' ? 'Venda' : String(value || '');
+			return v === 'buy'
+				? 'Compra'
+				: v === 'sell'
+					? 'Venda'
+					: String(value || '');
 		}
 		if (field === 'month') {
 			return String(value || '').padStart(2, '0');
@@ -129,7 +133,8 @@ export class PortfolioReportService {
 				.lean();
 			const totalValue = assets.reduce(
 				(sum: number, a: any) =>
-					sum + Number(a.quantity || 0) * Number(a.currentPrice || a.price || 0),
+					sum +
+					Number(a.quantity || 0) * Number(a.currentPrice || a.price || 0),
 				0
 			);
 			return {
@@ -161,7 +166,8 @@ export class PortfolioReportService {
 
 		if (type === 'transactions') {
 			const gross = trades.reduce(
-				(sum: number, t: any) => sum + Number(t.price || 0) * Number(t.quantity || 0),
+				(sum: number, t: any) =>
+					sum + Number(t.price || 0) * Number(t.quantity || 0),
 				0
 			);
 			return {
@@ -249,7 +255,9 @@ export class PortfolioReportService {
 		const headers =
 			data.items && data.items.length
 				? Object.keys(data.items[0])
-						.map((h: string) => `<th>${this.escapeHtml(this.fieldLabel(h))}</th>`)
+						.map(
+							(h: string) => `<th>${this.escapeHtml(this.fieldLabel(h))}</th>`
+						)
 						.join('')
 				: '';
 
@@ -298,7 +306,9 @@ export class PortfolioReportService {
 		});
 		try {
 			const page = await browser.newPage();
-			await page.setContent(this.renderHtml(data), { waitUntil: 'networkidle0' });
+			await page.setContent(this.renderHtml(data), {
+				waitUntil: 'networkidle0',
+			});
 			const pdf = await page.pdf({
 				format: 'A4',
 				printBackground: true,

@@ -13,7 +13,10 @@ export class BrapiStockAdapter implements IAssetApiAdapter {
 
 	constructor(private readonly httpService: HttpService) {}
 
-	async getQuote(symbols: string, options?: { fundamental?: boolean; dividends?: boolean }): Promise<AssetQuote> {
+	async getQuote(
+		symbols: string,
+		options?: { fundamental?: boolean; dividends?: boolean }
+	): Promise<AssetQuote> {
 		try {
 			const fund = options?.fundamental ?? true;
 			const div = options?.dividends ?? true;
@@ -39,14 +42,23 @@ export class BrapiStockAdapter implements IAssetApiAdapter {
 			if (errorData?.code === 'FEATURE_NOT_AVAILABLE' || errorData?.error) {
 				const msg = errorData.message || '';
 				if (msg.includes('dividend') || msg.includes('dividendo')) {
-					return this.getQuote(symbols, { fundamental: options?.fundamental, dividends: false });
+					return this.getQuote(symbols, {
+						fundamental: options?.fundamental,
+						dividends: false,
+					});
 				}
 				if (msg.includes('fundamental') || msg.includes('indicadores')) {
-					return this.getQuote(symbols, { fundamental: false, dividends: options?.dividends });
+					return this.getQuote(symbols, {
+						fundamental: false,
+						dividends: options?.dividends,
+					});
 				}
 				// Fallback generic retry
 				if (options?.fundamental !== false || options?.dividends !== false) {
-					return this.getQuote(symbols, { fundamental: false, dividends: false });
+					return this.getQuote(symbols, {
+						fundamental: false,
+						dividends: false,
+					});
 				}
 			}
 			console.error('BrapiAdapter - Erro ao buscar cotação:', error);
@@ -56,7 +68,10 @@ export class BrapiStockAdapter implements IAssetApiAdapter {
 
 	async getIndicators(symbol: string): Promise<AssetWithIndicators> {
 		try {
-			const quote = await this.getQuote(symbol, { fundamental: true, dividends: true });
+			const quote = await this.getQuote(symbol, {
+				fundamental: true,
+				dividends: true,
+			});
 
 			// We need to re-fetch if we use getQuote because it doesn't return the raw stock object
 			// Actually, let's optimize getIndicators to be more robust
@@ -68,7 +83,9 @@ export class BrapiStockAdapter implements IAssetApiAdapter {
 				const errorData = e?.response?.data;
 				if (errorData?.code === 'FEATURE_NOT_AVAILABLE') {
 					// Retry with minimal data
-					response = await firstValueFrom(this.httpService.get(`${this.baseUrl}/quote/${symbol}`));
+					response = await firstValueFrom(
+						this.httpService.get(`${this.baseUrl}/quote/${symbol}`)
+					);
 				} else {
 					throw e;
 				}
@@ -78,13 +95,20 @@ export class BrapiStockAdapter implements IAssetApiAdapter {
 
 			return {
 				...quote,
-				indicators: stock.dividendYield || stock.epsTrailingTwelveMonths ? {
-					dividendYield: stock.dividendYield || 0,
-					priceToEarnings: stock.epsTrailingTwelveMonths ? stock.regularMarketPrice / stock.epsTrailingTwelveMonths : 0,
-					marketCap: stock.marketCap,
-					volume: stock.regularMarketVolume,
-				} : undefined,
-				restrictedData: stock.restrictedData || (quote.restrictedData?.length ? quote.restrictedData : undefined)
+				indicators:
+					stock.dividendYield || stock.epsTrailingTwelveMonths
+						? {
+								dividendYield: stock.dividendYield || 0,
+								priceToEarnings: stock.epsTrailingTwelveMonths
+									? stock.regularMarketPrice / stock.epsTrailingTwelveMonths
+									: 0,
+								marketCap: stock.marketCap,
+								volume: stock.regularMarketVolume,
+							}
+						: undefined,
+				restrictedData:
+					stock.restrictedData ||
+					(quote.restrictedData?.length ? quote.restrictedData : undefined),
 			};
 		} catch (error) {
 			console.error('BrapiAdapter - Erro ao buscar indicadores:', error);
