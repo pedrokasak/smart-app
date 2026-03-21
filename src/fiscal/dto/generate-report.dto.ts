@@ -27,4 +27,3 @@ export class GenerateReportDto {
 	@IsIn(['json', 'pdf'])
 	format?: 'json' | 'pdf';
 }
-

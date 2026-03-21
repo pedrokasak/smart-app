@@ -43,7 +43,7 @@ export class AiService {
 					`${this.trackerIaUrl}/api/simulate`,
 					payload,
 					{
-						headers: { 'Content-Type': 'application/json' }
+						headers: { 'Content-Type': 'application/json' },
 					}
 				)
 			);

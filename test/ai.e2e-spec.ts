@@ -46,7 +46,14 @@ describe('AiController (e2e)', () => {
 			.send({
 				user_id: 'e2e-user',
 				profile_plan: 'pro',
-				portfolio: { id: 'p1', name: 'Main', cpf: '', assets: [], total_value: 0, plan: 'pro' },
+				portfolio: {
+					id: 'p1',
+					name: 'Main',
+					cpf: '',
+					assets: [],
+					total_value: 0,
+					plan: 'pro',
+				},
 				risk_profile: 'moderate',
 			})
 			.expect(200)
@@ -70,9 +77,9 @@ describe('AiController (e2e)', () => {
 				current_portfolio_value: 10000,
 			})
 			.expect(200)
-				.expect({
-					scenarios: { optimistic: 100, neutral: 80, pessimistic: 60 },
-				});
+			.expect({
+				scenarios: { optimistic: 100, neutral: 80, pessimistic: 60 },
+			});
 	});
 
 	it('/ai/chat (POST)', async () => {

@@ -1,4 +1,10 @@
-import { IsNumber, Min, IsOptional, IsArray, ValidateNested } from 'class-validator';
+import {
+	IsNumber,
+	Min,
+	IsOptional,
+	IsArray,
+	ValidateNested,
+} from 'class-validator';
 import { Type } from 'class-transformer';
 import { PartialType } from '@nestjs/mapped-types';
 import { CreateAssetDto } from 'src/assets/dto/create-asset.dto';

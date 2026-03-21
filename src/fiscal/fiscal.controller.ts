@@ -8,7 +8,12 @@ import {
 	Res,
 	UseGuards,
 } from '@nestjs/common';
-import { ApiBearerAuth, ApiOperation, ApiQuery, ApiTags } from '@nestjs/swagger';
+import {
+	ApiBearerAuth,
+	ApiOperation,
+	ApiQuery,
+	ApiTags,
+} from '@nestjs/swagger';
 import { Response } from 'express';
 import { Types } from 'mongoose';
 import { AiService } from 'src/ai/ai.service';
@@ -129,7 +134,9 @@ export class FiscalController {
 					potentialGain: Number(potentialGain.toFixed(2)),
 					availableLoss: Number(availableLoss.toFixed(2)),
 					offsetUsed: Number(offsetUsed.toFixed(2)),
-					estimatedTaxWithoutOffset: Number(estimatedTaxWithoutOffset.toFixed(2)),
+					estimatedTaxWithoutOffset: Number(
+						estimatedTaxWithoutOffset.toFixed(2)
+					),
 					estimatedTaxWithOffset: Number(estimatedTaxWithOffset.toFixed(2)),
 					taxSaved: Number(
 						(estimatedTaxWithoutOffset - estimatedTaxWithOffset).toFixed(2)
@@ -247,17 +254,19 @@ export class FiscalController {
 			typeBySymbol[String(a.symbol || '').toUpperCase()] = String(a.type || '');
 		}
 
-		const monthly = this.fiscalService.calculateMonthlyTaxSummary(
-			trades.map((t: any) => ({
-				assetSymbol: t.symbol,
-				side: t.side,
-				quantity: t.quantity,
-				price: t.price,
-				fees: t.fees || 0,
-				date: new Date(t.date),
-			})),
-			typeBySymbol
-		).filter((item) => item.year === yearNum);
+		const monthly = this.fiscalService
+			.calculateMonthlyTaxSummary(
+				trades.map((t: any) => ({
+					assetSymbol: t.symbol,
+					side: t.side,
+					quantity: t.quantity,
+					price: t.price,
+					fees: t.fees || 0,
+					date: new Date(t.date),
+				})),
+				typeBySymbol
+			)
+			.filter((item) => item.year === yearNum);
 
 		const totals = monthly.reduce(
 			(acc, m) => {
@@ -366,7 +375,9 @@ export class FiscalController {
 				date: new Date(t.date),
 			}))
 		);
-		const avgPrice = Number(avgResult?.averagePrice || asset?.avgPrice || asset?.price || 0);
+		const avgPrice = Number(
+			avgResult?.averagePrice || asset?.avgPrice || asset?.price || 0
+		);
 		const currentQuantity = Number(avgResult?.quantity || asset?.quantity || 0);
 		if (currentQuantity <= 0) {
 			return {
@@ -520,7 +531,8 @@ export class FiscalController {
 		const report = await this.irReportService.generateIrReport(userId, year);
 
 		if (query.format === 'pdf') {
-			const pdfBuffer = await this.irReportService.generateIrReportPdfBuffer(report);
+			const pdfBuffer =
+				await this.irReportService.generateIrReportPdfBuffer(report);
 			res.setHeader('Content-Type', 'application/pdf');
 			res.setHeader(
 				'Content-Disposition',

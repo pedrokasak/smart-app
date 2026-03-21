@@ -22,7 +22,10 @@ export class CvmOpenDataAdapter {
 		string,
 		{ expiresAt: number; rows: Record<string, string>[] }
 	>();
-	private readonly inflight = new Map<string, Promise<Record<string, string>[]>>();
+	private readonly inflight = new Map<
+		string,
+		Promise<Record<string, string>[]>
+	>();
 	private readonly ttlMs = 6 * 60 * 60 * 1000;
 
 	constructor(private readonly httpService: HttpService) {}
@@ -39,7 +42,9 @@ export class CvmOpenDataAdapter {
 		return Number.isFinite(parsed) ? parsed : 0;
 	}
 
-	private async loadCsvRows(fileName: string): Promise<Record<string, string>[]> {
+	private async loadCsvRows(
+		fileName: string
+	): Promise<Record<string, string>[]> {
 		const now = Date.now();
 		const cached = this.textCache.get(fileName);
 		if (cached && cached.expiresAt > now) {
@@ -60,7 +65,10 @@ export class CvmOpenDataAdapter {
 				skipEmptyLines: true,
 			});
 			const rows = Array.isArray(parsed.data) ? parsed.data : [];
-			this.textCache.set(fileName, { expiresAt: Date.now() + this.ttlMs, rows });
+			this.textCache.set(fileName, {
+				expiresAt: Date.now() + this.ttlMs,
+				rows,
+			});
 			return rows;
 		})();
 
@@ -94,15 +102,23 @@ export class CvmOpenDataAdapter {
 				(r) => String(r.CD_CONTA || '').trim() === prefix
 			);
 			if (exactRows.length > 0) {
-				sum += exactRows.reduce((acc, row) => acc + this.toNumber(row.VL_CONTA), 0);
+				sum += exactRows.reduce(
+					(acc, row) => acc + this.toNumber(row.VL_CONTA),
+					0
+				);
 				continue;
 			}
 
 			// fallback only when parent account is missing
 			const childRows = filtered.filter((r) =>
-				String(r.CD_CONTA || '').trim().startsWith(`${prefix}.`)
+				String(r.CD_CONTA || '')
+					.trim()
+					.startsWith(`${prefix}.`)
 			);
-			sum += childRows.reduce((acc, row) => acc + this.toNumber(row.VL_CONTA), 0);
+			sum += childRows.reduce(
+				(acc, row) => acc + this.toNumber(row.VL_CONTA),
+				0
+			);
 		}
 		return sum;
 	}
@@ -144,8 +160,7 @@ export class CvmOpenDataAdapter {
 			const totalAssets = this.sumByPrefix(bpaRows, ['1'], refDate);
 			const shareholdersEquity = this.sumByPrefix(bppRows, ['2.03'], refDate);
 
-			const roe =
-				shareholdersEquity > 0 ? netIncome / shareholdersEquity : 0;
+			const roe = shareholdersEquity > 0 ? netIncome / shareholdersEquity : 0;
 			const netMargin = revenue > 0 ? netIncome / revenue : 0;
 
 			return {

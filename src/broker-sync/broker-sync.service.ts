@@ -174,7 +174,8 @@ export class BrokerSyncService {
 					try {
 						const fallbackBalance = await exchange.fetchBalance();
 						const fallbackTotal =
-							(fallbackBalance.total as unknown as Record<string, number>) || {};
+							(fallbackBalance.total as unknown as Record<string, number>) ||
+							{};
 						for (const symbol in fallbackTotal) {
 							if (fallbackTotal[symbol] > 0) {
 								totalBalances[symbol] =
@@ -223,9 +224,8 @@ export class BrokerSyncService {
 				provider
 			);
 			if (!portfolio) {
-				const userPortfolios = await this.portfolioService.getUserPortfolios(
-					userId
-				);
+				const userPortfolios =
+					await this.portfolioService.getUserPortfolios(userId);
 				// Evita falha por limite de planos (ex.: free com 1 carteira):
 				// se já existe carteira do usuário, reutilizamos a primeira para sincronização.
 				if (userPortfolios.length > 0) {

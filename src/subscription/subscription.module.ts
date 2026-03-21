@@ -6,7 +6,6 @@ import { WebhooksController } from './webhooks.controller';
 import { StripeService } from './stripe.service';
 import { WebhooksService } from './webhooks.service';
 import { SubscriptionModel, UserSubscriptionModel } from './schema';
-import { UsersService } from 'src/users/users.service';
 import { UsersController } from 'src/users/users.controller';
 import { UsersModule } from 'src/users/users.module';
 import Stripe from 'stripe';
@@ -24,7 +23,6 @@ import Stripe from 'stripe';
 		SubscriptionService,
 		StripeService,
 		WebhooksService,
-		UsersService,
 		{
 			provide: Stripe,
 			useFactory: () =>
