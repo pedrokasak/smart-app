@@ -1,30 +1,42 @@
-name: Build and Push to ECR
+name: Deploy to Coolify
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: coolify-deploy-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   deploy:
+    name: Trigger Coolify Deploy
     runs-on: ubuntu-latest
+    timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v2
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-2
+      - name: Validate webhook secret
+        env:
+          COOLIFY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
+        run: |
+          if [ -z "$COOLIFY_WEBHOOK_URL" ]; then
+            echo "Missing required secret: COOLIFY_WEBHOOK_URL"
+            exit 1
+          fi
 
-      - name: Login to ECR
-        run: aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 236604670219.dkr.ecr.us-east-2.amazonaws.com
-
-      - name: Build Docker image
-        run: docker build -t trakker-app .
-
-      - name: Tag Docker image
-        run: docker tag trakker-app:latest 236604670219.dkr.ecr.us-east-2.amazonaws.com/trakker-app:latest
-
-      - name: Push to ECR
-        run: docker push 236604670219.dkr.ecr.us-east-2.amazonaws.com/trakker-app:latest
+      - name: Trigger deploy on Coolify
+        env:
+          COOLIFY_WEBHOOK_URL: ${{ secrets.COOLIFY_WEBHOOK_URL }}
+          GITHUB_SHA: ${{ github.sha }}
+          GITHUB_REF_NAME: ${{ github.ref_name }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+        run: |
+          curl --fail --show-error --silent \
+            -X POST "$COOLIFY_WEBHOOK_URL" \
+            -H "Content-Type: application/json" \
+            -d "{\"sha\":\"$GITHUB_SHA\",\"branch\":\"$GITHUB_REF_NAME\",\"repository\":\"$GITHUB_REPOSITORY\"}"
+          echo "Coolify deploy triggered successfully."
