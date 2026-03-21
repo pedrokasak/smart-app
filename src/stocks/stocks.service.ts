@@ -2,6 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { BrapiAdapter } from './adapter/brapiDataApi';
 import { TwelveDataAdapter } from './adapter/twelveDataApi';
 import { StockRepository } from 'src/stocks/repositories/stock-repository';
+import { FundamentusFallbackAdapter } from 'src/stocks/adapter/fundamentus-fallback.adapter';
+import { CvmOpenDataAdapter } from 'src/stocks/adapter/cvm-open-data.adapter';
 
 @Injectable()
 export class StockService implements StockRepository {

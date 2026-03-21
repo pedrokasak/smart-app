@@ -78,4 +78,92 @@ describe('AiService', () => {
 			InternalServerErrorException
 		);
 	});
+
+	it('should call simulate endpoint and return simulation data', async () => {
+		const fakeData = {
+			total_invested: 20000,
+			scenarios: {
+				optimistic: 35000,
+				neutral: 30000,
+				pessimistic: 25000,
+			},
+			message: 'ok',
+		};
+
+		const axiosResponse: AxiosResponse = {
+			data: fakeData,
+			status: 200,
+			statusText: 'OK',
+			headers: {},
+			config: {} as any,
+		};
+
+		mockHttpService.post.mockReturnValue(of(axiosResponse));
+
+		const result = await service.simulate({
+			monthly_investment: 500,
+			years: 5,
+			current_portfolio_value: 10000,
+		});
+
+		expect(result).toEqual(fakeData);
+		expect(mockHttpService.post).toHaveBeenCalledWith(
+			expect.stringContaining('/api/simulate'),
+			expect.any(Object),
+			expect.any(Object)
+		);
+	});
+
+	it('should throw InternalServerErrorException on simulate failure', async () => {
+		mockHttpService.post.mockReturnValue(
+			throwError(() => ({
+				message: 'Connection refused',
+				response: { data: { detail: 'Simulation service down' } },
+			}))
+		);
+
+		await expect(service.simulate({})).rejects.toThrow(
+			InternalServerErrorException
+		);
+	});
+
+	it('should call chat endpoint and return answer', async () => {
+		const fakeData = {
+			answer: 'Estimativa de imposto: R$ 0,00',
+		};
+
+		const axiosResponse: AxiosResponse = {
+			data: fakeData,
+			status: 200,
+			statusText: 'OK',
+			headers: {},
+			config: {} as any,
+		};
+
+		mockHttpService.post.mockReturnValue(of(axiosResponse));
+
+		const result = await service.chat({
+			question: 'Se eu vender metade de PETR4, quanto imposto pago?',
+		});
+
+		expect(result).toEqual(fakeData);
+		expect(mockHttpService.post).toHaveBeenCalledWith(
+			expect.stringContaining('/api/chat'),
+			expect.any(Object),
+			expect.any(Object)
+		);
+	});
+
+	it('should throw InternalServerErrorException on chat failure', async () => {
+		mockHttpService.post.mockReturnValue(
+			throwError(() => ({
+				message: 'Connection refused',
+				response: { data: { detail: 'Chat service down' } },
+			}))
+		);
+
+		await expect(service.chat({})).rejects.toThrow(
+			InternalServerErrorException
+		);
+	});
 });

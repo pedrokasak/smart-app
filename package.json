@@ -40,6 +40,7 @@
 		"dotenv": "^16.6.1",
 		"kafkajs": "^2.2.4",
 		"mongoose": "^8.23.0",
+		"nodemailer": "^8.0.3",
 		"otplib": "12",
 		"papaparse": "^5.5.3",
 		"passport": "^0.7.0",

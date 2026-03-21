@@ -56,4 +56,22 @@ export class AiService {
 			throw new InternalServerErrorException(msg);
 		}
 	}
+
+	async chat(payload: any): Promise<any> {
+		try {
+			const response = await firstValueFrom(
+				this.httpService.post<any>(`${this.trackerIaUrl}/api/chat`, payload, {
+					headers: { 'Content-Type': 'application/json' },
+					timeout: 60000,
+				})
+			);
+			return response.data;
+		} catch (error) {
+			const msg =
+				error?.response?.data?.detail ||
+				error?.message ||
+				'Erro ao conectar ao serviço de chat IA';
+			throw new InternalServerErrorException(msg);
+		}
+	}
 }
