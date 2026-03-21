@@ -21,23 +21,45 @@ const envSchema = z.object({
 // Parse the environment variables
 const env = envSchema.safeParse(process.env);
 if (!env.success) {
-	console.error('Invalid environment variables:', env.error.format());
-	process.exit(1);
+	if (!process.env.JEST_WORKER_ID && process.env.NODE_ENV !== 'test') {
+		console.error('Invalid environment variables:', env.error.format());
+		process.exit(1);
+	}
 }
 
-export const jwtSecret: string = env.data.JWT_SECRET;
-export const expireKeepAliveConected: string = env.data.EXPIRES_IN;
+const safeEnv = env.success
+	? env.data
+	: {
+			DATABASE_URL: 'http://localhost:27017',
+			JWT_SECRET: 'test-jwt-secret',
+			EXPIRES_IN: '1d',
+			EXPIRES_IN_REFRESH_TOKEN: '7d',
+			URL_PRODUCTION: 'http://localhost:3000',
+			URL_DEVELOPMENT: 'http://localhost:3000',
+			TWELVE_DATA_API_KEY: 'test',
+			BRAPI_DATA_API_KEY: 'test',
+			STRIPE_PRIVATE_API_KEY: 'test',
+			STRIPE_PUBLIC_API_KEY: 'test',
+			STRIPE_WEBHOOK_SECRET: 'test',
+			STRIPE_WEBHOOK_SECRET_PROD: 'test',
+			PORT: '3000',
+			ASAAS_API_KEY: 'test',
+			ASAAS_URL_SANDBOX: 'http://localhost',
+		};
+
+export const jwtSecret: string = safeEnv.JWT_SECRET;
+export const expireKeepAliveConected: string = safeEnv.EXPIRES_IN;
 export const expireKeepAliveConectedRefreshToken: string =
-	env.data.EXPIRES_IN_REFRESH_TOKEN;
-export const urlProduction: string = env.data.URL_PRODUCTION;
-export const urlDevelopment: string = env.data.URL_DEVELOPMENT;
-export const twelveDataApiKey: string = env.data.TWELVE_DATA_API_KEY;
-export const brapiApiKey: string = env.data.BRAPI_DATA_API_KEY;
-export const stripePrivateApiKey: string = env.data.STRIPE_PRIVATE_API_KEY;
-export const stripePublicApiKey: string = env.data.STRIPE_PUBLIC_API_KEY;
-export const stripeWebhookSecret: string = env.data.STRIPE_WEBHOOK_SECRET;
+	safeEnv.EXPIRES_IN_REFRESH_TOKEN;
+export const urlProduction: string = safeEnv.URL_PRODUCTION;
+export const urlDevelopment: string = safeEnv.URL_DEVELOPMENT;
+export const twelveDataApiKey: string = safeEnv.TWELVE_DATA_API_KEY;
+export const brapiApiKey: string = safeEnv.BRAPI_DATA_API_KEY;
+export const stripePrivateApiKey: string = safeEnv.STRIPE_PRIVATE_API_KEY;
+export const stripePublicApiKey: string = safeEnv.STRIPE_PUBLIC_API_KEY;
+export const stripeWebhookSecret: string = safeEnv.STRIPE_WEBHOOK_SECRET;
 export const stripeWebhookSecretProduction: string =
-	env.data.STRIPE_WEBHOOK_SECRET_PROD;
-export const port: string = env.data.PORT;
-export const asaasApiKey: string = env.data.ASAAS_API_KEY;
-export const asaasUrlSandbox: string = env.data.ASAAS_URL_SANDBOX;
+	safeEnv.STRIPE_WEBHOOK_SECRET_PROD;
+export const port: string = safeEnv.PORT;
+export const asaasApiKey: string = safeEnv.ASAAS_API_KEY;
+export const asaasUrlSandbox: string = safeEnv.ASAAS_URL_SANDBOX;

@@ -16,7 +16,12 @@ export class ProfileResponseDto {
 	preferences: {
 		language: 'pt-BR' | 'en-US' | 'es-ES';
 		theme: 'light' | 'dark';
-		notifications: boolean;
+		notifications: {
+			email: boolean;
+			push: boolean;
+			marketAlerts: boolean;
+			portfolioUpdates: boolean;
+		};
 		twoFactorEnabled: boolean;
 	};
 	maxPortfolios: number;

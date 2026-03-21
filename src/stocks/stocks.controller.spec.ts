@@ -77,8 +77,33 @@ describe('StocksController', () => {
 
 			const result = await controller.getStockQuoteNational('PETR4');
 
-			expect(service.getNationalQuote).toHaveBeenCalledWith('PETR4');
+			expect(service.getNationalQuote).toHaveBeenCalledWith('PETR4', {
+				fundamental: false,
+				dividends: false,
+				range: undefined,
+				interval: undefined,
+			});
 			expect(result).toEqual(mockQuote);
+		});
+
+		it('should map query flags and filters to options object', async () => {
+			const mockQuote = { symbol: 'PETR4', price: 35 };
+			mockStockService.getNationalQuote.mockResolvedValue(mockQuote);
+
+			await controller.getStockQuoteNational(
+				'PETR4',
+				'true',
+				'true',
+				'1y',
+				'1d'
+			);
+
+			expect(service.getNationalQuote).toHaveBeenCalledWith('PETR4', {
+				fundamental: true,
+				dividends: true,
+				range: '1y',
+				interval: '1d',
+			});
 		});
 	});
 });

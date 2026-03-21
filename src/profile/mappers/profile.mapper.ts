@@ -28,7 +28,23 @@ export class ProfileMapper {
 			preferences: {
 				language: profile.preferences?.language || 'pt-BR',
 				theme: profile.preferences?.theme || 'light',
-				notifications: profile.preferences?.notifications !== false,
+				notifications:
+					typeof profile.preferences?.notifications === 'object' &&
+					profile.preferences?.notifications !== null
+						? {
+								email: profile.preferences.notifications.email !== false,
+								push: profile.preferences.notifications.push === true,
+								marketAlerts:
+									profile.preferences.notifications.marketAlerts !== false,
+								portfolioUpdates:
+									profile.preferences.notifications.portfolioUpdates !== false,
+							}
+						: {
+								email: profile.preferences?.notifications !== false,
+								push: false,
+								marketAlerts: true,
+								portfolioUpdates: true,
+							},
 				twoFactorEnabled: profile.preferences?.twoFactorEnabled || false,
 			},
 			maxPortfolios: profile.maxPortfolios || 3,

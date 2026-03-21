@@ -25,7 +25,14 @@ export interface Profile extends Document {
 export interface Preferences {
 	language?: 'pt-BR' | 'en-US' | 'es-ES';
 	theme?: 'light' | 'dark';
-	notifications?: boolean;
+	notifications?:
+		| boolean
+		| {
+				email?: boolean;
+				push?: boolean;
+				marketAlerts?: boolean;
+				portfolioUpdates?: boolean;
+		  };
 	twoFactorEnabled?: boolean;
 	sessionTimeout?: number;
 }
@@ -57,8 +64,13 @@ const preferencesSchema = new Schema<Preferences>(
 			default: 'light',
 		},
 		notifications: {
-			type: Boolean,
-			default: true,
+			type: Schema.Types.Mixed,
+			default: {
+				email: true,
+				push: false,
+				marketAlerts: true,
+				portfolioUpdates: true,
+			},
 		},
 		twoFactorEnabled: {
 			type: Boolean,
