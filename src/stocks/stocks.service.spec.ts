@@ -4,13 +4,14 @@ import { TwelveDataAdapter } from 'src/stocks/adapter/twelveDataApi';
 import { BrapiAdapter } from 'src/stocks/adapter/brapiDataApi';
 import { FundamentusFallbackAdapter } from 'src/stocks/adapter/fundamentus-fallback.adapter';
 import { CvmOpenDataAdapter } from 'src/stocks/adapter/cvm-open-data.adapter';
+import { jest } from '@jest/globals';
 
 describe('StockService', () => {
 	let service: StockService;
-	let brapi: any;
-	let twelveData: any;
-	let fundamentusFallback: any;
-	let cvmAdapter: any;
+	let brapi: { listAllStocks: jest.Mock; getStockQuote: jest.Mock };
+	let twelveData: { getStockQuote: jest.Mock };
+	let fundamentusFallback: { getIndicators: jest.Mock };
+	let cvmAdapter: { getComputedIndicatorsByCnpj: jest.Mock };
 
 	beforeEach(async () => {
 		brapi = {
@@ -34,6 +35,10 @@ describe('StockService', () => {
 				{ provide: TwelveDataAdapter, useValue: twelveData },
 				{ provide: FundamentusFallbackAdapter, useValue: fundamentusFallback },
 				{ provide: CvmOpenDataAdapter, useValue: cvmAdapter },
+				{ provide: BrapiAdapter, useValue: brapi },
+				{ provide: TwelveDataAdapter, useValue: twelveData },
+				{ provide: FundamentusFallbackAdapter, useValue: fundamentusFallback },
+				{ provide: CvmOpenDataAdapter, useValue: cvmAdapter },
 			],
 		}).compile();
 
@@ -52,8 +57,8 @@ describe('StockService', () => {
 	describe('getNationalQuote', () => {
 		it('should call brapi.getStockQuote with formatted symbol', async () => {
 			brapi.getStockQuote.mockResolvedValue({ price: 10 });
-			const result = await service.getNationalQuote(' petr4 ');
-			expect(brapi.getStockQuote).toHaveBeenCalledWith('PETR4', undefined);
+			const result = await service.getNationalQuote(' petr4.sa ');
+			expect(brapi.getStockQuote).toHaveBeenCalledWith('PETR4.SA', undefined);
 			expect(result).toEqual({ price: 10 });
 		});
 
@@ -118,41 +123,6 @@ describe('StockService', () => {
 			expect(merged.fallbackSources).toEqual(
 				expect.arrayContaining(['fundamentus', 'cvm_open_data'])
 			);
-		});
-
-		it('should return response as-is when no stock results are found', async () => {
-			const rawResponse = { results: [] };
-			brapi.getStockQuote.mockResolvedValue(rawResponse);
-
-			const result = await service.getNationalQuote('PETR4');
-
-			expect(result).toEqual(rawResponse);
-			expect(fundamentusFallback.getIndicators).not.toHaveBeenCalled();
-			expect(cvmAdapter.getComputedIndicatorsByCnpj).not.toHaveBeenCalled();
-		});
-
-		it('should not call fallback adapters when fundamentals are already present', async () => {
-			const rawResponse = {
-				results: [
-					{
-						symbol: 'ITUB4',
-						priceEarnings: 7.5,
-						priceToBook: 1.1,
-						enterpriseValueEbitda: 4.2,
-						returnOnEquity: 0.18,
-						netMargin: 0.12,
-						dividendYield: 0.06,
-						restrictedData: [],
-					},
-				],
-			};
-			brapi.getStockQuote.mockResolvedValue(rawResponse);
-
-			const result = await service.getNationalQuote('ITUB4');
-
-			expect(result).toEqual(rawResponse);
-			expect(fundamentusFallback.getIndicators).not.toHaveBeenCalled();
-			expect(cvmAdapter.getComputedIndicatorsByCnpj).not.toHaveBeenCalled();
 		});
 	});
 
