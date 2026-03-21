@@ -261,20 +261,38 @@ export class PortfolioController {
 				assetsCreated += 1;
 			}
 
-			const dividendEvents = dividendsBySymbol.get(assetData.symbol) ?? [];
-			if (asset && dividendEvents.length > 0 && assetData.quantity > 0) {
-				const newEntries = dividendEvents
-					.filter((event) => Number(event.totalValue || 0) > 0)
-					.map((event) => ({
-						date: event.eventDate || reportDate,
-						value: event.totalValue / assetData.quantity,
-						paymentType: event.paymentType,
-					}));
+			const dividendValue = dividendsBySymbol.get(assetData.symbol);
+			if (
+				asset &&
+				dividendValue &&
+				dividendValue > 0 &&
+				assetData.quantity > 0
+			) {
+				const dividendPerShare = dividendValue / assetData.quantity;
+				const alreadyHasDividend = Array.isArray(asset.dividendHistory)
+					? asset.dividendHistory.some((entry: any) => {
+							const entryDate = new Date(entry?.date)
+								.toISOString()
+								.slice(0, 10);
+							const reportDateKey = reportDate.toISOString().slice(0, 10);
+							const entryValue = Number(entry?.value || 0);
+							return (
+								entryDate === reportDateKey &&
+								Math.abs(entryValue - dividendPerShare) < 0.000001
+							);
+						})
+					: false;
 
-				await this.assetService.upsertDividendHistoryEntries(
-					asset._id.toString(),
-					newEntries
-				);
+				if (!alreadyHasDividend) {
+					await this.assetService.update(asset._id.toString(), {
+						dividendHistory: [
+							{
+								date: reportDate,
+								value: dividendPerShare,
+							},
+						],
+					});
+				}
 			}
 			importedAssets.push(AssetMapper.toResponseDto(asset));
 		}
