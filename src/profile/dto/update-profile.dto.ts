@@ -32,7 +32,14 @@ export class UpdateProfileDto extends PartialType(CreateProfileDto) {
 	preferences?: {
 		language?: 'pt-BR' | 'en-US' | 'es-ES';
 		theme?: 'light' | 'dark';
-		notifications?: boolean;
+		notifications?:
+			| boolean
+			| {
+					email?: boolean;
+					push?: boolean;
+					marketAlerts?: boolean;
+					portfolioUpdates?: boolean;
+			  };
 		twoFactorEnabled?: boolean;
 	};
 }

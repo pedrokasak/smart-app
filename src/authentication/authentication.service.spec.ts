@@ -45,13 +45,17 @@ describe('AuthenticationService', () => {
 		addToBlacklist: jest.fn(),
 	};
 
+	const mockEmailService = {
+		sendPasswordResetEmail: jest.fn(),
+	};
+
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [
 				AuthenticationService,
 				{ provide: JwtService, useValue: mockJwtService },
 				{ provide: TokenBlacklistService, useValue: mockTokenBlacklistService },
-				{ provide: EmailService, useValue: EmailService },
+				{ provide: EmailService, useValue: mockEmailService },
 			],
 		}).compile();
 

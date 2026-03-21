@@ -2,6 +2,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { TwoFactorService } from './two-factor.service';
 import { TwoFactorController } from './two-factor.controller';
 
+jest.mock('src/env', () => ({
+	jwtSecret: 'test-jwt-secret',
+	expireKeepAliveConected: '1d',
+	expireKeepAliveConectedRefreshToken: '7d',
+}));
+
 jest.mock('src/authentication/jwt-auth.guard', () => ({
 	JwtAuthGuard: jest.fn().mockImplementation(() => true),
 }));
