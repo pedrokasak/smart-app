@@ -8,6 +8,7 @@ export interface BrokerConnection extends Document {
 	cpf?: string;
 	status: 'connected' | 'disconnected' | 'error';
 	lastSync?: Date;
+	lastError?: string;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -34,6 +35,7 @@ const brokerConnectionSchema = new Schema<BrokerConnection>(
 			default: 'connected',
 		},
 		lastSync: Date,
+		lastError: String,
 	},
 	{ timestamps: true }
 );

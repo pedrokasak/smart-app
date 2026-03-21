@@ -166,37 +166,75 @@ export class PortfolioController {
 			reportDate
 		);
 		const importedAssets = [];
+		let assetsCreated = 0;
+		let assetsUpdated = 0;
 
 		for (const assetData of parsedAssets) {
-			const assetDto: CreateAssetDto = {
-				symbol: assetData.symbol,
-				quantity: assetData.quantity,
-				price: assetData.price,
-				type: assetData.type,
-			};
-
-			const asset = await this.portfolioService.addAssetToPortfolio(
+			const existingAsset = await this.assetService.findAssetBySymbolAndPortfolio(
 				id,
-				assetDto,
-				'b3'
+				assetData.symbol
 			);
+
+			let asset: any = existingAsset;
+
+			if (existingAsset) {
+				// Para importação B3 de posição consolidada, a posição do relatório é a fonte da verdade.
+				// Portanto, atualizamos o ativo existente com quantidade/preço atuais, sem duplicar registros.
+				asset =
+					(await this.assetService.update(existingAsset._id.toString(), {
+						quantity: assetData.quantity,
+						price: assetData.price,
+						avgPrice: assetData.price,
+					})) || existingAsset;
+				assetsUpdated += 1;
+			} else {
+				const assetDto: CreateAssetDto = {
+					symbol: assetData.symbol,
+					quantity: assetData.quantity,
+					price: assetData.price,
+					type: assetData.type,
+				};
+
+				asset = await this.portfolioService.addAssetToPortfolio(id, assetDto, 'b3');
+				assetsCreated += 1;
+			}
+
 			const dividendValue = dividendsBySymbol.get(assetData.symbol);
-			if (dividendValue && dividendValue > 0) {
-				await this.assetService.update(asset._id.toString(), {
-					dividendHistory: [
-						{
-							date: reportDate,
-							value: dividendValue / assetData.quantity,
-						},
-					],
-				});
+			if (asset && dividendValue && dividendValue > 0 && assetData.quantity > 0) {
+				const dividendPerShare = dividendValue / assetData.quantity;
+				const alreadyHasDividend = Array.isArray(asset.dividendHistory)
+					? asset.dividendHistory.some((entry: any) => {
+							const entryDate = new Date(entry?.date).toISOString().slice(0, 10);
+							const reportDateKey = reportDate.toISOString().slice(0, 10);
+							const entryValue = Number(entry?.value || 0);
+							return (
+								entryDate === reportDateKey &&
+								Math.abs(entryValue - dividendPerShare) < 0.000001
+							);
+						})
+					: false;
+
+				if (!alreadyHasDividend) {
+					await this.assetService.update(asset._id.toString(), {
+						dividendHistory: [
+							{
+								date: reportDate,
+								value: dividendPerShare,
+							},
+						],
+					});
+				}
 			}
 			importedAssets.push(AssetMapper.toResponseDto(asset));
 		}
 
+		await this.portfolioService.recordHistorySnapshot(id);
+
 		return {
 			message: 'Relatório importado com sucesso',
 			assetsImported: importedAssets.length,
+			assetsCreated,
+			assetsUpdated,
 			assets: importedAssets,
 		};
 	}
