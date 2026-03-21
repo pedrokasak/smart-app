@@ -133,7 +133,8 @@ export class FiscalService {
 				continue;
 			}
 
-			const averagePrice = position.qty > 0 ? position.totalCost / position.qty : 0;
+			const averagePrice =
+				position.qty > 0 ? position.totalCost / position.qty : 0;
 			const realizedPnl = (price - averagePrice) * quantity - fees;
 			cumulativeByCategory[category] += realizedPnl;
 
@@ -146,10 +147,14 @@ export class FiscalService {
 			positionBySymbol.set(symbol, position);
 		}
 
-		const stock = cumulativeByCategory.stock < 0 ? Math.abs(cumulativeByCategory.stock) : 0;
-		const fii = cumulativeByCategory.fii < 0 ? Math.abs(cumulativeByCategory.fii) : 0;
+		const stock =
+			cumulativeByCategory.stock < 0 ? Math.abs(cumulativeByCategory.stock) : 0;
+		const fii =
+			cumulativeByCategory.fii < 0 ? Math.abs(cumulativeByCategory.fii) : 0;
 		const crypto =
-			cumulativeByCategory.crypto < 0 ? Math.abs(cumulativeByCategory.crypto) : 0;
+			cumulativeByCategory.crypto < 0
+				? Math.abs(cumulativeByCategory.crypto)
+				: 0;
 
 		return {
 			stock: this.round(stock),
@@ -167,7 +172,10 @@ export class FiscalService {
 			(a, b) => a.date.getTime() - b.date.getTime()
 		);
 
-		const positionBySymbol = new Map<string, { qty: number; totalCost: number }>();
+		const positionBySymbol = new Map<
+			string,
+			{ qty: number; totalCost: number }
+		>();
 		const monthAcc = new Map<
 			string,
 			{

@@ -382,16 +382,20 @@ export class BrokerSyncController {
 						avgPrice: result.averagePrice,
 					} as any);
 				} else {
-					await this.portfolioService.addAssetToPortfolio(portfolio._id.toString(), {
-						symbol,
-						type: this.inferType(symbol) as any,
-						quantity: result.quantity,
-						price: Math.max(result.averagePrice || 0.01, 0.01),
-					} as any);
-					const created = await this.assetsService.findAssetBySymbolAndPortfolio(
+					await this.portfolioService.addAssetToPortfolio(
 						portfolio._id.toString(),
-						symbol
+						{
+							symbol,
+							type: this.inferType(symbol) as any,
+							quantity: result.quantity,
+							price: Math.max(result.averagePrice || 0.01, 0.01),
+						} as any
 					);
+					const created =
+						await this.assetsService.findAssetBySymbolAndPortfolio(
+							portfolio._id.toString(),
+							symbol
+						);
 					if (created) {
 						await this.assetsService.update(created._id.toString(), {
 							avgPrice: result.averagePrice,
@@ -410,7 +414,9 @@ export class BrokerSyncController {
 			};
 			await upload.save();
 		} catch (error) {
-			this.logger.error(`Falha no processamento assíncrono: ${error?.message || error}`);
+			this.logger.error(
+				`Falha no processamento assíncrono: ${error?.message || error}`
+			);
 			upload.status = 'failed';
 			upload.errorMessage = error?.message || 'Falha ao processar arquivo';
 			upload.processedAt = new Date();

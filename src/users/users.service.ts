@@ -3,6 +3,7 @@ import {
 	HttpException,
 	HttpStatus,
 	Injectable,
+	Logger,
 	NotFoundException,
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -12,10 +13,16 @@ import { UserModel } from '../users/schema/user.model';
 import { AuthErrorService } from '../utils/errors-handler';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from 'src/auth/enums/role.enum';
+import { EmailService } from 'src/notifications/email/email.service';
 
 @Injectable()
 export class UsersService {
-	constructor(private readonly jwtService: JwtService) {}
+	private readonly logger = new Logger(UsersService.name);
+
+	constructor(
+		private readonly jwtService: JwtService,
+		private readonly emailService: EmailService
+	) {}
 	async create(createUserDto: CreateUserDto) {
 		try {
 			const { firstName, lastName, email, password, confirmPassword, cpf } =
@@ -49,6 +56,19 @@ export class UsersService {
 			});
 
 			await newUser.save();
+
+			try {
+				await this.emailService.sendWelcomeEmail(
+					newUser.email,
+					newUser.firstName
+				);
+			} catch (emailError) {
+				this.logger.warn(
+					`Falha ao enviar email de boas-vindas para ${newUser.email}: ${
+						(emailError as any)?.message || 'erro desconhecido'
+					}`
+				);
+			}
 
 			// Gera o token JWT com o formato aceito pelo JwtStrategy
 			const payload = { userId: newUser.id, type: 'access' };

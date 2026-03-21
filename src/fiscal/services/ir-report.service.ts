@@ -14,10 +14,7 @@ import {
 	IrProventosItemDto,
 	IrReportResponseDto,
 } from 'src/fiscal/dto/ir-report-response.dto';
-import {
-	TradeDocument,
-	TradeSide,
-} from 'src/fiscal/schema/trade.model';
+import { TradeDocument, TradeSide } from 'src/fiscal/schema/trade.model';
 import { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 
@@ -139,7 +136,9 @@ export class IrReportService {
 		};
 	}
 
-	async generateIrReportPdfBuffer(report: IrReportResponseDto): Promise<Buffer> {
+	async generateIrReportPdfBuffer(
+		report: IrReportResponseDto
+	): Promise<Buffer> {
 		const browser = await puppeteer.launch({
 			headless: true,
 			args: ['--no-sandbox', '--disable-setuid-sandbox'],
@@ -184,13 +183,13 @@ export class IrReportService {
 			.toLowerCase();
 		const features = Array.isArray((subscription as any)?.plan?.features)
 			? (subscription as any).plan.features.map((feature: string) =>
-				feature.toLowerCase()
-			)
+					feature.toLowerCase()
+				)
 			: [];
 
 		const hasExplicitPremiumFeature = features.some((feature: string) =>
-			['premium', 'ir-report', 'imposto-renda', 'fiscal-report'].some((keyword) =>
-				feature.includes(keyword)
+			['premium', 'ir-report', 'imposto-renda', 'fiscal-report'].some(
+				(keyword) => feature.includes(keyword)
 			)
 		);
 
@@ -224,7 +223,10 @@ export class IrReportService {
 		symbolTypeMap: Map<string, string>
 	): void {
 		const symbol = (trade.symbol || '').toUpperCase();
-		const state = positionsBySymbol.get(symbol) ?? { quantity: 0, totalCost: 0 };
+		const state = positionsBySymbol.get(symbol) ?? {
+			quantity: 0,
+			totalCost: 0,
+		};
 		const quantity = this.safeNumber(trade.quantity);
 		const price = this.safeNumber(trade.price);
 		const fees = this.safeNumber(trade.fees);
@@ -236,7 +238,8 @@ export class IrReportService {
 			return;
 		}
 
-		const averagePrice = state.quantity > 0 ? state.totalCost / state.quantity : 0;
+		const averagePrice =
+			state.quantity > 0 ? state.totalCost / state.quantity : 0;
 		const realizedResult = (price - averagePrice) * quantity - fees;
 
 		state.quantity -= quantity;
@@ -302,7 +305,8 @@ export class IrReportService {
 			.filter(([, state]) => state.quantity > 0)
 			.map(([symbol, state]) => {
 				const quantity = this.round(state.quantity);
-				const averagePrice = quantity > 0 ? this.round(state.totalCost / quantity) : 0;
+				const averagePrice =
+					quantity > 0 ? this.round(state.totalCost / quantity) : 0;
 				return {
 					symbol,
 					quantity,
@@ -409,7 +413,8 @@ export class IrReportService {
 					'Lance o total anual de dividendos recebido por ativo. Use a seção "Dividendos" como base e valide com informes da corretora.',
 			},
 			{
-				title: '3) Rendimentos Sujeitos à Tributação Exclusiva/Definitiva (JCP)',
+				title:
+					'3) Rendimentos Sujeitos à Tributação Exclusiva/Definitiva (JCP)',
 				details:
 					'Com os dados atuais, o sistema preenche JCP com zero por padrão. Se você teve JCP, complemente manualmente com o informe oficial.',
 			},

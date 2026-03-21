@@ -51,7 +51,10 @@ export class BrapiAdapter implements StockApiAdapter {
 		};
 
 		try {
-			const response = await makeRequest(!!currentFundamental, !!currentDividends);
+			const response = await makeRequest(
+				!!currentFundamental,
+				!!currentDividends
+			);
 			return response.data;
 		} catch (error) {
 			const errorData = error?.response?.data;
@@ -59,10 +62,16 @@ export class BrapiAdapter implements StockApiAdapter {
 				const msg = errorData.message || '';
 				console.warn('Brapi restriction detected:', msg);
 
-				if (currentDividends && (msg.includes('dividend') || msg.includes('dividendo'))) {
+				if (
+					currentDividends &&
+					(msg.includes('dividend') || msg.includes('dividendo'))
+				) {
 					restricted.push('dividends');
 					currentDividends = false;
-				} else if (currentFundamental && (msg.includes('fundamental') || msg.includes('indicadores'))) {
+				} else if (
+					currentFundamental &&
+					(msg.includes('fundamental') || msg.includes('indicadores'))
+				) {
 					restricted.push('fundamental');
 					currentFundamental = false;
 				} else {
@@ -79,7 +88,10 @@ export class BrapiAdapter implements StockApiAdapter {
 				}
 
 				try {
-					const secondTry = await makeRequest(!!currentFundamental, !!currentDividends);
+					const secondTry = await makeRequest(
+						!!currentFundamental,
+						!!currentDividends
+					);
 					if (secondTry.data.results?.[0]) {
 						secondTry.data.results[0].restrictedData = restricted;
 					}
