@@ -67,6 +67,7 @@ export class BrokerSyncService {
 			status: c.status,
 			lastSync: c.lastSync,
 			hasCpf: !!c.cpf,
+			lastError: c.lastError || null,
 		}));
 	}
 
@@ -80,6 +81,7 @@ export class BrokerSyncService {
 			userId: new Types.ObjectId(userId),
 			provider: dto.provider,
 			status: 'connected',
+			lastError: null,
 		};
 
 		if (dto.apiKey) payload.apiKeyEncrypted = this.encrypt(dto.apiKey);
@@ -165,6 +167,26 @@ export class BrokerSyncService {
 						);
 					}
 				}
+
+				// Fallback: algumas contas/chaves não suportam "type" por wallet.
+				// Nesse caso, tentamos o saldo padrão da exchange.
+				if (Object.keys(totalBalances).length === 0) {
+					try {
+						const fallbackBalance = await exchange.fetchBalance();
+						const fallbackTotal =
+							(fallbackBalance.total as unknown as Record<string, number>) || {};
+						for (const symbol in fallbackTotal) {
+							if (fallbackTotal[symbol] > 0) {
+								totalBalances[symbol] =
+									(totalBalances[symbol] || 0) + fallbackTotal[symbol];
+							}
+						}
+					} catch (e) {
+						this.logger.warn(
+							`Erro no fallback fetchBalance() da Binance: ${e.message}`
+						);
+					}
+				}
 			} else {
 				const balance = await exchange.fetchBalance();
 				totalBalances =
@@ -201,15 +223,24 @@ export class BrokerSyncService {
 				provider
 			);
 			if (!portfolio) {
-				const user = await UserModel.findById(userId);
-				portfolio = await this.portfolioService.createPortfolio(userId, {
-					name: provider,
-					ownerType: 'self',
-					ownerName: 'Autosync',
-					...(connection.cpf || user?.cpf
-						? { cpf: connection.cpf || user?.cpf }
-						: {}),
-				});
+				const userPortfolios = await this.portfolioService.getUserPortfolios(
+					userId
+				);
+				// Evita falha por limite de planos (ex.: free com 1 carteira):
+				// se já existe carteira do usuário, reutilizamos a primeira para sincronização.
+				if (userPortfolios.length > 0) {
+					portfolio = userPortfolios[0];
+				} else {
+					const user = await UserModel.findById(userId);
+					portfolio = await this.portfolioService.createPortfolio(userId, {
+						name: provider,
+						ownerType: 'self',
+						ownerName: 'Autosync',
+						...(connection.cpf || user?.cpf
+							? { cpf: connection.cpf || user?.cpf }
+							: {}),
+					});
+				}
 			}
 
 			let syncedCount = 0;
@@ -245,6 +276,7 @@ export class BrokerSyncService {
 
 			connection.lastSync = new Date();
 			connection.status = 'connected';
+			connection.lastError = null;
 			await connection.save();
 
 			return {
@@ -253,9 +285,15 @@ export class BrokerSyncService {
 				syncedAssets: syncedCount,
 			};
 		} catch (error) {
+			const reason =
+				(error as any)?.response?.data?.msg ||
+				(error as any)?.response?.data?.message ||
+				(error as any)?.message ||
+				'Erro desconhecido na sincronização';
 			connection.status = 'error';
+			connection.lastError = String(reason);
 			await connection.save();
-			throw new BadRequestException(`Erro na sincronização: ${error.message}`);
+			throw new BadRequestException(`Erro na sincronização: ${reason}`);
 		}
 	}
 
