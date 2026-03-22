@@ -65,6 +65,8 @@ export class AssetsService {
 
 		if (typeof updateDto.quantity === 'number') setUpdate.quantity = quantity;
 		if (typeof updateDto.price === 'number') setUpdate.price = price;
+		if (typeof (updateDto as any).name === 'string')
+			setUpdate.name = (updateDto as any).name;
 		if (typeof (updateDto as any).avgPrice === 'number')
 			setUpdate.avgPrice = avgPrice;
 
@@ -79,6 +81,64 @@ export class AssetsService {
 		}
 
 		return this.assetModel.findByIdAndUpdate(assetId, update, { new: true });
+	}
+
+	async upsertDividendHistoryEntries(
+		assetId: string,
+		newEntries: Array<{
+			date: Date;
+			value: number;
+			paymentType?: 'JCP' | 'DIVIDEND' | 'RENDIMENTO' | 'OTHER';
+		}>
+	) {
+		const asset = await this.assetModel.findById(assetId);
+		if (!asset) return null;
+
+		const toFingerprint = (entry: {
+			date?: Date;
+			value?: number;
+			paymentType?: string;
+		}) => {
+			const parsedDate = new Date(entry?.date || 0);
+			const dateKey = Number.isNaN(parsedDate.getTime())
+				? 'invalid-date'
+				: parsedDate.toISOString().slice(0, 10);
+			const paymentType = String(entry?.paymentType || 'DIVIDEND').toUpperCase();
+			const normalizedValue = Number(entry?.value || 0).toFixed(8);
+			return `${dateKey}|${paymentType}|${normalizedValue}`;
+		};
+
+		const existingHistory = Array.isArray((asset as any).dividendHistory)
+			? (asset as any).dividendHistory
+			: [];
+
+		const incomingFingerprints = new Set(
+			newEntries.map((entry) => toFingerprint(entry))
+		);
+
+		const keptEntries = existingHistory.filter(
+			(entry: any) => !incomingFingerprints.has(toFingerprint(entry))
+		);
+
+		const merged = [...keptEntries, ...newEntries];
+		const uniqueByFingerprint = new Map<string, any>();
+		for (const entry of merged) {
+			uniqueByFingerprint.set(toFingerprint(entry), entry);
+		}
+
+		const deduped = Array.from(uniqueByFingerprint.values()).sort((a, b) => {
+			const aDate = new Date(a?.date || 0).getTime();
+			const bDate = new Date(b?.date || 0).getTime();
+			return aDate - bDate;
+		});
+
+		return this.assetModel.findByIdAndUpdate(
+			assetId,
+			{
+				$set: { dividendHistory: deduped },
+			},
+			{ new: true }
+		);
 	}
 
 	// Deletar asset

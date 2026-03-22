@@ -7,6 +7,7 @@ export class AssetMapper {
 			id: asset._id.toString(),
 			portfolioId: asset.portfolioId.toString(),
 			symbol: asset.symbol,
+			name: (asset as any).name ?? undefined,
 			type: asset.type,
 			quantity: asset.quantity,
 			price: asset.price,

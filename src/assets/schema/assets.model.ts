@@ -15,6 +15,7 @@ export interface IAssetIndicators {
 export interface Asset extends Document {
 	portfolioId: Types.ObjectId;
 	symbol: string;
+	name?: string;
 	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
 	quantity: number;
 	price: number; // Preço de entrada
@@ -22,7 +23,11 @@ export interface Asset extends Document {
 	total: number; // quantity * price
 	currentPrice?: number;
 	change24h?: number;
-	dividendHistory?: { date: Date; value: number }[];
+	dividendHistory?: {
+		date: Date;
+		value: number;
+		paymentType?: 'JCP' | 'DIVIDEND' | 'RENDIMENTO' | 'OTHER';
+	}[];
 	indicators?: IAssetIndicators;
 	source: 'manual' | 'b3' | 'webscrape';
 	lastEnrichedAt?: Date;
@@ -42,6 +47,11 @@ export const assetSchema = new Schema<Asset>(
 			type: String,
 			required: true,
 			uppercase: true,
+			trim: true,
+		},
+		name: {
+			type: String,
+			default: null,
 			trim: true,
 		},
 		type: {
@@ -81,6 +91,11 @@ export const assetSchema = new Schema<Asset>(
 			{
 				date: { type: Date, required: true },
 				value: { type: Number, required: true, min: 0 },
+				paymentType: {
+					type: String,
+					enum: ['JCP', 'DIVIDEND', 'RENDIMENTO', 'OTHER'],
+					default: 'DIVIDEND',
+				},
 			},
 		],
 		indicators: {

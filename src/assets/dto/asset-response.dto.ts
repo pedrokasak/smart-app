@@ -2,6 +2,7 @@ export class AssetResponseDto {
 	id: string;
 	portfolioId: string;
 	symbol: string;
+	name?: string;
 	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
 	quantity: number;
 	price: number;
@@ -9,7 +10,11 @@ export class AssetResponseDto {
 	total: number;
 	currentPrice?: number;
 	change24h?: number;
-	dividendHistory?: { date: Date; value: number }[];
+	dividendHistory?: {
+		date: Date;
+		value: number;
+		paymentType?: 'JCP' | 'DIVIDEND' | 'RENDIMENTO' | 'OTHER';
+	}[];
 	indicators?: {
 		dividendYield?: number;
 		priceToEarnings?: number;
