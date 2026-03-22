@@ -1,8 +1,12 @@
-import { IsEnum, IsNumber, IsString, Min } from 'class-validator';
+import { IsEnum, IsNumber, IsOptional, IsString, Min } from 'class-validator';
 
 export class CreateAssetDto {
 	@IsString()
 	symbol: string; // VALE3, BTC, etc
+
+	@IsOptional()
+	@IsString()
+	name?: string;
 
 	@IsEnum(['stock', 'fii', 'crypto', 'etf', 'fund', 'other'])
 	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
