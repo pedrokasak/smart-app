@@ -37,4 +37,7 @@ export class DividendHistoryItemDto {
 	value: number;
 
 	date: Date;
+
+	@IsOptional()
+	paymentType?: 'JCP' | 'DIVIDEND' | 'RENDIMENTO' | 'OTHER';
 }

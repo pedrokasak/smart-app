@@ -112,6 +112,7 @@ export class PortfolioService {
 		const asset = await this.assetModel.create({
 			portfolioId,
 			symbol: createAssetDto.symbol,
+			name: createAssetDto.name ?? null,
 			type: createAssetDto.type,
 			quantity: createAssetDto.quantity,
 			price: createAssetDto.price,

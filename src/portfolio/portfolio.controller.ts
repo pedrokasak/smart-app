@@ -241,11 +241,13 @@ export class PortfolioController {
 						quantity: assetData.quantity,
 						price: assetData.price,
 						avgPrice: assetData.price,
+						name: assetData.name,
 					})) || existingAsset;
 				assetsUpdated += 1;
 			} else {
 				const assetDto: CreateAssetDto = {
 					symbol: assetData.symbol,
+					name: assetData.name,
 					quantity: assetData.quantity,
 					price: assetData.price,
 					type: assetData.type,
@@ -259,38 +261,20 @@ export class PortfolioController {
 				assetsCreated += 1;
 			}
 
-			const dividendValue = dividendsBySymbol.get(assetData.symbol);
-			if (
-				asset &&
-				dividendValue &&
-				dividendValue > 0 &&
-				assetData.quantity > 0
-			) {
-				const dividendPerShare = dividendValue / assetData.quantity;
-				const alreadyHasDividend = Array.isArray(asset.dividendHistory)
-					? asset.dividendHistory.some((entry: any) => {
-							const entryDate = new Date(entry?.date)
-								.toISOString()
-								.slice(0, 10);
-							const reportDateKey = reportDate.toISOString().slice(0, 10);
-							const entryValue = Number(entry?.value || 0);
-							return (
-								entryDate === reportDateKey &&
-								Math.abs(entryValue - dividendPerShare) < 0.000001
-							);
-						})
-					: false;
+			const dividendEvents = dividendsBySymbol.get(assetData.symbol) ?? [];
+			if (asset && dividendEvents.length > 0 && assetData.quantity > 0) {
+				const newEntries = dividendEvents
+					.filter((event) => Number(event.totalValue || 0) > 0)
+					.map((event) => ({
+						date: event.eventDate || reportDate,
+						value: event.totalValue / assetData.quantity,
+						paymentType: event.paymentType,
+					}));
 
-				if (!alreadyHasDividend) {
-					await this.assetService.update(asset._id.toString(), {
-						dividendHistory: [
-							{
-								date: reportDate,
-								value: dividendPerShare,
-							},
-						],
-					});
-				}
+				await this.assetService.upsertDividendHistoryEntries(
+					asset._id.toString(),
+					newEntries
+				);
 			}
 			importedAssets.push(AssetMapper.toResponseDto(asset));
 		}
@@ -469,6 +453,7 @@ export class PortfolioController {
 
 type ParsedAsset = {
 	symbol: string;
+	name?: string;
 	quantity: number;
 	price: number;
 	type: CreateAssetDto['type'];
@@ -484,6 +469,12 @@ type ParsedB3Transaction = {
 };
 
 type SheetKind = 'stock' | 'etf' | 'fii' | 'lca' | 'dividend';
+type DividendPaymentType = 'JCP' | 'DIVIDEND' | 'RENDIMENTO' | 'OTHER';
+type ParsedDividendEvent = {
+	paymentType: DividendPaymentType;
+	totalValue: number;
+	eventDate: Date;
+};
 
 const COLUMN_SYMBOL = 'Código de Negociação';
 const COLUMN_QUANTITY = 'Quantidade';
@@ -496,7 +487,17 @@ const COLUMN_LCA_TOTAL_MTM = 'Valor Atualizado MTM';
 const COLUMN_LCA_PRICE_CURVA = 'Preço Atualizado CURVA';
 const COLUMN_LCA_PRICE_MTM = 'Preço Atualizado MTM';
 const COLUMN_DIVIDEND_SYMBOL = 'Produto';
+const COLUMN_DIVIDEND_EVENT_TYPE = 'Tipo de Evento';
 const COLUMN_DIVIDEND_VALUE = 'Valor líquido';
+const DIVIDEND_DATE_COLUMNS = [
+	'Data de pagamento',
+	'Data pagamento',
+	'Data do pagamento',
+	'Data',
+	'Data-base',
+	'Data base',
+	'Data com',
+];
 
 const normalizeNumber = (value: unknown): number | null => {
 	if (value === null || value === undefined) return null;
@@ -528,6 +529,65 @@ const normalizeSymbol = (value: unknown, kind?: SheetKind): string => {
 	return match ? match[0] : text;
 };
 
+const normalizeAssetName = (value: unknown): string | undefined => {
+	const text = String(value ?? '').trim();
+	if (!text || text.toLowerCase() === 'total') return undefined;
+	return text;
+};
+
+const normalizeDividendPaymentType = (value: unknown): DividendPaymentType => {
+	const text = String(value ?? '')
+		.trim()
+		.toLowerCase()
+		.normalize('NFD')
+		.replace(/[\u0300-\u036f]/g, '');
+
+	if (!text) return 'DIVIDEND';
+	if (text.includes('juros') || text.includes('jcp')) return 'JCP';
+	if (text.includes('rendimento')) return 'RENDIMENTO';
+	if (text.includes('divid')) return 'DIVIDEND';
+	return 'OTHER';
+};
+
+const parseSpreadsheetDate = (value: unknown): Date | null => {
+	if (!value) return null;
+	if (value instanceof Date) {
+		return Number.isNaN(value.getTime()) ? null : value;
+	}
+	if (typeof value === 'number') {
+		const parsedDate = xlsx.SSF.parse_date_code(value);
+		if (!parsedDate) return null;
+		return new Date(
+			Date.UTC(parsedDate.y, parsedDate.m - 1, parsedDate.d, 0, 0, 0)
+		);
+	}
+
+	const text = String(value).trim();
+	if (!text) return null;
+	if (/^\d{2}\/\d{2}\/\d{4}$/.test(text)) {
+		const [day, month, year] = text.split('/').map(Number);
+		const date = new Date(Date.UTC(year, month - 1, day, 0, 0, 0));
+		return Number.isNaN(date.getTime()) ? null : date;
+	}
+	if (/^\d{4}-\d{2}-\d{2}/.test(text)) {
+		const date = new Date(text);
+		return Number.isNaN(date.getTime()) ? null : date;
+	}
+	const fallback = new Date(text);
+	return Number.isNaN(fallback.getTime()) ? null : fallback;
+};
+
+const pickDividendEventDate = (
+	row: Record<string, any>,
+	fallbackDate: Date
+): Date => {
+	for (const column of DIVIDEND_DATE_COLUMNS) {
+		const parsed = parseSpreadsheetDate(row[column]);
+		if (parsed) return parsed;
+	}
+	return fallbackDate;
+};
+
 const isTotalRow = (row: Record<string, any>): boolean =>
 	Object.values(row).some((value) => {
 		if (typeof value !== 'string') return false;
@@ -550,18 +610,22 @@ const detectSheetKind = (headers: string[]): SheetKind | null => {
 const parseB3Workbook = (
 	workbook: xlsx.WorkBook,
 	reportDate: Date
-): { assets: ParsedAsset[]; dividendsBySymbol: Map<string, number> } => {
+): {
+	assets: ParsedAsset[];
+	dividendsBySymbol: Map<string, ParsedDividendEvent[]>;
+} => {
 	void reportDate;
 	const assetsByKey = new Map<
 		string,
 		{
 			symbol: string;
+			name?: string;
 			type: ParsedAsset['type'];
 			quantity: number;
 			total: number;
 		}
 	>();
-	const dividendsBySymbol = new Map<string, number>();
+	const dividendsBySymbol = new Map<string, ParsedDividendEvent[]>();
 	const quantityBySymbol = new Map<string, number>();
 
 	for (const sheetName of workbook.SheetNames) {
@@ -593,9 +657,28 @@ const parseB3Workbook = (
 
 				const value = normalizeNumber(row[COLUMN_DIVIDEND_VALUE]);
 				if (!value || value <= 0) continue;
+				const paymentType = normalizeDividendPaymentType(
+					row[COLUMN_DIVIDEND_EVENT_TYPE]
+				);
+				const eventDate = pickDividendEventDate(row, reportDate);
+				const eventDateKey = eventDate.toISOString().slice(0, 10);
 
 				const key = symbol.toUpperCase();
-				dividendsBySymbol.set(key, (dividendsBySymbol.get(key) ?? 0) + value);
+				const current = dividendsBySymbol.get(key) ?? [];
+				const existingIndex = current.findIndex(
+					(item) =>
+						item.paymentType === paymentType &&
+						item.eventDate.toISOString().slice(0, 10) === eventDateKey
+				);
+				if (existingIndex >= 0) {
+					current[existingIndex] = {
+						...current[existingIndex],
+						totalValue: current[existingIndex].totalValue + value,
+					};
+				} else {
+					current.push({ paymentType, totalValue: value, eventDate });
+				}
+				dividendsBySymbol.set(key, current);
 				continue;
 			}
 
@@ -605,6 +688,11 @@ const parseB3Workbook = (
 					: row[COLUMN_SYMBOL];
 			const symbol = normalizeSymbol(rawSymbol, kind);
 			if (!symbol || symbol.toLowerCase() === 'total') continue;
+			const rawName =
+				kind === 'lca'
+					? row['Produto']
+					: row['Descrição'] ?? row['Descricao'] ?? row['Produto'];
+			const name = normalizeAssetName(rawName);
 
 			let quantity = normalizeNumber(row[COLUMN_QUANTITY]) ?? 0;
 
@@ -647,9 +735,11 @@ const parseB3Workbook = (
 			if (existing) {
 				existing.quantity += quantity;
 				existing.total += total;
+				if (!existing.name && name) existing.name = name;
 			} else {
 				assetsByKey.set(key, {
 					symbol: symbol.toUpperCase(),
+					name,
 					type,
 					quantity,
 					total,
@@ -664,18 +754,22 @@ const parseB3Workbook = (
 
 	const assets = Array.from(assetsByKey.values()).map((asset) => ({
 		symbol: asset.symbol,
+		name: asset.name,
 		type: asset.type,
 		quantity: asset.quantity,
 		price: asset.total / asset.quantity,
 	}));
 
 	// Ajusta dividendos para ativos que existam no relatório
-	for (const [symbol, totalDividend] of dividendsBySymbol.entries()) {
+	for (const [symbol, events] of dividendsBySymbol.entries()) {
 		if (!quantityBySymbol.has(symbol)) {
 			dividendsBySymbol.delete(symbol);
 			continue;
 		}
-		if (!totalDividend || totalDividend <= 0) {
+		const hasValidAmount = events.some(
+			(event) => Number(event.totalValue || 0) > 0
+		);
+		if (!hasValidAmount) {
 			dividendsBySymbol.delete(symbol);
 		}
 	}
