@@ -18,6 +18,14 @@ export class BrokerConnectDto {
 	@IsString()
 	apiSecret?: string;
 
+	@ApiProperty({
+		required: false,
+		description: 'Passphrase (quando exigida, ex.: algumas APIs da Coinbase)',
+	})
+	@IsOptional()
+	@IsString()
+	apiPassphrase?: string;
+
 	@ApiProperty({ required: false, description: 'CPF para conectar B3' })
 	@IsOptional()
 	@IsString()
