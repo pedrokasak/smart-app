@@ -11,6 +11,11 @@ export interface CvmComputedIndicators {
 	shareholdersEquity: number;
 	roe: number;
 	netMargin: number;
+	operatingCashflow: number;
+	investingCashflow: number;
+	financingCashflow: number;
+	depreciation: number;
+	freeCashflow: number;
 }
 
 @Injectable()
@@ -80,6 +85,16 @@ export class CvmOpenDataAdapter {
 		}
 	}
 
+	private async safeLoadCsvRows(
+		fileName: string
+	): Promise<Record<string, string>[]> {
+		try {
+			return await this.loadCsvRows(fileName);
+		} catch {
+			return [];
+		}
+	}
+
 	private pickLatestRefDate(rows: Record<string, string>[]): string {
 		const dates = rows
 			.map((r) => String(r.DT_REFER || '').trim())
@@ -123,60 +138,129 @@ export class CvmOpenDataAdapter {
 		return sum;
 	}
 
+	private sumByDescriptionContains(
+		rows: Record<string, string>[],
+		terms: string[],
+		refDate?: string
+	): number {
+		const filteredByDate = refDate
+			? rows.filter((r) => String(r.DT_REFER || '').startsWith(refDate))
+			: rows;
+		const normalizedTerms = terms.map((term) =>
+			term
+				.toLowerCase()
+				.normalize('NFD')
+				.replace(/[\u0300-\u036f]/g, '')
+		);
+
+		return filteredByDate
+			.filter((row) => {
+				const desc = String(row.DS_CONTA || '')
+					.toLowerCase()
+					.normalize('NFD')
+					.replace(/[\u0300-\u036f]/g, '');
+				return normalizedTerms.some((term) => desc.includes(term));
+			})
+			.reduce((acc, row) => acc + this.toNumber(row.VL_CONTA), 0);
+	}
+
+	private async computeByCnpjAndYear(
+		normalizedCnpj: string,
+		year: number
+	): Promise<CvmComputedIndicators | null> {
+		const dreFile = `dfp_cia_aberta_DRE_con_${year}.csv`;
+		const bpaFile = `dfp_cia_aberta_BPA_con_${year}.csv`;
+		const bppFile = `dfp_cia_aberta_BPP_con_${year}.csv`;
+		const dfcMiFile = `dfp_cia_aberta_DFC_MI_con_${year}.csv`;
+		const dfcMdFile = `dfp_cia_aberta_DFC_MD_con_${year}.csv`;
+
+		const [dreRowsRaw, bpaRowsRaw, bppRowsRaw, dfcMiRowsRaw, dfcMdRowsRaw] =
+			await Promise.all([
+				this.safeLoadCsvRows(dreFile),
+				this.safeLoadCsvRows(bpaFile),
+				this.safeLoadCsvRows(bppFile),
+				this.safeLoadCsvRows(dfcMiFile),
+				this.safeLoadCsvRows(dfcMdFile),
+			]);
+
+		const filterByCnpj = (rows: Record<string, string>[]) =>
+			rows.filter((r) => this.normalizeCnpj(r.CNPJ_CIA) === normalizedCnpj);
+
+		const dreRows = filterByCnpj(dreRowsRaw);
+		const bpaRows = filterByCnpj(bpaRowsRaw);
+		const bppRows = filterByCnpj(bppRowsRaw);
+		const dfcRows = [...filterByCnpj(dfcMiRowsRaw), ...filterByCnpj(dfcMdRowsRaw)];
+
+		if (!dreRows.length && !bpaRows.length && !bppRows.length && !dfcRows.length) {
+			return null;
+		}
+
+		const refDate =
+			this.pickLatestRefDate(dreRows) ||
+			this.pickLatestRefDate(bpaRows) ||
+			this.pickLatestRefDate(bppRows) ||
+			this.pickLatestRefDate(dfcRows);
+
+		const revenue = this.sumByPrefix(dreRows, ['3.01'], refDate);
+		const netIncome = this.sumByPrefix(dreRows, ['3.11'], refDate);
+		const totalAssets = this.sumByPrefix(bpaRows, ['1'], refDate);
+		const shareholdersEquity = this.sumByPrefix(bppRows, ['2.03'], refDate);
+		const operatingCashflow = this.sumByPrefix(dfcRows, ['6.01'], refDate);
+		const investingCashflow = this.sumByPrefix(dfcRows, ['6.02'], refDate);
+		const financingCashflow = this.sumByPrefix(dfcRows, ['6.03'], refDate);
+		const depreciation = this.sumByDescriptionContains(
+			dfcRows,
+			['depreciacao', 'amortizacao'],
+			refDate
+		);
+		const freeCashflow = operatingCashflow + investingCashflow;
+
+		const roe = shareholdersEquity > 0 ? netIncome / shareholdersEquity : 0;
+		const netMargin = revenue > 0 ? netIncome / revenue : 0;
+
+		return {
+			referenceYear: year,
+			revenue,
+			netIncome,
+			totalAssets,
+			shareholdersEquity,
+			roe,
+			netMargin,
+			operatingCashflow,
+			investingCashflow,
+			financingCashflow,
+			depreciation,
+			freeCashflow,
+		};
+	}
+
 	async getComputedIndicatorsByCnpj(
 		cnpj: string,
 		year: number
 	): Promise<CvmComputedIndicators | null> {
 		const normalizedCnpj = this.normalizeCnpj(cnpj);
 		if (!normalizedCnpj) return null;
-
-		const dreFile = `dfp_cia_aberta_DRE_con_${year}.csv`;
-		const bpaFile = `dfp_cia_aberta_BPA_con_${year}.csv`;
-		const bppFile = `dfp_cia_aberta_BPP_con_${year}.csv`;
-
 		try {
-			const [dreRowsRaw, bpaRowsRaw, bppRowsRaw] = await Promise.all([
-				this.loadCsvRows(dreFile),
-				this.loadCsvRows(bpaFile),
-				this.loadCsvRows(bppFile),
-			]);
-
-			const filterByCnpj = (rows: Record<string, string>[]) =>
-				rows.filter((r) => this.normalizeCnpj(r.CNPJ_CIA) === normalizedCnpj);
-
-			const dreRows = filterByCnpj(dreRowsRaw);
-			const bpaRows = filterByCnpj(bpaRowsRaw);
-			const bppRows = filterByCnpj(bppRowsRaw);
-
-			if (!dreRows.length && !bpaRows.length && !bppRows.length) return null;
-
-			const refDate =
-				this.pickLatestRefDate(dreRows) ||
-				this.pickLatestRefDate(bpaRows) ||
-				this.pickLatestRefDate(bppRows);
-
-			const revenue = this.sumByPrefix(dreRows, ['3.01'], refDate);
-			const netIncome = this.sumByPrefix(dreRows, ['3.11'], refDate);
-			const totalAssets = this.sumByPrefix(bpaRows, ['1'], refDate);
-			const shareholdersEquity = this.sumByPrefix(bppRows, ['2.03'], refDate);
-
-			const roe = shareholdersEquity > 0 ? netIncome / shareholdersEquity : 0;
-			const netMargin = revenue > 0 ? netIncome / revenue : 0;
-
-			return {
-				referenceYear: year,
-				revenue,
-				netIncome,
-				totalAssets,
-				shareholdersEquity,
-				roe,
-				netMargin,
-			};
+			return await this.computeByCnpjAndYear(normalizedCnpj, year);
 		} catch (error) {
 			this.logger.warn(
 				`Falha ao consultar CVM para CNPJ ${normalizedCnpj}: ${error?.message || error}`
 			);
 			return null;
 		}
+	}
+
+	async getComputedIndicatorsHistoryByCnpj(
+		cnpj: string,
+		years: number[]
+	): Promise<CvmComputedIndicators[]> {
+		const normalizedCnpj = this.normalizeCnpj(cnpj);
+		if (!normalizedCnpj) return [];
+
+		const uniqueYears = Array.from(new Set(years)).sort((a, b) => b - a);
+		const rows = await Promise.all(
+			uniqueYears.map((year) => this.computeByCnpjAndYear(normalizedCnpj, year))
+		);
+		return rows.filter((item): item is CvmComputedIndicators => !!item);
 	}
 }

@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { BrapiAdapter } from './adapter/brapiDataApi';
 import { TwelveDataAdapter } from './adapter/twelveDataApi';
 import { StockRepository } from 'src/stocks/repositories/stock-repository';
@@ -7,6 +7,8 @@ import { CvmOpenDataAdapter } from 'src/stocks/adapter/cvm-open-data.adapter';
 
 @Injectable()
 export class StockService implements StockRepository {
+	private readonly logger = new Logger(StockService.name);
+
 	constructor(
 		private readonly brapi: BrapiAdapter,
 		private readonly twelveData: TwelveDataAdapter,
@@ -54,6 +56,27 @@ export class StockService implements StockRepository {
 		return undefined;
 	}
 
+	private getFundamentusText(
+		fields: Record<string, string>,
+		aliases: string[]
+	): string | undefined {
+		const normalizedEntries = new Map<string, string>();
+		for (const [key, value] of Object.entries(fields || {})) {
+			const normalizedKey = this.normalizeFundamentusKey(key);
+			if (!normalizedKey) continue;
+			normalizedEntries.set(normalizedKey, String(value || '').trim());
+		}
+
+		for (const alias of aliases) {
+			const normalizedAlias = this.normalizeFundamentusKey(alias);
+			const value = normalizedEntries.get(normalizedAlias);
+			if (!value) continue;
+			if (value === '-' || value === '--') continue;
+			return value;
+		}
+		return undefined;
+	}
+
 	private withFallback(
 		currentValue: unknown,
 		fallbackValue: number | undefined,
@@ -94,8 +117,18 @@ export class StockService implements StockRepository {
 
 		if (!shouldFallback) return response;
 
-		const fundamentals =
-			await this.fundamentusFallback.getIndicators(cleanSymbol);
+		let fundamentusSnapshot: { numeric: Record<string, number>; text: Record<string, string> } =
+			{ numeric: {}, text: {} };
+		try {
+			fundamentusSnapshot =
+				await this.fundamentusFallback.getSnapshot(cleanSymbol);
+		} catch (error) {
+			this.logger.warn(
+				`Fallback Fundamentus indisponivel para ${cleanSymbol}: ${error?.message || error}`
+			);
+		}
+		const fundamentals = fundamentusSnapshot.numeric || {};
+		const fundamentusText = fundamentusSnapshot.text || {};
 		const peFromFundamentus = this.getFundamentusValue(fundamentals, ['P/L']);
 		const pbFromFundamentus = this.getFundamentusValue(fundamentals, [
 			'P/VP',
@@ -124,9 +157,56 @@ export class StockService implements StockRepository {
 			['ROIC', 'ROIC %'],
 			{ treatAsPercent: true }
 		);
+		const assetsFromFundamentus = this.getFundamentusValue(fundamentals, [
+			'ATIVO',
+			'ATIVOS',
+		]);
+		const equityFromFundamentus = this.getFundamentusValue(fundamentals, [
+			'PATRIM LIQ',
+			'PATRIMONIO LIQUIDO',
+			'PATRIM LIQUIDO',
+		]);
+		const debtFromFundamentus = this.getFundamentusValue(fundamentals, [
+			'DIV BRUTA',
+			'DIVIDA BRUTA',
+			'DIV LIQ',
+			'DIVIDA LIQUIDA',
+		]);
+		const revenueFromFundamentus = this.getFundamentusValue(fundamentals, [
+			'RECEITA LIQUIDA',
+			'RECEITA LIQ',
+		]);
+		const netIncomeFromFundamentus = this.getFundamentusValue(fundamentals, [
+			'LUCRO LIQUIDO',
+			'LUCRO LIQ',
+		]);
+		const marketCapFromFundamentus = this.getFundamentusValue(fundamentals, [
+			'VALOR DE MERCADO',
+		]);
+		const companyNameFromFundamentus = this.getFundamentusText(fundamentusText, [
+			'EMPRESA',
+			'NOME',
+		]);
+		const sectorFromFundamentus = this.getFundamentusText(fundamentusText, [
+			'SETOR',
+		]);
+		const industryFromFundamentus = this.getFundamentusText(fundamentusText, [
+			'SUBSETOR',
+			'INDUSTRIA',
+		]);
+		const syntheticSummary =
+			sectorFromFundamentus || industryFromFundamentus
+				? `${companyNameFromFundamentus || cleanSymbol}: atuação em ${
+						sectorFromFundamentus || 'setor não informado'
+					}${industryFromFundamentus ? `, com foco em ${industryFromFundamentus}` : ''}.`
+				: undefined;
 
 		const fallbackMerged: Record<string, unknown> = {
 			...stock,
+			longName: stock.longName || companyNameFromFundamentus || stock.shortName,
+			sector: stock.sector || sectorFromFundamentus,
+			industry: stock.industry || industryFromFundamentus,
+			longBusinessSummary: stock.longBusinessSummary || syntheticSummary,
 			priceEarnings: this.withFallback(stock.priceEarnings, peFromFundamentus, {
 				zeroIsMissing: true,
 			}),
@@ -158,6 +238,30 @@ export class StockService implements StockRepository {
 				dividendYieldFromFundamentus,
 				{ zeroIsMissing: true }
 			),
+			totalRevenue: this.withFallback(
+				stock.totalRevenue,
+				revenueFromFundamentus,
+				{ zeroIsMissing: true }
+			),
+			netIncomeToCommon: this.withFallback(
+				stock.netIncomeToCommon,
+				netIncomeFromFundamentus,
+				{ zeroIsMissing: true }
+			),
+			totalAssets: this.withFallback(stock.totalAssets, assetsFromFundamentus, {
+				zeroIsMissing: true,
+			}),
+			totalStockholderEquity: this.withFallback(
+				stock.totalStockholderEquity,
+				equityFromFundamentus,
+				{ zeroIsMissing: true }
+			),
+			totalDebt: this.withFallback(stock.totalDebt, debtFromFundamentus, {
+				zeroIsMissing: true,
+			}),
+			marketCap: this.withFallback(stock.marketCap, marketCapFromFundamentus, {
+				zeroIsMissing: true,
+			}),
 			fallbackSources: [
 				...(Array.isArray(stock.fallbackSources) ? stock.fallbackSources : []),
 				'fundamentus',
@@ -182,15 +286,11 @@ export class StockService implements StockRepository {
 				this.isMissing(fallbackMerged.netMargin, { zeroIsMissing: true }));
 		if (needsCvm) {
 			const currentYear = new Date().getFullYear();
-			const cvmData =
-				(await this.cvmAdapter.getComputedIndicatorsByCnpj(
-					cnpj,
-					currentYear
-				)) ||
-				(await this.cvmAdapter.getComputedIndicatorsByCnpj(
-					cnpj,
-					currentYear - 1
-				));
+			const cvmHistory = await this.cvmAdapter.getComputedIndicatorsHistoryByCnpj(
+				cnpj,
+				[currentYear, currentYear - 1, currentYear - 2]
+			);
+			const cvmData = cvmHistory[0] || null;
 			if (cvmData) {
 				if (
 					this.isMissing(fallbackMerged.totalRevenue, { zeroIsMissing: true })
@@ -224,6 +324,57 @@ export class StockService implements StockRepository {
 				if (this.isMissing(fallbackMerged.netMargin, { zeroIsMissing: true })) {
 					fallbackMerged.netMargin = cvmData.netMargin;
 				}
+				if (
+					this.isMissing(fallbackMerged.operatingCashflow, {
+						zeroIsMissing: true,
+					})
+				) {
+					fallbackMerged.operatingCashflow = cvmData.operatingCashflow;
+				}
+				if (
+					this.isMissing(fallbackMerged.investingCashflow, {
+						zeroIsMissing: true,
+					})
+				) {
+					fallbackMerged.investingCashflow = cvmData.investingCashflow;
+				}
+				if (
+					this.isMissing(fallbackMerged.financingCashflow, {
+						zeroIsMissing: true,
+					})
+				) {
+					fallbackMerged.financingCashflow = cvmData.financingCashflow;
+				}
+				if (
+					this.isMissing(fallbackMerged.depreciation, {
+						zeroIsMissing: true,
+					})
+				) {
+					fallbackMerged.depreciation = cvmData.depreciation;
+				}
+				if (
+					this.isMissing(fallbackMerged.freeCashflow, {
+						zeroIsMissing: true,
+					})
+				) {
+					fallbackMerged.freeCashflow = cvmData.freeCashflow;
+				}
+				fallbackMerged.financialHistory = cvmHistory.map((row) => ({
+					year: row.referenceYear,
+					revenue: row.revenue,
+					netIncome: row.netIncome,
+					totalAssets: row.totalAssets,
+					shareholdersEquity: row.shareholdersEquity,
+				}));
+				fallbackMerged.cashflowHistory = cvmHistory.map((row) => ({
+					year: row.referenceYear,
+					operatingCashflow: row.operatingCashflow,
+					investingCashflow: row.investingCashflow,
+					financingCashflow: row.financingCashflow,
+					depreciation: row.depreciation,
+					freeCashflow: row.freeCashflow,
+					netIncome: row.netIncome,
+				}));
 				fallbackMerged.fallbackSources = [
 					...(Array.isArray(fallbackMerged.fallbackSources)
 						? (fallbackMerged.fallbackSources as string[])

@@ -88,7 +88,18 @@ describe('PortfolioController', () => {
 			mockPortfolioService.updatePortfolio.mockResolvedValue({
 				_id: '1',
 				id: '1',
+				userId: 'user1',
+				cpf: null,
 				name: 'New Name',
+				description: null,
+				ownerType: 'self',
+				ownerName: null,
+				totalValue: 0,
+				plan: 'premium',
+				assets: [],
+				syncedWithB3At: null,
+				createdAt: new Date(),
+				updatedAt: new Date(),
 			});
 
 			const result = await controller.update('1', dto as any);

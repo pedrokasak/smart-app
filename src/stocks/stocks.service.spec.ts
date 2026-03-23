@@ -8,24 +8,60 @@ import { jest } from '@jest/globals';
 
 describe('StockService', () => {
 	let service: StockService;
-	let brapi: { listAllStocks: jest.Mock; getStockQuote: jest.Mock };
-	let twelveData: { getStockQuote: jest.Mock };
-	let fundamentusFallback: { getIndicators: jest.Mock };
-	let cvmAdapter: { getComputedIndicatorsByCnpj: jest.Mock };
+	type BrapiListAllStocksFn = (
+		search?: string,
+		sortBy?: string,
+		sortOrder?: string,
+		limit?: number,
+		page?: number
+	) => Promise<any>;
+	type BrapiGetStockQuoteFn = (
+		symbol: string,
+		options?: {
+			range?: string;
+			interval?: string;
+			fundamental?: boolean;
+			dividends?: boolean;
+		}
+	) => Promise<any>;
+	type TwelveGetStockQuoteFn = (symbol: string) => Promise<any>;
+	type FundamentusGetSnapshotFn = (
+		symbol: string
+	) => Promise<{ numeric: Record<string, number>; text: Record<string, string> }>;
+	type CvmGetIndicatorsHistoryFn = (
+		cnpj: string,
+		years: number[]
+	) => Promise<any[]>;
+
+	let brapi: {
+		listAllStocks: jest.MockedFunction<BrapiListAllStocksFn>;
+		getStockQuote: jest.MockedFunction<BrapiGetStockQuoteFn>;
+	};
+	let twelveData: { getStockQuote: jest.MockedFunction<TwelveGetStockQuoteFn> };
+	let fundamentusFallback: {
+		getSnapshot: jest.MockedFunction<FundamentusGetSnapshotFn>;
+	};
+	let cvmAdapter: {
+		getComputedIndicatorsHistoryByCnpj: jest.MockedFunction<CvmGetIndicatorsHistoryFn>;
+	};
 
 	beforeEach(async () => {
 		brapi = {
-			listAllStocks: jest.fn(),
-			getStockQuote: jest.fn(),
+			listAllStocks: jest.fn<BrapiListAllStocksFn>(),
+			getStockQuote: jest.fn<BrapiGetStockQuoteFn>(),
 		};
 		twelveData = {
-			getStockQuote: jest.fn(),
+			getStockQuote: jest.fn<TwelveGetStockQuoteFn>(),
 		};
 		fundamentusFallback = {
-			getIndicators: jest.fn().mockResolvedValue({}),
+			getSnapshot: jest
+				.fn<FundamentusGetSnapshotFn>()
+				.mockResolvedValue({ numeric: {}, text: {} }),
 		};
 		cvmAdapter = {
-			getComputedIndicatorsByCnpj: jest.fn().mockResolvedValue(null),
+			getComputedIndicatorsHistoryByCnpj: jest
+				.fn<CvmGetIndicatorsHistoryFn>()
+				.mockResolvedValue([]),
 		};
 
 		const module: TestingModule = await Test.createTestingModule({
@@ -79,25 +115,30 @@ describe('StockService', () => {
 				],
 			});
 
-			fundamentusFallback.getIndicators.mockResolvedValue({
-				'P/L': 8.7,
-				'P/VP': 1.3,
-				'EV/EBITDA': 4.8,
-				'ROE %': 22,
-				'MARG. LIQUIDA': 13,
-				'DIV. YIELD': 8.5,
-				ROIC: 12,
+			fundamentusFallback.getSnapshot.mockResolvedValue({
+				numeric: {
+					'P/L': 8.7,
+					'P/VP': 1.3,
+					'EV/EBITDA': 4.8,
+					'ROE %': 22,
+					'MARG. LIQUIDA': 13,
+					'DIV. YIELD': 8.5,
+					ROIC: 12,
+				},
+				text: {},
 			});
 
-			cvmAdapter.getComputedIndicatorsByCnpj.mockResolvedValue({
-				referenceYear: 2025,
-				revenue: 100000,
-				netIncome: 20000,
-				totalAssets: 500000,
-				shareholdersEquity: 90000,
-				roe: 0.22,
-				netMargin: 0.2,
-			});
+			cvmAdapter.getComputedIndicatorsHistoryByCnpj.mockResolvedValue([
+				{
+					referenceYear: 2025,
+					revenue: 100000,
+					netIncome: 20000,
+					totalAssets: 500000,
+					shareholdersEquity: 90000,
+					roe: 0.22,
+					netMargin: 0.2,
+				},
+			]);
 
 			const result = await service.getNationalQuote('PETR4', {
 				fundamental: true,
