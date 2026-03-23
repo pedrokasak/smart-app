@@ -9,6 +9,10 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 
 @Injectable()
 export class AssetsService {
+	private escapeRegex(value: string): string {
+		return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+	}
+
 	constructor(
 		@InjectModel('Asset') private readonly assetModel: Model<Asset>,
 		@Inject(forwardRef(() => PortfolioService))
@@ -26,9 +30,11 @@ export class AssetsService {
 	}
 
 	async findAssetBySymbolAndPortfolio(portfolioId: string, symbol: string) {
+		const normalizedSymbol = String(symbol || '').trim().toUpperCase();
+		const safePattern = this.escapeRegex(normalizedSymbol);
 		return this.assetModel.findOne({
 			portfolioId,
-			symbol: new RegExp(`^${symbol}$`, 'i'),
+			symbol: new RegExp(`^${safePattern}$`, 'i'),
 		});
 	}
 

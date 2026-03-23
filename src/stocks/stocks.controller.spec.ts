@@ -77,7 +77,12 @@ describe('StocksController', () => {
 
 			const result = await controller.getStockQuoteNational('PETR4');
 
-			expect(service.getNationalQuote).toHaveBeenCalledWith('PETR4');
+			expect(service.getNationalQuote).toHaveBeenCalledWith('PETR4', {
+				fundamental: false,
+				dividends: false,
+				range: undefined,
+				interval: undefined,
+			});
 			expect(result).toEqual(mockQuote);
 		});
 	});

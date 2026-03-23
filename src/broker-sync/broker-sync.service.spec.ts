@@ -131,7 +131,7 @@ describe('BrokerSyncService', () => {
 			provider,
 		});
 		expect(selectSpy).toHaveBeenCalledWith(
-			'+apiKeyEncrypted +apiSecretEncrypted'
+			'+apiKeyEncrypted +apiSecretEncrypted +apiPassphraseEncrypted'
 		);
 		expect(mockPortfolioService.addAssetToPortfolio).toHaveBeenCalledTimes(1);
 		expect(mockAssetsService.update).toHaveBeenCalledTimes(1);
@@ -149,5 +149,24 @@ describe('BrokerSyncService', () => {
 		await expect(service.syncConnection(userId, provider)).rejects.toThrow(
 			'PLANO_UPGRADE_NECESSARIO'
 		);
+	});
+
+	it('should extract balances from free/used/info when total is empty', () => {
+		const extracted = (service as any).extractPositiveBalances({
+			total: {},
+			free: { btc: '0.10', ETH: 0 },
+			used: { BTC: '0.20', USDT: '0' },
+			info: {
+				balances: [
+					{ asset: 'BTC', free: '0.15', locked: '0.05' },
+					{ asset: 'SOL', free: '3.5', locked: '0' },
+				],
+			},
+		});
+
+		expect(extracted.BTC).toBeCloseTo(0.3, 8);
+		expect(extracted.SOL).toBe(3.5);
+		expect(extracted.ETH).toBeUndefined();
+		expect(extracted.USDT).toBeUndefined();
 	});
 });

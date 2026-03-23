@@ -18,8 +18,29 @@ const envSchema = z.object({
 	ASAAS_URL_SANDBOX: z.string(),
 });
 
+const isTestEnvironment = process.env.NODE_ENV === 'test';
+const testDefaults: Record<string, string> = {
+	DATABASE_URL: 'https://example.com',
+	JWT_SECRET: 'test-secret',
+	EXPIRES_IN: '1h',
+	EXPIRES_IN_REFRESH_TOKEN: '7d',
+	URL_PRODUCTION: 'https://example.com',
+	URL_DEVELOPMENT: 'http://localhost:3000',
+	TWELVE_DATA_API_KEY: 'test-key',
+	BRAPI_DATA_API_KEY: 'test-key',
+	STRIPE_PRIVATE_API_KEY: 'test-key',
+	STRIPE_PUBLIC_API_KEY: 'test-key',
+	STRIPE_WEBHOOK_SECRET: 'test-key',
+	STRIPE_WEBHOOK_SECRET_PROD: 'test-key',
+	ASAAS_API_KEY: 'test-key',
+	ASAAS_URL_SANDBOX: 'https://example.com',
+};
+
 // Parse the environment variables
-const env = envSchema.safeParse(process.env);
+const envSource = isTestEnvironment
+	? { ...testDefaults, ...process.env }
+	: process.env;
+const env = envSchema.safeParse(envSource);
 if (!env.success) {
 	console.error('Invalid environment variables:', env.error.format());
 	process.exit(1);
