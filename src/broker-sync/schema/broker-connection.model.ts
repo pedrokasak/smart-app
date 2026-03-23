@@ -5,6 +5,7 @@ export interface BrokerConnection extends Document {
 	provider: string;
 	apiKeyEncrypted?: string;
 	apiSecretEncrypted?: string;
+	apiPassphraseEncrypted?: string;
 	cpf?: string;
 	status: 'connected' | 'disconnected' | 'error';
 	lastSync?: Date;
@@ -28,6 +29,7 @@ const brokerConnectionSchema = new Schema<BrokerConnection>(
 		},
 		apiKeyEncrypted: { type: String, select: false },
 		apiSecretEncrypted: { type: String, select: false },
+		apiPassphraseEncrypted: { type: String, select: false },
 		cpf: String,
 		status: {
 			type: String,

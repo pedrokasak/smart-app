@@ -44,6 +44,9 @@ describe('AuthenticationService', () => {
 	const mockTokenBlacklistService = {
 		addToBlacklist: jest.fn(),
 	};
+	const mockEmailService = {
+		sendPasswordResetEmail: jest.fn(),
+	};
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
@@ -51,7 +54,7 @@ describe('AuthenticationService', () => {
 				AuthenticationService,
 				{ provide: JwtService, useValue: mockJwtService },
 				{ provide: TokenBlacklistService, useValue: mockTokenBlacklistService },
-				{ provide: EmailService, useValue: EmailService },
+				{ provide: EmailService, useValue: mockEmailService },
 			],
 		}).compile();
 
@@ -249,6 +252,10 @@ describe('AuthenticationService', () => {
 				email: 'test@example.com',
 			});
 			expect(mockUser.save).toHaveBeenCalled();
+			expect(mockEmailService.sendPasswordResetEmail).toHaveBeenCalledWith(
+				'test@example.com',
+				expect.any(String)
+			);
 			expect(result.message).toEqual(
 				'If the email is valid, a password reset link has been sent'
 			);

@@ -30,6 +30,60 @@ export class BrokerSyncService {
 	private readonly logger = new Logger(BrokerSyncService.name);
 
 	private readonly providerRegistry = new ProviderRegistry();
+	private readonly fiatSymbols = new Set([
+		'BRL',
+		'USD',
+		'USDT',
+		'USDC',
+		'EUR',
+		'GBP',
+		'JPY',
+	]);
+
+	private toPositiveNumber(value: unknown): number {
+		if (typeof value === 'number') {
+			return Number.isFinite(value) && value > 0 ? value : 0;
+		}
+		if (typeof value === 'string') {
+			const parsed = Number(value.replace(',', '.').trim());
+			return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
+		}
+		return 0;
+	}
+
+	private mergeBalanceBucket(
+		target: Record<string, number>,
+		bucket: Record<string, unknown> | undefined | null
+	) {
+		if (!bucket || typeof bucket !== 'object') return;
+		for (const [symbol, rawValue] of Object.entries(bucket)) {
+			const quantity = this.toPositiveNumber(rawValue);
+			if (quantity <= 0) continue;
+			target[symbol.toUpperCase()] = (target[symbol.toUpperCase()] || 0) + quantity;
+		}
+	}
+
+	private extractPositiveBalances(balance: any): Record<string, number> {
+		const out: Record<string, number> = {};
+		this.mergeBalanceBucket(out, balance?.total as Record<string, unknown>);
+		this.mergeBalanceBucket(out, balance?.free as Record<string, unknown>);
+		this.mergeBalanceBucket(out, balance?.used as Record<string, unknown>);
+
+		const infoBalances = Array.isArray(balance?.info?.balances)
+			? balance.info.balances
+			: [];
+		for (const item of infoBalances) {
+			const symbol = String(item?.asset || item?.currency || '').toUpperCase();
+			if (!symbol) continue;
+			const free = this.toPositiveNumber(item?.free);
+			const locked = this.toPositiveNumber(item?.locked);
+			const total = this.toPositiveNumber(item?.total);
+			const quantity = total || free + locked;
+			if (quantity <= 0) continue;
+			out[symbol] = Math.max(out[symbol] || 0, quantity);
+		}
+		return out;
+	}
 
 	private encrypt(text: string): string {
 		const iv = crypto.randomBytes(IV_LENGTH);
@@ -84,8 +138,11 @@ export class BrokerSyncService {
 			lastError: null,
 		};
 
-		if (dto.apiKey) payload.apiKeyEncrypted = this.encrypt(dto.apiKey);
-		if (dto.apiSecret) payload.apiSecretEncrypted = this.encrypt(dto.apiSecret);
+		if (dto.apiKey) payload.apiKeyEncrypted = this.encrypt(dto.apiKey.trim());
+		if (dto.apiSecret)
+			payload.apiSecretEncrypted = this.encrypt(dto.apiSecret.trim());
+		if (dto.apiPassphrase)
+			payload.apiPassphraseEncrypted = this.encrypt(dto.apiPassphrase.trim());
 		if (dto.cpf) payload.cpf = dto.cpf;
 
 		if (existing) {
@@ -114,7 +171,7 @@ export class BrokerSyncService {
 		const connection = await BrokerConnectionModel.findOne({
 			userId: new Types.ObjectId(userId),
 			provider,
-		}).select('+apiKeyEncrypted +apiSecretEncrypted');
+		}).select('+apiKeyEncrypted +apiSecretEncrypted +apiPassphraseEncrypted');
 
 		if (!connection) {
 			throw new NotFoundException(`Conexão com ${provider} não encontrada.`);
@@ -133,12 +190,15 @@ export class BrokerSyncService {
 			);
 		}
 
-		const apiKey = this.decrypt(connection.apiKeyEncrypted);
-		const secret = this.decrypt(connection.apiSecretEncrypted);
+		const apiKey = this.decrypt(connection.apiKeyEncrypted).trim();
+		const secret = this.decrypt(connection.apiSecretEncrypted).trim();
+		const password = connection.apiPassphraseEncrypted
+			? this.decrypt(connection.apiPassphraseEncrypted).trim()
+			: undefined;
 
 		let exchange: ccxt.Exchange;
 		try {
-			exchange = providerImpl.createClient({ apiKey, secret });
+			exchange = providerImpl.createClient({ apiKey, secret, password });
 		} catch (error) {
 			throw new BadRequestException(
 				`Erro ao instanciar corretora: ${error.message}`
@@ -154,12 +214,10 @@ export class BrokerSyncService {
 				for (const type of walletTypes) {
 					try {
 						const bal = await exchange.fetchBalance({ type });
-						const total = bal.total || {};
-						for (const symbol in total) {
-							if (total[symbol] > 0) {
-								totalBalances[symbol] =
-									(totalBalances[symbol] || 0) + total[symbol];
-							}
+						const extracted = this.extractPositiveBalances(bal);
+						for (const symbol of Object.keys(extracted)) {
+							totalBalances[symbol] =
+								(totalBalances[symbol] || 0) + extracted[symbol];
 						}
 					} catch (e) {
 						this.logger.warn(
@@ -173,14 +231,10 @@ export class BrokerSyncService {
 				if (Object.keys(totalBalances).length === 0) {
 					try {
 						const fallbackBalance = await exchange.fetchBalance();
-						const fallbackTotal =
-							(fallbackBalance.total as unknown as Record<string, number>) ||
-							{};
-						for (const symbol in fallbackTotal) {
-							if (fallbackTotal[symbol] > 0) {
-								totalBalances[symbol] =
-									(totalBalances[symbol] || 0) + fallbackTotal[symbol];
-							}
+						const extracted = this.extractPositiveBalances(fallbackBalance);
+						for (const symbol of Object.keys(extracted)) {
+							totalBalances[symbol] =
+								(totalBalances[symbol] || 0) + extracted[symbol];
 						}
 					} catch (e) {
 						this.logger.warn(
@@ -190,16 +244,18 @@ export class BrokerSyncService {
 				}
 			} else {
 				const balance = await exchange.fetchBalance();
-				totalBalances =
-					(balance.total as unknown as Record<string, number>) || {};
+				totalBalances = this.extractPositiveBalances(balance);
 			}
 
 			const positiveAssets = Object.keys(totalBalances).filter(
-				(symbol) => totalBalances[symbol] > 0
+				(symbol) =>
+					totalBalances[symbol] > 0 && !this.fiatSymbols.has(symbol.toUpperCase())
 			);
 
 			this.logger.log(
-				`Sincronizando ${provider} para usuário ${userId}. Ativos encontrados com saldo: ${positiveAssets.length}`
+				`Sincronizando ${provider} para usuário ${userId}. Ativos encontrados com saldo: ${positiveAssets.length}. Exemplo: ${positiveAssets
+					.slice(0, 10)
+					.join(', ')}`
 			);
 
 			const quoteCandidates = ['USDT', 'USD', 'USDC'];
@@ -244,34 +300,44 @@ export class BrokerSyncService {
 			}
 
 			let syncedCount = 0;
+			const failedAssets: Array<{ symbol: string; reason: string }> = [];
 			for (const symbol of positiveAssets) {
-				const quantity = totalBalances[symbol];
-				const assetCode = symbol;
+				try {
+					const quantity = totalBalances[symbol];
+					const assetCode = String(symbol || '').trim().toUpperCase();
+					if (!assetCode || quantity <= 0) continue;
 
-				const existingAsset =
-					await this.assetsService.findAssetBySymbolAndPortfolio(
-						portfolio._id.toString(),
-						assetCode
-					);
+					const existingAsset =
+						await this.assetsService.findAssetBySymbolAndPortfolio(
+							portfolio._id.toString(),
+							assetCode
+						);
 
-				if (existingAsset) {
-					await this.assetsService.update(existingAsset._id.toString(), {
-						quantity,
-						price: existingAsset.price,
-					});
-				} else {
-					const currentQuote = await tryGetQuote(assetCode);
-					await this.portfolioService.addAssetToPortfolio(
-						portfolio._id.toString(),
-						{
-							symbol: assetCode,
+					if (existingAsset) {
+						await this.assetsService.update(existingAsset._id.toString(), {
 							quantity,
-							price: currentQuote ?? 1,
-							type: 'crypto',
-						}
+							price: existingAsset.price,
+						});
+					} else {
+						const currentQuote = await tryGetQuote(assetCode);
+						await this.portfolioService.addAssetToPortfolio(
+							portfolio._id.toString(),
+							{
+								symbol: assetCode,
+								quantity,
+								price: currentQuote ?? 1,
+								type: 'crypto',
+							}
+						);
+					}
+					syncedCount++;
+				} catch (assetError) {
+					const reason = String((assetError as any)?.message || assetError);
+					failedAssets.push({ symbol, reason });
+					this.logger.warn(
+						`Falha ao sincronizar ativo ${symbol} em ${provider}: ${reason}`
 					);
 				}
-				syncedCount++;
 			}
 
 			connection.lastSync = new Date();
@@ -283,6 +349,8 @@ export class BrokerSyncService {
 				message: `Sincronização com ${provider} concluída.`,
 				lastSync: connection.lastSync,
 				syncedAssets: syncedCount,
+				failedAssets: failedAssets.length,
+				failedAssetsDetails: failedAssets.slice(0, 5),
 			};
 		} catch (error) {
 			const reason =
@@ -290,10 +358,18 @@ export class BrokerSyncService {
 				(error as any)?.response?.data?.message ||
 				(error as any)?.message ||
 				'Erro desconhecido na sincronização';
+			const normalizedReason =
+				provider === 'coinbase' &&
+				(String(reason).includes('Illegal character at offset') ||
+					String(reason).includes('Unsupported key format'))
+					? 'Formato de chave da Coinbase inválido. Use API Key + Private Key no formato PEM (com BEGIN/END), e informe passphrase se a sua chave exigir.'
+					: String(reason);
 			connection.status = 'error';
-			connection.lastError = String(reason);
+			connection.lastError = normalizedReason;
 			await connection.save();
-			throw new BadRequestException(`Erro na sincronização: ${reason}`);
+			throw new BadRequestException(
+				`Erro na sincronização: ${normalizedReason}`
+			);
 		}
 	}
 
