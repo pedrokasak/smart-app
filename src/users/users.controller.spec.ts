@@ -114,7 +114,6 @@ describe('UsersController', () => {
 				firstName: 'Updated',
 				lastName: 'User',
 				email: 'teste@user.com',
-				cpf: '123.456.789-00',
 				avatar: 'http://example.com/avatar.jpg',
 			};
 			const updatedUser = { _id: '1', firstName: 'Updated 2' };
