@@ -43,6 +43,13 @@ export class StocksController {
 		return this.stockService.getStockQuoteGlobal(symbol);
 	}
 
+	@Get('macro/cdi')
+	@ApiResponse({ status: 200, description: 'OK' })
+	@ApiResponse({ status: 500, description: 'Internal Server Error' })
+	async getLatestCdiRate() {
+		return this.stockService.getLatestCdiRate();
+	}
+
 	@Get('national/quote')
 	@ApiResponse({ status: 200, description: 'OK' })
 	@ApiResponse({ status: 400, description: 'Bad Request' })
