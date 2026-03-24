@@ -4,6 +4,7 @@ import { TwelveDataAdapter } from './adapter/twelveDataApi';
 import { StockRepository } from 'src/stocks/repositories/stock-repository';
 import { FundamentusFallbackAdapter } from 'src/stocks/adapter/fundamentus-fallback.adapter';
 import { CvmOpenDataAdapter } from 'src/stocks/adapter/cvm-open-data.adapter';
+import axios from 'axios';
 
 @Injectable()
 export class StockService implements StockRepository {
@@ -393,5 +394,54 @@ export class StockService implements StockRepository {
 	async getStockQuoteGlobal(symbol: string): Promise<any> {
 		console.log('Fetching global stock quote for:', symbol);
 		return this.twelveData.getStockQuote(symbol);
+	}
+
+	async getLatestCdiRate(): Promise<{
+		symbol: 'CDI';
+		value: number | null;
+		date: string | null;
+		unit: 'daily_percent';
+		source: 'BACEN_SGS_12';
+	}> {
+		const fallback = {
+			symbol: 'CDI' as const,
+			value: null,
+			date: null,
+			unit: 'daily_percent' as const,
+			source: 'BACEN_SGS_12' as const,
+		};
+
+		try {
+			const response = await axios.get(
+				'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados/ultimos/1?formato=json',
+				{
+					timeout: 8000,
+				}
+			);
+
+			const latest = Array.isArray(response.data) ? response.data[0] : null;
+			if (!latest) return fallback;
+
+			const numericValue = Number(String(latest.valor ?? '').replace(',', '.'));
+			const rawDate = String(latest.data ?? '');
+			const [day, month, year] = rawDate.split('/');
+			const isoDate =
+				day && month && year
+					? new Date(`${year}-${month}-${day}T00:00:00.000Z`).toISOString()
+					: null;
+
+				return {
+					symbol: 'CDI',
+					value: Number.isFinite(numericValue) ? numericValue : null,
+					date: isoDate,
+					unit: 'daily_percent',
+					source: 'BACEN_SGS_12',
+				};
+		} catch (error) {
+			this.logger.warn(
+				`Falha ao buscar CDI no BACEN: ${error?.message || error}`
+			);
+			return fallback;
+		}
 	}
 }
