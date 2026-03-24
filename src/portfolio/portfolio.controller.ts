@@ -241,6 +241,7 @@ export class PortfolioController {
 						quantity: assetData.quantity,
 						price: assetData.price,
 						avgPrice: assetData.price,
+						name: assetData.name,
 					})) || existingAsset;
 				assetsUpdated += 1;
 			} else {
