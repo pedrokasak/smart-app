@@ -52,6 +52,36 @@ describe('UsersService', () => {
 	afterEach(() => jest.clearAllMocks());
 
 	describe('create', () => {
+		it('deve criar usuário sem CPF no cadastro', async () => {
+			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
+			(bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
+
+			const mockSave = jest.fn().mockResolvedValue(true);
+			(UserModel as any).mockImplementationOnce(() => ({
+				firstName: 'NoCpf',
+				lastName: 'User',
+				email: 'nocpf@example.com',
+				password: 'hashed-password',
+				save: mockSave,
+			}));
+
+			const result = await service.create({
+				firstName: 'NoCpf',
+				lastName: 'User',
+				email: 'nocpf@example.com',
+				password: 'Password123@',
+				confirmPassword: 'Password123@',
+				avatar: 'http://example.com/avatar.jpg',
+			});
+
+			expect(result.message).toBe('User created successfully');
+			expect(UserModel.findOne).toHaveBeenCalledTimes(1);
+			expect(UserModel.findOne).toHaveBeenCalledWith({
+				email: 'nocpf@example.com',
+			});
+			expect(mockSave).toHaveBeenCalled();
+		});
+
 		it('deve criar um novo usuário com sucesso', async () => {
 			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
 			(bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
@@ -61,7 +91,6 @@ describe('UsersService', () => {
 				firstName: 'Pedro',
 				lastName: 'SantAnna',
 				email: 'pedro@example.com',
-				cpf: '123.456.789-00',
 				password: 'Password123@',
 				confirmPassword: 'Password123@',
 			};
@@ -76,7 +105,6 @@ describe('UsersService', () => {
 				firstName: 'Pedro',
 				lastName: 'SantAnna',
 				email: 'pedro@example.com',
-				cpf: '123.456.789-00',
 				password: 'Password123@',
 				confirmPassword: 'Password123@',
 				avatar: 'http://example.com/avatar.jpg',
@@ -102,7 +130,6 @@ describe('UsersService', () => {
 					email: 'pedro@example.com',
 					password: '123456',
 					confirmPassword: '123456',
-					cpf: '123.456.789-00',
 					avatar: 'http://example.com/avatar.jpg',
 				})
 			).rejects.toThrow(HttpException);
@@ -118,7 +145,6 @@ describe('UsersService', () => {
 					email: 'pedro@example.com',
 					password: 'Password123@',
 					confirmPassword: 'DifferentPassword123@',
-					cpf: '123.456.789-00',
 					avatar: 'http://example.com/avatar.jpg',
 				})
 			).rejects.toThrow(HttpException);

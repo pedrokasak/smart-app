@@ -315,5 +315,39 @@ describe('AuthenticationService', () => {
 			expect(mockUser.save).toHaveBeenCalled();
 			expect(result.message).toEqual('Senha redefinida com sucesso');
 		});
+
+		it('should invalidate reset token after successful password reset', async () => {
+			const mockUser = {
+				twoFactorEnabled: false,
+				save: jest.fn(),
+				resetPasswordToken: 'hashed-token',
+				resetPasswordExpires: new Date(Date.now() + 60 * 60 * 1000),
+			};
+
+			(UserModel.findOne as jest.Mock)
+				.mockReturnValueOnce({
+					select: jest.fn().mockResolvedValue(mockUser),
+				})
+				.mockReturnValueOnce({
+					select: jest.fn().mockResolvedValue(null),
+				});
+			(bcrypt.hash as jest.Mock).mockResolvedValue('new-hashed');
+
+			await service.resetPassword({
+				token: 'one-time-token',
+				newPassword: 'new-password',
+			});
+
+			expect(mockUser.resetPasswordToken).toBeUndefined();
+			expect(mockUser.resetPasswordExpires).toBeUndefined();
+			expect(mockUser.save).toHaveBeenCalled();
+
+			await expect(
+				service.resetPassword({
+					token: 'one-time-token',
+					newPassword: 'new-password-2',
+				})
+			).rejects.toThrowError('Token inválido ou expirado');
+		});
 	});
 });

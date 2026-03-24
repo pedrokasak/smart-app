@@ -44,7 +44,6 @@ describe('UsersController', () => {
 				email: 'pedro@example.com',
 				password: 'Password123@',
 				confirmPassword: 'Password123@',
-				cpf: '123.456.789-00',
 				avatar: 'http://example.com/avatar.jpg',
 			};
 
@@ -69,7 +68,6 @@ describe('UsersController', () => {
 				email: 'pedro@example.com',
 				password: 'Password123@',
 				confirmPassword: 'Password123@',
-				cpf: '123.456.789-00',
 				avatar: 'http://example.com/avatar.jpg',
 			};
 
