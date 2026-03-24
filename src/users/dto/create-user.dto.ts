@@ -5,7 +5,7 @@ import {
 	IsString,
 	IsStrongPassword,
 } from 'class-validator';
-import { IsCpf, Match } from '../../utils/decorators';
+import { Match } from '../../utils/decorators';
 import { ApiProperty } from '@nestjs/swagger';
 
 export class CreateUserDto {
@@ -26,16 +26,6 @@ export class CreateUserDto {
 		message: 'The last name is not empty',
 	})
 	lastName: string;
-
-	@ApiProperty({
-		example: '123.456.789-00',
-		description: 'CPF do usuário',
-	})
-	@IsNotEmpty({
-		message: 'The cpf is not empty',
-	})
-	@IsCpf()
-	cpf: string;
 
 	@ApiProperty({
 		example:
