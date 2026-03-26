@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { UsersService } from './users.service';
-import { UserModel } from './schema/user.model';
-import * as bcrypt from 'bcrypt';
 import { HttpException } from '@nestjs/common';
 import { JwtModule, JwtService } from '@nestjs/jwt';
+import { UsersService } from './users.service';
+import { UserModel } from './schema/user.model';
 import { EmailService } from 'src/notifications/email/email.service';
+import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 
 jest.mock('./schema/user.model', () => {
 	const mockUserModel = jest.fn().mockImplementation(() => ({
@@ -20,28 +20,25 @@ jest.mock('./schema/user.model', () => {
 	return { UserModel: mockUserModel };
 });
 
-jest.mock('bcrypt');
-
 describe('UsersService', () => {
 	let service: UsersService;
-
-	// eslint-disable-next-line @typescript-eslint/no-unused-vars
 	let jwtService: JwtService;
-	let emailService: { sendWelcomeEmail: jest.Mock };
+
+	const emailService = {
+		sendWelcomeEmail: jest.fn().mockResolvedValue(undefined),
+	};
+
+	const passwordSecurityService = {
+		hashPassword: jest.fn().mockResolvedValue('argon2-hash'),
+	};
 
 	beforeEach(async () => {
-		emailService = {
-			sendWelcomeEmail: jest.fn().mockResolvedValue(undefined),
-		};
-
 		const module: TestingModule = await Test.createTestingModule({
 			imports: [JwtModule.register({ secret: 'test-secret' })],
 			providers: [
 				UsersService,
-				{
-					provide: EmailService,
-					useValue: emailService,
-				},
+				{ provide: EmailService, useValue: emailService },
+				{ provide: PasswordSecurityService, useValue: passwordSecurityService },
 			],
 		}).compile();
 
@@ -52,52 +49,17 @@ describe('UsersService', () => {
 	afterEach(() => jest.clearAllMocks());
 
 	describe('create', () => {
-		it('deve criar usuário sem CPF no cadastro', async () => {
+		it('should create user with valid password', async () => {
 			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
-			(bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
 
 			const mockSave = jest.fn().mockResolvedValue(true);
 			(UserModel as any).mockImplementationOnce(() => ({
-				firstName: 'NoCpf',
-				lastName: 'User',
-				email: 'nocpf@example.com',
-				password: 'hashed-password',
-				save: mockSave,
-			}));
-
-			const result = await service.create({
-				firstName: 'NoCpf',
-				lastName: 'User',
-				email: 'nocpf@example.com',
-				password: 'Password123@',
-				confirmPassword: 'Password123@',
-				avatar: 'http://example.com/avatar.jpg',
-			});
-
-			expect(result.message).toBe('User created successfully');
-			expect(UserModel.findOne).toHaveBeenCalledTimes(1);
-			expect(UserModel.findOne).toHaveBeenCalledWith({
-				email: 'nocpf@example.com',
-			});
-			expect(mockSave).toHaveBeenCalled();
-		});
-
-		it('deve criar um novo usuário com sucesso', async () => {
-			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
-			(bcrypt.hash as jest.Mock).mockResolvedValue('hashed-password');
-
-			const mockSave = jest.fn().mockResolvedValue(true);
-			const fakeUser = {
+				_id: 'u1',
+				id: 'u1',
 				firstName: 'Pedro',
 				lastName: 'SantAnna',
 				email: 'pedro@example.com',
-				password: 'Password123@',
-				confirmPassword: 'Password123@',
-			};
-
-			// simula o "new UserModel(...)" e o método save()
-			(UserModel as any).mockImplementationOnce(() => ({
-				...fakeUser,
+				password: 'argon2-hash',
 				save: mockSave,
 			}));
 
@@ -110,15 +72,19 @@ describe('UsersService', () => {
 				avatar: 'http://example.com/avatar.jpg',
 			});
 
-			expect(result.message).toBe('User created successfully');
+			expect(passwordSecurityService.hashPassword).toHaveBeenCalledWith(
+				'Password123@'
+			);
 			expect(mockSave).toHaveBeenCalled();
 			expect(emailService.sendWelcomeEmail).toHaveBeenCalledWith(
 				'pedro@example.com',
 				'Pedro'
 			);
+			expect(result.message).toBe('User created successfully');
+			expect(result.accessToken).toBeDefined();
 		});
 
-		it('deve lançar erro se o email já existir', async () => {
+		it('should throw if email already exists', async () => {
 			(UserModel.findOne as jest.Mock).mockResolvedValue({
 				email: 'pedro@example.com',
 			});
@@ -128,14 +94,14 @@ describe('UsersService', () => {
 					firstName: 'Pedro',
 					lastName: 'SantAnna',
 					email: 'pedro@example.com',
-					password: '123456',
-					confirmPassword: '123456',
+					password: 'Password123@',
+					confirmPassword: 'Password123@',
 					avatar: 'http://example.com/avatar.jpg',
 				})
 			).rejects.toThrow(HttpException);
 		});
 
-		it('deve lançar erro se as senhas não coincidirem', async () => {
+		it('should throw if password confirmation diverges', async () => {
 			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
 
 			await expect(
@@ -144,10 +110,38 @@ describe('UsersService', () => {
 					lastName: 'SantAnna',
 					email: 'pedro@example.com',
 					password: 'Password123@',
-					confirmPassword: 'DifferentPassword123@',
+					confirmPassword: 'Wrong123@',
 					avatar: 'http://example.com/avatar.jpg',
 				})
 			).rejects.toThrow(HttpException);
+		});
+
+		it('should continue when welcome email fails', async () => {
+			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
+			emailService.sendWelcomeEmail.mockRejectedValueOnce(new Error('mail down'));
+
+			const mockSave = jest.fn().mockResolvedValue(true);
+			(UserModel as any).mockImplementationOnce(() => ({
+				_id: 'u2',
+				id: 'u2',
+				firstName: 'Maria',
+				lastName: 'Silva',
+				email: 'maria@example.com',
+				password: 'argon2-hash',
+				save: mockSave,
+			}));
+
+			const result = await service.create({
+				firstName: 'Maria',
+				lastName: 'Silva',
+				email: 'maria@example.com',
+				password: 'Password123@',
+				confirmPassword: 'Password123@',
+				avatar: 'http://example.com/avatar.jpg',
+			});
+
+			expect(result.message).toBe('User created successfully');
+			expect(result.accessToken).toBeDefined();
 		});
 	});
 });

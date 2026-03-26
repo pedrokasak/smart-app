@@ -3,12 +3,12 @@ import {
 	UnauthorizedException,
 	NotFoundException,
 	InternalServerErrorException,
+	BadRequestException,
 } from '@nestjs/common';
 import { AuthenticateDto } from './dto/authenticate.dto';
 import { JwtService } from '@nestjs/jwt';
 import { AuthenticationEntity } from './entities/authentication-entity';
 import { UserModel } from 'src/users/schema/user.model';
-import * as bcrypt from 'bcrypt';
 import {
 	expireKeepAliveConected,
 	expireKeepAliveConectedRefreshToken,
@@ -21,13 +21,15 @@ import { ResetPasswordDto } from './dto/reset-password.dto';
 import * as crypto from 'crypto';
 import { EmailService } from 'src/notifications/email/email.service';
 import { authenticator } from 'otplib';
+import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 
 @Injectable()
 export class AuthenticationService {
 	constructor(
 		private jwtService: JwtService,
 		private tokenBlacklistService: TokenBlacklistService,
-		private readonly emailService: EmailService
+		private readonly emailService: EmailService,
+		private readonly passwordSecurityService: PasswordSecurityService
 	) {}
 
 	async signin(
@@ -49,10 +51,20 @@ export class AuthenticationService {
 			);
 		}
 
-		const isPasswordValid = await bcrypt.compare(password, verifyUser.password);
+		const isPasswordValid = await this.passwordSecurityService.verifyPassword(
+			password,
+			verifyUser.password
+		);
 
 		if (!isPasswordValid) {
 			AuthErrorService.handleInvalidPassword();
+		}
+
+		// Secure migration path: seamlessly rehash legacy bcrypt passwords using Argon2id.
+		if (this.passwordSecurityService.needsRehash(verifyUser.password)) {
+			verifyUser.password =
+				await this.passwordSecurityService.hashPassword(password);
+			await verifyUser.save();
 		}
 
 		// Se 2FA está habilitado, retorna um tempToken para verificação
@@ -149,13 +161,18 @@ export class AuthenticationService {
 		userId: string,
 		updatePasswordDto: UpdatePasswordDto
 	): Promise<{ message: string }> {
-		const user = await UserModel.findById(userId);
+		const user = await UserModel.findById(userId).select('+password');
 
 		if (!user) {
 			throw new NotFoundException('User not found');
 		}
+		if (!user.password) {
+			throw new InternalServerErrorException(
+				'Senha não configurada para este usuário'
+			);
+		}
 
-		const isPasswordValid = await bcrypt.compare(
+		const isPasswordValid = await this.passwordSecurityService.verifyPassword(
 			updatePasswordDto.oldPassword,
 			user.password
 		);
@@ -164,7 +181,9 @@ export class AuthenticationService {
 			throw new UnauthorizedException('Invalid old password');
 		}
 
-		const hashedPassword = await bcrypt.hash(updatePasswordDto.newPassword, 10);
+		const hashedPassword = await this.passwordSecurityService.hashPassword(
+			updatePasswordDto.newPassword
+		);
 
 		user.password = hashedPassword;
 		await user.save();
@@ -196,8 +215,12 @@ export class AuthenticationService {
 		user.resetPasswordExpires = resetPasswordExpires;
 		await user.save();
 
-		// Send email
-		await this.emailService.sendPasswordResetEmail(user.email, resetToken);
+		// Send email (safe fallback: avoid exposing provider failures to users)
+		try {
+			await this.emailService.sendPasswordResetEmail(user.email, resetToken);
+		} catch (_error) {
+			// Keep deterministic generic response to avoid user/email enumeration.
+		}
 
 		return {
 			message: 'If the email is valid, a password reset link has been sent',
@@ -211,11 +234,14 @@ export class AuthenticationService {
 
 		const user = await UserModel.findOne({
 			resetPasswordToken: hash,
-			resetPasswordExpires: { $gt: new Date() },
-		}).select('+resetPasswordToken +resetPasswordExpires');
+		}).select('+resetPasswordToken +resetPasswordExpires +twoFactorEnabled');
 
 		if (!user) {
-			throw new UnauthorizedException('Token inválido ou expirado');
+			throw new UnauthorizedException('Token inválido');
+		}
+
+		if (!user.resetPasswordExpires || user.resetPasswordExpires <= new Date()) {
+			throw new UnauthorizedException('Token expirado');
 		}
 
 		return { valid: true, requiresMfa: user.twoFactorEnabled };
@@ -231,13 +257,20 @@ export class AuthenticationService {
 
 		const user = await UserModel.findOne({
 			resetPasswordToken: hash,
-			resetPasswordExpires: { $gt: new Date() },
 		}).select(
 			'+resetPasswordToken +resetPasswordExpires +password +twoFactorSecret'
 		);
 
 		if (!user) {
-			throw new UnauthorizedException('Token inválido ou expirado');
+			throw new UnauthorizedException('Token inválido');
+		}
+
+		if (!user.resetPasswordExpires || user.resetPasswordExpires <= new Date()) {
+			throw new UnauthorizedException('Token expirado');
+		}
+
+		if (resetPasswordDto.newPassword !== resetPasswordDto.confirmPassword) {
+			throw new BadRequestException('As senhas não correspondem');
 		}
 
 		// Verify MFA if enabled
@@ -258,7 +291,9 @@ export class AuthenticationService {
 			}
 		}
 
-		const hashedPassword = await bcrypt.hash(resetPasswordDto.newPassword, 10);
+		const hashedPassword = await this.passwordSecurityService.hashPassword(
+			resetPasswordDto.newPassword
+		);
 
 		user.password = hashedPassword;
 		user.resetPasswordToken = undefined;

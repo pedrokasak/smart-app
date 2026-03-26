@@ -9,6 +9,11 @@ import axios from 'axios';
 @Injectable()
 export class StockService implements StockRepository {
 	private readonly logger = new Logger(StockService.name);
+	private static readonly GLOBAL_QUOTE_CHAIN = [
+		'twelve_data',
+		'brapi',
+		'b3_future',
+	] as const;
 
 	constructor(
 		private readonly brapi: BrapiAdapter,
@@ -392,8 +397,94 @@ export class StockService implements StockRepository {
 	}
 
 	async getStockQuoteGlobal(symbol: string): Promise<any> {
-		console.log('Fetching global stock quote for:', symbol);
-		return this.twelveData.getStockQuote(symbol);
+		const cleanSymbol = symbol.trim().toUpperCase();
+		const startedAt = Date.now();
+
+		try {
+			const primaryResponse = await this.twelveData.getStockQuote(cleanSymbol);
+			return this.normalizeGlobalQuoteResponse(
+				primaryResponse,
+				cleanSymbol,
+				'twelve_data',
+				[],
+				startedAt
+			);
+		} catch (primaryError) {
+			this.logger.warn(
+				`Falha no provider primário (twelve_data) para ${cleanSymbol}: ${primaryError?.message || primaryError}`
+			);
+		}
+
+		try {
+			const fallbackResponse = await this.brapi.getStockQuote(cleanSymbol);
+			return this.normalizeGlobalQuoteResponse(
+				fallbackResponse,
+				cleanSymbol,
+				'brapi',
+				['twelve_data'],
+				startedAt
+			);
+		} catch (fallbackError) {
+			this.logger.warn(
+				`Falha no provider de fallback (brapi) para ${cleanSymbol}: ${fallbackError?.message || fallbackError}`
+			);
+		}
+
+		return {
+			results: [
+				{
+					symbol: cleanSymbol,
+					unavailable: true,
+					message: 'Quote indisponível no momento.',
+				},
+			],
+			requestedAt: new Date().toISOString(),
+			took: `${Date.now() - startedAt}ms`,
+			source: 'unavailable',
+			fallbackSources: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 2),
+			unavailableProviders: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 2),
+		};
+	}
+
+	private normalizeGlobalQuoteResponse(
+		rawResponse: any,
+		requestedSymbol: string,
+		source: 'twelve_data' | 'brapi',
+		fallbackSources: string[],
+		startedAtMs: number
+	): any {
+		if (rawResponse && Array.isArray(rawResponse.results)) {
+			return {
+				...rawResponse,
+				requestedAt:
+					rawResponse.requestedAt || new Date(startedAtMs).toISOString(),
+				took: rawResponse.took || `${Date.now() - startedAtMs}ms`,
+				source,
+				fallbackSources,
+				results: rawResponse.results.map((result: Record<string, unknown>) => ({
+					...result,
+					symbol: String(result?.symbol || requestedSymbol).toUpperCase(),
+				})),
+			};
+		}
+
+		const normalizedResult =
+			rawResponse && typeof rawResponse === 'object'
+				? {
+						...rawResponse,
+						symbol: String(rawResponse.symbol || requestedSymbol).toUpperCase(),
+					}
+				: {
+						symbol: requestedSymbol,
+					};
+
+		return {
+			results: [normalizedResult],
+			requestedAt: new Date(startedAtMs).toISOString(),
+			took: `${Date.now() - startedAtMs}ms`,
+			source,
+			fallbackSources,
+		};
 	}
 
 	async getLatestCdiRate(): Promise<{

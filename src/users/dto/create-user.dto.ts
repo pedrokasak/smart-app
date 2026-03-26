@@ -3,7 +3,8 @@ import {
 	IsNotEmpty,
 	IsOptional,
 	IsString,
-	IsStrongPassword,
+	Matches,
+	MinLength,
 } from 'class-validator';
 import { Match } from '../../utils/decorators';
 import { ApiProperty } from '@nestjs/swagger';
@@ -49,15 +50,25 @@ export class CreateUserDto {
 	@IsNotEmpty({
 		message: 'The password is not empty',
 	})
-	@IsStrongPassword({
-		minLength: 8,
-		minUppercase: 1,
-		minLowercase: 1,
+	@MinLength(8, {
+		message: 'A senha deve conter no mínimo 8 caracteres',
+	})
+	@Matches(/[A-Z]/, {
+		message: 'A senha deve conter pelo menos 1 letra maiúscula',
+	})
+	@Matches(/[a-z]/, {
+		message: 'A senha deve conter pelo menos 1 letra minúscula',
+	})
+	@Matches(/\d/, {
+		message: 'A senha deve conter pelo menos 1 número',
+	})
+	@Matches(/[^A-Za-z0-9]/, {
+		message: 'A senha deve conter pelo menos 1 caractere especial',
 	})
 	@ApiProperty({
-		example: 'StrongPass123',
+		example: 'StrongPass123@',
 		description:
-			'Senha do usuário (mínimo 8 caracteres, 1 maiúscula e 1 minúscula)',
+			'Senha do usuário (mínimo 8 caracteres, com maiúscula, minúscula, número e caractere especial)',
 	})
 	password: string;
 
