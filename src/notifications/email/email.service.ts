@@ -6,11 +6,11 @@ export class EmailService {
 	constructor(@Inject(EMAIL_SENDER) private readonly sender: EmailSender) {}
 
 	private getAppBaseUrl(): string {
-		return (
+		const baseUrl =
 			process.env.URL_PRODUCTION ||
 			process.env.URL_DEVELOPMENT ||
-			'http://localhost:5173'
-		);
+			'http://localhost:5173';
+		return String(baseUrl).replace(/\/+$/, '');
 	}
 
 	private getBaseTemplate(params: {
@@ -47,7 +47,7 @@ export class EmailService {
 	}
 
 	async sendPasswordResetEmail(email: string, token: string): Promise<void> {
-		const resetLink = `${this.getAppBaseUrl()}/reset-password?token=${token}`;
+		const resetLink = `${this.getAppBaseUrl()}/reset-password?token=${encodeURIComponent(token)}`;
 
 		const subject = 'Redefinição de Senha - Trakker';
 		const html = this.getBaseTemplate({
