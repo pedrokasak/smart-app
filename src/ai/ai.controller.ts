@@ -17,12 +17,17 @@ import {
 } from '@nestjs/swagger';
 import { AiAnalysisResponseDto } from './dto/ai-analysis-response.dto';
 import { AiAnalysisRequestDto } from './dto/ai-analysis-request.dto';
+import { IntelligentChatRequestDto } from './intelligence/dto/intelligent-chat-request.dto';
+import { IntelligentChatService } from './intelligence/intelligent-chat.service';
 
 @Controller('ai')
 @ApiTags('ai')
 @ApiBearerAuth('access-token')
 export class AiController {
-	constructor(private readonly aiService: AiService) {}
+	constructor(
+		private readonly aiService: AiService,
+		private readonly intelligentChatService: IntelligentChatService
+	) {}
 
 	/**
 	 * POST /ai/analyze
@@ -63,5 +68,16 @@ export class AiController {
 	@HttpCode(HttpStatus.OK)
 	async chat(@Body() body: any): Promise<any> {
 		return this.aiService.chat(body);
+	}
+
+	@Post('chat/intelligent')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async intelligentChat(
+		@Request() req: any,
+		@Body() body: IntelligentChatRequestDto
+	): Promise<any> {
+		const userId = req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
+		return this.intelligentChatService.respond(userId, body?.question);
 	}
 }
