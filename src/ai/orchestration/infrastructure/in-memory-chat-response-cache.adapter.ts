@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { ChatResponseCacheEntry, ChatResponseCachePort } from 'src/ai/orchestration/chat-response-cache.port';
+import {
+	ChatResponseCacheEntry,
+	ChatResponseCachePort,
+} from 'src/ai/orchestration/chat-response-cache.port';
 
 @Injectable()
-export class InMemoryChatResponseCacheAdapter<T> implements ChatResponseCachePort<T> {
+export class InMemoryChatResponseCacheAdapter<
+	T,
+> implements ChatResponseCachePort<T> {
 	private readonly store = new Map<string, ChatResponseCacheEntry<T>>();
 
 	async get(key: string): Promise<T | null> {
@@ -23,4 +28,3 @@ export class InMemoryChatResponseCacheAdapter<T> implements ChatResponseCachePor
 		});
 	}
 }
-
