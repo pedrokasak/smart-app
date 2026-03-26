@@ -9,6 +9,7 @@ import { EmailModule } from 'src/notifications/email/email.module';
 import { jwtSecret, expireKeepAliveConected } from '../env';
 import { TokenBlacklistModule } from 'src/token-blacklist/token-blacklist.module';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 
 @Module({
 	imports: [
@@ -23,7 +24,12 @@ import { JwtAuthGuard } from './jwt-auth.guard';
 		EmailModule,
 	],
 	controllers: [AuthenticationController],
-	providers: [AuthenticationService, JwtStrategy, JwtAuthGuard],
-	exports: [JwtAuthGuard, TokenBlacklistModule],
+	providers: [
+		AuthenticationService,
+		JwtStrategy,
+		JwtAuthGuard,
+		PasswordSecurityService,
+	],
+	exports: [JwtAuthGuard, TokenBlacklistModule, PasswordSecurityService],
 })
 export class AuthenticationModule {}
