@@ -9,6 +9,7 @@ import { FiisApiAdapter } from 'src/portfolio/adapter/fiis-adapter';
 import { TwelveDataEtfAdapter } from 'src/portfolio/adapter/twelvedata.adapter';
 import { PortfolioEnrichService } from 'src/portfolio/portfolio-enrich.service';
 import { PortfolioController } from 'src/portfolio/portfolio.controller';
+import { PortfolioIntelligenceService } from 'src/portfolio/intelligence/application/portfolio-intelligence.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { portfolioSchema } from 'src/portfolio/schema/portfolio.model';
 import { portfolioHistorySchema } from 'src/portfolio/schema/portfolio-history.model';
@@ -44,8 +45,9 @@ import { SubscriptionModule } from 'src/subscription/subscription.module';
 		// Services
 		PortfolioService,
 		PortfolioEnrichService,
+		PortfolioIntelligenceService,
 	],
 	controllers: [PortfolioController],
-	exports: [PortfolioService],
+	exports: [PortfolioService, PortfolioIntelligenceService],
 })
 export class PortfolioModule {}

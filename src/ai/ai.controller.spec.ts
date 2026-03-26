@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
+import { IntelligentChatService } from './intelligence/intelligent-chat.service';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -16,13 +17,23 @@ const mockAiService = {
 	chat: jest.fn(),
 };
 
+const mockIntelligentChatService = {
+	respond: jest.fn(),
+};
+
 describe('AiController', () => {
 	let controller: AiController;
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
 			controllers: [AiController],
-			providers: [{ provide: AiService, useValue: mockAiService }],
+			providers: [
+				{ provide: AiService, useValue: mockAiService },
+				{
+					provide: IntelligentChatService,
+					useValue: mockIntelligentChatService,
+				},
+			],
 		}).compile();
 
 		controller = module.get<AiController>(AiController);
@@ -141,6 +152,29 @@ describe('AiController', () => {
 			expect.objectContaining({
 				question: 'Minha carteira está muito arriscada?',
 			})
+		);
+	});
+
+	it('should call intelligent chat and return structured response', async () => {
+		mockIntelligentChatService.respond.mockResolvedValue({
+			intent: 'portfolio_summary',
+			deterministic: true,
+			portfolioFacts: { totalValue: 1000 },
+			externalData: null,
+			estimates: {},
+			unavailable: [],
+			message: 'ok',
+		});
+
+		const response = await controller.intelligentChat(
+			{ user: { userId: 'user-123' } },
+			{ question: 'Resumo da carteira' }
+		);
+
+		expect(response.intent).toBe('portfolio_summary');
+		expect(mockIntelligentChatService.respond).toHaveBeenCalledWith(
+			'user-123',
+			'Resumo da carteira'
 		);
 	});
 });
