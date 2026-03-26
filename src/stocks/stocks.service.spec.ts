@@ -164,11 +164,50 @@ describe('StockService', () => {
 	});
 
 	describe('getStockQuoteGlobal', () => {
-		it('should call twelveData.getStockQuote with symbol', async () => {
-			twelveData.getStockQuote.mockResolvedValue({ price: 20 });
+		it('should use primary provider (twelve_data) and normalize response envelope', async () => {
+			twelveData.getStockQuote.mockResolvedValue({
+				symbol: 'AAPL',
+				close: '221.15',
+				percent_change: '1.34',
+			});
+
 			const result = await service.getStockQuoteGlobal('AAPL');
+
 			expect(twelveData.getStockQuote).toHaveBeenCalledWith('AAPL');
-			expect(result).toEqual({ price: 20 });
+			expect(brapi.getStockQuote).not.toHaveBeenCalled();
+			expect(result.source).toBe('twelve_data');
+			expect(result.results[0].symbol).toBe('AAPL');
+			expect(result.results[0].close).toBe('221.15');
+			expect(result.fallbackSources).toEqual([]);
+		});
+
+		it('should fallback to brapi when twelve_data fails', async () => {
+			twelveData.getStockQuote.mockRejectedValue(new Error('provider down'));
+			brapi.getStockQuote.mockResolvedValue({
+				results: [{ symbol: 'AAPL', regularMarketPrice: 221.15 }],
+				requestedAt: '2026-03-25T00:00:00.000Z',
+				took: '4ms',
+			});
+
+			const result = await service.getStockQuoteGlobal('AAPL');
+
+			expect(twelveData.getStockQuote).toHaveBeenCalledWith('AAPL');
+			expect(brapi.getStockQuote).toHaveBeenCalledWith('AAPL');
+			expect(result.source).toBe('brapi');
+			expect(result.fallbackSources).toEqual(['twelve_data']);
+			expect(result.results[0].symbol).toBe('AAPL');
+		});
+
+		it('should return graceful degradation when all providers fail', async () => {
+			twelveData.getStockQuote.mockRejectedValue(new Error('timeout'));
+			brapi.getStockQuote.mockRejectedValue(new Error('unavailable'));
+
+			const result = await service.getStockQuoteGlobal('msft');
+
+			expect(result.source).toBe('unavailable');
+			expect(result.results[0].symbol).toBe('MSFT');
+			expect(result.results[0].unavailable).toBe(true);
+			expect(result.fallbackSources).toEqual(['twelve_data', 'brapi']);
 		});
 	});
 });

@@ -8,12 +8,12 @@ import {
 } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
-import * as bcrypt from 'bcrypt';
 import { UserModel } from '../users/schema/user.model';
 import { AuthErrorService } from '../utils/errors-handler';
 import { JwtService } from '@nestjs/jwt';
 import { Role } from 'src/auth/enums/role.enum';
 import { EmailService } from 'src/notifications/email/email.service';
+import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 
 @Injectable()
 export class UsersService {
@@ -21,7 +21,8 @@ export class UsersService {
 
 	constructor(
 		private readonly jwtService: JwtService,
-		private readonly emailService: EmailService
+		private readonly emailService: EmailService,
+		private readonly passwordSecurityService: PasswordSecurityService
 	) {}
 	async create(createUserDto: CreateUserDto) {
 		try {
@@ -38,8 +39,8 @@ export class UsersService {
 				throw AuthErrorService.handleInvalidConfirmPassword();
 			}
 
-			const saltRounds = 10;
-			const hashedPassword = await bcrypt.hash(password, saltRounds);
+			const hashedPassword =
+				await this.passwordSecurityService.hashPassword(password);
 
 			const newUser = new UserModel({
 				firstName,
