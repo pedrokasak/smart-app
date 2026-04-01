@@ -574,13 +574,13 @@ export class StockService implements StockRepository {
 					? new Date(`${year}-${month}-${day}T00:00:00.000Z`).toISOString()
 					: null;
 
-				return {
-					symbol: 'CDI',
-					value: Number.isFinite(numericValue) ? numericValue : null,
-					date: isoDate,
-					unit: 'daily_percent',
-					source: 'BACEN_SGS_12',
-				};
+			return {
+				symbol: 'CDI',
+				value: Number.isFinite(numericValue) ? numericValue : null,
+				date: isoDate,
+				unit: 'daily_percent',
+				source: 'BACEN_SGS_12',
+			};
 		} catch (error) {
 			this.logger.warn(
 				`Falha ao buscar CDI no BACEN: ${error?.message || error}`
