@@ -80,7 +80,8 @@ export class ChatNarrativeSynthesisService {
 
 		try {
 			const synthesisInput = this.toSynthesisInput(orchestration);
-			const synthesized = await this.narrativeSynthesizer.synthesize(synthesisInput);
+			const synthesized =
+				await this.narrativeSynthesizer.synthesize(synthesisInput);
 			return {
 				orchestration,
 				narrative: {
@@ -210,7 +211,9 @@ export class ChatNarrativeSynthesisService {
 		return this.buildFallbackNarrative(orchestration);
 	}
 
-	private buildFallbackNarrative(orchestration: ChatOrchestratorResponse): string {
+	private buildFallbackNarrative(
+		orchestration: ChatOrchestratorResponse
+	): string {
 		if (orchestration.intent === 'asset_comparison') {
 			return 'Comparação estruturada concluída com base nos dados disponíveis. Revise os blocos de métricas, encaixe e limitações.';
 		}
@@ -238,7 +241,9 @@ export class ChatNarrativeSynthesisService {
 	): ChatOrchestratorResponse {
 		return {
 			...orchestration,
-			warnings: Array.from(new Set([...(orchestration.warnings || []), warning])),
+			warnings: Array.from(
+				new Set([...(orchestration.warnings || []), warning])
+			),
 		};
 	}
 

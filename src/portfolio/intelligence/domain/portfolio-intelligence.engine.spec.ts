@@ -249,19 +249,18 @@ describe('PortfolioIntelligenceEngine rebalance inputs', () => {
 			},
 		]);
 
-		expect(result.estimates.dividendProjection.projectedAnnualIncome).toBeCloseTo(
-			632,
-			0
-		);
+		expect(
+			result.estimates.dividendProjection.projectedAnnualIncome
+		).toBeCloseTo(632, 0);
 		expect(
 			result.estimates.dividendProjection.projectedMonthlyIncome
 		).toBeGreaterThan(50);
-		expect(
-			result.estimates.dividendProjection.coverage.positionsWithData
-		).toBe(3);
-		expect(result.estimates.dividendProjection.byAssetClass.length).toBeGreaterThan(
-			0
+		expect(result.estimates.dividendProjection.coverage.positionsWithData).toBe(
+			3
 		);
+		expect(
+			result.estimates.dividendProjection.byAssetClass.length
+		).toBeGreaterThan(0);
 	});
 
 	it('degrades dividend projection safely with missing metadata', () => {
@@ -285,9 +284,9 @@ describe('PortfolioIntelligenceEngine rebalance inputs', () => {
 		]);
 
 		expect(result.estimates.dividendProjection.projectedAnnualIncome).toBe(60);
-		expect(
-			result.estimates.dividendProjection.coverage.positionsWithData
-		).toBe(1);
+		expect(result.estimates.dividendProjection.coverage.positionsWithData).toBe(
+			1
+		);
 		expect(
 			result.estimates.dividendProjection.coverage.positionsWithoutData
 		).toBe(1);
@@ -560,7 +559,9 @@ describe('PortfolioIntelligenceEngine portfolio fit', () => {
 		);
 
 		expect(result.classification).toBe('ruim');
-		expect(result.impact.sectorConcentration.deltaPercentage).toBeGreaterThan(0);
+		expect(result.impact.sectorConcentration.deltaPercentage).toBeGreaterThan(
+			0
+		);
 		expect(result.signals).toEqual(
 			expect.arrayContaining([
 				'sector_concentration_increased',

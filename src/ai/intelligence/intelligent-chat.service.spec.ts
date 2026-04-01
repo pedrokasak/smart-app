@@ -9,9 +9,10 @@ describe('IntelligentChatService', () => {
 		getUserPortfolios: jest.fn(),
 	};
 
-	const mockComparisonService: Pick<ComparisonEngineService, 'compareAssets'> = {
-		compareAssets: jest.fn(),
-	};
+	const mockComparisonService: Pick<ComparisonEngineService, 'compareAssets'> =
+		{
+			compareAssets: jest.fn(),
+		};
 
 	const mockMarketDataProvider: MarketDataProviderPort = {
 		getAssetSnapshot: jest.fn(),
@@ -148,7 +149,9 @@ describe('IntelligentChatService', () => {
 		(mockPortfolioService.getUserPortfolios as jest.Mock).mockResolvedValue([
 			{ assets: [] },
 		]);
-		(mockMarketDataProvider.getAssetSnapshot as jest.Mock).mockResolvedValue(null);
+		(mockMarketDataProvider.getAssetSnapshot as jest.Mock).mockResolvedValue(
+			null
+		);
 
 		const response = await service.respond('user-1', 'Fale sobre ABCD3');
 
@@ -197,8 +200,8 @@ describe('IntelligentChatService', () => {
 		const response = await service.respond('user-1', 'VALE3');
 
 		expect(response.intent).toBe('external_asset_question');
-		expect((response.externalData as any)?.snapshot?.metadata?.fallbackUsed).toBe(
-			true
-		);
+		expect(
+			(response.externalData as any)?.snapshot?.metadata?.fallbackUsed
+		).toBe(true);
 	});
 });

@@ -97,7 +97,9 @@ export class PortfolioIntelligenceService {
 		return this.analyzePortfolioFit(positions, candidatePosition, thresholds);
 	}
 
-	private mapAssetToPosition(asset: PortfolioAssetInput): PortfolioIntelligencePosition {
+	private mapAssetToPosition(
+		asset: PortfolioAssetInput
+	): PortfolioIntelligencePosition {
 		return {
 			symbol: asset.symbol,
 			assetType: asset.type,

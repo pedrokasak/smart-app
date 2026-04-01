@@ -5,4 +5,3 @@ export interface B3MarketDataProviderPort {
 }
 
 export const B3_MARKET_DATA_PROVIDER = Symbol('B3_MARKET_DATA_PROVIDER');
-

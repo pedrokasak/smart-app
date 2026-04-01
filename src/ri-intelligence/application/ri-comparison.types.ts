@@ -27,7 +27,11 @@ export interface RiKeyMetricDiff {
 }
 
 export interface RiDocumentComparisonOutput {
-	status: 'compared' | 'no_previous_document' | 'incompatible_documents' | 'ai_failed';
+	status:
+		| 'compared'
+		| 'no_previous_document'
+		| 'incompatible_documents'
+		| 'ai_failed';
 	compatible: boolean;
 	reasons: string[];
 	documents: {
@@ -69,4 +73,3 @@ export interface RiDocumentComparisonOutput {
 		tokenUsageEstimate: number;
 	};
 }
-

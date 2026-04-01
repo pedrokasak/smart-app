@@ -30,7 +30,9 @@ export class AssetsService {
 	}
 
 	async findAssetBySymbolAndPortfolio(portfolioId: string, symbol: string) {
-		const normalizedSymbol = String(symbol || '').trim().toUpperCase();
+		const normalizedSymbol = String(symbol || '')
+			.trim()
+			.toUpperCase();
 		const safePattern = this.escapeRegex(normalizedSymbol);
 		return this.assetModel.findOne({
 			portfolioId,
@@ -109,7 +111,9 @@ export class AssetsService {
 			const dateKey = Number.isNaN(parsedDate.getTime())
 				? 'invalid-date'
 				: parsedDate.toISOString().slice(0, 10);
-			const paymentType = String(entry?.paymentType || 'DIVIDEND').toUpperCase();
+			const paymentType = String(
+				entry?.paymentType || 'DIVIDEND'
+			).toUpperCase();
 			const normalizedValue = Number(entry?.value || 0).toFixed(8);
 			return `${dateKey}|${paymentType}|${normalizedValue}`;
 		};

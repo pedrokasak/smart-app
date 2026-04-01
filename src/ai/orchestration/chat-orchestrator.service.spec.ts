@@ -90,7 +90,10 @@ describe('ChatOrchestratorService', () => {
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Resumo da minha carteira');
+		const response = await service.orchestrate(
+			'user-1',
+			'Resumo da minha carteira'
+		);
 
 		expect(response.intent).toBe('portfolio_summary');
 		expect(response.route).toEqual(
@@ -121,7 +124,9 @@ describe('ChatOrchestratorService', () => {
 
 		expect(response.intent).toBe('portfolio_risk');
 		expect(response.route.type).toBe('deterministic_no_llm');
-		expect(response.data.portfolioRisk).toEqual(expect.objectContaining({ risk: { score: 66 } }));
+		expect(response.data.portfolioRisk).toEqual(
+			expect.objectContaining({ risk: { score: 66 } })
+		);
 	});
 
 	it('returns cache hit when same deterministic question is repeated', async () => {
@@ -134,7 +139,11 @@ describe('ChatOrchestratorService', () => {
 				reason: 'rules_resolved',
 			},
 			cache: { key: 'cached', hit: false, ttlSeconds: 120 },
-			cost: { llmCalls: 0, tokenUsageEstimate: 0, estimatedLlmCallsAvoidedByCache: 0 },
+			cost: {
+				llmCalls: 0,
+				tokenUsageEstimate: 0,
+				estimatedLlmCallsAvoidedByCache: 0,
+			},
 			question: 'resumo da carteira',
 			context: {
 				mentionedSymbols: [],
@@ -147,7 +156,9 @@ describe('ChatOrchestratorService', () => {
 			warnings: [],
 			assumptions: [],
 		};
-		(mockResponseCache.get as jest.Mock).mockResolvedValueOnce(cachedResponse as any);
+		(mockResponseCache.get as jest.Mock).mockResolvedValueOnce(
+			cachedResponse as any
+		);
 
 		const service = makeService();
 		const response = await service.orchestrate('user-1', 'Resumo da carteira');
@@ -166,36 +177,38 @@ describe('ChatOrchestratorService', () => {
 		await service.orchestrate('user-1', 'Resumo da carteira');
 		const firstKey = (mockResponseCache.get as jest.Mock).mock.calls[0][0];
 
-		(mockPortfolioService.getUserPortfolios as jest.Mock).mockResolvedValueOnce([
-			{
-				assets: [
-					{
-						symbol: 'ITUB4',
-						type: 'stock',
-						quantity: 10,
-						total: 1000,
-						price: 100,
-						sector: 'Financial',
-					},
-					{
-						symbol: 'XPLG11',
-						type: 'fii',
-						quantity: 5,
-						total: 500,
-						price: 100,
-						sector: 'Logistics',
-					},
-					{
-						symbol: 'PETR4',
-						type: 'stock',
-						quantity: 1,
-						total: 300,
-						price: 300,
-						sector: 'Energy',
-					},
-				],
-			},
-		]);
+		(mockPortfolioService.getUserPortfolios as jest.Mock).mockResolvedValueOnce(
+			[
+				{
+					assets: [
+						{
+							symbol: 'ITUB4',
+							type: 'stock',
+							quantity: 10,
+							total: 1000,
+							price: 100,
+							sector: 'Financial',
+						},
+						{
+							symbol: 'XPLG11',
+							type: 'fii',
+							quantity: 5,
+							total: 500,
+							price: 100,
+							sector: 'Logistics',
+						},
+						{
+							symbol: 'PETR4',
+							type: 'stock',
+							quantity: 1,
+							total: 300,
+							price: 300,
+							sector: 'Energy',
+						},
+					],
+				},
+			]
+		);
 
 		await service.orchestrate('user-1', 'Resumo da carteira');
 		const secondKey = (mockResponseCache.get as jest.Mock).mock.calls[1][0];
@@ -224,7 +237,9 @@ describe('ChatOrchestratorService', () => {
 	});
 
 	it('falls back safely when cache backend is unavailable', async () => {
-		(mockResponseCache.get as jest.Mock).mockRejectedValueOnce(new Error('cache down'));
+		(mockResponseCache.get as jest.Mock).mockRejectedValueOnce(
+			new Error('cache down')
+		);
 		(mockUnifiedFacade.getPortfolioSummary as jest.Mock).mockReturnValue({
 			totalValue: 1500,
 			positionsCount: 2,
@@ -233,7 +248,9 @@ describe('ChatOrchestratorService', () => {
 		const service = makeService();
 		const response = await service.orchestrate('user-1', 'Resumo da carteira');
 
-		expect(response.warnings).toEqual(expect.arrayContaining(['chat_cache_unavailable']));
+		expect(response.warnings).toEqual(
+			expect.arrayContaining(['chat_cache_unavailable'])
+		);
 		expect(response.data.portfolioSummary).toBeDefined();
 	});
 
@@ -277,16 +294,19 @@ describe('ChatOrchestratorService', () => {
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Compare ITUB4 vs PETR4');
+		const response = await service.orchestrate(
+			'user-1',
+			'Compare ITUB4 vs PETR4'
+		);
 
 		expect(response.intent).toBe('asset_comparison');
 		expect(response.route.type).toBe('deterministic_no_llm');
 		expect(response.route.llmEligible).toBe(false);
 		expect(response.context.ownedSymbols).toEqual(['ITUB4']);
 		expect(response.context.externalSymbols).toEqual(['PETR4']);
-		expect((response.data.comparison as any)?.executiveSummary?.bestDividendSymbol).toBe(
-			'ITUB4'
-		);
+		expect(
+			(response.data.comparison as any)?.executiveSummary?.bestDividendSymbol
+		).toBe('ITUB4');
 		expect(
 			(response.data.comparison as any)?.results?.find(
 				(item: any) => item.symbol === 'ITUB4'
@@ -327,7 +347,10 @@ describe('ChatOrchestratorService', () => {
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Compare PETR4 e ABCD3');
+		const response = await service.orchestrate(
+			'user-1',
+			'Compare PETR4 e ABCD3'
+		);
 
 		expect(response.intent).toBe('asset_comparison');
 		expect(response.unavailable).toEqual(expect.arrayContaining(['ABCD3']));
@@ -365,7 +388,10 @@ describe('ChatOrchestratorService', () => {
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Simular venda de ITUB4');
+		const response = await service.orchestrate(
+			'user-1',
+			'Simular venda de ITUB4'
+		);
 
 		expect(response.intent).toBe('sell_simulation');
 		expect(response.route.type).toBe('deterministic_no_llm');
@@ -379,7 +405,10 @@ describe('ChatOrchestratorService', () => {
 
 	it('reports clearly when asset is not in portfolio for sell simulation', async () => {
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Simular venda de PETR4');
+		const response = await service.orchestrate(
+			'user-1',
+			'Simular venda de PETR4'
+		);
 
 		expect(response.intent).toBe('sell_simulation');
 		expect(response.route.reason).toBe('insufficient_structured_data');
@@ -419,24 +448,28 @@ describe('ChatOrchestratorService', () => {
 		expect(response.intent).toBe('external_asset_analysis');
 		expect(response.route.type).toBe('deterministic_no_llm');
 		expect(response.data.externalAsset).toBeDefined();
-		expect(response.warnings).toEqual(expect.arrayContaining(['asset_not_in_portfolio']));
+		expect(response.warnings).toEqual(
+			expect.arrayContaining(['asset_not_in_portfolio'])
+		);
 	});
 
 	it('detects asset as owned when it exists in portfolio context', async () => {
-		(mockPortfolioService.getUserPortfolios as jest.Mock).mockResolvedValueOnce([
-			{
-				assets: [
-					{
-						symbol: 'PETR4',
-						type: 'stock',
-						quantity: 10,
-						total: 300,
-						price: 30,
-						sector: 'Energy',
-					},
-				],
-			},
-		]);
+		(mockPortfolioService.getUserPortfolios as jest.Mock).mockResolvedValueOnce(
+			[
+				{
+					assets: [
+						{
+							symbol: 'PETR4',
+							type: 'stock',
+							quantity: 10,
+							total: 300,
+							price: 30,
+							sector: 'Energy',
+						},
+					],
+				},
+			]
+		);
 		(mockMarketDataProvider.getAssetSnapshot as jest.Mock).mockResolvedValue({
 			symbol: 'PETR4',
 			assetType: 'stock',
@@ -465,27 +498,31 @@ describe('ChatOrchestratorService', () => {
 
 		expect(response.context.ownedSymbols).toEqual(['PETR4']);
 		expect(response.context.externalSymbols).toEqual([]);
-		expect(response.warnings).toEqual(expect.arrayContaining(['asset_is_in_portfolio']));
+		expect(response.warnings).toEqual(
+			expect.arrayContaining(['asset_is_in_portfolio'])
+		);
 		expect(response.warnings).not.toEqual(
 			expect.arrayContaining(['asset_not_in_portfolio'])
 		);
 	});
 
 	it('normalizes ticker between portfolio and chat question', async () => {
-		(mockPortfolioService.getUserPortfolios as jest.Mock).mockResolvedValueOnce([
-			{
-				assets: [
-					{
-						symbol: 'petr4.sa',
-						type: 'stock',
-						quantity: 10,
-						total: 300,
-						price: 30,
-						sector: 'Energy',
-					},
-				],
-			},
-		]);
+		(mockPortfolioService.getUserPortfolios as jest.Mock).mockResolvedValueOnce(
+			[
+				{
+					assets: [
+						{
+							symbol: 'petr4.sa',
+							type: 'stock',
+							quantity: 10,
+							total: 300,
+							price: 30,
+							sector: 'Energy',
+						},
+					],
+				},
+			]
+		);
 		(mockMarketDataProvider.getAssetSnapshot as jest.Mock).mockResolvedValue({
 			symbol: 'PETR4',
 			assetType: 'stock',
@@ -514,7 +551,10 @@ describe('ChatOrchestratorService', () => {
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Simular venda de PETR4');
+		const response = await service.orchestrate(
+			'user-1',
+			'Simular venda de PETR4'
+		);
 
 		expect(response.intent).toBe('sell_simulation');
 		expect(response.route.reason).toBe('rules_resolved');
@@ -575,7 +615,9 @@ describe('ChatOrchestratorService', () => {
 	});
 
 	it('routes fit analysis and degrades safely when external data is missing', async () => {
-		(mockMarketDataProvider.getAssetSnapshot as jest.Mock).mockResolvedValue(null);
+		(mockMarketDataProvider.getAssetSnapshot as jest.Mock).mockResolvedValue(
+			null
+		);
 
 		const service = makeService();
 		const response = await service.orchestrate(
@@ -592,14 +634,19 @@ describe('ChatOrchestratorService', () => {
 	});
 
 	it('degrades safely when portfolio context is absent', async () => {
-		(mockPortfolioService.getUserPortfolios as jest.Mock).mockResolvedValueOnce([]);
+		(mockPortfolioService.getUserPortfolios as jest.Mock).mockResolvedValueOnce(
+			[]
+		);
 		(mockUnifiedFacade.getPortfolioSummary as jest.Mock).mockReturnValue({
 			totalValue: 0,
 			positionsCount: 0,
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Resumo da minha carteira');
+		const response = await service.orchestrate(
+			'user-1',
+			'Resumo da minha carteira'
+		);
 
 		expect(response.intent).toBe('portfolio_summary');
 		expect(response.context.positionsCount).toBe(0);
@@ -655,7 +702,10 @@ describe('ChatOrchestratorService', () => {
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Quanto imposto pago em ITUB4?');
+		const response = await service.orchestrate(
+			'user-1',
+			'Quanto imposto pago em ITUB4?'
+		);
 
 		expect(response.intent).toBe('tax_estimation');
 		expect(response.route.type).toBe('deterministic_no_llm');
@@ -794,10 +844,15 @@ describe('ChatOrchestratorService', () => {
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Quanto imposto pago em ITUB4?');
+		const response = await service.orchestrate(
+			'user-1',
+			'Quanto imposto pago em ITUB4?'
+		);
 
 		expect((response.data.sellSimulation as any)?.realizedPnl).toBe(300);
-		expect((response.data.sellSimulation as any)?.classification).toBe('tributavel');
+		expect((response.data.sellSimulation as any)?.classification).toBe(
+			'tributavel'
+		);
 	});
 
 	it('returns prejuizo scenario from tax engine output', async () => {
@@ -831,7 +886,10 @@ describe('ChatOrchestratorService', () => {
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Quanto imposto pago em ITUB4?');
+		const response = await service.orchestrate(
+			'user-1',
+			'Quanto imposto pago em ITUB4?'
+		);
 
 		expect((response.data.sellSimulation as any)?.realizedPnl).toBe(-120);
 		expect((response.data.sellSimulation as any)?.estimatedTax).toBe(0);
@@ -870,7 +928,10 @@ describe('ChatOrchestratorService', () => {
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Quanto imposto pago em ITUB4?');
+		const response = await service.orchestrate(
+			'user-1',
+			'Quanto imposto pago em ITUB4?'
+		);
 
 		expect((response.data.sellSimulation as any)?.compensationUsed).toBe(250);
 		expect((response.data.sellSimulation as any)?.classification).toBe(
@@ -880,7 +941,10 @@ describe('ChatOrchestratorService', () => {
 
 	it('degrades safely when compensation history is insufficient', async () => {
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Tenho prejuízo compensável?');
+		const response = await service.orchestrate(
+			'user-1',
+			'Tenho prejuízo compensável?'
+		);
 
 		expect(response.intent).toBe('tax_estimation');
 		expect(response.route.reason).toBe('insufficient_structured_data');
@@ -918,7 +982,9 @@ describe('ChatOrchestratorService', () => {
 
 		expect(response.intent).toBe('opportunity_radar');
 		expect(response.route.type).toBe('deterministic_no_llm');
-		expect((response.data.opportunities as any)?.modelVersion).toBe('opportunity_radar_v1');
+		expect((response.data.opportunities as any)?.modelVersion).toBe(
+			'opportunity_radar_v1'
+		);
 	});
 
 	it('routes future scenario deterministically with dividend projection', async () => {
@@ -929,9 +995,18 @@ describe('ChatOrchestratorService', () => {
 			currentPortfolioValue: 1500,
 			monthlyContribution: 0,
 			scenarios: {
-				pessimistic: { projectedValue: 1800, projectedDividendFlow: { monthly: 20, annual: 240 } },
-				base: { projectedValue: 2200, projectedDividendFlow: { monthly: 30, annual: 360 } },
-				optimistic: { projectedValue: 2700, projectedDividendFlow: { monthly: 40, annual: 480 } },
+				pessimistic: {
+					projectedValue: 1800,
+					projectedDividendFlow: { monthly: 20, annual: 240 },
+				},
+				base: {
+					projectedValue: 2200,
+					projectedDividendFlow: { monthly: 30, annual: 360 },
+				},
+				optimistic: {
+					projectedValue: 2700,
+					projectedDividendFlow: { monthly: 40, annual: 480 },
+				},
 			},
 			dividendProjection: {
 				modelVersion: 'deterministic_dividend_projection_v1',
@@ -941,12 +1016,20 @@ describe('ChatOrchestratorService', () => {
 					base: { monthly: 30, annual: 360 },
 					optimistic: { monthly: 40, annual: 480 },
 				},
-				coverage: { positionsWithData: 1, positionsWithoutData: 1, dataCoveragePct: 50 },
+				coverage: {
+					positionsWithData: 1,
+					positionsWithoutData: 1,
+					dataCoveragePct: 50,
+				},
 				confidence: 'medium',
 			},
 			assumptions: {
 				contributionFrequency: 'monthly',
-				scenarioReturnsAnnualPct: { pessimistic: 0.02, base: 0.08, optimistic: 0.14 },
+				scenarioReturnsAnnualPct: {
+					pessimistic: 0.02,
+					base: 0.08,
+					optimistic: 0.14,
+				},
 			},
 			limitations: [],
 			confidence: 'high',
@@ -961,18 +1044,27 @@ describe('ChatOrchestratorService', () => {
 		expect(response.intent).toBe('future_scenario');
 		expect(response.route.type).toBe('deterministic_no_llm');
 		expect((response.data.futureSimulation as any)?.horizon).toBe('5y');
-		expect((response.data.dividendProjection as any)?.scenarios?.base?.annual).toBe(360);
+		expect(
+			(response.data.dividendProjection as any)?.scenarios?.base?.annual
+		).toBe(360);
 	});
 
 	it('routes RI summary and degrades safely when missing document', async () => {
-		(mockRiDocumentQuery.getLatestByTicker as jest.Mock).mockResolvedValue(null);
+		(mockRiDocumentQuery.getLatestByTicker as jest.Mock).mockResolvedValue(
+			null
+		);
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'O que mudou no último RI de BBDC4?');
+		const response = await service.orchestrate(
+			'user-1',
+			'O que mudou no último RI de BBDC4?'
+		);
 
 		expect(response.intent).toBe('ri_summary');
 		expect(response.route.reason).toBe('insufficient_structured_data');
-		expect(response.warnings).toEqual(expect.arrayContaining(['ri_document_not_found']));
+		expect(response.warnings).toEqual(
+			expect.arrayContaining(['ri_document_not_found'])
+		);
 	});
 
 	it('routes RI comparison deterministically when current and previous docs are available', async () => {
@@ -989,7 +1081,8 @@ describe('ChatOrchestratorService', () => {
 				classification: { method: 'provided', confidence: 'high' },
 				contentStatus: 'metadata_only',
 			},
-			content: 'receita crescimento lucro alta guidance otimista riscos controle',
+			content:
+				'receita crescimento lucro alta guidance otimista riscos controle',
 		});
 		(mockRiDocumentQuery.getPreviousComparable as jest.Mock).mockResolvedValue({
 			document: {
@@ -1065,11 +1158,16 @@ describe('ChatOrchestratorService', () => {
 			});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Compare o RI atual com o anterior de BBDC4');
+		const response = await service.orchestrate(
+			'user-1',
+			'Compare o RI atual com o anterior de BBDC4'
+		);
 
 		expect(response.intent).toBe('ri_comparison');
 		expect(response.route.type).toBe('deterministic_no_llm');
 		expect((response.data.riComparison as any)?.status).toBe('compared');
-		expect((response.data.riComparison as any)?.differences?.guidance).toBe('improved');
+		expect((response.data.riComparison as any)?.differences?.guidance).toBe(
+			'improved'
+		);
 	});
 });

@@ -64,7 +64,11 @@ type ComparisonMetricKey =
 	| 'evEbitda'
 	| 'marketCap';
 
-type ComparisonDimension = 'quote' | 'fundamentals' | 'dividends' | 'performance';
+type ComparisonDimension =
+	| 'quote'
+	| 'fundamentals'
+	| 'dividends'
+	| 'performance';
 
 export interface ComparisonMetricDimensionRow {
 	metric: ComparisonMetricKey;
@@ -106,14 +110,17 @@ export class ComparisonEngineService {
 		const uniqueSymbols = Array.from(
 			new Set(
 				input.symbols
-					.map((symbol) => String(symbol || '').trim().toUpperCase())
+					.map((symbol) =>
+						String(symbol || '')
+							.trim()
+							.toUpperCase()
+					)
 					.filter(Boolean)
 			)
 		);
 
-		const snapshots = await this.marketDataProvider.getManyAssetSnapshots(
-			uniqueSymbols
-		);
+		const snapshots =
+			await this.marketDataProvider.getManyAssetSnapshots(uniqueSymbols);
 		const snapshotMap = new Map<string, MarketAssetSnapshot>(
 			snapshots.map((snapshot) => [snapshot.symbol, snapshot])
 		);
@@ -123,12 +130,16 @@ export class ComparisonEngineService {
 
 		const portfolioPositions = input.portfolioPositions || [];
 		const portfolioBySymbol = new Map(
-			portfolioPositions.map((position) => [position.symbol.toUpperCase(), position])
+			portfolioPositions.map((position) => [
+				position.symbol.toUpperCase(),
+				position,
+			])
 		);
-		const portfolioAnalysis = this.portfolioIntelligenceService.analyzePositions(
-			portfolioPositions,
-			input.thresholds
-		);
+		const portfolioAnalysis =
+			this.portfolioIntelligenceService.analyzePositions(
+				portfolioPositions,
+				input.thresholds
+			);
 
 		const results = uniqueSymbols
 			.filter((symbol) => snapshotMap.has(symbol))
@@ -174,9 +185,18 @@ export class ComparisonEngineService {
 
 		return {
 			executiveSummary: {
-				bestDividendSymbol: this.maxBy(results, (item) => item.metrics.dividendYield),
-				bestMomentumSymbol: this.maxBy(results, (item) => item.metrics.changePercent),
-				bestValuationSymbol: this.minBy(results, (item) => item.metrics.priceToEarnings),
+				bestDividendSymbol: this.maxBy(
+					results,
+					(item) => item.metrics.dividendYield
+				),
+				bestMomentumSymbol: this.maxBy(
+					results,
+					(item) => item.metrics.changePercent
+				),
+				bestValuationSymbol: this.minBy(
+					results,
+					(item) => item.metrics.priceToEarnings
+				),
 				bestFitSymbol: this.maxBy(results, (item) => item.fit.score),
 			},
 			byDimension,
@@ -188,7 +208,9 @@ export class ComparisonEngineService {
 	private computePortfolioFit(
 		snapshot: MarketAssetSnapshot,
 		alreadyOwned: boolean,
-		portfolioAnalysis: ReturnType<PortfolioIntelligenceService['analyzePositions']>,
+		portfolioAnalysis: ReturnType<
+			PortfolioIntelligenceService['analyzePositions']
+		>,
 		portfolioPositions: PortfolioIntelligencePosition[],
 		currentPosition?: PortfolioIntelligencePosition
 	): {
@@ -198,7 +220,10 @@ export class ComparisonEngineService {
 		classification: 'bom' | 'neutro' | 'ruim';
 		portfolioImpact: AssetComparisonResult['fit']['portfolioImpact'];
 	} {
-		const candidateValue = this.resolveCandidateValue(snapshot, currentPosition);
+		const candidateValue = this.resolveCandidateValue(
+			snapshot,
+			currentPosition
+		);
 		const portfolioFit = this.portfolioIntelligenceService.analyzePortfolioFit(
 			portfolioPositions,
 			{
@@ -216,9 +241,8 @@ export class ComparisonEngineService {
 			candidateValue,
 			currentPosition
 		);
-		const projectedAnalysis = this.portfolioIntelligenceService.analyzePositions(
-			projectedPortfolio
-		);
+		const projectedAnalysis =
+			this.portfolioIntelligenceService.analyzePositions(projectedPortfolio);
 		const assetPercentageBefore = this.findPercentageByKey(
 			portfolioAnalysis.facts.concentrationByAsset,
 			snapshot.symbol
@@ -249,7 +273,10 @@ export class ComparisonEngineService {
 			score += 3;
 			reasons.push('recent_performance_positive');
 		}
-		if (portfolioAnalysis.estimates.diversification.score < 40 && !alreadyOwned) {
+		if (
+			portfolioAnalysis.estimates.diversification.score < 40 &&
+			!alreadyOwned
+		) {
 			score += 4;
 			reasons.push('portfolio_diversification_baseline_low');
 		}
@@ -315,7 +342,9 @@ export class ComparisonEngineService {
 				continue;
 			}
 			const better =
-				preferredDirection === 'higher' ? value > winnerValue : value < winnerValue;
+				preferredDirection === 'higher'
+					? value > winnerValue
+					: value < winnerValue;
 			if (better) {
 				winnerValue = value;
 				winnerSymbol = result.symbol;
@@ -346,7 +375,8 @@ export class ComparisonEngineService {
 			const totalValue =
 				typeof currentPosition.totalValue === 'number'
 					? currentPosition.totalValue
-					: Number(currentPosition.price || 0) * Number(currentPosition.quantity || 0);
+					: Number(currentPosition.price || 0) *
+						Number(currentPosition.quantity || 0);
 			if (totalValue > 0) return totalValue;
 		}
 		const price = Number(snapshot.price || 0);
@@ -366,7 +396,8 @@ export class ComparisonEngineService {
 		const merged = positions.map((position) => ({ ...position }));
 		const index = merged.findIndex(
 			(position) =>
-				position.symbol.toUpperCase() === symbol && position.assetType === snapshot.assetType
+				position.symbol.toUpperCase() === symbol &&
+				position.assetType === snapshot.assetType
 		);
 		if (index >= 0) {
 			const current = merged[index];
@@ -376,7 +407,9 @@ export class ComparisonEngineService {
 					: Number(current.price || 0) * Number(current.quantity || 0);
 			merged[index] = {
 				...current,
-				quantity: Number(current.quantity || 0) + Number(currentPosition?.quantity || 1),
+				quantity:
+					Number(current.quantity || 0) +
+					Number(currentPosition?.quantity || 1),
 				totalValue: Number((currentValue + candidateValue).toFixed(2)),
 				sector: snapshot.sector || current.sector || null,
 			};

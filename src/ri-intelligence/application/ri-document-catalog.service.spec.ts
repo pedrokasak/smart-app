@@ -11,7 +11,9 @@ import {
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 
 describe('RiDocumentCatalogService', () => {
-	const baseDocument = (overrides: Partial<RiDocumentRecord> = {}): RiDocumentRecord => ({
+	const baseDocument = (
+		overrides: Partial<RiDocumentRecord> = {}
+	): RiDocumentRecord => ({
 		id: 'BBDC4:earnings_release:2026-02-06T00:00:00.000Z:0',
 		ticker: 'BBDC4',
 		company: 'Banco Bradesco S.A.',
@@ -49,7 +51,9 @@ describe('RiDocumentCatalogService', () => {
 			search: jest
 				.fn()
 				.mockResolvedValue(
-					params?.matches || [{ ticker: 'BBDC4', company: 'Banco Bradesco S.A.' }]
+					params?.matches || [
+						{ ticker: 'BBDC4', company: 'Banco Bradesco S.A.' },
+					]
 				),
 		};
 		const discovery: RiDocumentDiscoveryPort = {
@@ -59,11 +63,14 @@ describe('RiDocumentCatalogService', () => {
 		};
 		const resolver: RiDocumentLinkResolverPort = {
 			resolve:
-				params?.resolve ||
-				jest.fn().mockResolvedValue(validResolution()),
+				params?.resolve || jest.fn().mockResolvedValue(validResolution()),
 		};
 
-		const service = new RiDocumentCatalogService(autocomplete, discovery, resolver);
+		const service = new RiDocumentCatalogService(
+			autocomplete,
+			discovery,
+			resolver
+		);
 		return { service, autocomplete, discovery, resolver };
 	}
 
@@ -71,7 +78,9 @@ describe('RiDocumentCatalogService', () => {
 		const { service } = makeService({
 			resolve: jest
 				.fn()
-				.mockResolvedValue(validResolution('https://cdn.ri.example.com/final.pdf')),
+				.mockResolvedValue(
+					validResolution('https://cdn.ri.example.com/final.pdf')
+				),
 		});
 
 		const output = await service.search({ query: 'BBDC4' });
@@ -85,10 +94,16 @@ describe('RiDocumentCatalogService', () => {
 
 	it('2) resolves relative links correctly through resolver pipeline', async () => {
 		const { service, resolver } = makeService({
-			documents: [baseDocument({ source: { type: 'url', value: '/docs/resultado-4t25.pdf' } })],
+			documents: [
+				baseDocument({
+					source: { type: 'url', value: '/docs/resultado-4t25.pdf' },
+				}),
+			],
 			resolve: jest
 				.fn()
-				.mockResolvedValue(validResolution('https://ri.bradesco.com.br/docs/resultado-4t25.pdf')),
+				.mockResolvedValue(
+					validResolution('https://ri.bradesco.com.br/docs/resultado-4t25.pdf')
+				),
 		});
 
 		const output = await service.search({ query: 'BBDC4' });
@@ -105,7 +120,9 @@ describe('RiDocumentCatalogService', () => {
 	it('resolves known RI origins for BBDC4 and PETR4 before link validation', async () => {
 		const resolve = jest
 			.fn()
-			.mockResolvedValue(validResolution('https://ri.example.com/doc-valid.pdf'));
+			.mockResolvedValue(
+				validResolution('https://ri.example.com/doc-valid.pdf')
+			);
 
 		const { service, resolver } = makeService({
 			matches: [
@@ -130,7 +147,9 @@ describe('RiDocumentCatalogService', () => {
 
 		await service.search({ query: 'PETR4' });
 
-		const calls = (resolver.resolve as jest.Mock).mock.calls.map((call) => call[0]);
+		const calls = (resolver.resolve as jest.Mock).mock.calls.map(
+			(call) => call[0]
+		);
 		expect(calls).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({ origin: 'https://ri.bradesco.com.br' }),
@@ -143,7 +162,9 @@ describe('RiDocumentCatalogService', () => {
 		const { service } = makeService({
 			resolve: jest
 				.fn()
-				.mockResolvedValue(validResolution('https://downloads.ri.com/release-4t25.pdf')),
+				.mockResolvedValue(
+					validResolution('https://downloads.ri.com/release-4t25.pdf')
+				),
 		});
 
 		const output = await service.search({ query: 'BBDC4' });
@@ -191,7 +212,9 @@ describe('RiDocumentCatalogService', () => {
 	it('6) keeps only valid documents when multiple links are found', async () => {
 		const resolve = jest
 			.fn()
-			.mockResolvedValueOnce(validResolution('https://ri.example.com/doc-valido.pdf'))
+			.mockResolvedValueOnce(
+				validResolution('https://ri.example.com/doc-valido.pdf')
+			)
 			.mockResolvedValueOnce({
 				isValid: false,
 				resolvedUrl: null,
@@ -202,7 +225,10 @@ describe('RiDocumentCatalogService', () => {
 		const { service } = makeService({
 			documents: [
 				baseDocument({ id: 'valid-doc' }),
-				baseDocument({ id: 'invalid-doc', source: { type: 'url', value: 'https://ri.bad/doc' } }),
+				baseDocument({
+					id: 'invalid-doc',
+					source: { type: 'url', value: 'https://ri.bad/doc' },
+				}),
 			],
 			resolve,
 		});
@@ -216,10 +242,7 @@ describe('RiDocumentCatalogService', () => {
 
 	it('7) returns safe empty response when no valid documents are available', async () => {
 		const { service } = makeService({
-			documents: [
-				baseDocument({ id: 'doc-1' }),
-				baseDocument({ id: 'doc-2' }),
-			],
+			documents: [baseDocument({ id: 'doc-1' }), baseDocument({ id: 'doc-2' })],
 			resolve: jest.fn().mockResolvedValue({
 				isValid: false,
 				resolvedUrl: null,
@@ -229,7 +252,9 @@ describe('RiDocumentCatalogService', () => {
 			}),
 		});
 
-		const output: SearchRiDocumentsOutput = await service.search({ query: 'BBDC4' });
+		const output: SearchRiDocumentsOutput = await service.search({
+			query: 'BBDC4',
+		});
 
 		expect(output.documents).toEqual([]);
 		expect(output.total).toBe(0);
@@ -260,6 +285,118 @@ describe('RiDocumentCatalogService', () => {
 		expect(output.documents).toEqual([]);
 		expect(output.total).toBe(0);
 		expect(output.warnings).toContain('ri_no_documents_found');
+		expect(output.fallback.availableDocumentTypes).toEqual([]);
+	});
+
+	it('returns clear warning and fallback filters when selected type has no compatible document', async () => {
+		const { service } = makeService({
+			documents: [
+				baseDocument({
+					documentType: 'earnings_release',
+					title: 'Release de Resultados 4T25',
+				}),
+			],
+		});
+
+		const output = await service.search({
+			query: 'BBDC4',
+			documentType: 'investor_presentation',
+		});
+
+		expect(output.documents).toEqual([]);
+		expect(output.warnings).toContain('ri_no_documents_for_selected_type');
+		expect(output.warnings).not.toContain('ri_no_documents_found');
+		expect(output.fallback.availableDocumentTypes).toEqual([
+			'earnings_release',
+		]);
+		expect(output.fallback.suggestedFilters).toEqual([
+			'all',
+			'earnings_release',
+		]);
+	});
+
+	it('returns indexed document type in output and exposes available type metadata', async () => {
+		const { service } = makeService({
+			documents: [
+				baseDocument({
+					id: 'doc-presentation',
+					documentType: 'investor_presentation',
+					title: 'Apresentação de Resultados 4T25',
+				}),
+			],
+		});
+
+		const output = await service.search({ query: 'BBDC4' });
+
+		expect(output.fallback.availableDocumentTypes).toEqual([
+			'investor_presentation',
+		]);
+		expect(output.documents).toHaveLength(1);
+		expect(output.documents[0].documentType).toBe('investor_presentation');
+	});
+
+	it('prioritizes exact ticker query and ignores fuzzy matches when exact match exists', async () => {
+		const discoveryByTicker: Record<string, RiDocumentRecord[]> = {
+			ITUB4: [
+				baseDocument({
+					id: 'ITUB4:material_fact:2026-02-14T00:00:00.000Z:0',
+					ticker: 'ITUB4',
+					company: 'Itaú Unibanco Holding S.A.',
+					title: 'Fato Relevante - Atualização Estratégica',
+					documentType: 'material_fact',
+					publishedAt: '2026-02-14T00:00:00.000Z',
+					source: {
+						type: 'url',
+						value: 'https://ri.example.com/itub4/fato-relevante.pdf',
+					},
+				}),
+			],
+			ITUB3: [
+				baseDocument({
+					id: 'ITUB3:earnings_release:2026-02-05T00:00:00.000Z:0',
+					ticker: 'ITUB3',
+					company: 'Itaú Unibanco PN',
+					title: 'Release de Resultados 4T25',
+					documentType: 'earnings_release',
+					publishedAt: '2026-02-05T00:00:00.000Z',
+					source: {
+						type: 'url',
+						value: 'https://ri.example.com/itub3/release.pdf',
+					},
+				}),
+			],
+		};
+
+		const autocomplete: RiAssetAutocompletePort = {
+			search: jest.fn().mockResolvedValue([
+				{ ticker: 'ITUB3', company: 'Itaú Unibanco PN' },
+				{ ticker: 'ITUB4', company: 'Itaú Unibanco Holding S.A.' },
+			]),
+		};
+		const discovery: RiDocumentDiscoveryPort = {
+			discover: jest
+				.fn()
+				.mockImplementation(
+					async ({ ticker }) => discoveryByTicker[ticker] || []
+				),
+		};
+		const resolver: RiDocumentLinkResolverPort = {
+			resolve: jest.fn().mockResolvedValue(validResolution()),
+		};
+		const service = new RiDocumentCatalogService(
+			autocomplete,
+			discovery,
+			resolver
+		);
+
+		const output = await service.search({ query: 'ITUB4' });
+
+		expect(output.documents).toHaveLength(1);
+		expect(output.documents[0].ticker).toBe('ITUB4');
+		expect(discovery.discover).toHaveBeenCalledTimes(1);
+		expect(discovery.discover).toHaveBeenCalledWith(
+			expect.objectContaining({ ticker: 'ITUB4' })
+		);
 	});
 
 	it('returns pdf url by document id after validation', async () => {

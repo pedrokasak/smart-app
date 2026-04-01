@@ -59,7 +59,8 @@ export class BrokerSyncService {
 		for (const [symbol, rawValue] of Object.entries(bucket)) {
 			const quantity = this.toPositiveNumber(rawValue);
 			if (quantity <= 0) continue;
-			target[symbol.toUpperCase()] = (target[symbol.toUpperCase()] || 0) + quantity;
+			target[symbol.toUpperCase()] =
+				(target[symbol.toUpperCase()] || 0) + quantity;
 		}
 	}
 
@@ -249,7 +250,8 @@ export class BrokerSyncService {
 
 			const positiveAssets = Object.keys(totalBalances).filter(
 				(symbol) =>
-					totalBalances[symbol] > 0 && !this.fiatSymbols.has(symbol.toUpperCase())
+					totalBalances[symbol] > 0 &&
+					!this.fiatSymbols.has(symbol.toUpperCase())
 			);
 
 			this.logger.log(
@@ -304,7 +306,9 @@ export class BrokerSyncService {
 			for (const symbol of positiveAssets) {
 				try {
 					const quantity = totalBalances[symbol];
-					const assetCode = String(symbol || '').trim().toUpperCase();
+					const assetCode = String(symbol || '')
+						.trim()
+						.toUpperCase();
 					if (!assetCode || quantity <= 0) continue;
 
 					const existingAsset =

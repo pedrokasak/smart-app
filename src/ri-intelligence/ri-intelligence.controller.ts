@@ -13,7 +13,11 @@ import {
 	SearchRiDocumentsInput,
 } from 'src/ri-intelligence/application/ri-document-catalog.service';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
-import { RiDocumentRecord, RiDocumentType } from 'src/ri-intelligence/domain/ri-document.types';
+import {
+	RiDocumentRecord,
+	RiDocumentType,
+} from 'src/ri-intelligence/domain/ri-document.types';
+import { CANONICAL_RI_DOCUMENT_TYPES } from 'src/ri-intelligence/domain/ri-document-classifier';
 
 interface RiSummaryBody {
 	document?: RiDocumentRecord;
@@ -28,10 +32,7 @@ export class RiIntelligenceController {
 	) {}
 
 	@Get('autocomplete')
-	async autocomplete(
-		@Query('query') query = '',
-		@Query('limit') limit = '8'
-	) {
+	async autocomplete(@Query('query') query = '', @Query('limit') limit = '8') {
 		return this.catalogService.autocomplete(query, parseInt(limit, 10));
 	}
 
@@ -71,15 +72,7 @@ export class RiIntelligenceController {
 	private parseDocumentType(value?: string): RiDocumentType | undefined {
 		const normalized = String(value || '').trim();
 		if (!normalized) return undefined;
-		const allowed: RiDocumentType[] = [
-			'earnings_release',
-			'investor_presentation',
-			'material_fact',
-			'reference_form',
-			'shareholder_notice',
-			'other',
-		];
-		return allowed.includes(normalized as RiDocumentType)
+		return CANONICAL_RI_DOCUMENT_TYPES.includes(normalized as RiDocumentType)
 			? (normalized as RiDocumentType)
 			: undefined;
 	}

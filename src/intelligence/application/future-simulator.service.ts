@@ -24,13 +24,9 @@ export class FutureSimulatorService {
 		const months = this.resolveMonths(input.horizon);
 		const monthlyContribution = Number(input.monthlyContribution || 0);
 		const positions = input.positions || [];
-		const { totalValue, coverageRatio } = this.resolveCurrentPortfolioValue(
-			positions
-		);
-		const dividendProjection = this.buildDividendProjection(
-			positions,
-			months
-		);
+		const { totalValue, coverageRatio } =
+			this.resolveCurrentPortfolioValue(positions);
+		const dividendProjection = this.buildDividendProjection(positions, months);
 
 		const combinedCoverageRatio =
 			coverageRatio * (dividendProjection.coverage.dataCoveragePct / 100 || 0);
@@ -137,7 +133,10 @@ export class FutureSimulatorService {
 			0,
 			Number((projectedPrincipal + projectedContribution).toFixed(2))
 		);
-		const lower = Math.max(0, Number((projectedValue * (1 - rangeBandPct)).toFixed(2)));
+		const lower = Math.max(
+			0,
+			Number((projectedValue * (1 - rangeBandPct)).toFixed(2))
+		);
 		const upper = Number((projectedValue * (1 + rangeBandPct)).toFixed(2));
 
 		return {
@@ -190,7 +189,10 @@ export class FutureSimulatorService {
 			positionsWithData += 1;
 		}
 
-		const positionsWithoutData = Math.max(positions.length - positionsWithData, 0);
+		const positionsWithoutData = Math.max(
+			positions.length - positionsWithData,
+			0
+		);
 		const dataCoveragePct = Number(
 			((positionsWithData / positions.length) * 100).toFixed(2)
 		);
@@ -248,10 +250,14 @@ export class FutureSimulatorService {
 	): number {
 		if (baseAnnualDividend <= 0) return 0;
 		if (years <= 0) return Number(baseAnnualDividend.toFixed(2));
-		return Number((baseAnnualDividend * Math.pow(1 + growthRateAnnual, years)).toFixed(2));
+		return Number(
+			(baseAnnualDividend * Math.pow(1 + growthRateAnnual, years)).toFixed(2)
+		);
 	}
 
-	private resolveAnnualDividendIncome(position: PortfolioIntelligencePosition): number {
+	private resolveAnnualDividendIncome(
+		position: PortfolioIntelligencePosition
+	): number {
 		const quantity = Number(position.quantity || 0);
 		if (quantity <= 0) {
 			return 0;
@@ -269,7 +275,9 @@ export class FutureSimulatorService {
 			return trailingFromHistory * quantity;
 		}
 
-		const normalizedDividendYield = this.normalizeDividendYield(position.dividendYield);
+		const normalizedDividendYield = this.normalizeDividendYield(
+			position.dividendYield
+		);
 		const positionValue = this.resolvePositionValue(position) || 0;
 		if (normalizedDividendYield > 0 && positionValue > 0) {
 			return normalizedDividendYield * positionValue;
@@ -292,7 +300,11 @@ export class FutureSimulatorService {
 			const value = Number(item?.value || 0);
 			if (value <= 0) continue;
 			const timestamp = new Date(item?.date || 0).getTime();
-			if (!Number.isFinite(timestamp) || timestamp < oneYearAgo || timestamp > now) {
+			if (
+				!Number.isFinite(timestamp) ||
+				timestamp < oneYearAgo ||
+				timestamp > now
+			) {
 				continue;
 			}
 			total += value;
@@ -325,7 +337,9 @@ export class FutureSimulatorService {
 		}
 	}
 
-	private resolveCurrentPortfolioValue(positions: PortfolioIntelligencePosition[]): {
+	private resolveCurrentPortfolioValue(
+		positions: PortfolioIntelligencePosition[]
+	): {
 		totalValue: number;
 		coverageRatio: number;
 	} {
@@ -348,18 +362,24 @@ export class FutureSimulatorService {
 		};
 	}
 
-	private resolvePositionValue(position: PortfolioIntelligencePosition): number | null {
+	private resolvePositionValue(
+		position: PortfolioIntelligencePosition
+	): number | null {
 		if (typeof position.totalValue === 'number' && position.totalValue > 0) {
 			return position.totalValue;
 		}
-		const byCurrent = Number(position.currentPrice || 0) * Number(position.quantity || 0);
+		const byCurrent =
+			Number(position.currentPrice || 0) * Number(position.quantity || 0);
 		if (byCurrent > 0) return byCurrent;
-		const byPrice = Number(position.price || 0) * Number(position.quantity || 0);
+		const byPrice =
+			Number(position.price || 0) * Number(position.quantity || 0);
 		if (byPrice > 0) return byPrice;
 		return null;
 	}
 
-	private resolveRangeBand(confidence: FutureSimulatorOutput['confidence']): number {
+	private resolveRangeBand(
+		confidence: FutureSimulatorOutput['confidence']
+	): number {
 		switch (confidence) {
 			case 'high':
 				return 0.12;
