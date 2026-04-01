@@ -50,11 +50,16 @@ describe('ChatNarrativeSynthesisService', () => {
 			synthesize: jest.fn(),
 		} as unknown as ChatNarrativeSynthesizerPort;
 
-		const service = new ChatNarrativeSynthesisService(orchestrator, synthesizer);
+		const service = new ChatNarrativeSynthesisService(
+			orchestrator,
+			synthesizer
+		);
 		const response = await service.respond('user-1', 'Compare BBAS3 e ITUB4');
 
 		expect(response.narrative.mode).toBe('deterministic_fallback');
-		expect(response.narrative.text).toContain('Comparação estruturada concluída');
+		expect(response.narrative.text).toContain(
+			'Comparação estruturada concluída'
+		);
 		expect(synthesizer.synthesize).not.toHaveBeenCalled();
 	});
 
@@ -69,13 +74,18 @@ describe('ChatNarrativeSynthesisService', () => {
 			}),
 		} as unknown as ChatNarrativeSynthesizerPort;
 
-		const service = new ChatNarrativeSynthesisService(orchestrator, synthesizer);
+		const service = new ChatNarrativeSynthesisService(
+			orchestrator,
+			synthesizer
+		);
 		const response = await service.respond('user-1', 'Compare BBAS3 e ITUB4', {
 			enableNarrativeForDeterministic: true,
 		});
 
 		expect(response.narrative.mode).toBe('llm_synthesized');
-		expect(response.narrative.text).toContain('BBAS3 tem melhor dividend yield');
+		expect(response.narrative.text).toContain(
+			'BBAS3 tem melhor dividend yield'
+		);
 		expect(synthesizer.synthesize).toHaveBeenCalledTimes(1);
 	});
 
@@ -97,7 +107,10 @@ describe('ChatNarrativeSynthesisService', () => {
 			synthesize: jest.fn().mockRejectedValue(new Error('llm down')),
 		} as unknown as ChatNarrativeSynthesizerPort;
 
-		const service = new ChatNarrativeSynthesisService(orchestrator, synthesizer);
+		const service = new ChatNarrativeSynthesisService(
+			orchestrator,
+			synthesizer
+		);
 		const response = await service.respond(
 			'user-1',
 			'Explique com detalhes minha estratégia'

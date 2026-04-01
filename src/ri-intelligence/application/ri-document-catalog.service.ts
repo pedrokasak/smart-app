@@ -12,7 +12,11 @@ import {
 	RI_DOCUMENT_LINK_RESOLVER,
 	RiDocumentLinkResolverPort,
 } from 'src/ri-intelligence/application/ri-document-link-resolver.port';
-import { RiDocumentRecord, RiDocumentType } from 'src/ri-intelligence/domain/ri-document.types';
+import {
+	RiDocumentRecord,
+	RiDocumentType,
+} from 'src/ri-intelligence/domain/ri-document.types';
+import { CANONICAL_RI_DOCUMENT_TYPES } from 'src/ri-intelligence/domain/ri-document-classifier';
 
 export interface SearchRiDocumentsInput {
 	query?: string;
@@ -25,6 +29,10 @@ export interface SearchRiDocumentsOutput {
 	total: number;
 	warnings: string[];
 	matches: RiAssetSuggestion[];
+	fallback: {
+		availableDocumentTypes: RiDocumentType[];
+		suggestedFilters: Array<RiDocumentType | 'all'>;
+	};
 }
 
 @Injectable()
@@ -36,6 +44,13 @@ export class RiDocumentCatalogService {
 		'earnings_release',
 		'investor_presentation',
 		'material_fact',
+		'financial_statement',
+		'management_report',
+		'conference_call_material',
+		'dividend_notice',
+		'reference_form',
+		'shareholder_notice',
+		'other_ri_document',
 	]);
 	private readonly featuredAssets: RiAssetSuggestion[] = [
 		{ ticker: 'BBDC4', company: 'Banco Bradesco S.A.' },
@@ -59,7 +74,9 @@ export class RiDocumentCatalogService {
 		return this.assetAutocomplete.search(query, safeLimit);
 	}
 
-	async search(input: SearchRiDocumentsInput): Promise<SearchRiDocumentsOutput> {
+	async search(
+		input: SearchRiDocumentsInput
+	): Promise<SearchRiDocumentsOutput> {
 		const query = String(input.query || '').trim();
 		const limit = this.normalizeLimit(input.limit || 50, 1, 200);
 		const documentType = input.documentType;
@@ -72,6 +89,10 @@ export class RiDocumentCatalogService {
 				total: 0,
 				warnings: query ? ['ri_no_matching_assets'] : ['ri_query_empty'],
 				matches: [],
+				fallback: {
+					availableDocumentTypes: [],
+					suggestedFilters: ['all'],
+				},
 			};
 		}
 
@@ -90,31 +111,44 @@ export class RiDocumentCatalogService {
 		const merged = gathered.flat();
 		if (!merged.length) warnings.push('ri_no_documents_found');
 
-		const scoped = merged.filter((document) =>
-			this.matchesRecentRelevantScope(document, documentType)
+		const recent = merged.filter((document) =>
+			this.matchesRecentRelevantScope(document)
 		);
-		if (merged.length && !scoped.length) warnings.push('ri_no_recent_releases_found');
+		if (merged.length && !recent.length)
+			warnings.push('ri_no_recent_releases_found');
 
 		const validated = (
 			await Promise.all(
-				scoped.map((document) => this.resolveAndValidateDocument(document))
+				recent.map((document) => this.resolveAndValidateDocument(document))
 			)
 		).filter((document): document is RiDocumentRecord => Boolean(document));
 
-		if (scoped.length && !validated.length) warnings.push('ri_no_valid_documents_found');
-		if (validated.length < scoped.length) warnings.push('ri_invalid_documents_filtered');
+		if (recent.length && !validated.length)
+			warnings.push('ri_no_valid_documents_found');
+		if (validated.length < recent.length)
+			warnings.push('ri_invalid_documents_filtered');
 
-		const filtered = (documentType
+		const filteredByType = documentType
 			? validated.filter((document) => document.documentType === documentType)
-			: validated
-		)
+			: validated.filter((document) =>
+					this.prioritizedTypes.has(document.documentType)
+				);
+
+		const filtered = filteredByType
 			.sort(
 				(a, b) =>
 					new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
 			)
 			.slice(0, limit);
 
-		if (documentType && !filtered.length) {
+		const availableDocumentTypes =
+			this.collectAvailableDocumentTypes(validated);
+		const suggestedFilters = this.resolveSuggestedFilters(
+			documentType,
+			availableDocumentTypes
+		);
+
+		if (documentType && !filtered.length && availableDocumentTypes.length > 0) {
 			warnings.push('ri_no_documents_for_selected_type');
 		}
 
@@ -123,10 +157,17 @@ export class RiDocumentCatalogService {
 			total: filtered.length,
 			warnings,
 			matches,
+			fallback: {
+				availableDocumentTypes,
+				suggestedFilters,
+			},
 		};
 	}
 
-	async getDocumentPdf(documentId: string, query: string): Promise<{ url: string } | null> {
+	async getDocumentPdf(
+		documentId: string,
+		query: string
+	): Promise<{ url: string } | null> {
 		const result = await this.search({ query, limit: 200 });
 		const document = result.documents.find((item) => item.id === documentId);
 		if (!document?.source?.value) return null;
@@ -135,7 +176,23 @@ export class RiDocumentCatalogService {
 
 	private async resolveMatches(query: string): Promise<RiAssetSuggestion[]> {
 		if (!query) return this.featuredAssets.slice(0, this.maxTickerMatches);
-		return this.assetAutocomplete.search(query, this.maxTickerMatches);
+		const matches = await this.assetAutocomplete.search(
+			query,
+			this.maxTickerMatches
+		);
+		if (!matches.length) return [];
+
+		const normalizedQuery = String(query || '')
+			.trim()
+			.toUpperCase();
+		if (!normalizedQuery) return matches;
+
+		const exactTickerMatch = matches.find(
+			(match) => String(match.ticker || '').toUpperCase() === normalizedQuery
+		);
+		if (exactTickerMatch) return [exactTickerMatch];
+
+		return matches;
 	}
 
 	private resolveOrigin(match: RiAssetSuggestion): string {
@@ -156,7 +213,9 @@ export class RiDocumentCatalogService {
 			.replace(/[^a-z0-9]+/g, '-')
 			.replace(/(^-|-$)/g, '')
 			.slice(0, 40);
-		return companySlug ? `https://ri.${companySlug}.com.br` : 'https://ri.empresa.com.br';
+		return companySlug
+			? `https://ri.${companySlug}.com.br`
+			: 'https://ri.empresa.com.br';
 	}
 
 	private normalizeLimit(value: number, min: number, max: number): number {
@@ -171,7 +230,10 @@ export class RiDocumentCatalogService {
 
 		const resolved = await this.documentLinkResolver.resolve({
 			url: document.source.value,
-			origin: this.resolveOrigin({ ticker: document.ticker, company: document.company }),
+			origin: this.resolveOrigin({
+				ticker: document.ticker,
+				company: document.company,
+			}),
 		});
 		if (!resolved.isValid || !resolved.resolvedUrl) return null;
 
@@ -184,13 +246,38 @@ export class RiDocumentCatalogService {
 		};
 	}
 
-	private matchesRecentRelevantScope(
-		document: RiDocumentRecord,
-		documentType?: RiDocumentType
-	): boolean {
+	private matchesRecentRelevantScope(document: RiDocumentRecord): boolean {
 		if (!this.isRecentDocument(document.publishedAt)) return false;
-		if (documentType) return document.documentType === documentType;
-		return this.prioritizedTypes.has(document.documentType);
+		return true;
+	}
+
+	private collectAvailableDocumentTypes(
+		documents: RiDocumentRecord[]
+	): RiDocumentType[] {
+		const available = new Set(
+			documents.map((document) => document.documentType)
+		);
+		return CANONICAL_RI_DOCUMENT_TYPES.filter((type) => available.has(type));
+	}
+
+	private resolveSuggestedFilters(
+		selectedType: RiDocumentType | undefined,
+		availableDocumentTypes: RiDocumentType[]
+	): Array<RiDocumentType | 'all'> {
+		const suggestions: Array<RiDocumentType | 'all'> = ['all'];
+		if (
+			availableDocumentTypes.includes('earnings_release') &&
+			selectedType !== 'earnings_release'
+		) {
+			suggestions.push('earnings_release');
+		}
+		for (const type of availableDocumentTypes) {
+			if (type !== selectedType && type !== 'earnings_release') {
+				suggestions.push(type);
+				break;
+			}
+		}
+		return suggestions;
 	}
 
 	private isRecentDocument(publishedAt: string): boolean {

@@ -48,4 +48,3 @@ export interface RiDocumentSummaryOutput {
 		tokenUsageEstimate: number;
 	};
 }
-

@@ -9,4 +9,3 @@ export interface RiSummaryCachePort<T> {
 }
 
 export const RI_SUMMARY_CACHE = Symbol('RI_SUMMARY_CACHE');
-

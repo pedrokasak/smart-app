@@ -28,7 +28,9 @@ export class RiDocumentSummaryService {
 		private readonly cache?: RiSummaryCachePort<RiDocumentSummaryOutput>
 	) {}
 
-	async summarize(input: RiDocumentSummaryInput): Promise<RiDocumentSummaryOutput> {
+	async summarize(
+		input: RiDocumentSummaryInput
+	): Promise<RiDocumentSummaryOutput> {
 		const normalizedContent = this.normalizeContent(input.content);
 		const structuredSignals = this.extractStructuredSignals(normalizedContent);
 
@@ -179,11 +181,7 @@ export class RiDocumentSummaryService {
 
 	private limitHighlights(items: string[]): string[] {
 		return Array.from(
-			new Set(
-				items
-					.map((item) => String(item || '').trim())
-					.filter(Boolean)
-			)
+			new Set(items.map((item) => String(item || '').trim()).filter(Boolean))
 		).slice(0, 8);
 	}
 
@@ -251,7 +249,8 @@ export class RiDocumentSummaryService {
 		let direction: RiStructuredSignalItem['direction'] = 'unknown';
 		if (topicDetected && upDetected && !downDetected) direction = 'up';
 		else if (topicDetected && downDetected && !upDetected) direction = 'down';
-		else if (topicDetected && (upDetected || downDetected)) direction = 'neutral';
+		else if (topicDetected && (upDetected || downDetected))
+			direction = 'neutral';
 
 		return {
 			detected: topicDetected,
@@ -260,4 +259,3 @@ export class RiDocumentSummaryService {
 		};
 	}
 }
-

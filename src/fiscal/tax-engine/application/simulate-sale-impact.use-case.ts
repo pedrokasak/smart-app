@@ -33,11 +33,16 @@ export class SimulateSaleImpactUseCase {
 			currentPosition: input.currentPosition,
 		});
 
-		const taxRateApplied = this.resolveTaxRate(input.assetType, input.taxRateConfig);
+		const taxRateApplied = this.resolveTaxRate(
+			input.assetType,
+			input.taxRateConfig
+		);
 		const estimatedTax =
 			simulation.classification === 'isento'
 				? 0
-				: this.safeMoney(simulation.taxableBaseAfterCompensation * taxRateApplied);
+				: this.safeMoney(
+						simulation.taxableBaseAfterCompensation * taxRateApplied
+					);
 
 		return {
 			symbol: simulation.symbol,
@@ -80,4 +85,3 @@ export class SimulateSaleImpactUseCase {
 		return Number(value.toFixed(2));
 	}
 }
-

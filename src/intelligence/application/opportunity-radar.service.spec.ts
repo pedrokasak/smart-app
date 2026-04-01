@@ -54,7 +54,9 @@ describe('OpportunityRadarService', () => {
 	it('detects attractive range opportunity', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getManyAssetSnapshots: jest.fn().mockResolvedValue([makeSnapshot('BBAS3')]),
+			getManyAssetSnapshots: jest
+				.fn()
+				.mockResolvedValue([makeSnapshot('BBAS3')]),
 		};
 		const service = new OpportunityRadarService(
 			marketDataProvider,
@@ -71,15 +73,17 @@ describe('OpportunityRadarService', () => {
 		expect(output.opportunities[0].rationale.signals).toEqual(
 			expect.arrayContaining(['valuation_price_to_earnings_attractive'])
 		);
-		expect(output.signals.some((item) => item.kind === 'opportunity')).toBe(true);
+		expect(output.signals.some((item) => item.kind === 'opportunity')).toBe(
+			true
+		);
 	});
 
 	it('detects underallocated sector and rebalance signal', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getManyAssetSnapshots: jest.fn().mockResolvedValue([
-				makeSnapshot('WEGE3', { sector: 'INDUSTRIAL' }),
-			]),
+			getManyAssetSnapshots: jest
+				.fn()
+				.mockResolvedValue([makeSnapshot('WEGE3', { sector: 'INDUSTRIAL' })]),
 		};
 		const service = new OpportunityRadarService(
 			marketDataProvider,
@@ -141,7 +145,9 @@ describe('OpportunityRadarService', () => {
 			watchlistSymbols: ['ABCD3'],
 		});
 
-		expect(output.warnings).toEqual(expect.arrayContaining(['partial_data:ABCD3']));
+		expect(output.warnings).toEqual(
+			expect.arrayContaining(['partial_data:ABCD3'])
+		);
 		expect(output.opportunities[0].dataQuality.partial).toBe(true);
 	});
 
@@ -169,18 +175,22 @@ describe('OpportunityRadarService', () => {
 			candidateSymbols: ['VALE3'],
 		});
 
-		expect(output.warnings).toEqual(expect.arrayContaining(['fallback_data:VALE3']));
+		expect(output.warnings).toEqual(
+			expect.arrayContaining(['fallback_data:VALE3'])
+		);
 		expect(output.opportunities[0].dataQuality.fallbackUsed).toBe(true);
 	});
 
 	it('prioritizes and limits competing signals by configured context', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getManyAssetSnapshots: jest.fn().mockResolvedValue([
-				makeSnapshot('BBAS3', { sector: 'FINANCIAL' }),
-				makeSnapshot('PETR4', { sector: 'ENERGY' }),
-				makeSnapshot('WEGE3', { sector: 'INDUSTRIAL' }),
-			]),
+			getManyAssetSnapshots: jest
+				.fn()
+				.mockResolvedValue([
+					makeSnapshot('BBAS3', { sector: 'FINANCIAL' }),
+					makeSnapshot('PETR4', { sector: 'ENERGY' }),
+					makeSnapshot('WEGE3', { sector: 'INDUSTRIAL' }),
+				]),
 		};
 		const service = new OpportunityRadarService(
 			marketDataProvider,
@@ -207,9 +217,15 @@ describe('OpportunityRadarService', () => {
 		});
 
 		expect(output.signals.length).toBeLessThanOrEqual(3);
-		expect(output.signals.filter((item) => item.kind === 'opportunity').length).toBeLessThanOrEqual(1);
-		expect(output.signals.filter((item) => item.kind === 'rebalance').length).toBeLessThanOrEqual(1);
-		expect(output.signals.filter((item) => item.kind === 'fiscal').length).toBeLessThanOrEqual(1);
+		expect(
+			output.signals.filter((item) => item.kind === 'opportunity').length
+		).toBeLessThanOrEqual(1);
+		expect(
+			output.signals.filter((item) => item.kind === 'rebalance').length
+		).toBeLessThanOrEqual(1);
+		expect(
+			output.signals.filter((item) => item.kind === 'fiscal').length
+		).toBeLessThanOrEqual(1);
 	});
 
 	it('returns warning when no relevant signals are found', async () => {

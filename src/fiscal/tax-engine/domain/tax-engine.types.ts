@@ -1,4 +1,10 @@
-export type TaxAssetType = 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
+export type TaxAssetType =
+	| 'stock'
+	| 'fii'
+	| 'crypto'
+	| 'etf'
+	| 'fund'
+	| 'other';
 export type TaxOperationSide = 'buy' | 'sell';
 export type TaxResultClassification =
 	| 'isento'

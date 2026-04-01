@@ -54,7 +54,11 @@ export type UnifiedCompareAssetsOutput = ComparisonEngineOutput;
 export type UnifiedSellSimulationInput = SellSimulationInput;
 export type UnifiedSellSimulationOutput = SellSimulationOutput;
 
-export type OpportunityRadarKind = 'risk' | 'opportunity' | 'fiscal' | 'rebalance';
+export type OpportunityRadarKind =
+	| 'risk'
+	| 'opportunity'
+	| 'fiscal'
+	| 'rebalance';
 export type OpportunityRadarPriority = 'critical' | 'high' | 'medium' | 'low';
 
 export interface OpportunityRadarRuleConfig {

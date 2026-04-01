@@ -28,4 +28,3 @@ export interface ChatNarrativeSynthesizerPort {
 }
 
 export const CHAT_NARRATIVE_SYNTHESIZER = Symbol('CHAT_NARRATIVE_SYNTHESIZER');
-

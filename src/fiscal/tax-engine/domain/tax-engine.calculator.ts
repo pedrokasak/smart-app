@@ -41,7 +41,10 @@ export class TaxEngineCalculator {
 			if (aTime === bTime) return 0;
 			return aTime - bTime;
 		});
-		this.computeStockMonthlyGrossSales(sortedOperations, stockMonthlyGrossSales);
+		this.computeStockMonthlyGrossSales(
+			sortedOperations,
+			stockMonthlyGrossSales
+		);
 
 		for (const operation of sortedOperations) {
 			this.validateOperation(operation);
@@ -91,7 +94,10 @@ export class TaxEngineCalculator {
 			let compensationUsed = 0;
 			if (taxableBaseBeforeCompensation > 0) {
 				const availableLoss = lossState[operation.assetType];
-				compensationUsed = Math.min(availableLoss, taxableBaseBeforeCompensation);
+				compensationUsed = Math.min(
+					availableLoss,
+					taxableBaseBeforeCompensation
+				);
 				lossState[operation.assetType] = this.safeMoney(
 					availableLoss - compensationUsed
 				);
@@ -176,7 +182,9 @@ export class TaxEngineCalculator {
 		const sellPrice = Number(input.sellPrice || 0);
 		const fees = this.safeMoney(input.fees || 0);
 		const currentQuantity = Number(input.currentPosition?.quantity || 0);
-		const currentTotalCost = this.safeMoney(input.currentPosition?.totalCost || 0);
+		const currentTotalCost = this.safeMoney(
+			input.currentPosition?.totalCost || 0
+		);
 		const stockMonthlyExemptionLimit = this.safeMoney(
 			input.rulesConfig?.stockMonthlyExemptionLimit ??
 				DEFAULT_STOCK_MONTHLY_EXEMPTION_LIMIT
@@ -189,10 +197,14 @@ export class TaxEngineCalculator {
 			monthlyGrossSalesProjected <= stockMonthlyExemptionLimit;
 
 		if (quantityToSell <= 0 || sellPrice <= 0) {
-			throw new Error('Invalid sell simulation: quantity and price must be greater than zero');
+			throw new Error(
+				'Invalid sell simulation: quantity and price must be greater than zero'
+			);
 		}
 		if (quantityToSell > currentQuantity) {
-			throw new Error('Invalid sell simulation: quantity exceeds current position');
+			throw new Error(
+				'Invalid sell simulation: quantity exceeds current position'
+			);
 		}
 
 		const averagePriceAtSale =
@@ -224,7 +236,9 @@ export class TaxEngineCalculator {
 			symbol,
 			assetType: input.assetType,
 			quantity: remainingQuantity,
-			totalCost: this.safeMoney(remainingQuantity <= 0 ? 0 : remainingTotalCost),
+			totalCost: this.safeMoney(
+				remainingQuantity <= 0 ? 0 : remainingTotalCost
+			),
 			averagePrice:
 				remainingQuantity <= 0
 					? 0
@@ -276,12 +290,14 @@ export class TaxEngineCalculator {
 		};
 	}
 
-	private computeLossCompensationBase(
-		lossState: Record<TaxAssetType, number>
-	) {
+	private computeLossCompensationBase(lossState: Record<TaxAssetType, number>) {
 		const accumulatedLossByAssetType = this.createEmptyLossState();
-		for (const assetType of Object.keys(accumulatedLossByAssetType) as TaxAssetType[]) {
-			accumulatedLossByAssetType[assetType] = this.safeMoney(lossState[assetType]);
+		for (const assetType of Object.keys(
+			accumulatedLossByAssetType
+		) as TaxAssetType[]) {
+			accumulatedLossByAssetType[assetType] = this.safeMoney(
+				lossState[assetType]
+			);
 		}
 		const totalAccumulatedLoss = this.safeMoney(
 			Object.values(accumulatedLossByAssetType).reduce(
@@ -296,7 +312,9 @@ export class TaxEngineCalculator {
 		};
 	}
 
-	private toPositionSnapshot(position: MutablePositionState): TaxPositionSnapshot {
+	private toPositionSnapshot(
+		position: MutablePositionState
+	): TaxPositionSnapshot {
 		return {
 			symbol: position.symbol,
 			assetType: position.assetType,
@@ -315,10 +333,17 @@ export class TaxEngineCalculator {
 
 	private validateOperation(operation: TaxOperationInput) {
 		if (!operation.symbol || !operation.assetType || !operation.side) {
-			throw new Error('Invalid operation: symbol, assetType and side are required');
+			throw new Error(
+				'Invalid operation: symbol, assetType and side are required'
+			);
 		}
-		if (Number(operation.quantity || 0) <= 0 || Number(operation.unitPrice || 0) < 0) {
-			throw new Error('Invalid operation: quantity and unitPrice must be valid numbers');
+		if (
+			Number(operation.quantity || 0) <= 0 ||
+			Number(operation.unitPrice || 0) < 0
+		) {
+			throw new Error(
+				'Invalid operation: quantity and unitPrice must be valid numbers'
+			);
 		}
 	}
 
@@ -327,7 +352,8 @@ export class TaxEngineCalculator {
 		output: Map<string, number>
 	) {
 		for (const operation of operations) {
-			if (operation.side !== 'sell' || operation.assetType !== 'stock') continue;
+			if (operation.side !== 'sell' || operation.assetType !== 'stock')
+				continue;
 			const monthKey = this.toMonthKey(operation.date);
 			const gross = this.safeMoney(
 				Number(operation.quantity || 0) * Number(operation.unitPrice || 0)
@@ -344,7 +370,10 @@ export class TaxEngineCalculator {
 		if (params.monthlyExemptionApplied) {
 			return 'isento' as const;
 		}
-		if (params.taxableBaseBeforeCompensation > 0 && params.compensationUsed > 0) {
+		if (
+			params.taxableBaseBeforeCompensation > 0 &&
+			params.compensationUsed > 0
+		) {
 			return 'tributavel_com_compensacao' as const;
 		}
 		return 'tributavel' as const;
@@ -355,7 +384,9 @@ export class TaxEngineCalculator {
 	}
 
 	private normalizeSymbol(symbol: string): string {
-		return String(symbol || '').trim().toUpperCase();
+		return String(symbol || '')
+			.trim()
+			.toUpperCase();
 	}
 
 	private toIsoDate(value?: Date | string): string | null {

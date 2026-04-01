@@ -121,7 +121,8 @@ export class ChatOrchestratorService {
 						routeType: hydrated.route.type,
 						cacheHit: true,
 						llmEligible: hydrated.route.llmEligible,
-						estimatedLlmCallsAvoided: hydrated.route.type === 'synthesis_required' ? 1 : 0,
+						estimatedLlmCallsAvoided:
+							hydrated.route.type === 'synthesis_required' ? 1 : 0,
 					});
 					return hydrated;
 				}
@@ -131,9 +132,10 @@ export class ChatOrchestratorService {
 		}
 
 		if (intent === 'portfolio_summary') {
-			const portfolioSummary = this.unifiedIntelligenceFacade.getPortfolioSummary({
-				positions,
-			});
+			const portfolioSummary =
+				this.unifiedIntelligenceFacade.getPortfolioSummary({
+					positions,
+				});
 			const response = this.buildResponse({
 				intent,
 				routeType: 'deterministic_no_llm',
@@ -162,9 +164,10 @@ export class ChatOrchestratorService {
 		}
 
 		if (intent === 'portfolio_risk') {
-			const portfolioRisk = this.unifiedIntelligenceFacade.getPortfolioRiskAnalysis({
-				positions,
-			});
+			const portfolioRisk =
+				this.unifiedIntelligenceFacade.getPortfolioRiskAnalysis({
+					positions,
+				});
 			const response = this.buildResponse({
 				intent,
 				routeType: 'deterministic_no_llm',
@@ -295,7 +298,8 @@ export class ChatOrchestratorService {
 
 		if (intent === 'asset_comparison' && symbols.length === 1) {
 			const primarySymbol = symbols[0];
-			const requestedPortfolioComparison = this.requestsPortfolioComparison(normalizedQuestion);
+			const requestedPortfolioComparison =
+				this.requestsPortfolioComparison(normalizedQuestion);
 			const autoPeerSymbol = requestedPortfolioComparison
 				? this.selectComparisonPeerFromPortfolio(primarySymbol, positions)
 				: null;
@@ -378,7 +382,10 @@ export class ChatOrchestratorService {
 		const primarySymbol = symbols[0] || null;
 
 		if (intent === 'sell_simulation') {
-			if (!primarySymbol || !bySymbol.has(this.normalizeTicker(primarySymbol))) {
+			if (
+				!primarySymbol ||
+				!bySymbol.has(this.normalizeTicker(primarySymbol))
+			) {
 				if (primarySymbol) unavailable.push(primarySymbol);
 				warnings.push('sell_simulation_requires_owned_asset');
 				const response = this.buildResponse({
@@ -409,7 +416,8 @@ export class ChatOrchestratorService {
 			}
 			const position = bySymbol.get(this.normalizeTicker(primarySymbol))!;
 			const parsed = this.parseSellInputs(normalizedQuestion);
-			const snapshot = await this.marketDataProvider.getAssetSnapshot(primarySymbol);
+			const snapshot =
+				await this.marketDataProvider.getAssetSnapshot(primarySymbol);
 			const sellPrice = parsed.sellPrice ?? snapshot?.price ?? null;
 			if (sellPrice === null) {
 				unavailable.push(primarySymbol);
@@ -451,7 +459,8 @@ export class ChatOrchestratorService {
 			} else if (parsed.quantityToSell === null) {
 				assumptions.push('sell_quantity_defaulted_to_full_position');
 			}
-			const simulatedSellDate = parsed.simulatedSellDate || new Date().toISOString();
+			const simulatedSellDate =
+				parsed.simulatedSellDate || new Date().toISOString();
 			if (!parsed.simulatedSellDate) {
 				assumptions.push('simulated_sell_date_defaulted_to_current_date');
 			}
@@ -529,7 +538,10 @@ export class ChatOrchestratorService {
 				return response;
 			}
 
-			if (!primarySymbol || !bySymbol.has(this.normalizeTicker(primarySymbol))) {
+			if (
+				!primarySymbol ||
+				!bySymbol.has(this.normalizeTicker(primarySymbol))
+			) {
 				if (primarySymbol) unavailable.push(primarySymbol);
 				warnings.push('tax_estimation_requires_owned_asset');
 				const response = this.buildResponse({
@@ -560,7 +572,8 @@ export class ChatOrchestratorService {
 			}
 			const position = bySymbol.get(this.normalizeTicker(primarySymbol))!;
 			const parsed = this.parseSellInputs(normalizedQuestion);
-			const snapshot = await this.marketDataProvider.getAssetSnapshot(primarySymbol);
+			const snapshot =
+				await this.marketDataProvider.getAssetSnapshot(primarySymbol);
 			const sellPrice = snapshot?.price || null;
 			if (sellPrice === null) {
 				unavailable.push(primarySymbol);
@@ -644,7 +657,8 @@ export class ChatOrchestratorService {
 		}
 
 		if (intent === 'portfolio_fit_analysis' && primarySymbol) {
-			const snapshot = await this.marketDataProvider.getAssetSnapshot(primarySymbol);
+			const snapshot =
+				await this.marketDataProvider.getAssetSnapshot(primarySymbol);
 			if (!snapshot) {
 				unavailable.push(primarySymbol);
 				warnings.push('external_asset_data_unavailable');
@@ -724,7 +738,8 @@ export class ChatOrchestratorService {
 		}
 
 		if (intent === 'external_asset_analysis' && primarySymbol) {
-			const snapshot = await this.marketDataProvider.getAssetSnapshot(primarySymbol);
+			const snapshot =
+				await this.marketDataProvider.getAssetSnapshot(primarySymbol);
 			if (!snapshot) {
 				unavailable.push(primarySymbol);
 				warnings.push('external_asset_data_unavailable');
@@ -819,10 +834,11 @@ export class ChatOrchestratorService {
 		}
 
 		if (intent === 'opportunity_radar') {
-			const opportunities = await this.unifiedIntelligenceFacade.detectOpportunities({
-				portfolioPositions: positions,
-				candidateSymbols: symbols.length ? symbols : undefined,
-			});
+			const opportunities =
+				await this.unifiedIntelligenceFacade.detectOpportunities({
+					portfolioPositions: positions,
+					candidateSymbols: symbols.length ? symbols : undefined,
+				});
 			unavailable.push(...opportunities.unavailableSymbols);
 			warnings.push(...opportunities.warnings);
 			const response = this.buildResponse({
@@ -854,7 +870,8 @@ export class ChatOrchestratorService {
 
 		if (intent === 'future_scenario') {
 			const horizon = this.parseFutureHorizon(normalizedQuestion);
-			const monthlyContribution = this.parseMonthlyContribution(normalizedQuestion);
+			const monthlyContribution =
+				this.parseMonthlyContribution(normalizedQuestion);
 			const futureSimulation = this.unifiedIntelligenceFacade.simulateFuture({
 				positions,
 				horizon,
@@ -865,7 +882,9 @@ export class ChatOrchestratorService {
 				'future_projection_is_estimate_not_guarantee'
 			);
 			if (monthlyContribution > 0) {
-				assumptions.push(`future_scenario_monthly_contribution:${monthlyContribution}`);
+				assumptions.push(
+					`future_scenario_monthly_contribution:${monthlyContribution}`
+				);
 			}
 			const response = this.buildResponse({
 				intent,
@@ -926,7 +945,8 @@ export class ChatOrchestratorService {
 				});
 				return response;
 			}
-			const latestDocument = await this.riDocumentQuery.getLatestByTicker(primarySymbol);
+			const latestDocument =
+				await this.riDocumentQuery.getLatestByTicker(primarySymbol);
 			if (!latestDocument) {
 				unavailable.push(primarySymbol);
 				warnings.push('ri_document_not_found');
@@ -1016,7 +1036,8 @@ export class ChatOrchestratorService {
 				});
 				return response;
 			}
-			const latestDocument = await this.riDocumentQuery.getLatestByTicker(primarySymbol);
+			const latestDocument =
+				await this.riDocumentQuery.getLatestByTicker(primarySymbol);
 			if (!latestDocument) {
 				unavailable.push(primarySymbol);
 				warnings.push('ri_document_not_found');
@@ -1084,7 +1105,10 @@ export class ChatOrchestratorService {
 				document: previousDocument.document,
 				content: previousDocument.content || '',
 			});
-			const riComparison = this.buildRiComparison(currentSummary, previousSummary);
+			const riComparison = this.buildRiComparison(
+				currentSummary,
+				previousSummary
+			);
 
 			const response = this.buildResponse({
 				intent,
@@ -1253,7 +1277,10 @@ export class ChatOrchestratorService {
 		}
 	}
 
-	private canCacheIntent(intent: ChatOrchestratorIntent, marketDataVersion: string): boolean {
+	private canCacheIntent(
+		intent: ChatOrchestratorIntent,
+		marketDataVersion: string
+	): boolean {
 		const marketSensitiveIntents: ChatOrchestratorIntent[] = [
 			'sell_simulation',
 			'tax_estimation',
@@ -1263,7 +1290,10 @@ export class ChatOrchestratorService {
 			'opportunity_radar',
 			'future_scenario',
 		];
-		if (marketSensitiveIntents.includes(intent) && marketDataVersion === 'market_unknown') {
+		if (
+			marketSensitiveIntents.includes(intent) &&
+			marketDataVersion === 'market_unknown'
+		) {
 			return false;
 		}
 		return intent !== 'unknown';
@@ -1274,8 +1304,10 @@ export class ChatOrchestratorService {
 		routeType: 'deterministic_no_llm' | 'synthesis_required'
 	): number {
 		if (routeType === 'synthesis_required') return 120;
-		if (intent === 'portfolio_summary' || intent === 'portfolio_risk') return 120;
-		if (intent === 'dividend_projection' || intent === 'benchmark_simple') return 180;
+		if (intent === 'portfolio_summary' || intent === 'portfolio_risk')
+			return 120;
+		if (intent === 'dividend_projection' || intent === 'benchmark_simple')
+			return 180;
 		if (intent === 'future_scenario') return 180;
 		if (intent === 'opportunity_radar') return 90;
 		if (intent === 'ri_summary' || intent === 'ri_comparison') return 120;
@@ -1304,14 +1336,18 @@ export class ChatOrchestratorService {
 		].join('|');
 	}
 
-	private computePortfolioHash(positions: PortfolioIntelligencePosition[]): string {
+	private computePortfolioHash(
+		positions: PortfolioIntelligencePosition[]
+	): string {
 		const canonical = positions
 			.map((position) => ({
 				symbol: position.symbol,
 				assetType: position.assetType,
 				quantity: Number(position.quantity || 0),
 				totalValue:
-					typeof position.totalValue === 'number' ? Number(position.totalValue) : null,
+					typeof position.totalValue === 'number'
+						? Number(position.totalValue)
+						: null,
 				sector: position.sector || null,
 			}))
 			.sort((a, b) => a.symbol.localeCompare(b.symbol));
@@ -1362,13 +1398,26 @@ export class ChatOrchestratorService {
 		return value;
 	}
 
-	private classifyIntent(question: string, symbols: string[]): ChatOrchestratorIntent {
+	private classifyIntent(
+		question: string,
+		symbols: string[]
+	): ChatOrchestratorIntent {
 		const text = String(question || '').toLowerCase();
-		if (/\b(explique|explica|estrategia|estratégia|detalhe|por que|porque)\b/.test(text)) {
+		if (
+			/\b(explique|explica|estrategia|estratégia|detalhe|por que|porque)\b/.test(
+				text
+			)
+		) {
 			return 'narrative_synthesis';
 		}
-		if (/\b(ri|relacoes com investidores|relações com investidores)\b/.test(text)) {
-			if (/\b(compare|comparar|comparacao|comparação|anterior|ultimo|último)\b/.test(text)) {
+		if (
+			/\b(ri|relacoes com investidores|relações com investidores)\b/.test(text)
+		) {
+			if (
+				/\b(compare|comparar|comparacao|comparação|anterior|ultimo|último)\b/.test(
+					text
+				)
+			) {
 				return 'ri_comparison';
 			}
 			return 'ri_summary';
@@ -1389,13 +1438,23 @@ export class ChatOrchestratorService {
 		) {
 			return 'asset_comparison';
 		}
-		if (/\b(vender|venda|simular venda|simulacao de venda|simulação de venda)\b/.test(text)) {
+		if (
+			/\b(vender|venda|simular venda|simulacao de venda|simulação de venda)\b/.test(
+				text
+			)
+		) {
 			return 'sell_simulation';
 		}
-		if (/\b(imposto|tributa|taxa|ir|prejuizo|prejuízo|compens\w*)\b/.test(text)) {
+		if (
+			/\b(imposto|tributa|taxa|ir|prejuizo|prejuízo|compens\w*)\b/.test(text)
+		) {
 			return 'tax_estimation';
 		}
-		if (/\b(dividendo|dividendos|projecao de dividendos|projeção de dividendos)\b/.test(text)) {
+		if (
+			/\b(dividendo|dividendos|projecao de dividendos|projeção de dividendos)\b/.test(
+				text
+			)
+		) {
 			return 'dividend_projection';
 		}
 		if (/\b(benchmark|cdi|ibov|ibovespa)\b/.test(text)) {
@@ -1407,7 +1466,9 @@ export class ChatOrchestratorService {
 		if (/\b(faz sentido|encaixe|fit|combina com minha carteira)\b/.test(text)) {
 			return 'portfolio_fit_analysis';
 		}
-		if (/\b(carteira|portfolio|alocacao|alocação|resumo|aloc\w*)\b/.test(text)) {
+		if (
+			/\b(carteira|portfolio|alocacao|alocação|resumo|aloc\w*)\b/.test(text)
+		) {
 			return 'portfolio_summary';
 		}
 		if (symbols.length >= 1) {
@@ -1441,11 +1502,14 @@ export class ChatOrchestratorService {
 		return ranked[0]?.symbol || null;
 	}
 
-	private resolvePositionValue(position: PortfolioIntelligencePosition): number {
+	private resolvePositionValue(
+		position: PortfolioIntelligencePosition
+	): number {
 		if (typeof position.totalValue === 'number' && position.totalValue > 0) {
 			return position.totalValue;
 		}
-		const inferred = Number(position.price || 0) * Number(position.quantity || 0);
+		const inferred =
+			Number(position.price || 0) * Number(position.quantity || 0);
 		return Number.isFinite(inferred) && inferred > 0 ? inferred : 0;
 	}
 
@@ -1455,9 +1519,11 @@ export class ChatOrchestratorService {
 		const cryptoSymbols = normalized.match(/\b(BTC|ETH|SOL|ADA|XRP)\b/g) || [];
 		const usSymbols = normalized.match(/\b[A-Z]{1,5}\.[A-Z]{1,3}\b/g) || [];
 
-		const candidateSymbols = [...brSymbols, ...cryptoSymbols, ...usSymbols].filter(
-			(symbol) => symbol.length >= 3 && !this.stopWords.has(symbol)
-		);
+		const candidateSymbols = [
+			...brSymbols,
+			...cryptoSymbols,
+			...usSymbols,
+		].filter((symbol) => symbol.length >= 3 && !this.stopWords.has(symbol));
 		return Array.from(
 			new Set(candidateSymbols.map((symbol) => this.normalizeTicker(symbol)))
 		)
@@ -1480,7 +1546,9 @@ export class ChatOrchestratorService {
 		const quantityMatch =
 			normalized.match(/\b(?:vender|venda|simular)\s+(\d+(?:\.\d+)?)\b/i) ||
 			normalized.match(/\b(\d+(?:\.\d+)?)\s+(?:acoes|ações|cotas|unidades)\b/i);
-		const priceMatch = normalized.match(/\b(?:a|por)\s*R?\$?\s*(\d+(?:\.\d+)?)\b/i);
+		const priceMatch = normalized.match(
+			/\b(?:a|por)\s*R?\$?\s*(\d+(?:\.\d+)?)\b/i
+		);
 		const dateMatch = normalized.match(
 			/\b(\d{4}-\d{2}-\d{2}|\d{2}\/\d{2}\/\d{4})\b/
 		);
@@ -1488,7 +1556,11 @@ export class ChatOrchestratorService {
 		const quantityToSell = quantityMatch ? Number(quantityMatch[1]) : null;
 		const sellPrice = priceMatch ? Number(priceMatch[1]) : null;
 		const simulatedSellDate = dateMatch
-			? this.toIsoDate(dateMatch[1].includes('/') ? this.toIsoFromBrDate(dateMatch[1]) : dateMatch[1])
+			? this.toIsoDate(
+					dateMatch[1].includes('/')
+						? this.toIsoFromBrDate(dateMatch[1])
+						: dateMatch[1]
+				)
 			: null;
 
 		return {
@@ -1498,7 +1570,9 @@ export class ChatOrchestratorService {
 					: null,
 			sellHalfRequested: halfRequested,
 			sellPrice:
-				sellPrice && Number.isFinite(sellPrice) && sellPrice > 0 ? sellPrice : null,
+				sellPrice && Number.isFinite(sellPrice) && sellPrice > 0
+					? sellPrice
+					: null,
 			simulatedSellDate,
 		};
 	}
@@ -1507,7 +1581,8 @@ export class ChatOrchestratorService {
 		const text = String(question || '').toLowerCase();
 		if (/\b10\s*anos?\b/.test(text)) return '10y';
 		if (/\b5\s*anos?\b/.test(text)) return '5y';
-		if (/\b(1\s*ano|12\s*meses|proximo ano|próximo ano)\b/.test(text)) return '1y';
+		if (/\b(1\s*ano|12\s*meses|proximo ano|próximo ano)\b/.test(text))
+			return '1y';
 		if (/\b6\s*meses\b/.test(text)) return '6m';
 		return '1y';
 	}
@@ -1515,8 +1590,12 @@ export class ChatOrchestratorService {
 	private parseMonthlyContribution(question: string): number {
 		const normalized = String(question || '').replace(',', '.');
 		const match =
-			normalized.match(/\baporte(?: mensal)?(?: de)?\s*r?\$?\s*(\d+(?:\.\d+)?)\b/i) ||
-			normalized.match(/\binvest(?:ir|imento)?(?: mensal)?(?: de)?\s*r?\$?\s*(\d+(?:\.\d+)?)\b/i);
+			normalized.match(
+				/\baporte(?: mensal)?(?: de)?\s*r?\$?\s*(\d+(?:\.\d+)?)\b/i
+			) ||
+			normalized.match(
+				/\binvest(?:ir|imento)?(?: mensal)?(?: de)?\s*r?\$?\s*(\d+(?:\.\d+)?)\b/i
+			);
 		if (!match) return 0;
 		const value = Number(match[1]);
 		return Number.isFinite(value) && value > 0 ? value : 0;
@@ -1534,8 +1613,10 @@ export class ChatOrchestratorService {
 				return 'unknown';
 			}
 			if (currentDirection === previousDirection) return 'stable';
-			if (currentDirection === 'up' && previousDirection === 'down') return 'improved';
-			if (currentDirection === 'down' && previousDirection === 'up') return 'worsened';
+			if (currentDirection === 'up' && previousDirection === 'down')
+				return 'improved';
+			if (currentDirection === 'down' && previousDirection === 'up')
+				return 'worsened';
 			return 'stable';
 		};
 
@@ -1576,7 +1657,9 @@ export class ChatOrchestratorService {
 
 	private isLossCompensationQuestion(question: string): boolean {
 		const text = String(question || '').toLowerCase();
-		return /\b(prejuizo|prejuízo)\b/.test(text) && /\b(compens\w*)\b/.test(text);
+		return (
+			/\b(prejuizo|prejuízo)\b/.test(text) && /\b(compens\w*)\b/.test(text)
+		);
 	}
 
 	private toIsoFromBrDate(value: string): string {

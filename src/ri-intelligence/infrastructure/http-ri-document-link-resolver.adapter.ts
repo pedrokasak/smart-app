@@ -25,9 +25,7 @@ const ALLOWED_FILE_EXTENSIONS = [
 ];
 
 @Injectable()
-export class HttpRiDocumentLinkResolverAdapter
-	implements RiDocumentLinkResolverPort
-{
+export class HttpRiDocumentLinkResolverAdapter implements RiDocumentLinkResolverPort {
 	private readonly timeoutMs = 8000;
 
 	async resolve(
@@ -104,7 +102,10 @@ export class HttpRiDocumentLinkResolverAdapter
 		return head;
 	}
 
-	private async request(url: string, method: 'HEAD' | 'GET'): Promise<Response | null> {
+	private async request(
+		url: string,
+		method: 'HEAD' | 'GET'
+	): Promise<Response | null> {
 		const controller = new AbortController();
 		const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 		try {
@@ -114,10 +115,10 @@ export class HttpRiDocumentLinkResolverAdapter
 				headers:
 					method === 'GET'
 						? {
-							Range: 'bytes=0-0',
-							Accept:
-								'application/pdf,application/octet-stream,application/msword,*/*;q=0.5',
-						}
+								Range: 'bytes=0-0',
+								Accept:
+									'application/pdf,application/octet-stream,application/msword,*/*;q=0.5',
+							}
 						: undefined,
 				signal: controller.signal,
 			});
@@ -155,7 +156,9 @@ export class HttpRiDocumentLinkResolverAdapter
 	}
 
 	private normalizeContentType(value: string | null): string | null {
-		const contentType = String(value || '').trim().toLowerCase();
+		const contentType = String(value || '')
+			.trim()
+			.toLowerCase();
 		return contentType || null;
 	}
 

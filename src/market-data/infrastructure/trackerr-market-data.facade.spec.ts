@@ -39,18 +39,20 @@ describe('TrackerrMarketDataFacade', () => {
 	it('uses fundamentus fallback when providers fail', async () => {
 		const stockService = {
 			getNationalQuote: jest.fn().mockRejectedValue(new Error('primary down')),
-			getStockQuoteGlobal: jest.fn().mockRejectedValue(new Error('global down')),
+			getStockQuoteGlobal: jest
+				.fn()
+				.mockRejectedValue(new Error('global down')),
 		} as unknown as StockService;
 		const fundamentus = {
 			getSnapshot: jest.fn().mockResolvedValue({
 				numeric: {
-					'COTACAO': 12,
+					COTACAO: 12,
 					'P/L': 6,
 					'P/VP': 1,
 					'DIV YIELD': 8,
 				},
 				text: {
-					'SETOR': 'Industrial',
+					SETOR: 'Industrial',
 				},
 			}),
 		} as unknown as FundamentusFallbackAdapter;
@@ -66,7 +68,9 @@ describe('TrackerrMarketDataFacade', () => {
 	it('uses b3 extension provider before fundamentus when available', async () => {
 		const stockService = {
 			getNationalQuote: jest.fn().mockRejectedValue(new Error('primary down')),
-			getStockQuoteGlobal: jest.fn().mockRejectedValue(new Error('global down')),
+			getStockQuoteGlobal: jest
+				.fn()
+				.mockRejectedValue(new Error('global down')),
 		} as unknown as StockService;
 		const fundamentus = {
 			getSnapshot: jest.fn(),
@@ -114,7 +118,9 @@ describe('TrackerrMarketDataFacade', () => {
 	it('degrades to fundamentus when b3 extension fails', async () => {
 		const stockService = {
 			getNationalQuote: jest.fn().mockRejectedValue(new Error('primary down')),
-			getStockQuoteGlobal: jest.fn().mockRejectedValue(new Error('global down')),
+			getStockQuoteGlobal: jest
+				.fn()
+				.mockRejectedValue(new Error('global down')),
 		} as unknown as StockService;
 		const fundamentus = {
 			getSnapshot: jest.fn().mockResolvedValue({

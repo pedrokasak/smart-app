@@ -123,8 +123,10 @@ export class StockService implements StockRepository {
 
 		if (!shouldFallback) return response;
 
-		let fundamentusSnapshot: { numeric: Record<string, number>; text: Record<string, string> } =
-			{ numeric: {}, text: {} };
+		let fundamentusSnapshot: {
+			numeric: Record<string, number>;
+			text: Record<string, string>;
+		} = { numeric: {}, text: {} };
 		try {
 			fundamentusSnapshot =
 				await this.fundamentusFallback.getSnapshot(cleanSymbol);
@@ -189,10 +191,10 @@ export class StockService implements StockRepository {
 		const marketCapFromFundamentus = this.getFundamentusValue(fundamentals, [
 			'VALOR DE MERCADO',
 		]);
-		const companyNameFromFundamentus = this.getFundamentusText(fundamentusText, [
-			'EMPRESA',
-			'NOME',
-		]);
+		const companyNameFromFundamentus = this.getFundamentusText(
+			fundamentusText,
+			['EMPRESA', 'NOME']
+		);
 		const sectorFromFundamentus = this.getFundamentusText(fundamentusText, [
 			'SETOR',
 		]);
@@ -292,10 +294,12 @@ export class StockService implements StockRepository {
 				this.isMissing(fallbackMerged.netMargin, { zeroIsMissing: true }));
 		if (needsCvm) {
 			const currentYear = new Date().getFullYear();
-			const cvmHistory = await this.cvmAdapter.getComputedIndicatorsHistoryByCnpj(
-				cnpj,
-				[currentYear, currentYear - 1, currentYear - 2]
-			);
+			const cvmHistory =
+				await this.cvmAdapter.getComputedIndicatorsHistoryByCnpj(cnpj, [
+					currentYear,
+					currentYear - 1,
+					currentYear - 2,
+				]);
 			const cvmData = cvmHistory[0] || null;
 			if (cvmData) {
 				if (
@@ -521,13 +525,13 @@ export class StockService implements StockRepository {
 					? new Date(`${year}-${month}-${day}T00:00:00.000Z`).toISOString()
 					: null;
 
-				return {
-					symbol: 'CDI',
-					value: Number.isFinite(numericValue) ? numericValue : null,
-					date: isoDate,
-					unit: 'daily_percent',
-					source: 'BACEN_SGS_12',
-				};
+			return {
+				symbol: 'CDI',
+				value: Number.isFinite(numericValue) ? numericValue : null,
+				date: isoDate,
+				unit: 'daily_percent',
+				source: 'BACEN_SGS_12',
+			};
 		} catch (error) {
 			this.logger.warn(
 				`Falha ao buscar CDI no BACEN: ${error?.message || error}`

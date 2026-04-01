@@ -27,7 +27,10 @@ describe('StockService', () => {
 	type TwelveGetStockQuoteFn = (symbol: string) => Promise<any>;
 	type FundamentusGetSnapshotFn = (
 		symbol: string
-	) => Promise<{ numeric: Record<string, number>; text: Record<string, string> }>;
+	) => Promise<{
+		numeric: Record<string, number>;
+		text: Record<string, string>;
+	}>;
 	type CvmGetIndicatorsHistoryFn = (
 		cnpj: string,
 		years: number[]

@@ -221,7 +221,9 @@ describe('TaxEngineCalculator', () => {
 			},
 		]);
 
-		expect(result.realizedSales[1].classification).toBe('tributavel_com_compensacao');
+		expect(result.realizedSales[1].classification).toBe(
+			'tributavel_com_compensacao'
+		);
 		expect(result.realizedSales[1].compensationUsed).toBe(200);
 		expect(result.realizedSales[1].taxableBaseAfterCompensation).toBe(100);
 		expect(result.lossCompensationBase.accumulatedLossByAssetType.fii).toBe(0);
@@ -318,7 +320,9 @@ describe('TaxEngineCalculator', () => {
 			},
 		]);
 
-		expect(result.realizedSales[1].classification).toBe('tributavel_com_compensacao');
+		expect(result.realizedSales[1].classification).toBe(
+			'tributavel_com_compensacao'
+		);
 		expect(result.realizedSales[1].compensationUsed).toBe(200);
 		expect(result.realizedSales[1].taxableBaseAfterCompensation).toBe(0);
 	});

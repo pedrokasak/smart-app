@@ -31,7 +31,9 @@ describe('FutureSimulatorService', () => {
 		expect(output.confidence).toBe('high');
 		expect(output.limitations).toEqual([]);
 		expect(output.dividendProjection.current.annual).toBe(12);
-		expect(output.dividendProjection.scenarios.base.annual).toBeGreaterThanOrEqual(12);
+		expect(
+			output.dividendProjection.scenarios.base.annual
+		).toBeGreaterThanOrEqual(12);
 	});
 
 	it('projects higher future value with recurring monthly contribution', () => {
@@ -122,9 +124,18 @@ describe('FutureSimulatorService', () => {
 				quantity: 10,
 				totalValue: 1000,
 				dividendHistory: [
-					{ date: new Date(now - 60 * 24 * 60 * 60 * 1000).toISOString(), value: 0.4 },
-					{ date: new Date(now - 160 * 24 * 60 * 60 * 1000).toISOString(), value: 0.4 },
-					{ date: new Date(now - 260 * 24 * 60 * 60 * 1000).toISOString(), value: 0.4 },
+					{
+						date: new Date(now - 60 * 24 * 60 * 60 * 1000).toISOString(),
+						value: 0.4,
+					},
+					{
+						date: new Date(now - 160 * 24 * 60 * 60 * 1000).toISOString(),
+						value: 0.4,
+					},
+					{
+						date: new Date(now - 260 * 24 * 60 * 60 * 1000).toISOString(),
+						value: 0.4,
+					},
 				],
 			},
 		];

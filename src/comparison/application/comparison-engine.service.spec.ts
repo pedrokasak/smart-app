@@ -37,7 +37,10 @@ describe('ComparisonEngineService', () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([
-				makeSnapshot('ITUB4', { dividendYield: 0.08, priceToEarnings: 7 } as any),
+				makeSnapshot('ITUB4', {
+					dividendYield: 0.08,
+					priceToEarnings: 7,
+				} as any),
 				makeSnapshot('BBAS3', {
 					dividendYield: 0.06,
 					performance: { changePercent: 2.1 },
@@ -72,12 +75,12 @@ describe('ComparisonEngineService', () => {
 
 		expect(result.results).toHaveLength(2);
 		expect(result.executiveSummary.bestValuationSymbol).toBe('BBAS3');
-		expect(result.results.find((item) => item.symbol === 'ITUB4')?.inPortfolio).toBe(
-			true
-		);
-		expect(result.results.find((item) => item.symbol === 'BBAS3')?.inPortfolio).toBe(
-			false
-		);
+		expect(
+			result.results.find((item) => item.symbol === 'ITUB4')?.inPortfolio
+		).toBe(true);
+		expect(
+			result.results.find((item) => item.symbol === 'BBAS3')?.inPortfolio
+		).toBe(false);
 		expect(result.byDimension.fundamentals).toEqual(
 			expect.arrayContaining([
 				expect.objectContaining({
@@ -88,8 +91,8 @@ describe('ComparisonEngineService', () => {
 			])
 		);
 		expect(
-			result.results.find((item) => item.symbol === 'BBAS3')?.fit.portfolioImpact
-				.diversification
+			result.results.find((item) => item.symbol === 'BBAS3')?.fit
+				.portfolioImpact.diversification
 		).toBeDefined();
 	});
 
@@ -127,7 +130,9 @@ describe('ComparisonEngineService', () => {
 
 		expect(result.results[0].dataQuality.fallbackUsed).toBe(true);
 		expect(result.results[0].dataQuality.partial).toBe(true);
-		expect(result.results[0].dataQuality.fallbackSources).toEqual(['fundamentus']);
+		expect(result.results[0].dataQuality.fallbackSources).toEqual([
+			'fundamentus',
+		]);
 		expect(result.results[0].fit.classification).toBeDefined();
 		expect(result.results[0].dataQuality.missingMetrics).toEqual(
 			expect.arrayContaining(['priceToEarnings', 'priceToBook', 'netMargin'])
@@ -205,11 +210,15 @@ describe('ComparisonEngineService', () => {
 		});
 
 		expect(result.results).toHaveLength(2);
-		expect(result.results.find((item) => item.symbol === 'AAPL')?.dataQuality.partial).toBe(
-			true
+		expect(
+			result.results.find((item) => item.symbol === 'AAPL')?.dataQuality.partial
+		).toBe(true);
+		expect(
+			result.results.find((item) => item.symbol === 'AAPL')?.dataQuality
+				.missingMetrics
+		).toEqual(
+			expect.arrayContaining(['changePercent', 'priceToBook', 'netMargin'])
 		);
-		expect(result.results.find((item) => item.symbol === 'AAPL')?.dataQuality.missingMetrics)
-			.toEqual(expect.arrayContaining(['changePercent', 'priceToBook', 'netMargin']));
 	});
 
 	it('returns fit as bom when candidate can improve portfolio diversification', async () => {
@@ -250,9 +259,9 @@ describe('ComparisonEngineService', () => {
 		});
 
 		expect(result.results[0].fit.classification).toBe('bom');
-		expect(result.results[0].fit.portfolioImpact.diversification.deltaScore).toBeGreaterThan(
-			0
-		);
+		expect(
+			result.results[0].fit.portfolioImpact.diversification.deltaScore
+		).toBeGreaterThan(0);
 	});
 
 	it('returns fit as ruim when candidate worsens concentration', async () => {
@@ -295,9 +304,9 @@ describe('ComparisonEngineService', () => {
 		expect(
 			result.results[0].fit.portfolioImpact.concentration.assetPercentageDelta
 		).toBeGreaterThan(0);
-		expect(result.results[0].fit.portfolioImpact.sectorExposure.deltaPercentage).toBeGreaterThan(
-			0
-		);
+		expect(
+			result.results[0].fit.portfolioImpact.sectorExposure.deltaPercentage
+		).toBeGreaterThan(0);
 	});
 
 	it('degrades fit safely when candidate has incomplete metadata', async () => {
@@ -379,6 +388,8 @@ describe('ComparisonEngineService', () => {
 		expect(result.results[0].fit.portfolioImpact.alreadyInPortfolio).toBe(true);
 		expect(
 			result.results[0].fit.portfolioImpact.concentration.assetPercentageAfter
-		).toBeGreaterThan(result.results[0].fit.portfolioImpact.concentration.assetPercentageBefore);
+		).toBeGreaterThan(
+			result.results[0].fit.portfolioImpact.concentration.assetPercentageBefore
+		);
 	});
 });
