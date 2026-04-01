@@ -33,8 +33,12 @@ describe('PremiumInsightsService', () => {
 			analyzePositions: jest.fn().mockReturnValue(
 				mocks?.portfolioAnalysis || {
 					facts: {
-						concentrationByAsset: [{ key: 'ITUB4', percentage: 55, severity: 'high' }],
-						concentrationBySector: [{ key: 'FINANCIAL', percentage: 55, severity: 'high' }],
+						concentrationByAsset: [
+							{ key: 'ITUB4', percentage: 55, severity: 'high' },
+						],
+						concentrationBySector: [
+							{ key: 'FINANCIAL', percentage: 55, severity: 'high' },
+						],
 					},
 					estimates: {
 						risk: { level: 'high', score: 82 },
@@ -108,8 +112,12 @@ describe('PremiumInsightsService', () => {
 		const service = makeService({
 			portfolioAnalysis: {
 				facts: {
-					concentrationByAsset: [{ key: 'ITUB4', percentage: 20, severity: 'medium' }],
-					concentrationBySector: [{ key: 'FINANCIAL', percentage: 20, severity: 'medium' }],
+					concentrationByAsset: [
+						{ key: 'ITUB4', percentage: 20, severity: 'medium' },
+					],
+					concentrationBySector: [
+						{ key: 'FINANCIAL', percentage: 20, severity: 'medium' },
+					],
 				},
 				estimates: {
 					risk: { level: 'medium', score: 44 },
@@ -172,7 +180,9 @@ describe('PremiumInsightsService', () => {
 			},
 		});
 
-		expect(output.insights.some((item) => item.category === 'fiscal')).toBe(true);
+		expect(output.insights.some((item) => item.category === 'fiscal')).toBe(
+			true
+		);
 		expect(
 			output.insights.find((item) => item.category === 'fiscal')?.priority
 		).toBe('high');
@@ -204,7 +214,9 @@ describe('PremiumInsightsService', () => {
 			plan: 'global_investor',
 			positions,
 		});
-		const riskInsight = output.insights.find((item) => item.category === 'risk');
+		const riskInsight = output.insights.find(
+			(item) => item.category === 'risk'
+		);
 		const opportunityInsight = output.insights.find(
 			(item) => item.category === 'opportunity'
 		);
@@ -213,7 +225,9 @@ describe('PremiumInsightsService', () => {
 		expect(opportunityInsight).toBeDefined();
 		expect(opportunityInsight!.score).toBeLessThan(88);
 		expect(opportunityInsight!.justification).toEqual(
-			expect.arrayContaining(['Conflito com sinal de risco para o mesmo ativo.'])
+			expect.arrayContaining([
+				'Conflito com sinal de risco para o mesmo ativo.',
+			])
 		);
 	});
 });

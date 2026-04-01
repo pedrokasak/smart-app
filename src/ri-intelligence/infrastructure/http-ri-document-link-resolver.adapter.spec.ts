@@ -32,7 +32,10 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 	}
 
 	it('resolves relative links into absolute urls using origin', async () => {
-		mockFetch({ status: 200, url: 'https://ri.bradesco.com.br/docs/release-4t25.pdf' });
+		mockFetch({
+			status: 200,
+			url: 'https://ri.bradesco.com.br/docs/release-4t25.pdf',
+		});
 
 		const output = await adapter.resolve({
 			url: '/docs/release-4t25.pdf',
@@ -44,7 +47,9 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 			expect.objectContaining({ method: 'HEAD' })
 		);
 		expect(output.isValid).toBe(true);
-		expect(output.resolvedUrl).toBe('https://ri.bradesco.com.br/docs/release-4t25.pdf');
+		expect(output.resolvedUrl).toBe(
+			'https://ri.bradesco.com.br/docs/release-4t25.pdf'
+		);
 	});
 
 	it('keeps redirected final url when destination is valid', async () => {
@@ -59,7 +64,9 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 		});
 
 		expect(output.isValid).toBe(true);
-		expect(output.resolvedUrl).toBe('https://cdn.ri.example.com/final/release.pdf');
+		expect(output.resolvedUrl).toBe(
+			'https://cdn.ri.example.com/final/release.pdf'
+		);
 	});
 
 	it('rejects known mziq error routes even with 200 status', async () => {
@@ -78,9 +85,15 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 	});
 
 	it('rejects invalid http status', async () => {
-		mockFetch({ status: 404, url: 'https://ri.example.com/404.html', contentType: 'text/html' });
+		mockFetch({
+			status: 404,
+			url: 'https://ri.example.com/404.html',
+			contentType: 'text/html',
+		});
 
-		const output = await adapter.resolve({ url: 'https://ri.example.com/missing.pdf' });
+		const output = await adapter.resolve({
+			url: 'https://ri.example.com/missing.pdf',
+		});
 
 		expect(output.isValid).toBe(false);
 		expect(output.rejectionReason).toBe('invalid_http_status');

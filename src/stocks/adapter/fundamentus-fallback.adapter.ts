@@ -63,7 +63,9 @@ export class FundamentusFallbackAdapter {
 	}
 
 	private isConnectionClosedError(error: unknown): boolean {
-		const message = String((error as any)?.message || error || '').toLowerCase();
+		const message = String(
+			(error as any)?.message || error || ''
+		).toLowerCase();
 		return (
 			message.includes('connection closed') ||
 			message.includes('target closed') ||

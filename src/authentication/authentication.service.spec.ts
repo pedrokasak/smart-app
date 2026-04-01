@@ -216,7 +216,9 @@ describe('AuthenticationService', () => {
 
 			(UserModel.findOne as jest.Mock).mockResolvedValue(mockUser);
 
-			const result = await service.forgotPassword({ email: 'test@example.com' });
+			const result = await service.forgotPassword({
+				email: 'test@example.com',
+			});
 
 			expect(result.message).toBe(
 				'If the email is valid, a password reset link has been sent'
@@ -231,7 +233,9 @@ describe('AuthenticationService', () => {
 		it('should return generic response for unknown email without leaking info', async () => {
 			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
 
-			const result = await service.forgotPassword({ email: 'unknown@example.com' });
+			const result = await service.forgotPassword({
+				email: 'unknown@example.com',
+			});
 
 			expect(result.message).toBe(
 				'If the email is valid, a password reset link has been sent'
@@ -249,7 +253,9 @@ describe('AuthenticationService', () => {
 				new Error('provider down')
 			);
 
-			const result = await service.forgotPassword({ email: 'test@example.com' });
+			const result = await service.forgotPassword({
+				email: 'test@example.com',
+			});
 			expect(result.message).toBe(
 				'If the email is valid, a password reset link has been sent'
 			);
@@ -269,10 +275,12 @@ describe('AuthenticationService', () => {
 			await service.forgotPassword({ email: 'test@example.com' });
 
 			expect(mockEmailService.sendPasswordResetEmail).toHaveBeenCalledTimes(2);
-			const firstRawToken = (mockEmailService.sendPasswordResetEmail as jest.Mock).mock
-				.calls[0][1];
-			const secondRawToken = (mockEmailService.sendPasswordResetEmail as jest.Mock).mock
-				.calls[1][1];
+			const firstRawToken = (
+				mockEmailService.sendPasswordResetEmail as jest.Mock
+			).mock.calls[0][1];
+			const secondRawToken = (
+				mockEmailService.sendPasswordResetEmail as jest.Mock
+			).mock.calls[1][1];
 			expect(firstRawToken).not.toBe(secondRawToken);
 
 			const secondHash = mockUser.resetPasswordToken;

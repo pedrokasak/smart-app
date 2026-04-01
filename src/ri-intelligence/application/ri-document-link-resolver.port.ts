@@ -21,5 +21,7 @@ export interface ResolveRiDocumentLinkResult {
 }
 
 export interface RiDocumentLinkResolverPort {
-	resolve(input: ResolveRiDocumentLinkInput): Promise<ResolveRiDocumentLinkResult>;
+	resolve(
+		input: ResolveRiDocumentLinkInput
+	): Promise<ResolveRiDocumentLinkResult>;
 }

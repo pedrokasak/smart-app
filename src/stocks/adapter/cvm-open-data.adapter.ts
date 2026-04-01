@@ -189,9 +189,17 @@ export class CvmOpenDataAdapter {
 		const dreRows = filterByCnpj(dreRowsRaw);
 		const bpaRows = filterByCnpj(bpaRowsRaw);
 		const bppRows = filterByCnpj(bppRowsRaw);
-		const dfcRows = [...filterByCnpj(dfcMiRowsRaw), ...filterByCnpj(dfcMdRowsRaw)];
+		const dfcRows = [
+			...filterByCnpj(dfcMiRowsRaw),
+			...filterByCnpj(dfcMdRowsRaw),
+		];
 
-		if (!dreRows.length && !bpaRows.length && !bppRows.length && !dfcRows.length) {
+		if (
+			!dreRows.length &&
+			!bpaRows.length &&
+			!bppRows.length &&
+			!dfcRows.length
+		) {
 			return null;
 		}
 

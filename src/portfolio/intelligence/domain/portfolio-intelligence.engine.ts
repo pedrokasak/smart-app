@@ -65,7 +65,10 @@ export class PortfolioIntelligenceEngine {
 			(position) => position.symbol || 'UNKNOWN',
 			totalValue
 		);
-		const concentrationByAsset = this.toConcentration(allocationByAsset, 'asset');
+		const concentrationByAsset = this.toConcentration(
+			allocationByAsset,
+			'asset'
+		);
 
 		const concentrationBySector = this.toConcentration(
 			this.buildAllocation(
@@ -167,7 +170,9 @@ export class PortfolioIntelligenceEngine {
 		const candidateAssetClass = this.mapAssetClass(candidate.assetType);
 		const alreadyInPortfolio = positions.some(
 			(position) =>
-				String(position.symbol || '').trim().toUpperCase() === normalizedSymbol &&
+				String(position.symbol || '')
+					.trim()
+					.toUpperCase() === normalizedSymbol &&
 				position.assetType === candidate.assetType
 		);
 
@@ -207,14 +212,17 @@ export class PortfolioIntelligenceEngine {
 			afterStatus: projected.estimates.diversification.status,
 		};
 
-		const hasCompleteMetadata = candidateSector !== 'UNKNOWN' && candidateValue > 0;
+		const hasCompleteMetadata =
+			candidateSector !== 'UNKNOWN' && candidateValue > 0;
 		const fit = this.resolvePortfolioFit({
 			diversificationDelta: diversificationImpact.deltaScore,
 			topAssetConcentrationDelta:
 				this.findTopPercentage(projected.facts.concentrationByAsset) -
 				this.findTopPercentage(baseline.facts.concentrationByAsset),
 			topSectorConcentrationDelta:
-				this.findTopKnownSectorPercentage(projected.facts.concentrationBySector) -
+				this.findTopKnownSectorPercentage(
+					projected.facts.concentrationBySector
+				) -
 				this.findTopKnownSectorPercentage(baseline.facts.concentrationBySector),
 			candidateSectorAfterPct: projectedSectorPct,
 			hasCompleteMetadata,
@@ -237,7 +245,9 @@ export class PortfolioIntelligenceEngine {
 					sector: candidateSector,
 					beforePercentage: Number(baselineSectorPct.toFixed(2)),
 					afterPercentage: Number(projectedSectorPct.toFixed(2)),
-					deltaPercentage: Number((projectedSectorPct - baselineSectorPct).toFixed(2)),
+					deltaPercentage: Number(
+						(projectedSectorPct - baselineSectorPct).toFixed(2)
+					),
 				},
 				diversification: diversificationImpact,
 			},
@@ -662,13 +672,19 @@ export class PortfolioIntelligenceEngine {
 			positionsWithData += 1;
 			projectedAnnualIncome += annualIncome;
 			const assetClass = this.mapAssetClass(position.assetType);
-			classIncome.set(assetClass, (classIncome.get(assetClass) || 0) + annualIncome);
+			classIncome.set(
+				assetClass,
+				(classIncome.get(assetClass) || 0) + annualIncome
+			);
 		}
 
 		const projectedMonthlyIncome = projectedAnnualIncome / 12;
 		const projectedYieldOnPortfolioPct =
 			totalValue > 0 ? (projectedAnnualIncome / totalValue) * 100 : 0;
-		const positionsWithoutData = Math.max(positions.length - positionsWithData, 0);
+		const positionsWithoutData = Math.max(
+			positions.length - positionsWithData,
+			0
+		);
 		const dataCoveragePct = (positionsWithData / positions.length) * 100;
 
 		const classKeys = allocationByClass.map((entry) => entry.key as AssetClass);
@@ -693,7 +709,9 @@ export class PortfolioIntelligenceEngine {
 			modelVersion: 'deterministic_v1',
 			projectedAnnualIncome: Number(projectedAnnualIncome.toFixed(2)),
 			projectedMonthlyIncome: Number(projectedMonthlyIncome.toFixed(2)),
-			projectedYieldOnPortfolioPct: Number(projectedYieldOnPortfolioPct.toFixed(2)),
+			projectedYieldOnPortfolioPct: Number(
+				projectedYieldOnPortfolioPct.toFixed(2)
+			),
 			coverage: {
 				positionsWithData,
 				positionsWithoutData,
@@ -704,7 +722,10 @@ export class PortfolioIntelligenceEngine {
 	}
 
 	private resolveAnnualDividendIncome(
-		position: PortfolioIntelligencePosition & { resolvedValue: number; sector: string }
+		position: PortfolioIntelligencePosition & {
+			resolvedValue: number;
+			sector: string;
+		}
 	): number {
 		const quantity = Number(position.quantity || 0);
 		if (quantity <= 0) {
@@ -723,7 +744,9 @@ export class PortfolioIntelligenceEngine {
 			return trailingFromHistory * quantity;
 		}
 
-		const normalizedDividendYield = this.normalizeDividendYield(position.dividendYield);
+		const normalizedDividendYield = this.normalizeDividendYield(
+			position.dividendYield
+		);
 		if (normalizedDividendYield > 0 && position.resolvedValue > 0) {
 			return normalizedDividendYield * position.resolvedValue;
 		}
@@ -745,7 +768,11 @@ export class PortfolioIntelligenceEngine {
 			const value = Number(item?.value || 0);
 			if (value <= 0) continue;
 			const timestamp = new Date(item?.date || 0).getTime();
-			if (!Number.isFinite(timestamp) || timestamp < oneYearAgo || timestamp > now) {
+			if (
+				!Number.isFinite(timestamp) ||
+				timestamp < oneYearAgo ||
+				timestamp > now
+			) {
 				continue;
 			}
 			total += value;
@@ -901,7 +928,9 @@ export class PortfolioIntelligenceEngine {
 		const merged = positions.map((position) => ({ ...position }));
 		const index = merged.findIndex(
 			(position) =>
-				String(position.symbol || '').trim().toUpperCase() === candidate.symbol &&
+				String(position.symbol || '')
+					.trim()
+					.toUpperCase() === candidate.symbol &&
 				position.assetType === candidate.assetType
 		);
 
@@ -910,8 +939,12 @@ export class PortfolioIntelligenceEngine {
 			const currentValue = this.resolvePositionValue(current);
 			merged[index] = {
 				...current,
-				quantity: Number(current.quantity || 0) + Math.max(Number(candidate.quantity || 0), 0),
-				totalValue: Number((currentValue + Number(candidate.totalValue || 0)).toFixed(2)),
+				quantity:
+					Number(current.quantity || 0) +
+					Math.max(Number(candidate.quantity || 0), 0),
+				totalValue: Number(
+					(currentValue + Number(candidate.totalValue || 0)).toFixed(2)
+				),
 				sector:
 					candidate.sector && candidate.sector.trim()
 						? candidate.sector
@@ -942,7 +975,8 @@ export class PortfolioIntelligenceEngine {
 			...before.map((entry) => entry.key),
 			...after.map((entry) => entry.key),
 		]);
-		const output: PortfolioFitAnalysisOutput['impact']['allocationByClass'] = [];
+		const output: PortfolioFitAnalysisOutput['impact']['allocationByClass'] =
+			[];
 		for (const key of keys) {
 			const beforePercentage = this.findPercentageByKey(before, key);
 			const afterPercentage = this.findPercentageByKey(after, key);
@@ -950,7 +984,9 @@ export class PortfolioIntelligenceEngine {
 				assetClass: key as AssetClass,
 				beforePercentage: Number(beforePercentage.toFixed(2)),
 				afterPercentage: Number(afterPercentage.toFixed(2)),
-				deltaPercentage: Number((afterPercentage - beforePercentage).toFixed(2)),
+				deltaPercentage: Number(
+					(afterPercentage - beforePercentage).toFixed(2)
+				),
 			});
 		}
 		return output.sort((a, b) => b.afterPercentage - a.afterPercentage);
@@ -1000,7 +1036,10 @@ export class PortfolioIntelligenceEngine {
 			signals.push('sector_concentration_increased');
 		}
 
-		if (input.candidateSectorAfterPct >= this.thresholds.highSectorConcentrationPct) {
+		if (
+			input.candidateSectorAfterPct >=
+			this.thresholds.highSectorConcentrationPct
+		) {
 			score -= 3;
 			signals.push('candidate_sector_highly_concentrated');
 		}
