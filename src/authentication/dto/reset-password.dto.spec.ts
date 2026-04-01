@@ -22,7 +22,9 @@ describe('ResetPasswordDto', () => {
 		});
 
 		const errors = await validate(dto);
-		const passwordError = errors.find((error) => error.property === 'newPassword');
+		const passwordError = errors.find(
+			(error) => error.property === 'newPassword'
+		);
 		expect(passwordError?.constraints).toBeDefined();
 	});
 
@@ -33,7 +35,9 @@ describe('ResetPasswordDto', () => {
 		});
 
 		const errors = await validate(dto);
-		const confirmError = errors.find((error) => error.property === 'confirmPassword');
+		const confirmError = errors.find(
+			(error) => error.property === 'confirmPassword'
+		);
 		expect(confirmError?.constraints).toBeDefined();
 	});
 });

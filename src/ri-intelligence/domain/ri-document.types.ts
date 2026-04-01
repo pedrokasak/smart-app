@@ -4,7 +4,12 @@ export type RiDocumentType =
 	| 'material_fact'
 	| 'reference_form'
 	| 'shareholder_notice'
-	| 'other';
+	| 'financial_statement'
+	| 'management_report'
+	| 'conference_call_material'
+	| 'dividend_notice'
+	| 'other_ri_document'
+	| 'unknown';
 
 export type RiDocumentSourceType = 'url' | 'file';
 
@@ -17,10 +22,12 @@ export interface RiDocumentIngestionInput {
 	ticker: string;
 	company: string;
 	title: string;
+	subtitle?: string | null;
 	period?: string | null;
 	publishedAt: Date | string;
 	source: RiDocumentSource;
 	documentType?: RiDocumentType | null;
+	metadata?: Record<string, string | number | boolean | null | undefined>;
 }
 
 export interface RiDocumentRecord {
@@ -34,7 +41,9 @@ export interface RiDocumentRecord {
 	source: RiDocumentSource;
 	classification: {
 		method: 'provided' | 'deterministic_rules';
-		confidence: 'high' | 'medium';
+		confidence: 'high' | 'medium' | 'low';
+		score?: number;
+		matchedAliases?: string[];
 	};
 	contentStatus: 'metadata_only';
 }
@@ -48,4 +57,3 @@ export interface RiDocumentQuery {
 	dateTo?: string | Date;
 	limit?: number;
 }
-

@@ -45,7 +45,9 @@ describe('UnifiedIntelligenceFacade', () => {
 	afterEach(() => jest.clearAllMocks());
 
 	it('returns portfolio summary from portfolio intelligence analysis', () => {
-		(mockPortfolioIntelligenceService.analyzePositions as jest.Mock).mockReturnValue({
+		(
+			mockPortfolioIntelligenceService.analyzePositions as jest.Mock
+		).mockReturnValue({
 			facts: {
 				totalValue: 10000,
 				positionsCount: 2,
@@ -71,10 +73,16 @@ describe('UnifiedIntelligenceFacade', () => {
 	});
 
 	it('returns risk and concentration analysis from portfolio intelligence', () => {
-		(mockPortfolioIntelligenceService.analyzePositions as jest.Mock).mockReturnValue({
+		(
+			mockPortfolioIntelligenceService.analyzePositions as jest.Mock
+		).mockReturnValue({
 			facts: {
-				concentrationByAsset: [{ key: 'PETR4', percentage: 40, severity: 'high' }],
-				concentrationBySector: [{ key: 'ENERGY', percentage: 55, severity: 'high' }],
+				concentrationByAsset: [
+					{ key: 'PETR4', percentage: 40, severity: 'high' },
+				],
+				concentrationBySector: [
+					{ key: 'ENERGY', percentage: 55, severity: 'high' },
+				],
 			},
 			estimates: {
 				risk: { score: 78, level: 'high' },
@@ -93,7 +101,9 @@ describe('UnifiedIntelligenceFacade', () => {
 	});
 
 	it('delegates asset fit analysis to portfolio intelligence engine', () => {
-		(mockPortfolioIntelligenceService.analyzePortfolioFit as jest.Mock).mockReturnValue({
+		(
+			mockPortfolioIntelligenceService.analyzePortfolioFit as jest.Mock
+		).mockReturnValue({
 			classification: 'bom',
 			impact: {
 				diversification: { deltaScore: 5 },

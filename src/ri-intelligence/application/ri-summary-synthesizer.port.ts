@@ -21,4 +21,3 @@ export interface RiSummarySynthesizerPort {
 }
 
 export const RI_SUMMARY_SYNTHESIZER = Symbol('RI_SUMMARY_SYNTHESIZER');
-

@@ -27,4 +27,3 @@ export class InMemoryRiSummaryCacheAdapter<T> implements RiSummaryCachePort<T> {
 		});
 	}
 }
-

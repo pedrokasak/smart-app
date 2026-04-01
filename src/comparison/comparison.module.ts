@@ -9,4 +9,3 @@ import { PortfolioModule } from 'src/portfolio/portfolio.module';
 	exports: [ComparisonEngineService],
 })
 export class ComparisonModule {}
-

@@ -9,7 +9,12 @@ import { MarketDataModule } from 'src/market-data/market-data.module';
 import { PortfolioModule } from 'src/portfolio/portfolio.module';
 
 @Module({
-	imports: [PortfolioModule, TaxEngineModule, ComparisonModule, MarketDataModule],
+	imports: [
+		PortfolioModule,
+		TaxEngineModule,
+		ComparisonModule,
+		MarketDataModule,
+	],
 	providers: [
 		UnifiedIntelligenceFacade,
 		OpportunityRadarService,

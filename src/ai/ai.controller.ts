@@ -77,7 +77,8 @@ export class AiController {
 		@Request() req: any,
 		@Body() body: IntelligentChatRequestDto
 	): Promise<any> {
-		const userId = req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
+		const userId =
+			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
 		return this.intelligentChatService.respond(userId, body?.question);
 	}
 }

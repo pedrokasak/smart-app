@@ -23,9 +23,8 @@ export class PremiumInsightsService {
 		const warnings: string[] = [];
 		const insights: PremiumInsightItem[] = [];
 
-		const portfolioAnalysis = this.portfolioIntelligenceService.analyzePositions(
-			input.positions
-		);
+		const portfolioAnalysis =
+			this.portfolioIntelligenceService.analyzePositions(input.positions);
 		const portfolioRisk = portfolioAnalysis.estimates.risk;
 		const topAsset = portfolioAnalysis.facts.concentrationByAsset[0];
 		const topSector = portfolioAnalysis.facts.concentrationBySector.find(
@@ -130,7 +129,8 @@ export class PremiumInsightsService {
 				category: 'fiscal',
 				title: 'Prejuizo compensavel disponivel',
 				justification: ['Existe base fiscal para compensacao em lucro futuro.'],
-				suggestedAction: 'Incluir criterio fiscal nas proximas simulacoes de venda.',
+				suggestedAction:
+					'Incluir criterio fiscal nas proximas simulacoes de venda.',
 				relatedSymbols: [],
 				origin: 'tax_engine',
 				score: 58,
@@ -179,7 +179,9 @@ export class PremiumInsightsService {
 		};
 	}
 
-	private resolveConflicts(insights: PremiumInsightItem[]): PremiumInsightItem[] {
+	private resolveConflicts(
+		insights: PremiumInsightItem[]
+	): PremiumInsightItem[] {
 		const riskSymbols = new Set(
 			insights
 				.filter((item) => item.category === 'risk')
@@ -187,13 +189,18 @@ export class PremiumInsightsService {
 		);
 		return insights.map((item) => {
 			if (item.category !== 'opportunity') return item;
-			const hasConflict = item.relatedSymbols.some((symbol) => riskSymbols.has(symbol));
+			const hasConflict = item.relatedSymbols.some((symbol) =>
+				riskSymbols.has(symbol)
+			);
 			if (!hasConflict) return item;
 			return {
 				...item,
 				score: Math.max(item.score - 20, 0),
 				justification: Array.from(
-					new Set([...item.justification, 'Conflito com sinal de risco para o mesmo ativo.'])
+					new Set([
+						...item.justification,
+						'Conflito com sinal de risco para o mesmo ativo.',
+					])
 				),
 			};
 		});

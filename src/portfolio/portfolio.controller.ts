@@ -691,7 +691,7 @@ const parseB3Workbook = (
 			const rawName =
 				kind === 'lca'
 					? row['Produto']
-					: row['Descrição'] ?? row['Descricao'] ?? row['Produto'];
+					: (row['Descrição'] ?? row['Descricao'] ?? row['Produto']);
 			const name = normalizeAssetName(rawName);
 
 			let quantity = normalizeNumber(row[COLUMN_QUANTITY]) ?? 0;

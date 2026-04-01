@@ -2,7 +2,8 @@ import { SimulateSaleImpactUseCase } from 'src/fiscal/tax-engine/application/sim
 import { SimulateSellUseCase } from 'src/fiscal/tax-engine/application/simulate-sell.use-case';
 
 describe('SimulateSaleImpactUseCase', () => {
-	const makeUseCase = () => new SimulateSaleImpactUseCase(new SimulateSellUseCase());
+	const makeUseCase = () =>
+		new SimulateSaleImpactUseCase(new SimulateSellUseCase());
 
 	it('supports partial sell simulation', () => {
 		const useCase = makeUseCase();
@@ -101,4 +102,3 @@ describe('SimulateSaleImpactUseCase', () => {
 		expect(result.estimatedTax).toBe(10);
 	});
 });
-

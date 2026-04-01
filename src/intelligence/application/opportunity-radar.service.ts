@@ -46,14 +46,22 @@ export class OpportunityRadarService {
 		const watchlist = Array.from(
 			new Set(
 				(input.watchlistSymbols || [])
-					.map((item) => String(item || '').trim().toUpperCase())
+					.map((item) =>
+						String(item || '')
+							.trim()
+							.toUpperCase()
+					)
 					.filter(Boolean)
 			)
 		);
 		const candidateSymbols = Array.from(
 			new Set(
 				[...(input.candidateSymbols || []), ...watchlist]
-					.map((item) => String(item || '').trim().toUpperCase())
+					.map((item) =>
+						String(item || '')
+							.trim()
+							.toUpperCase()
+					)
 					.filter(Boolean)
 			)
 		);
@@ -72,9 +80,8 @@ export class OpportunityRadarService {
 			};
 		}
 
-		const snapshots = await this.marketDataProvider.getManyAssetSnapshots(
-			candidateSymbols
-		);
+		const snapshots =
+			await this.marketDataProvider.getManyAssetSnapshots(candidateSymbols);
 		const snapshotBySymbol = new Map(
 			snapshots.map((snapshot) => [snapshot.symbol.toUpperCase(), snapshot])
 		);
@@ -82,7 +89,10 @@ export class OpportunityRadarService {
 			(symbol) => !snapshotBySymbol.has(symbol)
 		);
 		const portfolioBySymbol = new Map(
-			portfolioPositions.map((position) => [position.symbol.toUpperCase(), position])
+			portfolioPositions.map((position) => [
+				position.symbol.toUpperCase(),
+				position,
+			])
 		);
 		const underallocatedSectors = this.resolveUnderallocatedSectors(
 			portfolioPositions,
@@ -103,7 +113,10 @@ export class OpportunityRadarService {
 
 			const inWatchlist = watchlist.includes(symbol);
 			const currentPosition = portfolioBySymbol.get(symbol);
-			const candidateValue = this.resolveCandidateValue(snapshot, currentPosition);
+			const candidateValue = this.resolveCandidateValue(
+				snapshot,
+				currentPosition
+			);
 			const fit = this.portfolioIntelligenceService.analyzePortfolioFit(
 				portfolioPositions,
 				{
@@ -129,7 +142,12 @@ export class OpportunityRadarService {
 				warnings.push(`fallback_data:${symbol}`);
 			}
 
-			if (!hasAttractiveSignal && !hasFitSignal && !isSectorUnderallocated && !inWatchlist) {
+			if (
+				!hasAttractiveSignal &&
+				!hasFitSignal &&
+				!isSectorUnderallocated &&
+				!inWatchlist
+			) {
 				if (hasRiskSignal) {
 					rawSignals.push({
 						id: `risk:${symbol}:fit`,
@@ -281,7 +299,9 @@ export class OpportunityRadarService {
 		rules: OpportunityRadarRuleConfig
 	): OpportunityRadarSignal[] {
 		const ranked = [...rawSignals].sort((a, b) => b.score - a.score);
-		const maxTotal = Number(rules.maxSignalsTotal || DEFAULT_RULES.maxSignalsTotal || 8);
+		const maxTotal = Number(
+			rules.maxSignalsTotal || DEFAULT_RULES.maxSignalsTotal || 8
+		);
 		const limitsByKind = {
 			...DEFAULT_RULES.maxSignalsPerKind,
 			...(rules.maxSignalsPerKind || {}),
@@ -312,7 +332,8 @@ export class OpportunityRadarService {
 		tolerancePct: number
 	): OpportunityRadarOutput['underallocatedSectors'] {
 		if (!targets || !Object.keys(targets).length) return [];
-		const analysis = this.portfolioIntelligenceService.analyzePositions(positions);
+		const analysis =
+			this.portfolioIntelligenceService.analyzePositions(positions);
 		const sectorByKey = new Map(
 			analysis.facts.concentrationBySector.map((entry) => [
 				String(entry.key || '').toUpperCase(),
@@ -322,7 +343,9 @@ export class OpportunityRadarService {
 
 		return Object.entries(targets)
 			.map(([sector, targetPercentage]) => {
-				const key = String(sector || '').trim().toUpperCase();
+				const key = String(sector || '')
+					.trim()
+					.toUpperCase();
 				const target = Number(targetPercentage || 0);
 				if (!key || !Number.isFinite(target) || target <= 0) return null;
 				const current = Number(sectorByKey.get(key) || 0);
@@ -385,7 +408,8 @@ export class OpportunityRadarService {
 	}): OpportunityRadarOpportunity {
 		const sector = String(input.snapshot.sector || 'UNKNOWN').toUpperCase();
 		const sectorGap =
-			input.underallocatedSectors.find((item) => item.sector === sector) || null;
+			input.underallocatedSectors.find((item) => item.sector === sector) ||
+			null;
 		return {
 			symbol: input.snapshot.symbol,
 			type: input.opportunityType,
@@ -416,8 +440,7 @@ export class OpportunityRadarService {
 			},
 			expectedPortfolioImpact: {
 				fitClassification: input.fit.classification,
-				diversificationDeltaScore:
-					input.fit.impact.diversification.deltaScore,
+				diversificationDeltaScore: input.fit.impact.diversification.deltaScore,
 				sectorDeltaPercentage:
 					input.fit.impact.sectorConcentration.deltaPercentage,
 				underallocatedSectorGap: sectorGap?.deltaPercentage || null,

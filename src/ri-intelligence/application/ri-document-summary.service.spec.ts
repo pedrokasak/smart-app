@@ -154,4 +154,3 @@ describe('RiDocumentSummaryService', () => {
 		expect(synthesizer.summarize).not.toHaveBeenCalled();
 	});
 });
-

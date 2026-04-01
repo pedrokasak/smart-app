@@ -34,7 +34,9 @@ export class UnifiedIntelligenceFacade {
 		private readonly premiumInsightsService: PremiumInsightsService
 	) {}
 
-	getPortfolioSummary(input: UnifiedPortfolioContextInput): UnifiedPortfolioSummaryOutput {
+	getPortfolioSummary(
+		input: UnifiedPortfolioContextInput
+	): UnifiedPortfolioSummaryOutput {
 		const analysis = this.portfolioIntelligenceService.analyzePositions(
 			input.positions,
 			input.thresholds,
@@ -52,7 +54,9 @@ export class UnifiedIntelligenceFacade {
 		};
 	}
 
-	getPortfolioRiskAnalysis(input: UnifiedPortfolioContextInput): UnifiedPortfolioRiskOutput {
+	getPortfolioRiskAnalysis(
+		input: UnifiedPortfolioContextInput
+	): UnifiedPortfolioRiskOutput {
 		const analysis = this.portfolioIntelligenceService.analyzePositions(
 			input.positions,
 			input.thresholds,
@@ -75,7 +79,9 @@ export class UnifiedIntelligenceFacade {
 		);
 	}
 
-	compareAssets(input: UnifiedCompareAssetsInput): Promise<UnifiedCompareAssetsOutput> {
+	compareAssets(
+		input: UnifiedCompareAssetsInput
+	): Promise<UnifiedCompareAssetsOutput> {
 		return this.comparisonEngineService.compareAssets({
 			symbols: input.symbols,
 			portfolioPositions: input.portfolioPositions,
@@ -87,7 +93,9 @@ export class UnifiedIntelligenceFacade {
 		return this.taxEngineService.simulateSaleImpact(input);
 	}
 
-	detectOpportunities(input: OpportunityRadarInput): Promise<OpportunityRadarOutput> {
+	detectOpportunities(
+		input: OpportunityRadarInput
+	): Promise<OpportunityRadarOutput> {
 		return this.opportunityRadarService.detect(input);
 	}
 
@@ -95,7 +103,9 @@ export class UnifiedIntelligenceFacade {
 		return this.futureSimulatorService.simulate(input);
 	}
 
-	getPremiumInsights(input: PremiumInsightsInput): Promise<PremiumInsightsOutput> {
+	getPremiumInsights(
+		input: PremiumInsightsInput
+	): Promise<PremiumInsightsOutput> {
 		return this.premiumInsightsService.generate(input);
 	}
 }

@@ -118,7 +118,9 @@ describe('UsersService', () => {
 
 		it('should continue when welcome email fails', async () => {
 			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
-			emailService.sendWelcomeEmail.mockRejectedValueOnce(new Error('mail down'));
+			emailService.sendWelcomeEmail.mockRejectedValueOnce(
+				new Error('mail down')
+			);
 
 			const mockSave = jest.fn().mockResolvedValue(true);
 			(UserModel as any).mockImplementationOnce(() => ({
