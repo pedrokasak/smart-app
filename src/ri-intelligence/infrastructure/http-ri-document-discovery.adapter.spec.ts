@@ -51,4 +51,34 @@ describe('HttpRiDocumentDiscoveryAdapter', () => {
 
 		expect(output).toEqual([]);
 	});
+
+	it('keeps recent guidance links even when url has no pdf extension', async () => {
+		global.fetch = jest
+			.fn()
+			.mockResolvedValueOnce({
+				ok: true,
+				headers: { get: () => 'text/html; charset=utf-8' },
+				text: async () =>
+					`<html><body>
+						<a href="/documents/d/guest/vale-guidance-2026">Guidance 2026 - March update</a>
+					</body></html>`,
+			})
+			.mockResolvedValue({
+				ok: false,
+				headers: { get: () => 'text/html' },
+				text: async () => '',
+			});
+
+		const output = await adapter.discover({
+			ticker: 'VALE3',
+			company: 'Vale S.A.',
+			origin: 'https://vale.com/ri',
+		});
+
+		expect(output.length).toBeGreaterThan(0);
+		expect(output[0].source.value).toBe(
+			'https://vale.com/documents/d/guest/vale-guidance-2026'
+		);
+		expect(output[0].documentType).toBe('other_ri_document');
+	});
 });

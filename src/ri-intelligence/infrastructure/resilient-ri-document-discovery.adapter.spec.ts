@@ -39,7 +39,7 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 
 		expect(output).toHaveLength(1);
 		expect(output[0].ticker).toBe('ITUB4');
-		expect(fallback.discover).not.toHaveBeenCalled();
+		expect(fallback.discover).toHaveBeenCalledTimes(1);
 	});
 
 	it('falls back to in-memory provider when primary fails or is empty', async () => {
@@ -60,6 +60,36 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 		expect(output).toHaveLength(1);
 		expect(output[0].ticker).toBe('PETR4');
 		expect(fallback.discover).toHaveBeenCalledTimes(1);
+	});
+
+	it('returns fallback quickly when primary is slow', async () => {
+		const primary: RiDocumentDiscoveryPort = {
+			discover: jest
+				.fn()
+				.mockImplementation(
+					() =>
+						new Promise<RiDocumentRecord[]>((resolve) =>
+							setTimeout(() => resolve([baseDocument('ITUB4')]), 200)
+						)
+				),
+		};
+		const fallback: RiDocumentDiscoveryPort = {
+			discover: jest.fn().mockResolvedValue([baseDocument('PETR4')]),
+		};
+
+		const adapter = new ResilientRiDocumentDiscoveryAdapter(
+			primary,
+			fallback,
+			20
+		);
+		const output = await adapter.discover({
+			ticker: 'PETR4',
+			company: 'Petrobras',
+			origin: 'https://ri.example.com',
+		});
+
+		expect(output).toHaveLength(1);
+		expect(output[0].ticker).toBe('PETR4');
 	});
 
 	it('merges primary and fallback documents without duplicates', async () => {

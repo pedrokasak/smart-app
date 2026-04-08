@@ -151,6 +151,8 @@ const GENERIC_RI_ALIASES = [
 	'documento',
 	'resultado',
 	'mercado',
+	'guidance',
+	'outlook',
 ];
 
 function normalize(value: unknown): string {
