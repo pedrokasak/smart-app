@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
-import { IntelligentChatService } from './intelligence/intelligent-chat.service';
+import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -17,8 +17,8 @@ const mockAiService = {
 	chat: jest.fn(),
 };
 
-const mockIntelligentChatService = {
-	respond: jest.fn(),
+const mockChatOrchestratorService = {
+	orchestrate: jest.fn(),
 };
 
 describe('AiController', () => {
@@ -30,8 +30,8 @@ describe('AiController', () => {
 			providers: [
 				{ provide: AiService, useValue: mockAiService },
 				{
-					provide: IntelligentChatService,
-					useValue: mockIntelligentChatService,
+					provide: ChatOrchestratorService,
+					useValue: mockChatOrchestratorService,
 				},
 			],
 		}).compile();
@@ -156,13 +156,20 @@ describe('AiController', () => {
 	});
 
 	it('should call intelligent chat and return structured response', async () => {
-		mockIntelligentChatService.respond.mockResolvedValue({
+		mockChatOrchestratorService.orchestrate.mockResolvedValue({
 			intent: 'portfolio_summary',
 			deterministic: true,
-			portfolioFacts: { totalValue: 1000 },
-			externalData: null,
-			estimates: {},
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			data: {
+				portfolioSummary: { totalValue: 1000 },
+			},
 			unavailable: [],
+			warnings: [],
+			assumptions: [],
 			message: 'ok',
 		});
 
@@ -172,7 +179,8 @@ describe('AiController', () => {
 		);
 
 		expect(response.intent).toBe('portfolio_summary');
-		expect(mockIntelligentChatService.respond).toHaveBeenCalledWith(
+		expect(response.data?.portfolioSummary?.totalValue).toBe(1000);
+		expect(mockChatOrchestratorService.orchestrate).toHaveBeenCalledWith(
 			'user-123',
 			'Resumo da carteira'
 		);

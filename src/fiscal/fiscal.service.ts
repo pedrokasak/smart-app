@@ -32,9 +32,44 @@ export interface FiscalAccumulatedLossSummary {
 	total: number;
 }
 
+export interface FiscalTaxDriverSummary {
+	symbol: string;
+	category: 'stock' | 'fii' | 'crypto';
+	operations: number;
+	grossSales: number;
+	realizedProfit: number;
+	estimatedTax: number;
+	taxRate: number;
+	reason: string;
+}
+
 @Injectable()
 export class FiscalService {
 	constructor(private readonly averagePriceService: AveragePriceService) {}
+
+	normalizeSellQuantity(
+		requestedQuantity: number,
+		currentQuantity: number
+	): { effectiveQuantity: number; warning: string | null } {
+		const requested = Number(requestedQuantity || 0);
+		const current = Number(currentQuantity || 0);
+		if (requested <= 0 || current <= 0) {
+			return {
+				effectiveQuantity: 0,
+				warning: null,
+			};
+		}
+		if (requested <= current) {
+			return {
+				effectiveQuantity: requested,
+				warning: null,
+			};
+		}
+		return {
+			effectiveQuantity: current,
+			warning: `Quantidade solicitada (${requested}) maior que posição atual (${current}). Simulação ajustada para a quantidade disponível.`,
+		};
+	}
 
 	calculateAveragePrice(trades: Trade[]) {
 		return this.averagePriceService.calculate(trades);
@@ -275,6 +310,111 @@ export class FiscalService {
 		});
 	}
 
+	calculateTaxDrivers(
+		trades: Trade[],
+		assetTypeBySymbol: Record<string, string> = {}
+	): FiscalTaxDriverSummary[] {
+		const sorted = [...trades].sort(
+			(a, b) => a.date.getTime() - b.date.getTime()
+		);
+		const positionBySymbol = new Map<string, PositionState>();
+
+		const stockSalesByMonth = new Map<string, number>();
+		for (const trade of sorted) {
+			if (trade.side !== 'sell') continue;
+			const symbol = String(trade.assetSymbol || '').toUpperCase();
+			const category = this.getCategory(symbol, assetTypeBySymbol[symbol]);
+			if (category !== 'stock') continue;
+			const monthKey = this.toMonthKey(trade.date);
+			const gross = Number(trade.quantity || 0) * Number(trade.price || 0);
+			stockSalesByMonth.set(monthKey, (stockSalesByMonth.get(monthKey) || 0) + gross);
+		}
+
+		const grouped = new Map<string, FiscalTaxDriverSummary>();
+		for (const trade of sorted) {
+			const symbol = String(trade.assetSymbol || '').toUpperCase();
+			if (!symbol) continue;
+			const category = this.getCategory(symbol, assetTypeBySymbol[symbol]);
+			const quantity = Number(trade.quantity || 0);
+			const price = Number(trade.price || 0);
+			const fees = Number(trade.fees || 0);
+			const position = positionBySymbol.get(symbol) ?? { qty: 0, totalCost: 0 };
+
+			if (trade.side === 'buy') {
+				position.qty += quantity;
+				position.totalCost += quantity * price + fees;
+				positionBySymbol.set(symbol, position);
+				continue;
+			}
+
+			const avgPrice = position.qty > 0 ? position.totalCost / position.qty : 0;
+			const realizedPnl = (price - avgPrice) * quantity - fees;
+			position.qty -= quantity;
+			position.totalCost -= avgPrice * quantity;
+			if (position.qty <= 0) {
+				position.qty = 0;
+				position.totalCost = 0;
+			}
+			positionBySymbol.set(symbol, position);
+
+			const gross = quantity * price;
+			const monthKey = this.toMonthKey(trade.date);
+			const monthStockSales = stockSalesByMonth.get(monthKey) || 0;
+			const isStockExempt = category === 'stock' && monthStockSales <= 20000;
+			const taxRate = category === 'fii' ? 0.2 : 0.15;
+
+			let estimatedTax = 0;
+			let reason = 'Operação sem lucro tributável.';
+			if (realizedPnl > 0) {
+				if (isStockExempt) {
+					reason =
+						'Vendas mensais de ações abaixo do limite de isenção (R$ 20.000).';
+				} else {
+					estimatedTax = realizedPnl * taxRate;
+					reason =
+						category === 'stock'
+							? 'Venda com lucro tributável em ações (mês acima de R$ 20.000).'
+							: category === 'fii'
+								? 'Venda com lucro tributável em FII (alíquota de 20%).'
+								: 'Venda com lucro tributável (alíquota estimada de 15%).';
+				}
+			}
+
+			const current = grouped.get(symbol) || {
+				symbol,
+				category,
+				operations: 0,
+				grossSales: 0,
+				realizedProfit: 0,
+				estimatedTax: 0,
+				taxRate,
+				reason,
+			};
+
+			current.operations += 1;
+			current.grossSales += gross;
+			current.realizedProfit += realizedPnl;
+			current.estimatedTax += estimatedTax;
+			if (estimatedTax > 0) {
+				current.reason = reason;
+				current.taxRate = taxRate;
+			}
+			grouped.set(symbol, current);
+		}
+
+		return Array.from(grouped.values())
+			.map((item) => ({
+				...item,
+				grossSales: this.round(item.grossSales),
+				realizedProfit: this.round(item.realizedProfit),
+				estimatedTax: this.round(item.estimatedTax),
+			}))
+			.sort((a, b) => {
+				if (b.estimatedTax !== a.estimatedTax) return b.estimatedTax - a.estimatedTax;
+				return b.realizedProfit - a.realizedProfit;
+			});
+	}
+
 	estimateSaleTax(params: {
 		symbol: string;
 		quantity: number;
@@ -325,5 +465,11 @@ export class FiscalService {
 
 	private round(value: number): number {
 		return Math.round((Number(value) || 0) * 100) / 100;
+	}
+
+	private toMonthKey(date: Date): string {
+		const year = date.getUTCFullYear();
+		const month = date.getUTCMonth() + 1;
+		return `${year}-${String(month).padStart(2, '0')}`;
 	}
 }

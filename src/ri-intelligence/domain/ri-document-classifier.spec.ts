@@ -60,6 +60,16 @@ describe('ri-document-classifier', () => {
 		expect(result.score).toBe(0);
 	});
 
+	it('classifies guidance updates as other_ri_document when no specific type alias matches', () => {
+		const result = classifyRiDocumentType({
+			title: 'Guidance 2026 - March update',
+			url: 'https://vale.com/documents/d/guest/vale-guidance-2026',
+		});
+
+		expect(result.documentType).toBe('other_ri_document');
+		expect(result.confidence).toBe('low');
+	});
+
 	it('resolves conflicts by score and then priority', () => {
 		const result = classifyRiDocumentType({
 			title: 'Fato Relevante e Release de Resultados',
