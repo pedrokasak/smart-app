@@ -25,7 +25,7 @@ export class InMemoryRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPo
 	private readonly catalog: Record<string, CatalogEntry[]> = {
 		BBDC4: [
 			{
-				title: 'Release de Resultados 4T25',
+				title: 'Earnings Release 4Q25',
 				period: '4T25',
 				publishedAt: '2026-02-06T00:00:00.000Z',
 				source: {
@@ -35,8 +35,8 @@ export class InMemoryRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPo
 				},
 			},
 			{
-				title: 'Apresentação Institucional',
-				subtitle: 'Resultados e estratégia',
+				title: 'Investor Presentation',
+				subtitle: 'Results and strategy',
 				period: '2026',
 				publishedAt: '2026-01-20T00:00:00.000Z',
 				source: {
@@ -48,7 +48,7 @@ export class InMemoryRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPo
 		],
 		ITUB4: [
 			{
-				title: 'Release de Resultados 4T25',
+				title: 'Earnings Release 4Q25',
 				period: '4T25',
 				publishedAt: '2026-02-05T00:00:00.000Z',
 				source: {
@@ -58,7 +58,7 @@ export class InMemoryRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPo
 				},
 			},
 			{
-				title: 'Fato Relevante - Atualização Estratégica',
+				title: 'Material Fact - Strategic Update',
 				period: null,
 				publishedAt: '2026-02-14T00:00:00.000Z',
 				source: {
@@ -70,7 +70,7 @@ export class InMemoryRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPo
 		],
 		BBAS3: [
 			{
-				title: 'Aviso aos Acionistas - Dividendos',
+				title: 'Shareholder Notice - Dividends',
 				period: '2026',
 				publishedAt: '2026-02-01T00:00:00.000Z',
 				source: {
@@ -82,7 +82,7 @@ export class InMemoryRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPo
 		],
 		PETR4: [
 			{
-				title: 'Release de Resultados 4T25',
+				title: 'Earnings Release 4Q25',
 				period: '4T25',
 				publishedAt: '2026-02-26T00:00:00.000Z',
 				source: {

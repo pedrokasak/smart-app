@@ -231,6 +231,8 @@ export class HttpRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 			'acionista',
 			'relacoes-com-investidores',
 			'investor',
+			'guidance',
+			'outlook',
 		].some((keyword) => context.includes(keyword));
 
 		return hasPdfExtension || hasRiHint;
