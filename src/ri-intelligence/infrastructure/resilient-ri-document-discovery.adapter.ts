@@ -10,22 +10,28 @@ export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryP
 	private readonly providerTimeoutMs: number;
 
 	constructor(
-		private readonly primary: RiDocumentDiscoveryPort,
-		private readonly fallback: RiDocumentDiscoveryPort,
-		providerTimeoutMs = 5500
+		private readonly cvmAdapter: RiDocumentDiscoveryPort,
+		private readonly fiiAdapter: RiDocumentDiscoveryPort,
+		private readonly fallbackAdapter: RiDocumentDiscoveryPort,
+		providerTimeoutMs = 45000
 	) {
 		this.providerTimeoutMs = providerTimeoutMs;
 	}
 
 	async discover(input: RiDocumentDiscoveryInput): Promise<RiDocumentRecord[]> {
-		const [primaryDocs, fallbackDocs] = await Promise.all([
-			this.safeDiscoverWithTimeout(this.primary, input),
-			this.safeDiscoverWithTimeout(this.fallback, input),
-		]);
-		if (!primaryDocs.length) return fallbackDocs;
-		if (!fallbackDocs.length) return primaryDocs;
+		const isFii = input.ticker.toUpperCase().endsWith('11');
+		
+		let primaryDocs: RiDocumentRecord[] = [];
+		if (isFii) {
+			primaryDocs = await this.safeDiscoverWithTimeout(this.fiiAdapter, input);
+		} else {
+			primaryDocs = await this.safeDiscoverWithTimeout(this.cvmAdapter, input);
+		}
 
-		return this.mergeWithoutDuplicates(primaryDocs, fallbackDocs);
+		if (primaryDocs.length > 0) return primaryDocs;
+
+		const fallbackDocs = await this.safeDiscoverWithTimeout(this.fallbackAdapter, input);
+		return fallbackDocs;
 	}
 
 	private async safeDiscoverWithTimeout(

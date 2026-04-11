@@ -409,4 +409,124 @@ describe('RiDocumentCatalogService', () => {
 
 		expect(output).toEqual({ url: 'https://ri.example.com/bbdc4/4t25.pdf' });
 	});
+
+	it('retrieves current expected quarter earnings release when available', async () => {
+		const { service } = makeService({
+			matches: [{ ticker: 'VALE3', company: 'Vale S.A.' }],
+			documents: [
+				baseDocument({
+					ticker: 'VALE3',
+					company: 'Vale S.A.',
+					period: '1T26',
+					title: 'Release de Resultados 1T26',
+					publishedAt: '2026-04-30T00:00:00.000Z',
+					source: { type: 'url', value: 'https://vale.com/ri/1t26.pdf' },
+				}),
+				baseDocument({
+					ticker: 'VALE3',
+					company: 'Vale S.A.',
+					period: '4T25',
+					title: 'Release de Resultados 4T25',
+					publishedAt: '2026-02-28T00:00:00.000Z',
+					source: { type: 'url', value: 'https://vale.com/ri/4t25.pdf' },
+				}),
+			],
+		});
+
+		const output = await service.retrieveMostRelevantDocument({
+			ticker: 'VALE3',
+			asOfDate: '2026-05-10T00:00:00.000Z',
+		});
+
+		expect(output.status).toBe('found');
+		expect(output.document?.period).toBe('1T26');
+		expect(output.selection.applied).toBe('current_quarter_release');
+		expect(output.selection.fallbackApplied).toBe(false);
+	});
+
+	it('falls back explicitly to previous quarter release when current quarter is unavailable', async () => {
+		const { service } = makeService({
+			matches: [{ ticker: 'VALE3', company: 'Vale S.A.' }],
+			documents: [
+				baseDocument({
+					ticker: 'VALE3',
+					company: 'Vale S.A.',
+					period: '4T25',
+					title: 'Release de Resultados 4T25',
+					publishedAt: '2026-02-28T00:00:00.000Z',
+					source: { type: 'url', value: 'https://vale.com/ri/4t25.pdf' },
+				}),
+			],
+		});
+
+		const output = await service.retrieveMostRelevantDocument({
+			ticker: 'VALE3',
+			asOfDate: '2026-05-10T00:00:00.000Z',
+		});
+
+		expect(output.status).toBe('found');
+		expect(output.document?.period).toBe('4T25');
+		expect(output.selection.applied).toBe('previous_quarter_release_fallback');
+		expect(output.selection.fallbackApplied).toBe(true);
+		expect(output.selection.fallbackReason).toBe(
+			'ri_previous_quarter_release_fallback'
+		);
+		expect(output.warnings).toContain('ri_current_quarter_release_unavailable');
+	});
+
+	it('returns most recent requested type when no earnings release exists', async () => {
+		const { service } = makeService({
+			matches: [{ ticker: 'VALE3', company: 'Vale S.A.' }],
+			documents: [
+				baseDocument({
+					ticker: 'VALE3',
+					company: 'Vale S.A.',
+					documentType: 'material_fact',
+					title: 'Fato Relevante',
+					publishedAt: '2026-04-01T00:00:00.000Z',
+					source: {
+						type: 'url',
+						value: 'https://vale.com/ri/fato-relevante-1.pdf',
+					},
+				}),
+				baseDocument({
+					ticker: 'VALE3',
+					company: 'Vale S.A.',
+					documentType: 'material_fact',
+					title: 'Fato Relevante - Atualização',
+					publishedAt: '2026-04-25T00:00:00.000Z',
+					source: {
+						type: 'url',
+						value: 'https://vale.com/ri/fato-relevante-2.pdf',
+					},
+				}),
+			],
+		});
+
+		const output = await service.retrieveMostRelevantDocument({
+			ticker: 'VALE3',
+			documentType: 'material_fact',
+		});
+
+		expect(output.status).toBe('found');
+		expect(output.document?.documentType).toBe('material_fact');
+		expect(output.document?.publishedAt).toBe('2026-04-25T00:00:00.000Z');
+		expect(output.selection.applied).toBe('requested_type');
+	});
+
+	it('returns structured unavailable state when ticker has no official source', async () => {
+		const { service } = makeService({
+			matches: [{ ticker: 'ABCD3', company: 'Empresa Não Mapeada' }],
+			documents: [],
+		});
+
+		const output = await service.retrieveMostRelevantDocument({
+			ticker: 'ABCD3',
+		});
+
+		expect(output.status).toBe('unavailable');
+		expect(output.reason).toBe('source_not_resolved');
+		expect(output.warnings).toContain('ri_official_source_not_found');
+		expect(output.document).toBeNull();
+	});
 });

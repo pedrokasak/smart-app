@@ -50,6 +50,17 @@ export class RiIntelligenceController {
 		return this.catalogService.search(input);
 	}
 
+	@Get('documents/relevant')
+	async getMostRelevantDocument(
+		@Query('ticker') ticker = '',
+		@Query('documentType') documentType?: string
+	) {
+		return this.catalogService.retrieveMostRelevantDocument({
+			ticker,
+			documentType: this.parseDocumentType(documentType),
+		});
+	}
+
 	@Get('documents/:documentId/pdf')
 	async getDocumentPdf(
 		@Param('documentId') documentId: string,

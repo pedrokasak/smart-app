@@ -7,6 +7,7 @@ describe('RiIntelligenceController', () => {
 	const mockCatalogService = {
 		autocomplete: jest.fn(),
 		search: jest.fn(),
+		retrieveMostRelevantDocument: jest.fn(),
 		getDocumentPdf: jest.fn(),
 	};
 	const mockSummaryService = {
@@ -68,6 +69,21 @@ describe('RiIntelligenceController', () => {
 			documentType: undefined,
 			limit: 20,
 		});
+	});
+
+	it('delegates relevant document retrieval with parsed document type', async () => {
+		mockCatalogService.retrieveMostRelevantDocument.mockResolvedValue({
+			status: 'unavailable',
+		});
+
+		await controller.getMostRelevantDocument('VALE3', 'earnings_release');
+
+		expect(mockCatalogService.retrieveMostRelevantDocument).toHaveBeenCalledWith(
+			{
+				ticker: 'VALE3',
+				documentType: 'earnings_release',
+			}
+		);
 	});
 
 	it('returns not found when requested pdf does not exist', async () => {
