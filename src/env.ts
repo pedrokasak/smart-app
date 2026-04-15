@@ -16,6 +16,7 @@ const envSchema = z.object({
 	PORT: z.string().optional(),
 	ASAAS_API_KEY: z.string(),
 	ASAAS_URL_SANDBOX: z.string(),
+	GOOGLE_CLIENT_ID: z.string().optional(),
 });
 
 const isTestEnvironment = process.env.NODE_ENV === 'test';
@@ -62,3 +63,4 @@ export const stripeWebhookSecretProduction: string =
 export const port: string = env.data.PORT;
 export const asaasApiKey: string = env.data.ASAAS_API_KEY;
 export const asaasUrlSandbox: string = env.data.ASAAS_URL_SANDBOX;
+export const googleClientId: string | undefined = env.data.GOOGLE_CLIENT_ID;

@@ -23,6 +23,7 @@ import { UpdatePasswordDto } from './dto/update-password.dto';
 import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
 
 @Controller('auth')
 @ApiTags('authentication')
@@ -34,6 +35,13 @@ export class AuthenticationController {
 	@ApiOkResponse({ type: AuthenticationEntity })
 	signin(@Body() authSignIn: AuthenticateDto) {
 		return this.authService.signin(authSignIn);
+	}
+
+	@Public()
+	@Post('google/signin')
+	@ApiOkResponse({ type: AuthenticationEntity })
+	signinWithGoogle(@Body() payload: GoogleSigninDto) {
+		return this.authService.googleSignin(payload);
 	}
 
 	@Public()

@@ -18,6 +18,7 @@ describe('AuthenticationController', () => {
 
 	const mockAuthService = {
 		signin: jest.fn(),
+		googleSignin: jest.fn(),
 		signout: jest.fn(),
 		refreshAccessToken: jest.fn(),
 		updatePassword: jest.fn(),
@@ -59,6 +60,20 @@ describe('AuthenticationController', () => {
 			const result = await controller.signin(dto);
 
 			expect(authService.signin).toHaveBeenCalledWith(dto);
+			expect(result).toEqual(expected);
+		});
+	});
+
+	// --- SIGNOUT ---
+	describe('signinWithGoogle', () => {
+		it('should call authService.googleSignin and return result', async () => {
+			const dto = { idToken: 'google-id-token', keepConnected: false };
+			const expected = { accessToken: 'abc', refreshToken: 'xyz' };
+			mockAuthService.googleSignin.mockResolvedValue(expected);
+
+			const result = await controller.signinWithGoogle(dto as any);
+
+			expect(authService.googleSignin).toHaveBeenCalledWith(dto);
 			expect(result).toEqual(expected);
 		});
 	});

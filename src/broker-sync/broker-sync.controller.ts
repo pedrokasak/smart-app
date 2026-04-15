@@ -25,6 +25,7 @@ import { TradeModel } from 'src/fiscal/schema/trade.model';
 import { FiscalService } from 'src/fiscal/fiscal.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
+import { validateUploadFile } from 'src/broker-sync/security/upload-file.validator';
 
 type ParsedTrade = {
 	assetSymbol: string;
@@ -98,10 +99,12 @@ export class BrokerSyncController {
 			limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
 			fileFilter: (_req, file, cb) => {
 				const name = String(file.originalname || '').toLowerCase();
+				const mime = String(file.mimetype || '').toLowerCase();
 				const allowed =
-					(file.mimetype || '').includes('csv') ||
-					(file.mimetype || '').includes('pdf') ||
-					(file.mimetype || '').includes('sheet') ||
+					mime.includes('csv') ||
+					mime.includes('pdf') ||
+					mime.includes('sheet') ||
+					mime.includes('excel') ||
 					name.endsWith('.csv') ||
 					name.endsWith('.pdf') ||
 					name.endsWith('.xlsx') ||
@@ -123,15 +126,23 @@ export class BrokerSyncController {
 			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
 		const provider = body?.provider || 'unknown';
 		const originalName = String(file.originalname || '').toLowerCase();
+		const buffer = Buffer.from((file as any).buffer || '');
+		const validation = validateUploadFile({
+			buffer,
+			fileName: file.originalname || '',
+			mimeType: file.mimetype || '',
+		});
+		if (!validation.ok) {
+			return {
+				message: validation.reason || 'Arquivo rejeitado por validação de segurança',
+				status: 'failed',
+			};
+		}
 
-		const isCsv =
-			(file.mimetype || '').includes('csv') || originalName.endsWith('.csv');
-		const isPdf =
-			(file.mimetype || '').includes('pdf') || originalName.endsWith('.pdf');
+		const isCsv = validation.detectedKind === 'csv';
+		const isPdf = validation.detectedKind === 'pdf';
 		const isXlsx =
-			(file.mimetype || '').includes('sheet') ||
-			originalName.endsWith('.xlsx') ||
-			originalName.endsWith('.xls');
+			validation.detectedKind === 'xlsx' || validation.detectedKind === 'xls';
 		const isB3Report =
 			originalName.includes('b3') || originalName.includes('relatorio');
 
@@ -145,7 +156,6 @@ export class BrokerSyncController {
 			status: 'queued',
 		});
 
-		const buffer = Buffer.from((file as any).buffer || '');
 		setImmediate(async () => {
 			await this.processUploadAsync({
 				uploadId: upload._id.toString(),
@@ -283,14 +293,22 @@ export class BrokerSyncController {
 		isXlsx: boolean;
 		isB3Report: boolean;
 	}) {
-		const upload = await BrokerageNoteUploadModel.findById(params.uploadId);
+		const upload = await BrokerageNoteUploadModel.findOneAndUpdate(
+			{
+				_id: new Types.ObjectId(params.uploadId),
+				status: 'queued',
+			},
+			{
+				$set: {
+					status: 'processing',
+					errorMessage: null,
+				},
+			},
+			{ new: true }
+		);
 		if (!upload) return;
 
 		try {
-			upload.status = 'processing';
-			upload.errorMessage = null;
-			await upload.save();
-
 			let trades = params.isCsv
 				? parseTradesFromCsv(params.buffer.toString('utf8'))
 				: [];

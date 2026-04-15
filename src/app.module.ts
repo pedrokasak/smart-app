@@ -1,4 +1,9 @@
-import { Module } from '@nestjs/common';
+import {
+	MiddlewareConsumer,
+	Module,
+	NestModule,
+	RequestMethod,
+} from '@nestjs/common';
 import { AppController } from './app.controller';
 import { ConnectDatabase } from './database/database.service';
 import { AppService } from './app.service';
@@ -19,6 +24,7 @@ import { TwoFactorModule } from './two-factor/two-factor.module';
 import { BrokerSyncModule } from './broker-sync/broker-sync.module';
 import { FiscalModule } from './fiscal/fiscal.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
+import { EndpointRateLimitMiddleware } from 'src/security/rate-limit/endpoint-rate-limit.middleware';
 
 @Module({
 	imports: [
@@ -45,4 +51,10 @@ import { PortfolioModule } from './portfolio/portfolio.module';
 		{ provide: APP_GUARD, useClass: JwtAuthGuard },
 	],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+	configure(consumer: MiddlewareConsumer) {
+		consumer
+			.apply(EndpointRateLimitMiddleware)
+			.forRoutes({ path: '*', method: RequestMethod.ALL });
+	}
+}
