@@ -5,16 +5,20 @@ import {
 	IsEmpty,
 	IsNotEmpty,
 	IsString,
+	MaxLength,
 	MinLength,
 } from 'class-validator';
 
 export class AuthenticateDto {
 	@IsEmail()
+	@MaxLength(254)
 	@ApiProperty()
 	@IsNotEmpty({ message: 'The email is not empty' })
 	email: string;
 
 	@MinLength(6)
+	@MaxLength(128)
+	@IsString()
 	@ApiProperty()
 	@IsNotEmpty({ message: 'The password is not empty' })
 	password: string;

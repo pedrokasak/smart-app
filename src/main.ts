@@ -17,7 +17,7 @@ async function bootstrap() {
 	}
 
 	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
-	app.use(bodyParser.json());
+	app.use(bodyParser.json({ limit: '1mb' }));
 
 	app.enableCors({
 		origin: [
@@ -40,7 +40,13 @@ async function bootstrap() {
 		credentials: true,
 	});
 
-	app.useGlobalPipes(new ValidationPipe());
+	app.useGlobalPipes(
+		new ValidationPipe({
+			whitelist: true,
+			forbidNonWhitelisted: true,
+			transform: true,
+		})
+	);
 
 	const port = process.env.PORT || 3000;
 
