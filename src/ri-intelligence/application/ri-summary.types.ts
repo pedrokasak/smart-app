@@ -11,6 +11,7 @@ export interface RiStructuredSignals {
 	profit: RiStructuredSignalItem;
 	margin: RiStructuredSignalItem;
 	indebtedness: RiStructuredSignalItem;
+	capex: RiStructuredSignalItem;
 	guidance: RiStructuredSignalItem;
 	risks: RiStructuredSignalItem;
 	toneShift: RiStructuredSignalItem;

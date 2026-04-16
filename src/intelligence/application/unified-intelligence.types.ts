@@ -4,6 +4,10 @@ import {
 	SellSimulationOutput,
 } from 'src/fiscal/tax-engine/domain/tax-engine.types';
 import {
+	TrackerrScoreInput,
+	TrackerrScoreOutput,
+} from 'src/intelligence/application/trackerr-score.types';
+import {
 	PortfolioFitAnalysisOutput,
 	PortfolioFitCandidateInput,
 	PortfolioIntelligenceOutput,
@@ -53,6 +57,19 @@ export type UnifiedCompareAssetsOutput = ComparisonEngineOutput;
 
 export type UnifiedSellSimulationInput = SellSimulationInput;
 export type UnifiedSellSimulationOutput = SellSimulationOutput;
+export type UnifiedTrackerrScoreInput =
+	| TrackerrScoreInput
+	| {
+			positions: PortfolioIntelligencePosition[];
+			targetSymbol?: string;
+			targetSnapshot?: unknown;
+			sellSimulation?: {
+				taxRateApplied?: number;
+				estimatedTax?: number;
+				monthlyExemptionApplied?: boolean;
+			};
+	  };
+export type UnifiedTrackerrScoreOutput = TrackerrScoreOutput;
 
 export type OpportunityRadarKind =
 	| 'risk'

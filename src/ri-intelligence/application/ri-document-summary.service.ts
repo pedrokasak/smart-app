@@ -212,6 +212,12 @@ export class RiDocumentSummaryService {
 				['reducao', 'redução', 'queda', 'desalavancagem'],
 				['aumento', 'alta', 'piora']
 			),
+			capex: this.detectSignal(
+				text,
+				['capex', 'investimentos', 'investimento'],
+				['aumento', 'alta', 'expansao', 'expansão'],
+				['reducao', 'redução', 'queda', 'corte']
+			),
 			guidance: this.detectSignal(
 				text,
 				['guidance', 'projecao', 'projeção', 'perspectiva'],
