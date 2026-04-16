@@ -4,6 +4,7 @@ import { TaxEngineService } from 'src/fiscal/tax-engine/application/tax-engine.s
 import { FutureSimulatorService } from 'src/intelligence/application/future-simulator.service';
 import { OpportunityRadarService } from 'src/intelligence/application/opportunity-radar.service';
 import { PremiumInsightsService } from 'src/intelligence/application/premium-insights.service';
+import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
 import { PortfolioIntelligenceService } from 'src/portfolio/intelligence/application/portfolio-intelligence.service';
 import {
 	FutureSimulatorInput,
@@ -21,6 +22,8 @@ import {
 	UnifiedPortfolioSummaryOutput,
 	UnifiedSellSimulationInput,
 	UnifiedSellSimulationOutput,
+	UnifiedTrackerrScoreInput,
+	UnifiedTrackerrScoreOutput,
 } from 'src/intelligence/application/unified-intelligence.types';
 
 @Injectable()
@@ -31,7 +34,8 @@ export class UnifiedIntelligenceFacade {
 		private readonly taxEngineService: TaxEngineService,
 		private readonly opportunityRadarService: OpportunityRadarService,
 		private readonly futureSimulatorService: FutureSimulatorService,
-		private readonly premiumInsightsService: PremiumInsightsService
+		private readonly premiumInsightsService: PremiumInsightsService,
+		private readonly trackerrScoreService: TrackerrScoreService
 	) {}
 
 	getPortfolioSummary(
@@ -107,5 +111,11 @@ export class UnifiedIntelligenceFacade {
 		input: PremiumInsightsInput
 	): Promise<PremiumInsightsOutput> {
 		return this.premiumInsightsService.generate(input);
+	}
+
+	getTrackerrScore(
+		input: UnifiedTrackerrScoreInput
+	): UnifiedTrackerrScoreOutput {
+		return this.trackerrScoreService.build(input);
 	}
 }

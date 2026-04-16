@@ -1,3 +1,4 @@
+import { describe, it, expect, jest } from '@jest/globals';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiSummaryCachePort } from 'src/ri-intelligence/application/ri-summary-cache.port';
 import { RiSummarySynthesizerPort } from 'src/ri-intelligence/application/ri-summary-synthesizer.port';
@@ -28,6 +29,7 @@ describe('RiDocumentSummaryService', () => {
 		O lucro líquido apresentou alta e a margem EBITDA teve expansão relevante.
 		A administração comentou guidance para o próximo ano e citou riscos macroeconômicos.
 		O endividamento teve redução com estratégia de desalavancagem.
+		O capex do período teve aumento para sustentar expansão operacional.
 	`.repeat(4);
 
 	it('returns ai summary successfully and stores cache', async () => {
@@ -55,6 +57,7 @@ describe('RiDocumentSummaryService', () => {
 			expect.arrayContaining(['Receita em alta'])
 		);
 		expect(output.structuredSignals.revenue.detected).toBe(true);
+		expect(output.structuredSignals.capex.detected).toBe(true);
 		expect(output.cost.aiCalls).toBe(1);
 		expect(cache.set).toHaveBeenCalled();
 	});
@@ -127,6 +130,7 @@ describe('RiDocumentSummaryService', () => {
 				profit: { detected: true, direction: 'up', evidence: [] },
 				margin: { detected: false, direction: 'unknown', evidence: [] },
 				indebtedness: { detected: false, direction: 'unknown', evidence: [] },
+				capex: { detected: false, direction: 'unknown', evidence: [] },
 				guidance: { detected: false, direction: 'unknown', evidence: [] },
 				risks: { detected: false, direction: 'unknown', evidence: [] },
 				toneShift: { detected: false, direction: 'unknown', evidence: [] },

@@ -50,11 +50,42 @@ export class ChatOrchestratorService {
 		question: string,
 		options?: {
 			marketDataVersion?: string | null;
+			investorProfile?:
+				| 'renda'
+				| 'crescimento'
+				| 'conservador'
+				| 'agressivo'
+				| null;
+			copilotFlow?:
+				| 'sell_asset'
+				| 'rebalance_portfolio'
+				| 'reduce_risk_20'
+				| 'committee_mode'
+				| null;
+			decisionFlow?: {
+				action: 'sell' | 'rebalance' | 'reduce_risk';
+				ticker?: string;
+				targetRiskReductionPct?: number;
+				quantity?: number;
+				sellPrice?: number;
+			} | null;
 		}
 	): Promise<ChatOrchestratorResponse> {
 		const normalizedQuestion = String(question || '').trim();
-		const symbols = this.extractSymbols(normalizedQuestion);
-		const intent = this.classifyIntent(normalizedQuestion, symbols);
+		const copilotFlow =
+			options?.copilotFlow ||
+			this.mapDecisionFlowToCopilot(options?.decisionFlow || null);
+		const symbols =
+			options?.decisionFlow?.ticker
+				? [this.normalizeTicker(options.decisionFlow.ticker)]
+				: this.extractSymbols(normalizedQuestion);
+		const investorProfile = this.resolveInvestorProfile(
+			options?.investorProfile || null,
+			normalizedQuestion
+		);
+		const intent = this.classifyIntent(normalizedQuestion, symbols, {
+			copilotFlow: copilotFlow || null,
+		});
 		const predictedRouteType =
 			intent === 'narrative_synthesis' || intent === 'unknown'
 				? 'synthesis_required'
@@ -136,6 +167,18 @@ export class ChatOrchestratorService {
 				this.unifiedIntelligenceFacade.getPortfolioSummary({
 					positions,
 				});
+			const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
+				positions,
+			});
+			const personalizedInsights = this.buildPersonalizedInsights({
+				investorProfile,
+				intent,
+				question: normalizedQuestion,
+				data: {
+					portfolioSummary,
+					trackerrScore,
+				},
+			});
 			const response = this.buildResponse({
 				intent,
 				routeType: 'deterministic_no_llm',
@@ -145,7 +188,7 @@ export class ChatOrchestratorService {
 				ownedSymbols,
 				externalSymbols,
 				positionsCount: positions.length,
-				data: { portfolioSummary },
+				data: { portfolioSummary, trackerrScore, personalizedInsights },
 				unavailable,
 				warnings,
 				assumptions,
@@ -168,6 +211,33 @@ export class ChatOrchestratorService {
 				this.unifiedIntelligenceFacade.getPortfolioRiskAnalysis({
 					positions,
 				});
+			const rebalancePlan =
+				copilotFlow === 'rebalance_portfolio' ||
+				copilotFlow === 'reduce_risk_20'
+					? this.buildRiskReductionPlan({
+							portfolioRisk,
+							targetRiskReductionPct:
+								copilotFlow === 'reduce_risk_20'
+									? Number(
+											options?.decisionFlow?.action === 'reduce_risk'
+												? options?.decisionFlow?.targetRiskReductionPct || 20
+												: 20
+									  )
+									: 10,
+					  })
+					: null;
+			const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
+				positions,
+			});
+			const personalizedInsights = this.buildPersonalizedInsights({
+				investorProfile,
+				intent,
+				question: normalizedQuestion,
+				data: {
+					portfolioRisk,
+					trackerrScore,
+				},
+			});
 			const response = this.buildResponse({
 				intent,
 				routeType: 'deterministic_no_llm',
@@ -177,7 +247,12 @@ export class ChatOrchestratorService {
 				ownedSymbols,
 				externalSymbols,
 				positionsCount: positions.length,
-				data: { portfolioRisk },
+				data: {
+					portfolioRisk,
+					trackerrScore,
+					personalizedInsights,
+					...(rebalancePlan ? { rebalancePlan } : {}),
+				},
 				unavailable,
 				warnings,
 				assumptions,
@@ -416,9 +491,18 @@ export class ChatOrchestratorService {
 			}
 			const position = bySymbol.get(this.normalizeTicker(primarySymbol))!;
 			const parsed = this.parseSellInputs(normalizedQuestion);
+			const decisionFlowSellPrice =
+				options?.decisionFlow?.action === 'sell'
+					? Number(options?.decisionFlow?.sellPrice || 0) || null
+					: null;
+			const decisionFlowQuantity =
+				options?.decisionFlow?.action === 'sell'
+					? Number(options?.decisionFlow?.quantity || 0) || null
+					: null;
 			const snapshot =
 				await this.marketDataProvider.getAssetSnapshot(primarySymbol);
-			const sellPrice = parsed.sellPrice ?? snapshot?.price ?? null;
+			const sellPrice =
+				decisionFlowSellPrice ?? parsed.sellPrice ?? snapshot?.price ?? null;
 			if (sellPrice === null) {
 				unavailable.push(primarySymbol);
 				warnings.push('missing_sell_price_for_simulation');
@@ -450,6 +534,7 @@ export class ChatOrchestratorService {
 			}
 
 			const quantityToSell =
+				decisionFlowQuantity ??
 				parsed.quantityToSell ??
 				(parsed.sellHalfRequested
 					? Number((position.quantity / 2).toFixed(8))
@@ -480,6 +565,28 @@ export class ChatOrchestratorService {
 					totalCost: currentTotalCost,
 				},
 			});
+			const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
+				positions,
+				targetSymbol: primarySymbol,
+				targetSnapshot: snapshot || undefined,
+				sellSimulation,
+			});
+			const tradePlaybook = this.buildTradePlaybook({
+				symbol: primarySymbol,
+				positions,
+				targetPosition: position,
+				simulation: sellSimulation,
+				sellPrice,
+			});
+			const personalizedInsights = this.buildPersonalizedInsights({
+				investorProfile,
+				intent,
+				question: normalizedQuestion,
+				data: {
+					sellSimulation,
+					tradePlaybook,
+				},
+			});
 
 			const response = this.buildResponse({
 				intent,
@@ -490,7 +597,13 @@ export class ChatOrchestratorService {
 				ownedSymbols,
 				externalSymbols,
 				positionsCount: positions.length,
-				data: { sellSimulation, externalAsset: snapshot || null },
+				data: {
+					sellSimulation,
+					externalAsset: snapshot || null,
+					trackerrScore,
+					tradePlaybook,
+					personalizedInsights,
+				},
 				unavailable,
 				warnings,
 				assumptions,
@@ -572,9 +685,17 @@ export class ChatOrchestratorService {
 			}
 			const position = bySymbol.get(this.normalizeTicker(primarySymbol))!;
 			const parsed = this.parseSellInputs(normalizedQuestion);
+			const decisionFlowQuantity =
+				options?.decisionFlow?.action === 'sell'
+					? Number(options?.decisionFlow?.quantity || 0) || null
+					: null;
+			const decisionFlowSellPrice =
+				options?.decisionFlow?.action === 'sell'
+					? Number(options?.decisionFlow?.sellPrice || 0) || null
+					: null;
 			const snapshot =
 				await this.marketDataProvider.getAssetSnapshot(primarySymbol);
-			const sellPrice = snapshot?.price || null;
+			const sellPrice = decisionFlowSellPrice ?? snapshot?.price ?? null;
 			if (sellPrice === null) {
 				unavailable.push(primarySymbol);
 				warnings.push('missing_sell_price_for_tax_estimation');
@@ -609,6 +730,7 @@ export class ChatOrchestratorService {
 					? position.totalValue
 					: Number(position.price || 0) * Number(position.quantity || 0);
 			const quantityToSell =
+				decisionFlowQuantity ??
 				parsed.quantityToSell ??
 				(parsed.sellHalfRequested
 					? Number((position.quantity / 2).toFixed(8))
@@ -629,6 +751,28 @@ export class ChatOrchestratorService {
 			} else {
 				assumptions.push('tax_estimation_assumes_full_position_sell');
 			}
+			const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
+				positions,
+				targetSymbol: primarySymbol,
+				targetSnapshot: snapshot || undefined,
+				sellSimulation,
+			});
+			const tradePlaybook = this.buildTradePlaybook({
+				symbol: primarySymbol,
+				positions,
+				targetPosition: position,
+				simulation: sellSimulation,
+				sellPrice,
+			});
+			const personalizedInsights = this.buildPersonalizedInsights({
+				investorProfile,
+				intent,
+				question: normalizedQuestion,
+				data: {
+					sellSimulation,
+					tradePlaybook,
+				},
+			});
 			const response = this.buildResponse({
 				intent,
 				routeType: 'deterministic_no_llm',
@@ -638,7 +782,13 @@ export class ChatOrchestratorService {
 				ownedSymbols,
 				externalSymbols,
 				positionsCount: positions.length,
-				data: { sellSimulation, externalAsset: snapshot },
+				data: {
+					sellSimulation,
+					externalAsset: snapshot,
+					trackerrScore,
+					tradePlaybook,
+					personalizedInsights,
+				},
 				unavailable,
 				warnings,
 				assumptions,
@@ -710,6 +860,20 @@ export class ChatOrchestratorService {
 					sector: snapshot.sector,
 				},
 			});
+			const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
+				positions,
+				targetSymbol: normalizedSnapshotSymbol,
+				targetSnapshot: snapshot,
+			});
+			const personalizedInsights = this.buildPersonalizedInsights({
+				investorProfile,
+				intent,
+				question: normalizedQuestion,
+				data: {
+					portfolioFit,
+					trackerrScore,
+				},
+			});
 			const response = this.buildResponse({
 				intent,
 				routeType: 'deterministic_no_llm',
@@ -719,7 +883,12 @@ export class ChatOrchestratorService {
 				ownedSymbols,
 				externalSymbols,
 				positionsCount: positions.length,
-				data: { portfolioFit, externalAsset: snapshot },
+				data: {
+					portfolioFit,
+					externalAsset: snapshot,
+					trackerrScore,
+					personalizedInsights,
+				},
 				unavailable,
 				warnings,
 				assumptions,
@@ -806,6 +975,21 @@ export class ChatOrchestratorService {
 					sector: snapshot.sector,
 				},
 			});
+			const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
+				positions,
+				targetSymbol: normalizedSnapshotSymbol,
+				targetSnapshot: snapshot,
+			});
+			const personalizedInsights = this.buildPersonalizedInsights({
+				investorProfile,
+				intent,
+				question: normalizedQuestion,
+				data: {
+					externalAsset: snapshot,
+					portfolioFit,
+					trackerrScore,
+				},
+			});
 			const response = this.buildResponse({
 				intent,
 				routeType: 'deterministic_no_llm',
@@ -815,7 +999,12 @@ export class ChatOrchestratorService {
 				ownedSymbols,
 				externalSymbols,
 				positionsCount: positions.length,
-				data: { externalAsset: snapshot, portfolioFit },
+				data: {
+					externalAsset: snapshot,
+					portfolioFit,
+					trackerrScore,
+					personalizedInsights,
+				},
 				unavailable,
 				warnings,
 				assumptions,
@@ -899,6 +1088,106 @@ export class ChatOrchestratorService {
 					futureSimulation,
 					dividendProjection: futureSimulation.dividendProjection,
 				},
+				unavailable,
+				warnings,
+				assumptions,
+				cacheKey: canCache ? cacheKey : null,
+				cacheHit,
+				cacheTtlSeconds: canCache ? ttlSeconds : null,
+			});
+			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
+			this.safeRecordCost({
+				routeType: response.route.type,
+				cacheHit,
+				llmEligible: response.route.llmEligible,
+				estimatedLlmCallsAvoided: 0,
+			});
+			return response;
+		}
+
+		if (intent === 'investment_committee') {
+			const portfolioSummary =
+				this.unifiedIntelligenceFacade.getPortfolioSummary({
+					positions,
+				});
+			const portfolioRisk =
+				this.unifiedIntelligenceFacade.getPortfolioRiskAnalysis({
+					positions,
+				});
+			const opportunities =
+				await this.unifiedIntelligenceFacade.detectOpportunities({
+					portfolioPositions: positions,
+					candidateSymbols: positions.map((item) => item.symbol).slice(0, 12),
+				});
+			const topSymbols = positions.map((item) => item.symbol).slice(0, 10);
+			const snapshots = topSymbols.length
+				? await this.marketDataProvider.getManyAssetSnapshots(topSymbols)
+				: [];
+			const scored = snapshots.map((snapshot) => ({
+				symbol: snapshot.symbol,
+				score: this.unifiedIntelligenceFacade.getTrackerrScore({
+					positions,
+					targetSymbol: snapshot.symbol,
+					targetSnapshot: snapshot,
+				}),
+			}));
+			const ranked = scored
+				.slice()
+				.sort((a, b) => (b.score?.overall || 0) - (a.score?.overall || 0));
+			const recommended = ranked.slice(0, 3).map((item) => ({
+				symbol: item.symbol,
+				score: item.score.overall,
+				reasons: item.score.explanation.topPositiveDrivers.slice(0, 2),
+			}));
+			const avoid = ranked
+				.slice()
+				.reverse()
+				.slice(0, 3)
+				.map((item) => ({
+					symbol: item.symbol,
+					score: item.score.overall,
+					reasons: item.score.explanation.topNegativeDrivers.slice(0, 2),
+				}));
+			const investmentCommittee = {
+				modelVersion: 'investment_committee_v1',
+				referenceDate: new Date().toISOString(),
+				criticalRisks: [
+					...portfolioRisk.risk.flags
+						.filter((flag) => flag.severity !== 'low')
+						.slice(0, 3)
+						.map((flag) => flag.message),
+					...portfolioRisk.concentrationByAsset
+						.filter((item) => item.severity === 'high')
+						.slice(0, 2)
+						.map(
+							(item) =>
+								`Concentração elevada em ${item.key} (${item.percentage.toFixed(1)}%).`
+						),
+				].slice(0, 4),
+				recommended,
+				avoid,
+				objectivePlan: [
+					`Reduzir risco agregado da carteira de ${portfolioRisk.risk.score.toFixed(1)} para abaixo de 55 no curto prazo.`,
+					`Priorizar rebalanceamento com base nos sinais de oportunidade (${opportunities.signals.length} sinais ativos).`,
+					`Monitorar execução fiscal para preservar eficiência sobre o patrimônio de ${portfolioSummary.totalValue.toFixed(2)}.`,
+				],
+			};
+			const personalizedInsights = this.buildPersonalizedInsights({
+				investorProfile,
+				intent,
+				question: normalizedQuestion,
+				data: { investmentCommittee },
+			});
+			const response = this.buildResponse({
+				intent,
+				routeType: 'deterministic_no_llm',
+				routeReason: 'rules_resolved',
+				question: normalizedQuestion,
+				symbols,
+				ownedSymbols,
+				externalSymbols,
+				positionsCount: positions.length,
+				data: { investmentCommittee, personalizedInsights },
 				unavailable,
 				warnings,
 				assumptions,
@@ -1119,7 +1408,10 @@ export class ChatOrchestratorService {
 				ownedSymbols,
 				externalSymbols,
 				positionsCount: positions.length,
-				data: { riComparison },
+				data: {
+					riComparison,
+					riTimeline: (riComparison as any)?.timeline || null,
+				},
 				unavailable,
 				warnings,
 				assumptions,
@@ -1289,6 +1581,7 @@ export class ChatOrchestratorService {
 			'portfolio_fit_analysis',
 			'opportunity_radar',
 			'future_scenario',
+			'investment_committee',
 		];
 		if (
 			marketSensitiveIntents.includes(intent) &&
@@ -1310,6 +1603,7 @@ export class ChatOrchestratorService {
 			return 180;
 		if (intent === 'future_scenario') return 180;
 		if (intent === 'opportunity_radar') return 90;
+		if (intent === 'investment_committee') return 300;
 		if (intent === 'ri_summary' || intent === 'ri_comparison') return 120;
 		if (intent === 'asset_comparison') return 90;
 		if (intent === 'sell_simulation' || intent === 'tax_estimation') return 60;
@@ -1389,6 +1683,7 @@ export class ChatOrchestratorService {
 			'portfolio_fit_analysis',
 			'opportunity_radar',
 			'future_scenario',
+			'investment_committee',
 		];
 		if (!marketSensitiveIntents.includes(input.intent)) {
 			return 'not_applicable';
@@ -1400,9 +1695,36 @@ export class ChatOrchestratorService {
 
 	private classifyIntent(
 		question: string,
-		symbols: string[]
+		symbols: string[],
+		options?: {
+			copilotFlow?:
+				| 'sell_asset'
+				| 'rebalance_portfolio'
+				| 'reduce_risk_20'
+				| 'committee_mode'
+				| null;
+		}
 	): ChatOrchestratorIntent {
 		const text = String(question || '').toLowerCase();
+		if (options?.copilotFlow === 'committee_mode') {
+			return 'investment_committee';
+		}
+		if (options?.copilotFlow === 'sell_asset') {
+			return 'sell_simulation';
+		}
+		if (
+			options?.copilotFlow === 'rebalance_portfolio' ||
+			options?.copilotFlow === 'reduce_risk_20'
+		) {
+			return 'portfolio_risk';
+		}
+		if (
+			/\b(comite de investimento|comitê de investimento|briefing semanal|comite semanal)\b/.test(
+				text
+			)
+		) {
+			return 'investment_committee';
+		}
 		if (
 			/\b(explique|explica|estrategia|estratégia|detalhe|por que|porque)\b/.test(
 				text
@@ -1619,6 +1941,24 @@ export class ChatOrchestratorService {
 				return 'worsened';
 			return 'stable';
 		};
+		const keyChanges = {
+			guidance: {
+				from: previous.structuredSignals.guidance.direction,
+				to: current.structuredSignals.guidance.direction,
+			},
+			margin: {
+				from: previous.structuredSignals.margin.direction,
+				to: current.structuredSignals.margin.direction,
+			},
+			debt: {
+				from: previous.structuredSignals.indebtedness.direction,
+				to: current.structuredSignals.indebtedness.direction,
+			},
+			capex: {
+				from: previous.structuredSignals.capex.direction,
+				to: current.structuredSignals.capex.direction,
+			},
+		};
 
 		return {
 			status: 'compared',
@@ -1630,6 +1970,18 @@ export class ChatOrchestratorService {
 				guidance: compareDirection(
 					current.structuredSignals.guidance.direction,
 					previous.structuredSignals.guidance.direction
+				),
+				margin: compareDirection(
+					current.structuredSignals.margin.direction,
+					previous.structuredSignals.margin.direction
+				),
+				debt: compareDirection(
+					current.structuredSignals.indebtedness.direction,
+					previous.structuredSignals.indebtedness.direction
+				),
+				capex: compareDirection(
+					current.structuredSignals.capex.direction,
+					previous.structuredSignals.capex.direction
 				),
 				risks: compareDirection(
 					current.structuredSignals.risks.direction,
@@ -1647,11 +1999,252 @@ export class ChatOrchestratorService {
 					current.structuredSignals.profit.direction,
 					previous.structuredSignals.profit.direction
 				),
+				keyChanges,
 			},
+			materialAlerts: this.buildRiMaterialAlerts(current, previous),
+			timeline: [
+				{
+					documentId: previous.document.id,
+					period: previous.document.period,
+					publishedAt: previous.document.publishedAt,
+					guidance: previous.structuredSignals.guidance.direction,
+					margin: previous.structuredSignals.margin.direction,
+					debt: previous.structuredSignals.indebtedness.direction,
+					capex: previous.structuredSignals.capex.direction,
+				},
+				{
+					documentId: current.document.id,
+					period: current.document.period,
+					publishedAt: current.document.publishedAt,
+					guidance: current.structuredSignals.guidance.direction,
+					margin: current.structuredSignals.margin.direction,
+					debt: current.structuredSignals.indebtedness.direction,
+					capex: current.structuredSignals.capex.direction,
+				},
+			],
 			summaries: {
 				current: current.summary,
 				previous: previous.summary,
 			},
+		};
+	}
+
+	private buildRiMaterialAlerts(
+		current: RiDocumentSummaryOutput,
+		previous: RiDocumentSummaryOutput
+	): string[] {
+		const alerts: string[] = [];
+		const compare = (
+			label: string,
+			currentDirection: 'up' | 'down' | 'neutral' | 'unknown',
+			previousDirection: 'up' | 'down' | 'neutral' | 'unknown'
+		) => {
+			if (
+				currentDirection === 'unknown' ||
+				previousDirection === 'unknown' ||
+				currentDirection === previousDirection
+			) {
+				return;
+			}
+			alerts.push(
+				`${label} mudou de ${previousDirection} para ${currentDirection} entre os dois últimos releases.`
+			);
+		};
+
+		compare(
+			'Guidance',
+			current.structuredSignals.guidance.direction,
+			previous.structuredSignals.guidance.direction
+		);
+		compare(
+			'Margem',
+			current.structuredSignals.margin.direction,
+			previous.structuredSignals.margin.direction
+		);
+		compare(
+			'Dívida',
+			current.structuredSignals.indebtedness.direction,
+			previous.structuredSignals.indebtedness.direction
+		);
+		compare(
+			'Capex',
+			current.structuredSignals.capex.direction,
+			previous.structuredSignals.capex.direction
+		);
+		return alerts.slice(0, 4);
+	}
+
+	private buildTradePlaybook(params: {
+		symbol: string;
+		positions: PortfolioIntelligencePosition[];
+		targetPosition: PortfolioIntelligencePosition;
+		simulation: {
+			estimatedTax: number;
+			taxRateApplied: number;
+			realizedPnl: number;
+			remainingQuantity: number;
+			compensationUsed: number;
+			monthlyExemptionApplied: boolean;
+			classification: string;
+		};
+		sellPrice: number;
+	}) {
+		const totalPortfolioValue = params.positions.reduce(
+			(acc, item) => acc + this.resolvePositionValue(item),
+			0
+		);
+		const beforeValue = this.resolvePositionValue(params.targetPosition);
+		const afterValue = Math.max(0, params.simulation.remainingQuantity * params.sellPrice);
+		const impactPct =
+			totalPortfolioValue > 0
+				? ((beforeValue - afterValue) / totalPortfolioValue) * 100
+				: 0;
+		const sellHalfQty = Number((params.targetPosition.quantity / 2).toFixed(8));
+		const suggestedOrder = params.simulation.monthlyExemptionApplied
+			? 'Priorizar vendas dentro da faixa de isenção mensal antes de zerar posição.'
+			: 'Avaliar venda parcial primeiro para reduzir impacto fiscal imediato.';
+
+			return {
+				preTrade: {
+					estimatedTax: this.safeMoney(params.simulation.estimatedTax),
+					taxRateApplied: this.safeMoney(
+						Number(params.simulation.taxRateApplied || 0) * 100
+					),
+					classification: params.simulation.classification,
+				alternatives: [
+					{
+						action: `Vender ${sellHalfQty} (${params.symbol}) para reduzir imposto potencial.`,
+						rationale: 'Venda parcial tende a reduzir base tributável imediata.',
+					},
+					{
+						action: 'Compensar prejuízo acumulado antes da execução.',
+						rationale:
+							params.simulation.compensationUsed > 0
+								? 'Há compensação aplicada no cenário atual.'
+								: 'Sem compensação aplicada no cenário atual.',
+					},
+					{
+						action: 'Executar ordem em lotes ao longo da janela fiscal.',
+						rationale: suggestedOrder,
+					},
+					],
+					recommendedExecutionOrder: suggestedOrder,
+					explanation:
+						params.simulation.monthlyExemptionApplied
+							? 'Pré-trade com isenção mensal sinalizada.'
+							: 'Pré-trade com imposto estimado pela engine fiscal.',
+				},
+				postTrade: {
+					remainingQuantity: params.simulation.remainingQuantity,
+					positionValueAfterSell: this.safeMoney(afterValue),
+					portfolioImpactPct: this.safeMoney(impactPct),
+					estimatedDarf: this.safeMoney(params.simulation.estimatedTax),
+					explanation:
+						params.simulation.remainingQuantity <= 0
+							? 'Pós-trade indica encerramento da posição.'
+							: 'Pós-trade mantém posição parcialmente aberta.',
+				},
+			};
+		}
+
+	private buildRiskReductionPlan(params: {
+		portfolioRisk: any;
+		targetRiskReductionPct: number;
+	}) {
+		const currentRiskScore = Number(params.portfolioRisk?.risk?.score || 0);
+		const targetRiskScore = Math.max(
+			0,
+			Number(
+				(
+					currentRiskScore *
+					(1 - Math.max(0, params.targetRiskReductionPct) / 100)
+				).toFixed(2)
+			)
+		);
+		const topAsset = params.portfolioRisk?.concentrationByAsset?.[0];
+		const topSector = params.portfolioRisk?.concentrationBySector?.[0];
+		return {
+			modelVersion: 'risk_reduction_plan_v1',
+			currentRiskScore,
+			targetRiskScore,
+			targetRiskReductionPct: params.targetRiskReductionPct,
+			actions: [
+				topAsset
+					? `Reduzir concentração em ${topAsset.symbol || topAsset.key} para aproximar score alvo.`
+					: 'Reduzir posição mais concentrada da carteira.',
+				topSector
+					? `Rebalancear exposição setorial em ${topSector.key}.`
+					: 'Rebalancear exposição entre classes/setores.',
+				'Executar em lotes e reavaliar risco após cada etapa.',
+			],
+		};
+	}
+
+	private resolveInvestorProfile(
+		profile:
+			| 'renda'
+			| 'crescimento'
+			| 'conservador'
+			| 'agressivo'
+			| null,
+		question: string
+	): 'renda' | 'crescimento' | 'conservador' | 'agressivo' {
+		if (profile) return profile;
+		const text = String(question || '').toLowerCase();
+		if (/\b(dividendo|renda passiva|proventos)\b/.test(text)) return 'renda';
+		if (/\b(crescimento|growth|valorizar)\b/.test(text)) return 'crescimento';
+		if (/\b(conservador|baixo risco|preservar)\b/.test(text))
+			return 'conservador';
+		if (/\b(agressivo|alto risco|alavanc)\b/.test(text)) return 'agressivo';
+		return 'conservador';
+	}
+
+	private mapDecisionFlowToCopilot(
+		decisionFlow:
+			| {
+					action: 'sell' | 'rebalance' | 'reduce_risk';
+			  }
+			| null
+	):
+		| 'sell_asset'
+		| 'rebalance_portfolio'
+		| 'reduce_risk_20'
+		| 'committee_mode'
+		| null {
+		if (!decisionFlow) return null;
+		if (decisionFlow.action === 'sell') return 'sell_asset';
+		if (decisionFlow.action === 'rebalance') return 'rebalance_portfolio';
+		if (decisionFlow.action === 'reduce_risk') return 'reduce_risk_20';
+		return null;
+	}
+
+	private buildPersonalizedInsights(params: {
+		investorProfile: 'renda' | 'crescimento' | 'conservador' | 'agressivo';
+		intent: ChatOrchestratorIntent;
+		question: string;
+		data: Record<string, unknown>;
+	}) {
+		const base =
+			params.investorProfile === 'renda'
+				? 'Priorize previsibilidade de fluxo e estabilidade de caixa.'
+				: params.investorProfile === 'crescimento'
+					? 'Foque na expansão de lucro e ganho de valor no longo prazo.'
+					: params.investorProfile === 'agressivo'
+						? 'Aceite maior volatilidade em troca de potencial de retorno superior.'
+						: 'Preserve capital e mantenha volatilidade sob controle.';
+		const action =
+			params.intent === 'sell_simulation' || params.intent === 'tax_estimation'
+				? 'Revise o pré-trade e execute primeiro o cenário de menor custo fiscal.'
+				: params.intent === 'portfolio_risk'
+					? 'Ajuste concentração e rebalanceie para reduzir risco agregado.'
+					: params.intent === 'investment_committee'
+						? 'Execute o plano semanal por prioridade e monitore riscos críticos.'
+						: 'Use os drivers do Trackerr Score para decidir próxima alocação.';
+
+		return {
+			profile: params.investorProfile,
+			narrative: base,
+			recommendedAction: action,
 		};
 	}
 
@@ -1671,6 +2264,11 @@ export class ChatOrchestratorService {
 		const parsed = new Date(value);
 		if (!Number.isFinite(parsed.getTime())) return null;
 		return parsed.toISOString();
+	}
+
+	private safeMoney(value: number): number {
+		if (!Number.isFinite(value)) return 0;
+		return Number(value.toFixed(2));
 	}
 
 	private toPositions(assets: any[]): PortfolioIntelligencePosition[] {
