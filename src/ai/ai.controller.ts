@@ -20,6 +20,7 @@ import { AiAnalysisRequestDto } from './dto/ai-analysis-request.dto';
 import { IntelligentChatRequestDto } from './intelligence/dto/intelligent-chat-request.dto';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { ChatOrchestratorResponse } from './orchestration/chat-orchestrator.types';
+import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -27,7 +28,8 @@ import { ChatOrchestratorResponse } from './orchestration/chat-orchestrator.type
 export class AiController {
 	constructor(
 		private readonly aiService: AiService,
-		private readonly chatOrchestratorService: ChatOrchestratorService
+		private readonly chatOrchestratorService: ChatOrchestratorService,
+		private readonly trackerrScoreService: TrackerrScoreService
 	) {}
 
 	/**
@@ -82,7 +84,12 @@ export class AiController {
 			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
 		const orchestration = await this.chatOrchestratorService.orchestrate(
 			userId,
-			body?.question || ''
+			body?.question || '',
+			{
+				investorProfile: body?.investorProfile,
+				copilotFlow: body?.copilotFlow,
+				decisionFlow: body?.decisionFlow,
+			}
 		);
 		return {
 			intent: orchestration.intent,
@@ -96,6 +103,24 @@ export class AiController {
 		};
 	}
 
+	@Post('trackerr-score')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async trackerrScore(
+		@Request() req: any,
+		@Body()
+		body: {
+			symbol: string;
+			previousPillarScores?: Record<string, number>;
+		}
+	) {
+		const userId =
+			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
+		return this.trackerrScoreService.getScoreForUser(userId, body?.symbol, {
+			previousPillarScores: body?.previousPillarScores as any,
+		});
+	}
+
 	private buildIntelligentMessage(response: ChatOrchestratorResponse): string {
 		const data = response.data || {};
 		switch (response.intent) {
@@ -105,6 +130,8 @@ export class AiController {
 					? `Análise de risco concluída. Score atual da carteira: ${riskScore.toFixed(1)}.`
 					: 'Análise de risco da carteira concluída com os dados disponíveis.';
 			}
+			case 'investment_committee':
+				return 'Comitê de investimento semanal gerado com riscos críticos, recomendações e plano objetivo.';
 			case 'tax_estimation':
 			case 'sell_simulation': {
 				const tax = (data as any)?.sellSimulation?.estimatedTax;

@@ -101,7 +101,16 @@ describe('RiIntelligenceController', () => {
 				limitations: ['ri_content_insufficient_for_summary'],
 				sourceLabel: 'structured_fallback',
 			},
-			structuredSignals: {},
+			structuredSignals: {
+				revenue: { detected: false, direction: 'unknown', evidence: [] },
+				profit: { detected: false, direction: 'unknown', evidence: [] },
+				margin: { detected: false, direction: 'unknown', evidence: [] },
+				indebtedness: { detected: false, direction: 'unknown', evidence: [] },
+				capex: { detected: false, direction: 'unknown', evidence: [] },
+				guidance: { detected: false, direction: 'unknown', evidence: [] },
+				risks: { detected: false, direction: 'unknown', evidence: [] },
+				toneShift: { detected: false, direction: 'unknown', evidence: [] },
+			},
 			cache: {
 				key: null,
 				hit: false,

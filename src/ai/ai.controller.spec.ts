@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
+import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -21,6 +22,10 @@ const mockChatOrchestratorService = {
 	orchestrate: jest.fn(),
 };
 
+const mockTrackerrScoreService = {
+	getScoreForUser: jest.fn(),
+};
+
 describe('AiController', () => {
 	let controller: AiController;
 
@@ -32,6 +37,10 @@ describe('AiController', () => {
 				{
 					provide: ChatOrchestratorService,
 					useValue: mockChatOrchestratorService,
+				},
+				{
+					provide: TrackerrScoreService,
+					useValue: mockTrackerrScoreService,
 				},
 			],
 		}).compile();
@@ -182,7 +191,31 @@ describe('AiController', () => {
 		expect(response.data?.portfolioSummary?.totalValue).toBe(1000);
 		expect(mockChatOrchestratorService.orchestrate).toHaveBeenCalledWith(
 			'user-123',
-			'Resumo da carteira'
+			'Resumo da carteira',
+			{
+				investorProfile: undefined,
+				copilotFlow: undefined,
+				decisionFlow: undefined,
+			}
+		);
+	});
+
+	it('should return trackerr score payload', async () => {
+		mockTrackerrScoreService.getScoreForUser.mockResolvedValue({
+			status: 'ok',
+			overallScore: 81,
+		});
+
+		const result = await controller.trackerrScore(
+			{ user: { userId: 'user-123' } },
+			{ symbol: 'ITUB4' }
+		);
+
+		expect(result.status).toBe('ok');
+		expect(mockTrackerrScoreService.getScoreForUser).toHaveBeenCalledWith(
+			'user-123',
+			'ITUB4',
+			{ previousPillarScores: undefined }
 		);
 	});
 });
