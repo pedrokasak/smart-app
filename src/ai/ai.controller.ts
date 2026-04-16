@@ -123,34 +123,69 @@ export class AiController {
 
 	private buildIntelligentMessage(response: ChatOrchestratorResponse): string {
 		const data = response.data || {};
+
+		// If there is a critical warning, use it to form a coherent response.
+		if (response.warnings && response.warnings.length > 0) {
+			const primaryWarning = response.warnings[0];
+			if (primaryWarning === 'sell_simulation_requires_owned_asset') {
+				const symbol = response.unavailable?.[0] || 'o ativo';
+				return `Você não possui ${symbol} na carteira no momento. Só conseguimos simular imposto e lucro para ativos que você já comprou.`;
+			}
+			if (primaryWarning === 'tax_estimation_requires_owned_asset') {
+				return 'Você precisa ter o ativo na carteira para estimarmos o cálculo de imposto.';
+			}
+			if (primaryWarning === 'comparison_requires_two_assets') {
+				return 'Para um comparativo, por favor informe pelo menos dois ativos diferentes (Ex: "PETR4 vs VALE3").';
+			}
+			if (primaryWarning === 'missing_sell_price_for_simulation') {
+				return 'Não consegui obter o preço atual do ativo no mercado para calcular a simulação.';
+			}
+		}
+
 		switch (response.intent) {
 			case 'portfolio_risk': {
 				const riskScore = (data as any)?.portfolioRisk?.risk?.score;
-				return typeof riskScore === 'number'
-					? `Análise de risco concluída. Score atual da carteira: ${riskScore.toFixed(1)}.`
-					: 'Análise de risco da carteira concluída com os dados disponíveis.';
+				const topAsset = (data as any)?.portfolioRisk?.concentrationByAsset?.[0];
+				
+				let msg = 'Avaliei a exposição e as concentrações do seu portfólio.';
+				if (typeof riskScore === 'number') {
+					msg = `Sua carteira apresenta um Score de Risco de ${riskScore.toFixed(0)}/100.`;
+				}
+				if (topAsset && topAsset.weightPct) {
+					msg += ` A maior concentração identificada é em ${topAsset.symbol} (${topAsset.weightPct.toFixed(1)}%).`;
+				}
+				return msg;
 			}
 			case 'investment_committee':
 				return 'Comitê de investimento semanal gerado com riscos críticos, recomendações e plano objetivo.';
 			case 'tax_estimation':
 			case 'sell_simulation': {
 				const tax = (data as any)?.sellSimulation?.estimatedTax;
-				return typeof tax === 'number'
-					? `Simulação de venda concluída. Imposto estimado: R$ ${tax.toFixed(2)}.`
-					: 'Simulação fiscal concluída com os dados disponíveis.';
+				const pnl = (data as any)?.sellSimulation?.realizedPnl;
+				
+				if (typeof tax === 'number' && typeof pnl === 'number') {
+					if (tax > 0) {
+						return `Se você vender a posição, precisará pagar aproximadamente R$ ${tax.toFixed(2)} de imposto sobre um lucro estimado de R$ ${pnl.toFixed(2)}.`;
+					} else if (pnl < 0) {
+						return `A simulação indica que essa venda geraria um prejuízo de R$ ${Math.abs(pnl).toFixed(2)}, isento de imposto.`;
+					}
+					return `Se você vender a posição, seu lucro será de R$ ${pnl.toFixed(2)}, isento de imposto (dentro das regras vigentes).`;
+				}
+				return 'A simulação fiscal foi processada com sucesso no painel abaixo.';
 			}
 			case 'asset_comparison':
-				return 'Comparação concluída com métricas de mercado e encaixe em carteira.';
+				return 'Aqui está o comparativo detalhado das métricas de fundamentos dos ativos solicitados:';
 			case 'external_asset_analysis':
-				return 'Análise de ativo externo concluída com dados de mercado.';
+			case 'external_asset_question':
+				return 'Encontrei os seguintes dados de mercado atualizados para a sua solicitação:';
 			case 'portfolio_summary': {
 				const totalValue = (data as any)?.portfolioSummary?.totalValue;
 				return typeof totalValue === 'number'
-					? `Resumo da carteira concluído. Valor total estimado: R$ ${totalValue.toFixed(2)}.`
-					: 'Resumo da carteira concluído.';
+					? `O patrimônio total estimado atual da sua carteira é de R$ ${totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`
+					: 'Resumi os saldos e a distribuição de ativos da sua carteira.';
 			}
 			default:
-				return 'Análise concluída com dados estruturados e determinísticos.';
+				return 'Analisei seus dados com sucesso e organizei os fatos no painel interativo abaixo.';
 		}
 	}
 }
