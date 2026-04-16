@@ -253,20 +253,25 @@ export class FiscalController {
 		for (const a of assets) {
 			typeBySymbol[String(a.symbol || '').toUpperCase()] = String(a.type || '');
 		}
+		const normalizedTrades = trades.map((t: any) => ({
+			assetSymbol: t.symbol,
+			side: t.side,
+			quantity: t.quantity,
+			price: t.price,
+			fees: t.fees || 0,
+			date: new Date(t.date),
+		}));
 
 		const monthly = this.fiscalService
 			.calculateMonthlyTaxSummary(
-				trades.map((t: any) => ({
-					assetSymbol: t.symbol,
-					side: t.side,
-					quantity: t.quantity,
-					price: t.price,
-					fees: t.fees || 0,
-					date: new Date(t.date),
-				})),
+				normalizedTrades,
 				typeBySymbol
 			)
 			.filter((item) => item.year === yearNum);
+		const taxDrivers = this.fiscalService
+			.calculateTaxDrivers(normalizedTrades, typeBySymbol)
+			.filter((item) => item.estimatedTax > 0)
+			.slice(0, 8);
 
 		const totals = monthly.reduce(
 			(acc, m) => {
@@ -283,6 +288,7 @@ export class FiscalController {
 			year: yearNum,
 			monthly,
 			totals,
+			taxDrivers,
 			guide: [
 				'Passo 1: Abra o programa da Receita Federal.',
 				'Passo 2: Vá em Bens e Direitos.',
@@ -393,7 +399,12 @@ export class FiscalController {
 					'Não há posição disponível desse ativo na carteira selecionada para simular venda.',
 			};
 		}
-		if (quantity > currentQuantity) {
+		const quantityNormalization = this.fiscalService.normalizeSellQuantity(
+			quantity,
+			currentQuantity
+		);
+		const effectiveQuantity = quantityNormalization.effectiveQuantity;
+		if (effectiveQuantity <= 0) {
 			return {
 				symbol,
 				quantity,
@@ -403,7 +414,8 @@ export class FiscalController {
 				estimatedTax: 0,
 				exempt: true,
 				category: this.fiscalService.getCategoryForAsset(symbol, asset?.type),
-				message: `Quantidade solicitada (${quantity}) é maior que posição atual (${currentQuantity}).`,
+				message:
+					'Não foi possível simular a venda com a quantidade informada para a posição atual.',
 			};
 		}
 		const totalPortfolioValue = await AssetModel.aggregate([
@@ -479,23 +491,24 @@ export class FiscalController {
 
 		const preview = this.fiscalService.estimateSaleTax({
 			symbol,
-			quantity,
+			quantity: effectiveQuantity,
 			sellPrice,
 			averagePrice: avgPrice,
 			monthStockSales,
 			assetType: asset?.type,
 		});
-		const soldValue = quantity * sellPrice;
+		const soldValue = effectiveQuantity * sellPrice;
 		const portfolioImpactPercent =
 			portfolioValue > 0 ? -((soldValue / portfolioValue) * 100) : 0;
 
 		return {
 			symbol,
-			quantity,
+			quantity: effectiveQuantity,
+			requestedQuantity: quantity,
 			sellPrice,
 			averagePrice: avgPrice,
 			currentQuantity,
-			remainingQuantity: Number((currentQuantity - quantity).toFixed(8)),
+			remainingQuantity: Number((currentQuantity - effectiveQuantity).toFixed(8)),
 			profit: preview.pnl,
 			estimatedTax: preview.tax,
 			exempt: preview.exempt,
@@ -505,7 +518,7 @@ export class FiscalController {
 			sector,
 			portfolioValue,
 			portfolioImpactPercent,
-			message: `Se vender ${symbol} hoje: lucro estimado de R$ ${preview.pnl.toFixed(2)}, imposto estimado de R$ ${preview.tax.toFixed(2)} e impacto na carteira de ${portfolioImpactPercent.toFixed(2)}% (${sector}). ${
+			message: `${quantityNormalization.warning ? `${quantityNormalization.warning} ` : ''}Se vender ${symbol} hoje: lucro estimado de R$ ${preview.pnl.toFixed(2)}, imposto estimado de R$ ${preview.tax.toFixed(2)} e impacto na carteira de ${portfolioImpactPercent.toFixed(2)}% (${sector}). ${
 				preview.category === 'stock'
 					? preview.exempt
 						? `Isenção de R$ ${Number(preview.stockExemptionLimit || 20000).toFixed(2)} aplicada no mês (vendas acumuladas: R$ ${Number(preview.stockSalesMonth || 0).toFixed(2)}).`

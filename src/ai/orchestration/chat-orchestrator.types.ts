@@ -15,7 +15,9 @@ export type ChatOrchestratorIntent =
 	| 'opportunity_radar'
 	| 'ri_summary'
 	| 'ri_comparison'
+	| 'investment_committee'
 	| 'narrative_synthesis'
+	| 'external_asset_question'
 	| 'unknown';
 
 export type ChatRouteType = 'deterministic_no_llm' | 'synthesis_required';
@@ -61,6 +63,12 @@ export interface ChatOrchestratorResponse {
 		futureSimulation?: unknown;
 		riSummary?: unknown;
 		riComparison?: unknown;
+		trackerrScore?: unknown;
+		tradePlaybook?: unknown;
+		riTimeline?: unknown;
+		rebalancePlan?: unknown;
+		personalizedInsights?: unknown;
+		investmentCommittee?: unknown;
 	};
 	unavailable: string[];
 	warnings: string[];

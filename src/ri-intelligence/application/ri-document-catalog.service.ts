@@ -17,6 +17,13 @@ import {
 	RiDocumentType,
 } from 'src/ri-intelligence/domain/ri-document.types';
 import { CANONICAL_RI_DOCUMENT_TYPES } from 'src/ri-intelligence/domain/ri-document-classifier';
+import {
+	inferQuarterFromDocument,
+	previousQuarter,
+	resolveExpectedReportingQuarter,
+	sameQuarter,
+	toQuarterLabel,
+} from 'src/ri-intelligence/domain/ri-quarter-resolution';
 
 export interface SearchRiDocumentsInput {
 	query?: string;
@@ -32,6 +39,50 @@ export interface SearchRiDocumentsOutput {
 	fallback: {
 		availableDocumentTypes: RiDocumentType[];
 		suggestedFilters: Array<RiDocumentType | 'all'>;
+	};
+}
+
+export interface RetrieveRelevantRiDocumentInput {
+	ticker: string;
+	documentType?: RiDocumentType;
+	asOfDate?: Date | string;
+}
+
+export interface RetrieveRelevantRiDocumentOutput {
+	status: 'found' | 'unavailable';
+	ticker: string;
+	company: string | null;
+	requestedDocumentType: RiDocumentType | null;
+	document: RiDocumentRecord | null;
+	warnings: string[];
+	reason:
+		| 'document_found'
+		| 'invalid_ticker'
+		| 'ticker_not_resolved'
+		| 'source_not_resolved'
+		| 'no_documents_discovered'
+		| 'no_valid_documents_found'
+		| 'no_safe_document_for_policy';
+	selection: {
+		policy:
+			| 'latest_or_current_quarter_release'
+			| 'requested_type_when_no_release'
+			| 'most_recent_safe_document';
+		applied:
+			| 'current_quarter_release'
+			| 'previous_quarter_release_fallback'
+			| 'latest_release'
+			| 'requested_type'
+			| 'most_recent_prioritized'
+			| 'none';
+		fallbackApplied: boolean;
+		fallbackReason: string | null;
+		expectedQuarter: string | null;
+		selectedQuarter: string | null;
+	};
+	source: {
+		officialRiUrl: string | null;
+		trustLevel: 'official_registry' | 'unavailable';
 	};
 }
 
@@ -59,6 +110,13 @@ export class RiDocumentCatalogService {
 		{ ticker: 'PETR4', company: 'Petróleo Brasileiro S.A. - Petrobras' },
 		{ ticker: 'VALE3', company: 'Vale S.A.' },
 	];
+	private readonly officialRiByTicker: Record<string, string> = {
+		BBDC4: 'https://ri.bradesco.com.br',
+		ITUB4: 'https://www.itau.com.br/relacoes-com-investidores',
+		BBAS3: 'https://ri.bb.com.br',
+		PETR4: 'https://petrobras.com.br/ri',
+		VALE3: 'https://vale.com/ri',
+	};
 
 	constructor(
 		@Inject(RI_ASSET_AUTOCOMPLETE)
@@ -174,6 +232,110 @@ export class RiDocumentCatalogService {
 		return { url: document.source.value };
 	}
 
+	async retrieveMostRelevantDocument(
+		input: RetrieveRelevantRiDocumentInput
+	): Promise<RetrieveRelevantRiDocumentOutput> {
+		const ticker = this.normalizeTicker(input.ticker);
+		const requestedDocumentType = input.documentType || null;
+		if (!ticker) {
+			return this.unavailableResult({
+				ticker,
+				company: null,
+				requestedDocumentType,
+				reason: 'invalid_ticker',
+				warnings: ['ri_invalid_ticker'],
+				officialRiUrl: null,
+			});
+		}
+
+		const match = await this.resolveTickerCompany(ticker);
+		if (!match) {
+			return this.unavailableResult({
+				ticker,
+				company: null,
+				requestedDocumentType,
+				reason: 'ticker_not_resolved',
+				warnings: ['ri_ticker_not_resolved'],
+				officialRiUrl: null,
+			});
+		}
+
+		const officialRiUrl = this.officialRiByTicker[ticker] || null;
+		if (!officialRiUrl) {
+			return this.unavailableResult({
+				ticker,
+				company: match.company,
+				requestedDocumentType,
+				reason: 'source_not_resolved',
+				warnings: ['ri_official_source_not_found'],
+				officialRiUrl: null,
+			});
+		}
+
+		const discovered = await this.safeDiscover({
+			ticker: match.ticker,
+			company: match.company,
+			origin: officialRiUrl,
+		});
+		if (!discovered.length) {
+			return this.unavailableResult({
+				ticker,
+				company: match.company,
+				requestedDocumentType,
+				reason: 'no_documents_discovered',
+				warnings: ['ri_no_documents_found'],
+				officialRiUrl,
+			});
+		}
+
+		const validated = (
+			await Promise.all(
+				discovered.map((document) => this.resolveAndValidateDocument(document))
+			)
+		).filter((document): document is RiDocumentRecord => Boolean(document));
+		if (!validated.length) {
+			return this.unavailableResult({
+				ticker,
+				company: match.company,
+				requestedDocumentType,
+				reason: 'no_valid_documents_found',
+				warnings: ['ri_no_valid_documents_found'],
+				officialRiUrl,
+			});
+		}
+
+		const selection = this.selectMostRelevantDocument(validated, {
+			requestedDocumentType,
+			asOfDate: input.asOfDate,
+		});
+		if (!selection.document) {
+			return this.unavailableResult({
+				ticker,
+				company: match.company,
+				requestedDocumentType,
+				reason: 'no_safe_document_for_policy',
+				warnings: selection.warnings,
+				officialRiUrl,
+				selection: selection.selection,
+			});
+		}
+
+		return {
+			status: 'found',
+			ticker: match.ticker,
+			company: match.company,
+			requestedDocumentType,
+			document: selection.document,
+			warnings: selection.warnings,
+			reason: 'document_found',
+			selection: selection.selection,
+			source: {
+				officialRiUrl,
+				trustLevel: 'official_registry',
+			},
+		};
+	}
+
 	private async resolveMatches(query: string): Promise<RiAssetSuggestion[]> {
 		if (!query) return this.featuredAssets.slice(0, this.maxTickerMatches);
 		const matches = await this.assetAutocomplete.search(
@@ -195,6 +357,55 @@ export class RiDocumentCatalogService {
 		return matches;
 	}
 
+	private normalizeTicker(rawTicker: string): string {
+		return String(rawTicker || '')
+			.trim()
+			.toUpperCase()
+			.replace(/\.SA$/i, '');
+	}
+
+	private async resolveTickerCompany(
+		ticker: string
+	): Promise<RiAssetSuggestion | null> {
+		const featuredMatch = this.featuredAssets.find(
+			(item) => this.normalizeTicker(item.ticker) === ticker
+		);
+		if (featuredMatch) {
+			return {
+				ticker,
+				company: featuredMatch.company,
+			};
+		}
+
+		try {
+			const matches = await this.assetAutocomplete.search(
+				ticker,
+				this.maxTickerMatches
+			);
+			const exact = matches.filter(
+				(item) => this.normalizeTicker(item.ticker) === ticker
+			);
+			if (exact.length !== 1) return null;
+			return {
+				ticker,
+				company: exact[0].company,
+			};
+		} catch {
+			return null;
+		}
+	}
+
+	private async safeDiscover(
+		input: Parameters<RiDocumentDiscoveryPort['discover']>[0]
+	): Promise<RiDocumentRecord[]> {
+		try {
+			const output = await this.documentDiscovery.discover(input);
+			return Array.isArray(output) ? output : [];
+		} catch {
+			return [];
+		}
+	}
+
 	private resolveOrigin(match: RiAssetSuggestion): string {
 		const knownOrigins: Record<string, string> = {
 			BBDC4: 'https://ri.bradesco.com.br',
@@ -203,8 +414,13 @@ export class RiDocumentCatalogService {
 			PETR4: 'https://petrobras.com.br/ri',
 			VALE3: 'https://vale.com/ri',
 		};
-		const known = knownOrigins[match.ticker];
+		const ticker = match.ticker.toUpperCase();
+		const known = knownOrigins[ticker];
 		if (known) return known;
+
+		if (ticker.endsWith('11')) {
+			return `https://statusinvest.com.br/fii/${ticker.toLowerCase()}`;
+		}
 
 		const companySlug = String(match.company || '')
 			.toLowerCase()
@@ -216,6 +432,152 @@ export class RiDocumentCatalogService {
 		return companySlug
 			? `https://ri.${companySlug}.com.br`
 			: 'https://ri.empresa.com.br';
+	}
+
+	private selectMostRelevantDocument(
+		documents: RiDocumentRecord[],
+		params: {
+			requestedDocumentType: RiDocumentType | null;
+			asOfDate?: Date | string;
+		}
+	): {
+		document: RiDocumentRecord | null;
+		warnings: string[];
+		selection: RetrieveRelevantRiDocumentOutput['selection'];
+	} {
+		const warnings: string[] = [];
+		const releases = documents.filter(
+			(document) => document.documentType === 'earnings_release'
+		);
+		const expectedQuarter = resolveExpectedReportingQuarter(
+			this.toSafeDate(params.asOfDate)
+		);
+		const previousExpectedQuarter = previousQuarter(expectedQuarter);
+		const defaultSelection: RetrieveRelevantRiDocumentOutput['selection'] = {
+			policy: 'most_recent_safe_document',
+			applied: 'none',
+			fallbackApplied: false,
+			fallbackReason: null,
+			expectedQuarter: toQuarterLabel(expectedQuarter),
+			selectedQuarter: null,
+		};
+
+		if (releases.length > 0) {
+			const releasesByDate = this.sortByPublishedAtDesc(releases);
+			const currentQuarter = releasesByDate.find((document) =>
+				sameQuarter(inferQuarterFromDocument(document), expectedQuarter)
+			);
+			if (currentQuarter) {
+				return {
+					document: currentQuarter,
+					warnings,
+					selection: {
+						...defaultSelection,
+						policy: 'latest_or_current_quarter_release',
+						applied: 'current_quarter_release',
+						selectedQuarter: toQuarterLabel(
+							inferQuarterFromDocument(currentQuarter)
+						),
+					},
+				};
+			}
+
+			const previousQuarterRelease = releasesByDate.find((document) =>
+				sameQuarter(inferQuarterFromDocument(document), previousExpectedQuarter)
+			);
+			if (previousQuarterRelease) {
+				warnings.push('ri_current_quarter_release_unavailable');
+				return {
+					document: previousQuarterRelease,
+					warnings,
+					selection: {
+						...defaultSelection,
+						policy: 'latest_or_current_quarter_release',
+						applied: 'previous_quarter_release_fallback',
+						fallbackApplied: true,
+						fallbackReason: 'ri_previous_quarter_release_fallback',
+						selectedQuarter: toQuarterLabel(
+							inferQuarterFromDocument(previousQuarterRelease)
+						),
+					},
+				};
+			}
+
+			return {
+				document: releasesByDate[0] || null,
+				warnings,
+				selection: {
+					...defaultSelection,
+					policy: 'latest_or_current_quarter_release',
+					applied: 'latest_release',
+					selectedQuarter: toQuarterLabel(
+						releasesByDate[0]
+							? inferQuarterFromDocument(releasesByDate[0])
+							: null
+					),
+				},
+			};
+		}
+
+		if (params.requestedDocumentType) {
+			const requestedTypeDocs = this.sortByPublishedAtDesc(
+				documents.filter(
+					(document) => document.documentType === params.requestedDocumentType
+				)
+			);
+			if (!requestedTypeDocs.length) {
+				warnings.push('ri_no_documents_for_selected_type');
+				return {
+					document: null,
+					warnings,
+					selection: {
+						...defaultSelection,
+						policy: 'requested_type_when_no_release',
+					},
+				};
+			}
+
+			return {
+				document: requestedTypeDocs[0],
+				warnings,
+				selection: {
+					...defaultSelection,
+					policy: 'requested_type_when_no_release',
+					applied: 'requested_type',
+				},
+			};
+		}
+
+		const prioritized = this.sortByPublishedAtDesc(
+			documents.filter((document) =>
+				this.prioritizedTypes.has(document.documentType)
+			)
+		);
+		return {
+			document: prioritized[0] || null,
+			warnings: prioritized.length
+				? warnings
+				: ['ri_no_safe_document_for_policy'],
+			selection: {
+				...defaultSelection,
+				applied: prioritized.length ? 'most_recent_prioritized' : 'none',
+			},
+		};
+	}
+
+	private toSafeDate(value?: Date | string): Date {
+		if (!value) return new Date();
+		const parsed = value instanceof Date ? value : new Date(value);
+		return Number.isFinite(parsed.getTime()) ? parsed : new Date();
+	}
+
+	private sortByPublishedAtDesc(
+		documents: RiDocumentRecord[]
+	): RiDocumentRecord[] {
+		return [...documents].sort(
+			(a, b) =>
+				new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
+		);
 	}
 
 	private normalizeLimit(value: number, min: number, max: number): number {
@@ -286,5 +648,37 @@ export class RiDocumentCatalogService {
 		const ageMs = Date.now() - publishedTime;
 		const maxAgeMs = this.recentWindowDays * 24 * 60 * 60 * 1000;
 		return ageMs <= maxAgeMs;
+	}
+
+	private unavailableResult(params: {
+		ticker: string;
+		company: string | null;
+		requestedDocumentType: RiDocumentType | null;
+		reason: RetrieveRelevantRiDocumentOutput['reason'];
+		warnings: string[];
+		officialRiUrl: string | null;
+		selection?: RetrieveRelevantRiDocumentOutput['selection'];
+	}): RetrieveRelevantRiDocumentOutput {
+		return {
+			status: 'unavailable',
+			ticker: params.ticker,
+			company: params.company,
+			requestedDocumentType: params.requestedDocumentType,
+			document: null,
+			warnings: params.warnings,
+			reason: params.reason,
+			selection: params.selection || {
+				policy: 'most_recent_safe_document',
+				applied: 'none',
+				fallbackApplied: false,
+				fallbackReason: null,
+				expectedQuarter: null,
+				selectedQuarter: null,
+			},
+			source: {
+				officialRiUrl: params.officialRiUrl,
+				trustLevel: params.officialRiUrl ? 'official_registry' : 'unavailable',
+			},
+		};
 	}
 }

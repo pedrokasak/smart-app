@@ -12,6 +12,7 @@ import { UserModel } from 'src/users/schema/user.model';
 import {
 	expireKeepAliveConected,
 	expireKeepAliveConectedRefreshToken,
+	googleClientId,
 } from 'src/env';
 import { AuthErrorService } from 'src/utils/errors-handler';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
@@ -22,6 +23,17 @@ import * as crypto from 'crypto';
 import { EmailService } from 'src/notifications/email/email.service';
 import { authenticator } from 'otplib';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
+import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
+
+type GoogleTokenInfoResponse = {
+	aud?: string;
+	email?: string;
+	email_verified?: string;
+	given_name?: string;
+	family_name?: string;
+	name?: string;
+	picture?: string;
+};
 
 @Injectable()
 export class AuthenticationService {
@@ -76,34 +88,77 @@ export class AuthenticationService {
 			return { requiresTwoFactor: true, tempToken } as any;
 		}
 
-		const accessToken = this.jwtService.sign(
-			{
-				userId: verifyUser.id,
-				type: 'access',
-				role: verifyUser.role ?? 'user',
-			},
-			{ expiresIn: expireKeepAliveConected }
-		);
+		return this.issueSessionTokens(verifyUser as any);
+	}
 
-		const refreshToken = this.jwtService.sign(
-			{ userId: verifyUser.id, type: 'refresh' },
-			{ expiresIn: expireKeepAliveConectedRefreshToken }
-		);
+	async googleSignin(payload: GoogleSigninDto): Promise<AuthenticationEntity> {
+		const tokenInfo = await this.verifyGoogleIdToken(payload.idToken);
+		const email = String(tokenInfo.email || '')
+			.trim()
+			.toLowerCase();
+		const emailVerified =
+			String(tokenInfo.email_verified || '').toLowerCase() === 'true';
 
-		verifyUser.refreshToken = refreshToken;
-		await verifyUser.save();
+		if (!email || !emailVerified) {
+			throw new UnauthorizedException(
+				'Conta Google inválida ou email não verificado'
+			);
+		}
 
-		return {
-			accessToken: accessToken,
-			refreshToken,
-			expiresIn: expireKeepAliveConected,
-			user: {
-				id: verifyUser.id,
-				email: verifyUser.email,
-				firstName: verifyUser.firstName,
-				lastName: verifyUser.lastName,
-			},
-		};
+		let user = await UserModel.findOne({ email }).select('+password').exec();
+		if (!user) {
+			const generatedPassword = crypto.randomBytes(24).toString('hex');
+			const hashedPassword =
+				await this.passwordSecurityService.hashPassword(generatedPassword);
+			const [firstName, ...lastParts] = String(
+				tokenInfo.given_name || tokenInfo.name || 'Usuário'
+			)
+				.trim()
+				.split(/\s+/);
+			const lastName = String(
+				tokenInfo.family_name || lastParts.join(' ') || ''
+			).trim();
+			user = await UserModel.create({
+				email,
+				password: hashedPassword,
+				firstName,
+				lastName,
+				avatar: tokenInfo.picture || undefined,
+				isEmailVerified: true,
+			});
+		} else {
+			const updates: Record<string, unknown> = {};
+			if (!user.firstName && tokenInfo.given_name) {
+				updates.firstName = tokenInfo.given_name;
+			}
+			if (!user.lastName && tokenInfo.family_name) {
+				updates.lastName = tokenInfo.family_name;
+			}
+			if (!user.avatar && tokenInfo.picture) {
+				updates.avatar = tokenInfo.picture;
+			}
+			if (!user.isEmailVerified) {
+				updates.isEmailVerified = true;
+			}
+			if (Object.keys(updates).length > 0) {
+				await UserModel.updateOne({ _id: user._id }, { $set: updates }).exec();
+				user = await UserModel.findById(user._id).select('+password').exec();
+			}
+		}
+
+		if (!user) {
+			throw new InternalServerErrorException('Falha ao autenticar com Google');
+		}
+
+		if (user.twoFactorEnabled) {
+			const tempToken = this.jwtService.sign(
+				{ userId: user.id, type: 'temp_2fa' },
+				{ expiresIn: '5m' }
+			);
+			return { requiresTwoFactor: true, tempToken } as any;
+		}
+
+		return this.issueSessionTokens(user as any);
 	}
 
 	async signout(token: string) {
@@ -116,6 +171,71 @@ export class AuthenticationService {
 		await this.tokenBlacklistService.addToBlacklist(token, verifyToken.exp);
 
 		return { message: 'Signout successfully' };
+	}
+
+	private async verifyGoogleIdToken(
+		idToken: string
+	): Promise<GoogleTokenInfoResponse> {
+		const response = await fetch(
+			`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`,
+			{
+				method: 'GET',
+				headers: {
+					Accept: 'application/json',
+				},
+			}
+		);
+		if (!response.ok) {
+			throw new UnauthorizedException('Token Google inválido');
+		}
+
+		const data = (await response.json()) as GoogleTokenInfoResponse;
+		if (!data?.aud || !data?.email) {
+			throw new UnauthorizedException('Token Google sem dados obrigatórios');
+		}
+		if (googleClientId && data.aud !== googleClientId) {
+			throw new UnauthorizedException('Token Google com audience inválida');
+		}
+		return data;
+	}
+
+	private async issueSessionTokens(user: {
+		id: string;
+		email: string;
+		firstName?: string;
+		lastName?: string;
+		refreshToken?: string | null;
+		save: () => Promise<unknown>;
+		role?: string;
+	}) {
+		const accessToken = this.jwtService.sign(
+			{
+				userId: user.id,
+				type: 'access',
+				role: user.role ?? 'user',
+			},
+			{ expiresIn: expireKeepAliveConected }
+		);
+
+		const refreshToken = this.jwtService.sign(
+			{ userId: user.id, type: 'refresh' },
+			{ expiresIn: expireKeepAliveConectedRefreshToken }
+		);
+
+		user.refreshToken = refreshToken;
+		await user.save();
+
+		return {
+			accessToken,
+			refreshToken,
+			expiresIn: expireKeepAliveConected,
+			user: {
+				id: user.id,
+				email: user.email,
+				firstName: user.firstName,
+				lastName: user.lastName,
+			},
+		};
 	}
 
 	async signoutAll(userId: string) {

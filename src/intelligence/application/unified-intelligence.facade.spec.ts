@@ -3,6 +3,7 @@ import { TaxEngineService } from 'src/fiscal/tax-engine/application/tax-engine.s
 import { FutureSimulatorService } from 'src/intelligence/application/future-simulator.service';
 import { OpportunityRadarService } from 'src/intelligence/application/opportunity-radar.service';
 import { PremiumInsightsService } from 'src/intelligence/application/premium-insights.service';
+import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { PortfolioIntelligenceService } from 'src/portfolio/intelligence/application/portfolio-intelligence.service';
 
@@ -32,6 +33,10 @@ describe('UnifiedIntelligenceFacade', () => {
 		generate: jest.fn(),
 	} as unknown as PremiumInsightsService;
 
+	const mockTrackerrScoreService = {
+		build: jest.fn(),
+	} as unknown as TrackerrScoreService;
+
 	const makeFacade = () =>
 		new UnifiedIntelligenceFacade(
 			mockPortfolioIntelligenceService,
@@ -39,7 +44,8 @@ describe('UnifiedIntelligenceFacade', () => {
 			mockTaxEngineService,
 			mockOpportunityRadarService,
 			mockFutureSimulatorService,
-			mockPremiumInsightsService
+			mockPremiumInsightsService,
+			mockTrackerrScoreService
 		);
 
 	afterEach(() => jest.clearAllMocks());
@@ -295,6 +301,46 @@ describe('UnifiedIntelligenceFacade', () => {
 		expect(mockPremiumInsightsService.generate).toHaveBeenCalledWith({
 			plan: 'premium',
 			positions: [],
+		});
+	});
+
+	it('delegates trackerr score build', () => {
+		(mockTrackerrScoreService.build as jest.Mock).mockReturnValue({
+			symbol: 'ITUB4',
+			assetType: 'stock',
+			status: 'ok',
+			overall: 77,
+			overallScore: 77,
+			weights: {
+				qualidade: 0.25,
+				risco: 0.2,
+				valuation: 0.2,
+				fiscal: 0.15,
+				portfolio_fit: 0.2,
+			},
+			pillars: [],
+			reasonCodes: {
+				upward: [],
+				downward: [],
+			},
+			warnings: [],
+			explanation: {
+				summary: 'ok',
+				topPositiveDrivers: [],
+				topNegativeDrivers: [],
+			},
+		});
+
+		const facade = makeFacade();
+		const output = facade.getTrackerrScore({
+			positions: [],
+			targetSymbol: 'ITUB4',
+		});
+
+		expect(output.overallScore).toBe(77);
+		expect(mockTrackerrScoreService.build).toHaveBeenCalledWith({
+			positions: [],
+			targetSymbol: 'ITUB4',
 		});
 	});
 });

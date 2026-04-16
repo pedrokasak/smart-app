@@ -7,6 +7,7 @@ describe('RiIntelligenceController', () => {
 	const mockCatalogService = {
 		autocomplete: jest.fn(),
 		search: jest.fn(),
+		retrieveMostRelevantDocument: jest.fn(),
 		getDocumentPdf: jest.fn(),
 	};
 	const mockSummaryService = {
@@ -70,6 +71,21 @@ describe('RiIntelligenceController', () => {
 		});
 	});
 
+	it('delegates relevant document retrieval with parsed document type', async () => {
+		mockCatalogService.retrieveMostRelevantDocument.mockResolvedValue({
+			status: 'unavailable',
+		});
+
+		await controller.getMostRelevantDocument('VALE3', 'earnings_release');
+
+		expect(
+			mockCatalogService.retrieveMostRelevantDocument
+		).toHaveBeenCalledWith({
+			ticker: 'VALE3',
+			documentType: 'earnings_release',
+		});
+	});
+
 	it('returns not found when requested pdf does not exist', async () => {
 		mockCatalogService.getDocumentPdf.mockResolvedValue(null);
 
@@ -101,7 +117,16 @@ describe('RiIntelligenceController', () => {
 				limitations: ['ri_content_insufficient_for_summary'],
 				sourceLabel: 'structured_fallback',
 			},
-			structuredSignals: {},
+			structuredSignals: {
+				revenue: { detected: false, direction: 'unknown', evidence: [] },
+				profit: { detected: false, direction: 'unknown', evidence: [] },
+				margin: { detected: false, direction: 'unknown', evidence: [] },
+				indebtedness: { detected: false, direction: 'unknown', evidence: [] },
+				capex: { detected: false, direction: 'unknown', evidence: [] },
+				guidance: { detected: false, direction: 'unknown', evidence: [] },
+				risks: { detected: false, direction: 'unknown', evidence: [] },
+				toneShift: { detected: false, direction: 'unknown', evidence: [] },
+			},
 			cache: {
 				key: null,
 				hit: false,

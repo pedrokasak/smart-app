@@ -16,6 +16,8 @@ jest.mock('src/users/schema/user.model', () => {
 	const mockUserModel = {
 		findOne: jest.fn(),
 		findById: jest.fn(),
+		create: jest.fn(),
+		updateOne: jest.fn(),
 	};
 	return { UserModel: mockUserModel };
 });
@@ -61,6 +63,7 @@ describe('AuthenticationService', () => {
 
 	afterEach(() => {
 		jest.clearAllMocks();
+		(global as any).fetch = undefined;
 	});
 
 	describe('signin', () => {
@@ -203,6 +206,103 @@ describe('AuthenticationService', () => {
 					token: '',
 				})
 			).rejects.toThrow(NotFoundException);
+		});
+	});
+
+	describe('googleSignin', () => {
+		it('should sign in existing verified Google user', async () => {
+			(global as any).fetch = jest.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({
+					aud: 'any-aud',
+					email: 'google@example.com',
+					email_verified: 'true',
+					given_name: 'Google',
+					family_name: 'User',
+				}),
+			});
+
+			const save = jest.fn().mockResolvedValue(undefined);
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					exec: jest.fn().mockResolvedValue({
+						id: 'u-google',
+						email: 'google@example.com',
+						firstName: 'Google',
+						lastName: 'User',
+						role: 'user',
+						twoFactorEnabled: false,
+						save,
+					}),
+				}),
+			});
+			mockJwtService.sign.mockReturnValue('token');
+
+			const result = await service.googleSignin({
+				idToken: 'id-token',
+				keepConnected: false,
+			});
+
+			expect(result.accessToken).toBe('token');
+			expect(save).toHaveBeenCalled();
+		});
+
+		it('should create user when google account does not exist locally', async () => {
+			(global as any).fetch = jest.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({
+					aud: 'any-aud',
+					email: 'newgoogle@example.com',
+					email_verified: 'true',
+					given_name: 'New',
+					family_name: 'Google',
+					picture: 'https://img.example/avatar.png',
+				}),
+			});
+
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					exec: jest.fn().mockResolvedValue(null),
+				}),
+			});
+			mockPasswordSecurityService.hashPassword.mockResolvedValue('argon2-hash');
+			const save = jest.fn().mockResolvedValue(undefined);
+			(UserModel.create as jest.Mock).mockResolvedValue({
+				id: 'u-new-google',
+				email: 'newgoogle@example.com',
+				firstName: 'New',
+				lastName: 'Google',
+				role: 'user',
+				twoFactorEnabled: false,
+				save,
+			});
+			mockJwtService.sign.mockReturnValue('token');
+
+			const result = await service.googleSignin({
+				idToken: 'id-token',
+				keepConnected: false,
+			});
+
+			expect(UserModel.create).toHaveBeenCalled();
+			expect(result.accessToken).toBe('token');
+		});
+
+		it('should reject google signin when email is not verified', async () => {
+			(global as any).fetch = jest.fn().mockResolvedValue({
+				ok: true,
+				json: async () => ({
+					aud: 'any-aud',
+					email: 'google@example.com',
+					email_verified: 'false',
+				}),
+			});
+
+			await expect(
+				service.googleSignin({
+					idToken: 'id-token',
+					keepConnected: false,
+				})
+			).rejects.toThrow(UnauthorizedException);
 		});
 	});
 

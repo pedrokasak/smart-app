@@ -1,6 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
+import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
+import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
 import { IntelligentChatService } from './intelligence/intelligent-chat.service';
 
 jest.mock('../env.ts', () => ({
@@ -17,8 +19,12 @@ const mockAiService = {
 	chat: jest.fn(),
 };
 
-const mockIntelligentChatService = {
-	respond: jest.fn(),
+const mockChatOrchestratorService = {
+	orchestrate: jest.fn(),
+};
+
+const mockTrackerrScoreService = {
+	getScoreForUser: jest.fn(),
 };
 
 describe('AiController', () => {
@@ -30,8 +36,12 @@ describe('AiController', () => {
 			providers: [
 				{ provide: AiService, useValue: mockAiService },
 				{
-					provide: IntelligentChatService,
-					useValue: mockIntelligentChatService,
+					provide: ChatOrchestratorService,
+					useValue: mockChatOrchestratorService,
+				},
+				{
+					provide: TrackerrScoreService,
+					useValue: mockTrackerrScoreService,
 				},
 			],
 		}).compile();
@@ -156,13 +166,20 @@ describe('AiController', () => {
 	});
 
 	it('should call intelligent chat and return structured response', async () => {
-		mockIntelligentChatService.respond.mockResolvedValue({
+		mockChatOrchestratorService.orchestrate.mockResolvedValue({
 			intent: 'portfolio_summary',
 			deterministic: true,
-			portfolioFacts: { totalValue: 1000 },
-			externalData: null,
-			estimates: {},
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			data: {
+				portfolioSummary: { totalValue: 1000 },
+			},
 			unavailable: [],
+			warnings: [],
+			assumptions: [],
 			message: 'ok',
 		});
 
@@ -172,9 +189,34 @@ describe('AiController', () => {
 		);
 
 		expect(response.intent).toBe('portfolio_summary');
-		expect(mockIntelligentChatService.respond).toHaveBeenCalledWith(
+		expect(response.data?.portfolioSummary?.totalValue).toBe(1000);
+		expect(mockChatOrchestratorService.orchestrate).toHaveBeenCalledWith(
 			'user-123',
-			'Resumo da carteira'
+			'Resumo da carteira',
+			{
+				investorProfile: undefined,
+				copilotFlow: undefined,
+				decisionFlow: undefined,
+			}
+		);
+	});
+
+	it('should return trackerr score payload', async () => {
+		mockTrackerrScoreService.getScoreForUser.mockResolvedValue({
+			status: 'ok',
+			overallScore: 81,
+		});
+
+		const result = await controller.trackerrScore(
+			{ user: { userId: 'user-123' } },
+			{ symbol: 'ITUB4' }
+		);
+
+		expect(result.status).toBe('ok');
+		expect(mockTrackerrScoreService.getScoreForUser).toHaveBeenCalledWith(
+			'user-123',
+			'ITUB4',
+			{ previousPillarScores: undefined }
 		);
 	});
 });
