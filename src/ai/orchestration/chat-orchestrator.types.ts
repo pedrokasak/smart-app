@@ -17,6 +17,7 @@ export type ChatOrchestratorIntent =
 	| 'ri_comparison'
 	| 'investment_committee'
 	| 'narrative_synthesis'
+	| 'external_asset_question'
 	| 'unknown';
 
 export type ChatRouteType = 'deterministic_no_llm' | 'synthesis_required';
