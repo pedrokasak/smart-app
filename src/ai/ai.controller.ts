@@ -6,6 +6,7 @@ import {
 	Request,
 	HttpCode,
 	HttpStatus,
+	Logger,
 } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
@@ -26,6 +27,8 @@ import { TrackerrScoreService } from 'src/intelligence/application/trackerr-scor
 @ApiTags('ai')
 @ApiBearerAuth('access-token')
 export class AiController {
+	private readonly logger = new Logger(AiController.name);
+
 	constructor(
 		private readonly aiService: AiService,
 		private readonly chatOrchestratorService: ChatOrchestratorService,
@@ -82,25 +85,46 @@ export class AiController {
 	): Promise<any> {
 		const userId =
 			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
-		const orchestration = await this.chatOrchestratorService.orchestrate(
-			userId,
-			body?.question || '',
-			{
-				investorProfile: body?.investorProfile,
-				copilotFlow: body?.copilotFlow,
-				decisionFlow: body?.decisionFlow,
-			}
-		);
-		return {
-			intent: orchestration.intent,
-			deterministic: orchestration.deterministic,
-			route: orchestration.route,
-			message: this.buildIntelligentMessage(orchestration),
-			data: orchestration.data,
-			unavailable: orchestration.unavailable,
-			warnings: orchestration.warnings,
-			assumptions: orchestration.assumptions,
-		};
+		try {
+			const orchestration = await this.chatOrchestratorService.orchestrate(
+				userId,
+				body?.question || '',
+				{
+					investorProfile: body?.investorProfile,
+					copilotFlow: body?.copilotFlow,
+					decisionFlow: body?.decisionFlow,
+				}
+			);
+			return {
+				intent: orchestration.intent,
+				deterministic: orchestration.deterministic,
+				route: orchestration.route,
+				message: this.buildIntelligentMessage(orchestration),
+				data: orchestration.data,
+				unavailable: orchestration.unavailable,
+				warnings: orchestration.warnings,
+				assumptions: orchestration.assumptions,
+			};
+		} catch (error: any) {
+			this.logger.error(
+				`intelligentChat orchestration failed: ${error?.message || 'unknown_error'}`
+			);
+			return {
+				intent: 'unknown',
+				deterministic: false,
+				route: {
+					type: 'synthesis_required',
+					llmEligible: true,
+					reason: 'insufficient_structured_data',
+				},
+				message:
+					'Não consegui consolidar todos os dados agora, mas posso continuar te ajudando. Tente reformular a pergunta ou repetir em instantes.',
+				data: {},
+				unavailable: [],
+				warnings: ['chat_orchestration_failed'],
+				assumptions: [],
+			};
+		}
 	}
 
 	@Post('trackerr-score')
@@ -146,18 +170,81 @@ export class AiController {
 			case 'portfolio_risk': {
 				const riskScore = (data as any)?.portfolioRisk?.risk?.score;
 				const topAsset = (data as any)?.portfolioRisk?.concentrationByAsset?.[0];
-				
+				const topConcentrationPct = this.resolveConcentrationPct(topAsset);
+				const rebalanceSuggestion = (data as any)?.rebalanceSuggestion;
+
 				let msg = 'Avaliei a exposição e as concentrações do seu portfólio.';
 				if (typeof riskScore === 'number') {
 					msg = `Sua carteira apresenta um Score de Risco de ${riskScore.toFixed(0)}/100.`;
 				}
-				if (topAsset && topAsset.weightPct) {
-					msg += ` A maior concentração identificada é em ${topAsset.symbol} (${topAsset.weightPct.toFixed(1)}%).`;
+				if (topAsset && topConcentrationPct > 0) {
+					msg += ` A maior concentração identificada é em ${topAsset.symbol || topAsset.key} (${topConcentrationPct.toFixed(1)}%).`;
+				}
+				if (rebalanceSuggestion?.riskScore?.targetReductionPct) {
+					msg += ` Sugestão estimada por perfil (${rebalanceSuggestion.profile || 'conservador'}): reduzir risco em ${Number(rebalanceSuggestion.riskScore.targetReductionPct).toFixed(0)}% para alvo de score ${Number(rebalanceSuggestion.riskScore.targetSuggested || 0).toFixed(1)}.`;
+				}
+				if (Array.isArray(rebalanceSuggestion?.targetAllocationMix) && rebalanceSuggestion.targetAllocationMix.length > 0) {
+					const mixLabel = rebalanceSuggestion.targetAllocationMix
+						.slice(0, 4)
+						.map((item: any) => `${item.bucket}: ${Number(item.targetPct || 0).toFixed(0)}%`)
+						.join(' · ');
+					msg += ` Mix sugerido para balanceamento: ${mixLabel}.`;
 				}
 				return msg;
 			}
-			case 'investment_committee':
-				return 'Comitê de investimento semanal gerado com riscos críticos, recomendações e plano objetivo.';
+			case 'investment_committee': {
+				const committee = (data as any)?.investmentCommittee || {};
+				const recommended = Array.isArray(committee.recommended)
+					? committee.recommended
+					: Array.isArray(committee.recommendedAssets)
+						? committee.recommendedAssets
+						: [];
+				const avoid = Array.isArray(committee.avoid)
+					? committee.avoid
+					: Array.isArray(committee.avoidAssets)
+						? committee.avoidAssets
+						: [];
+				const risks = Array.isArray(committee.criticalRisks)
+					? committee.criticalRisks
+					: [];
+				const plan = Array.isArray(committee.objectivePlan)
+					? committee.objectivePlan
+					: [];
+				const topRecommended = recommended[0];
+				const topAvoid = avoid[0];
+				const topRecommendedSymbol =
+					typeof topRecommended === 'string'
+						? topRecommended
+						: topRecommended?.symbol || null;
+				const topAvoidSymbol =
+					typeof topAvoid === 'string'
+						? topAvoid
+						: topAvoid?.symbol || null;
+				const topRecommendedReason =
+					typeof topRecommended === 'object' &&
+					Array.isArray(topRecommended?.reasons) &&
+					topRecommended.reasons.length > 0
+						? String(topRecommended.reasons[0])
+						: null;
+				const topAvoidReason =
+					typeof topAvoid === 'object' &&
+					Array.isArray(topAvoid?.reasons) &&
+					topAvoid.reasons.length > 0
+						? String(topAvoid.reasons[0])
+						: null;
+
+				let msg = `Comitê semanal gerado com ${recommended.length} recomendação(ões), ${avoid.length} ativo(s) para evitar e ${risks.length} risco(s) crítico(s).`;
+				if (topRecommendedSymbol && topRecommendedReason) {
+					msg += ` Destaque positivo: ${topRecommendedSymbol} por ${topRecommendedReason.toLowerCase()}.`;
+				}
+				if (topAvoidSymbol && topAvoidReason) {
+					msg += ` Atenção: ${topAvoidSymbol} porque ${topAvoidReason.toLowerCase()}.`;
+				}
+				if (plan.length > 0) {
+					msg += ` Prioridade da semana: ${String(plan[0]).replace(/\.$/, '')}.`;
+				}
+				return msg;
+			}
 			case 'tax_estimation':
 			case 'sell_simulation': {
 				const tax = (data as any)?.sellSimulation?.estimatedTax;
@@ -180,6 +267,23 @@ export class AiController {
 				return 'Encontrei os seguintes dados de mercado atualizados para a sua solicitação:';
 			case 'portfolio_summary': {
 				const totalValue = (data as any)?.portfolioSummary?.totalValue;
+				const portfolioAssets = Array.isArray((data as any)?.portfolioAssets)
+					? ((data as any).portfolioAssets as Array<any>)
+					: [];
+				if (this.isPortfolioAssetListQuestion(response.question)) {
+					if (!portfolioAssets.length) {
+						return 'Sua carteira está sem ativos no momento.';
+					}
+					const listed = portfolioAssets
+						.slice(0, 8)
+						.map((asset) => {
+							const pct = Number(asset?.allocationPct || 0);
+							const pctLabel = Number.isFinite(pct) ? `${pct.toFixed(1)}%` : 'N/D';
+							return `${asset?.symbol || 'Ativo'} (${pctLabel})`;
+						})
+						.join(', ');
+					return `Sua carteira possui ${portfolioAssets.length} ativo(s): ${listed}.`;
+				}
 				return typeof totalValue === 'number'
 					? `O patrimônio total estimado atual da sua carteira é de R$ ${totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`
 					: 'Resumi os saldos e a distribuição de ativos da sua carteira.';
@@ -187,5 +291,19 @@ export class AiController {
 			default:
 				return 'Analisei seus dados com sucesso e organizei os fatos no painel interativo abaixo.';
 		}
+	}
+
+	private isPortfolioAssetListQuestion(question: string): boolean {
+		const text = String(question || '').toLowerCase();
+		return /\b(listar|liste|quais|mostrar|mostre|descrev\w*)\b/.test(text) &&
+			/\b(ativos?|carteira|portf[oó]lio)\b/.test(text);
+	}
+
+	private resolveConcentrationPct(entry: any): number {
+		const weight = Number(entry?.weightPct);
+		if (Number.isFinite(weight) && weight > 0) return weight;
+		const percentage = Number(entry?.percentage);
+		if (Number.isFinite(percentage) && percentage > 0) return percentage;
+		return 0;
 	}
 }

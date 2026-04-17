@@ -227,6 +227,24 @@ describe('AuthenticationService', () => {
 				select: jest.fn().mockReturnValue({
 					exec: jest.fn().mockResolvedValue({
 						id: 'u-google',
+						_id: 'u-google',
+						email: 'google@example.com',
+						firstName: 'Google',
+						lastName: 'User',
+						role: 'user',
+						twoFactorEnabled: false,
+						save,
+					}),
+				}),
+			});
+			(UserModel.updateOne as jest.Mock).mockReturnValue({
+				exec: jest.fn().mockResolvedValue({ acknowledged: true, modifiedCount: 0 }),
+			});
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					exec: jest.fn().mockResolvedValue({
+						id: 'u-google',
+						_id: 'u-google',
 						email: 'google@example.com',
 						firstName: 'Google',
 						lastName: 'User',
