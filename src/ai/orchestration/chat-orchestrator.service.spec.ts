@@ -131,6 +131,12 @@ describe('ChatOrchestratorService', () => {
 	it('routes risk intent deterministically', async () => {
 		(mockUnifiedFacade.getPortfolioRiskAnalysis as jest.Mock).mockReturnValue({
 			risk: { score: 66 },
+			concentrationByAsset: [
+				{ key: 'ITUB4', symbol: 'ITUB4', percentage: 66.67, severity: 'high' },
+			],
+			concentrationBySector: [
+				{ key: 'Financial', percentage: 66.67, severity: 'high' },
+			],
 		});
 
 		const service = makeService();
@@ -144,6 +150,76 @@ describe('ChatOrchestratorService', () => {
 		expect(response.data.portfolioRisk).toEqual(
 			expect.objectContaining({ risk: { score: 66 } })
 		);
+		expect((response.data.rebalanceSuggestion as any)?.modelVersion).toBe(
+			'profile_rebalance_suggestion_v1'
+		);
+		expect((response.data.rebalanceSuggestion as any)?.riskScore?.targetReductionPct).toBe(20);
+		expect(
+			Array.isArray((response.data.rebalanceSuggestion as any)?.targetAllocationMix)
+		).toBe(true);
+		expect(
+			(response.data.rebalanceSuggestion as any)?.targetAllocationMix?.[0]
+		).toEqual(
+			expect.objectContaining({
+				bucket: expect.any(String),
+				targetPct: expect.any(Number),
+			})
+		);
+		expect(response.assumptions).toEqual(
+			expect.arrayContaining([
+				'rebalance_suggestion_profile_estimate:conservador',
+			])
+		);
+	});
+
+	it('includes explicit owned assets list in portfolio summary response', async () => {
+		(mockUnifiedFacade.getPortfolioSummary as jest.Mock).mockReturnValue({
+			totalValue: 1500,
+			positionsCount: 2,
+		});
+
+		const service = makeService();
+		const response = await service.orchestrate(
+			'user-1',
+			'listar ativos da minha carteira'
+		);
+
+		expect(response.intent).toBe('portfolio_summary');
+		expect(Array.isArray((response.data as any)?.portfolioAssets)).toBe(true);
+		expect((response.data as any)?.portfolioAssets).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					symbol: 'ITUB4',
+					allocationPct: expect.any(Number),
+				}),
+				expect.objectContaining({
+					symbol: 'XPLG11',
+					allocationPct: expect.any(Number),
+				}),
+			])
+		);
+	});
+
+	it('classifies rebalance question as portfolio_risk and returns deterministic suggestion', async () => {
+		(mockUnifiedFacade.getPortfolioRiskAnalysis as jest.Mock).mockReturnValue({
+			risk: { score: 70 },
+			concentrationByAsset: [
+				{ key: 'ITUB4', symbol: 'ITUB4', percentage: 66, severity: 'high' },
+			],
+			concentrationBySector: [
+				{ key: 'Financial', percentage: 66, severity: 'high' },
+			],
+		});
+
+		const service = makeService();
+		const response = await service.orchestrate(
+			'user-1',
+			'como balancear minha carteira?'
+		);
+
+		expect(response.intent).toBe('portfolio_risk');
+		expect(response.route.type).toBe('deterministic_no_llm');
+		expect((response.data.rebalanceSuggestion as any)?.actions?.length).toBeGreaterThan(0);
 	});
 
 	it('returns cache hit when same deterministic question is repeated', async () => {

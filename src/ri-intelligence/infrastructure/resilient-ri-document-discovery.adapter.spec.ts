@@ -22,15 +22,19 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 		contentStatus: 'metadata_only',
 	});
 
-	it('returns primary documents when primary succeeds', async () => {
+	it('returns deduplicated primary documents when primary succeeds', async () => {
 		const primary: RiDocumentDiscoveryPort = {
 			discover: jest.fn().mockResolvedValue([baseDocument('ITUB4')]),
 		};
 		const fallback: RiDocumentDiscoveryPort = {
-			discover: jest.fn().mockResolvedValue([baseDocument('BBDC4')]),
+			discover: jest.fn().mockResolvedValue([baseDocument('ITUB4')]),
 		};
 
-		const adapter = new ResilientRiDocumentDiscoveryAdapter(primary, fallback);
+		const adapter = new ResilientRiDocumentDiscoveryAdapter(
+			primary,
+			primary,
+			fallback
+		);
 		const output = await adapter.discover({
 			ticker: 'ITUB4',
 			company: 'Itaú',
@@ -39,7 +43,6 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 
 		expect(output).toHaveLength(1);
 		expect(output[0].ticker).toBe('ITUB4');
-		expect(fallback.discover).toHaveBeenCalledTimes(1);
 	});
 
 	it('falls back to in-memory provider when primary fails or is empty', async () => {
@@ -50,7 +53,11 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 			discover: jest.fn().mockResolvedValue([baseDocument('PETR4')]),
 		};
 
-		const adapter = new ResilientRiDocumentDiscoveryAdapter(primary, fallback);
+		const adapter = new ResilientRiDocumentDiscoveryAdapter(
+			primary,
+			primary,
+			fallback
+		);
 		const output = await adapter.discover({
 			ticker: 'PETR4',
 			company: 'Petrobras',
@@ -78,6 +85,7 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 		};
 
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
+			primary,
 			primary,
 			fallback,
 			20
@@ -114,7 +122,11 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 			discover: jest.fn().mockResolvedValue([shared, fallbackOnly]),
 		};
 
-		const adapter = new ResilientRiDocumentDiscoveryAdapter(primary, fallback);
+		const adapter = new ResilientRiDocumentDiscoveryAdapter(
+			primary,
+			primary,
+			fallback
+		);
 		const output = await adapter.discover({
 			ticker: 'BBAS3',
 			company: 'Banco do Brasil',

@@ -200,6 +200,125 @@ describe('AiController', () => {
 		);
 	});
 
+	it('should return safe fallback payload when orchestration fails', async () => {
+		mockChatOrchestratorService.orchestrate.mockRejectedValueOnce(
+			new Error('provider timeout')
+		);
+
+		const response = await controller.intelligentChat(
+			{ user: { userId: 'user-123' } },
+			{ question: 'quais ativos tem na minha carteira?' }
+		);
+
+		expect(response.intent).toBe('unknown');
+		expect(response.deterministic).toBe(false);
+		expect(response.route).toEqual(
+			expect.objectContaining({
+				type: 'synthesis_required',
+				reason: 'insufficient_structured_data',
+			})
+		);
+		expect(response.warnings).toContain('chat_orchestration_failed');
+		expect(typeof response.message).toBe('string');
+	});
+
+	it('should return portfolio-aware list message when question asks for assets', async () => {
+		mockChatOrchestratorService.orchestrate.mockResolvedValueOnce({
+			intent: 'portfolio_summary',
+			deterministic: true,
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			question: 'listar ativos da minha carteira',
+			context: {
+				mentionedSymbols: [],
+				ownedSymbols: ['ITUB4', 'XPLG11'],
+				externalSymbols: [],
+				positionsCount: 2,
+			},
+			cache: { key: null, hit: false, ttlSeconds: null },
+			cost: {
+				llmCalls: 0,
+				tokenUsageEstimate: 0,
+				estimatedLlmCallsAvoidedByCache: 0,
+			},
+			data: {
+				portfolioSummary: { totalValue: 1500 },
+				portfolioAssets: [
+					{ symbol: 'ITUB4', allocationPct: 66.67 },
+					{ symbol: 'XPLG11', allocationPct: 33.33 },
+				],
+			},
+			unavailable: [],
+			warnings: [],
+			assumptions: [],
+		});
+
+		const response = await controller.intelligentChat(
+			{ user: { userId: 'user-123' } },
+			{ question: 'listar ativos da minha carteira' }
+		);
+
+		expect(response.intent).toBe('portfolio_summary');
+		expect(response.message).toContain('2 ativo(s)');
+		expect(response.message).toContain('ITUB4 (66.7%)');
+		expect(response.message).toContain('XPLG11 (33.3%)');
+	});
+
+	it('should return risk message with concentration and rebalance target', async () => {
+		mockChatOrchestratorService.orchestrate.mockResolvedValueOnce({
+			intent: 'portfolio_risk',
+			deterministic: true,
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			question: 'mostre risco da minha carteira',
+			context: {
+				mentionedSymbols: [],
+				ownedSymbols: ['ITUB4'],
+				externalSymbols: [],
+				positionsCount: 2,
+			},
+			cache: { key: null, hit: false, ttlSeconds: null },
+			cost: {
+				llmCalls: 0,
+				tokenUsageEstimate: 0,
+				estimatedLlmCallsAvoidedByCache: 0,
+			},
+			data: {
+				portfolioRisk: {
+					risk: { score: 72 },
+					concentrationByAsset: [{ key: 'ITUB4', percentage: 62.4 }],
+				},
+				rebalanceSuggestion: {
+					profile: 'conservador',
+					riskScore: {
+						targetReductionPct: 20,
+						targetSuggested: 57.6,
+					},
+				},
+			},
+			unavailable: [],
+			warnings: [],
+			assumptions: [],
+		});
+
+		const response = await controller.intelligentChat(
+			{ user: { userId: 'user-123' } },
+			{ question: 'mostre risco da minha carteira' }
+		);
+
+		expect(response.intent).toBe('portfolio_risk');
+		expect(response.message).toContain('72/100');
+		expect(response.message).toContain('ITUB4 (62.4%)');
+		expect(response.message).toContain('reduzir risco em 20%');
+		expect(response.message).toContain('57.6');
+	});
+
 	it('should return trackerr score payload', async () => {
 		mockTrackerrScoreService.getScoreForUser.mockResolvedValue({
 			status: 'ok',
@@ -217,5 +336,51 @@ describe('AiController', () => {
 			'ITUB4',
 			{ previousPillarScores: undefined }
 		);
+	});
+
+	it('should build investment committee message with reasons and weekly priority', async () => {
+		mockChatOrchestratorService.orchestrate.mockResolvedValueOnce({
+			intent: 'investment_committee',
+			deterministic: true,
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			data: {
+				investmentCommittee: {
+					modelVersion: 'investment_committee_v1',
+					criticalRisks: ['Concentração elevada em PETR4'],
+					recommended: [
+						{
+							symbol: 'ITUB4',
+							score: 78,
+							reasons: ['ROE robusto sustentando qualidade.'],
+						},
+					],
+					avoid: [
+						{
+							symbol: 'BEEF3',
+							score: 39,
+							reasons: ['Volatilidade de curto prazo elevada.'],
+						},
+					],
+					objectivePlan: ['Reduzir risco agregado da carteira no curto prazo.'],
+				},
+			},
+			unavailable: [],
+			warnings: [],
+			assumptions: [],
+		});
+
+		const response = await controller.intelligentChat(
+			{ user: { userId: 'user-123' } },
+			{ question: 'Gerar comitê de investimento semanal' }
+		);
+
+		expect(response.intent).toBe('investment_committee');
+		expect(response.message).toContain('Destaque positivo: ITUB4');
+		expect(response.message).toContain('Atenção: BEEF3');
+		expect(response.message).toContain('Prioridade da semana');
 	});
 });
