@@ -24,6 +24,8 @@ import { EmailService } from 'src/notifications/email/email.service';
 import { authenticator } from 'otplib';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
+import { INITIAL_ADMIN_EMAIL } from 'src/admin/constants/admin.constants';
+import { Role } from 'src/auth/enums/role.enum';
 
 type GoogleTokenInfoResponse = {
 	aud?: string;
@@ -125,6 +127,7 @@ export class AuthenticationService {
 				lastName,
 				avatar: tokenInfo.picture || undefined,
 				isEmailVerified: true,
+				role: email === INITIAL_ADMIN_EMAIL ? Role.Admin : Role.User,
 			});
 		} else {
 			const updates: Record<string, unknown> = {};
@@ -234,6 +237,7 @@ export class AuthenticationService {
 				email: user.email,
 				firstName: user.firstName,
 				lastName: user.lastName,
+				role: user.role ?? Role.User,
 			},
 		};
 	}

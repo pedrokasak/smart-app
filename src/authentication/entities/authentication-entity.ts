@@ -12,6 +12,9 @@ export class UserResponse {
 
 	@ApiProperty()
 	lastName?: string;
+
+	@ApiProperty()
+	role?: string;
 }
 
 export class AuthenticationEntity {
