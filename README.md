@@ -24,7 +24,44 @@
 
 ## Description
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+# Trackerr
+
+Real-time asset tracking platform built with distributed architecture and cloud-native services.
+
+## Overview
+Trackerr is a SaaS platform designed for real-time beacon/device tracking, monitoring, and analytics.
+
+## Features
+- Real-time tracking
+- BLE integration
+- Event-driven architecture
+- Role-based authentication
+- Async processing with RabbitMQ
+- Cloud-native deployment
+
+## Architecture
+[imagem da arquitetura]
+
+## Tech Stack
+- NestJS
+- React
+- React Native
+- RabbitMQ
+- PostgreSQL
+- Docker
+- AWS
+
+## Challenges
+- BLE instability
+- Real-time synchronization
+- Queue reliability
+- Mobile cross-platform consistency
+
+## Engineering Decisions
+- Why RabbitMQ
+- Why event-driven
+- Why Zustand vs Redux
+- Why PostgreSQL
 
 ## Installation
 
