@@ -53,7 +53,9 @@ export interface ChatOrchestratorResponse {
 	};
 	data: {
 		portfolioSummary?: unknown;
+		portfolioAssets?: unknown;
 		portfolioRisk?: unknown;
+		rebalanceSuggestion?: unknown;
 		dividendProjection?: unknown;
 		comparison?: unknown;
 		sellSimulation?: unknown;

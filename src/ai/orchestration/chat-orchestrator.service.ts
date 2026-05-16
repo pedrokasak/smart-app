@@ -167,6 +167,7 @@ export class ChatOrchestratorService {
 				this.unifiedIntelligenceFacade.getPortfolioSummary({
 					positions,
 				});
+			const portfolioAssets = this.buildPortfolioAssets(positions);
 			const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
 				positions,
 			});
@@ -188,7 +189,12 @@ export class ChatOrchestratorService {
 				ownedSymbols,
 				externalSymbols,
 				positionsCount: positions.length,
-				data: { portfolioSummary, trackerrScore, personalizedInsights },
+				data: {
+					portfolioSummary,
+					portfolioAssets,
+					trackerrScore,
+					personalizedInsights,
+				},
 				unavailable,
 				warnings,
 				assumptions,
@@ -211,6 +217,10 @@ export class ChatOrchestratorService {
 				this.unifiedIntelligenceFacade.getPortfolioRiskAnalysis({
 					positions,
 				});
+			const rebalanceSuggestion = this.buildRebalanceSuggestionByProfile({
+				portfolioRisk,
+				investorProfile,
+			});
 			const rebalancePlan =
 				copilotFlow === 'rebalance_portfolio' ||
 				copilotFlow === 'reduce_risk_20'
@@ -226,6 +236,9 @@ export class ChatOrchestratorService {
 									: 10,
 					  })
 					: null;
+			assumptions.push(
+				`rebalance_suggestion_profile_estimate:${investorProfile}`
+			);
 			const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
 				positions,
 			});
@@ -249,6 +262,7 @@ export class ChatOrchestratorService {
 				positionsCount: positions.length,
 				data: {
 					portfolioRisk,
+					rebalanceSuggestion,
 					trackerrScore,
 					personalizedInsights,
 					...(rebalancePlan ? { rebalancePlan } : {}),
@@ -1782,7 +1796,11 @@ export class ChatOrchestratorService {
 		if (/\b(benchmark|cdi|ibov|ibovespa)\b/.test(text)) {
 			return 'benchmark_simple';
 		}
-		if (/\b(risco|volatilidade|concentr\w*|exposicao|exposição)\b/.test(text)) {
+		if (
+			/\b(risco|volatilidade|concentr\w*|exposicao|exposição|rebalance\w*|balance\w*)\b/.test(
+				text
+			)
+		) {
 			return 'portfolio_risk';
 		}
 		if (/\b(faz sentido|encaixe|fit|combina com minha carteira)\b/.test(text)) {
@@ -2178,6 +2196,170 @@ export class ChatOrchestratorService {
 				'Executar em lotes e reavaliar risco após cada etapa.',
 			],
 		};
+	}
+
+	private buildPortfolioAssets(positions: PortfolioIntelligencePosition[]) {
+		const totalValue = positions.reduce(
+			(acc, position) => acc + this.resolvePositionValue(position),
+			0
+		);
+
+		return positions
+			.map((position) => {
+				const positionValue = this.resolvePositionValue(position);
+				return {
+					symbol: position.symbol,
+					assetType: position.assetType,
+					sector: position.sector || null,
+					quantity: Number(position.quantity || 0),
+					totalValue: this.safeMoney(positionValue),
+					allocationPct:
+						totalValue > 0 ? this.safeMoney((positionValue / totalValue) * 100) : 0,
+				};
+			})
+			.sort((a, b) => Number(b.totalValue || 0) - Number(a.totalValue || 0));
+	}
+
+	private buildRebalanceSuggestionByProfile(params: {
+		portfolioRisk: any;
+		investorProfile: 'renda' | 'crescimento' | 'conservador' | 'agressivo';
+	}) {
+		const targetAllocationMixByProfile: Record<
+			'renda' | 'crescimento' | 'conservador' | 'agressivo',
+			Array<{ bucket: string; targetPct: number; note: string }>
+		> = {
+			conservador: [
+				{ bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)', targetPct: 45, note: 'Base defensiva de carteira.' },
+				{ bucket: 'Ações Brasil', targetPct: 25, note: 'Exposição moderada a crescimento local.' },
+				{ bucket: 'FIIs', targetPct: 15, note: 'Complemento de renda e diversificação.' },
+				{ bucket: 'Ações internacionais', targetPct: 10, note: 'Diversificação geográfica.' },
+				{ bucket: 'Caixa/Cripto', targetPct: 5, note: 'Reserva tática e opcionalidade.' },
+			],
+			renda: [
+				{ bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)', targetPct: 35, note: 'Manter previsibilidade de fluxo.' },
+				{ bucket: 'FIIs', targetPct: 25, note: 'Foco em geração de renda recorrente.' },
+				{ bucket: 'Ações Brasil', targetPct: 20, note: 'Equilíbrio entre renda e valorização.' },
+				{ bucket: 'Ações internacionais', targetPct: 15, note: 'Hedge e expansão de universo.' },
+				{ bucket: 'Caixa/Cripto', targetPct: 5, note: 'Margem tática para oportunidades.' },
+			],
+			crescimento: [
+				{ bucket: 'Ações Brasil', targetPct: 35, note: 'Motor principal de crescimento local.' },
+				{ bucket: 'Ações internacionais', targetPct: 25, note: 'Escala global e diversificação.' },
+				{ bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)', targetPct: 20, note: 'Amortecimento de volatilidade.' },
+				{ bucket: 'FIIs', targetPct: 15, note: 'Diversificação com renda imobiliária.' },
+				{ bucket: 'Caixa/Cripto', targetPct: 5, note: 'Liquidez e assimetria opcional.' },
+			],
+			agressivo: [
+				{ bucket: 'Ações Brasil', targetPct: 40, note: 'Alta convicção em renda variável local.' },
+				{ bucket: 'Ações internacionais', targetPct: 30, note: 'Exposição global relevante.' },
+				{ bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)', targetPct: 10, note: 'Proteção mínima de carteira.' },
+				{ bucket: 'FIIs', targetPct: 10, note: 'Diversificação complementar.' },
+				{ bucket: 'Caixa/Cripto', targetPct: 10, note: 'Reserva para volatilidade/oportunidades.' },
+			],
+		};
+
+		const profileTargetByRisk: Record<
+			'renda' | 'crescimento' | 'conservador' | 'agressivo',
+			{
+				maxAssetConcentrationPct: number;
+				maxSectorConcentrationPct: number;
+				targetRiskReductionPct: number;
+			}
+		> = {
+			conservador: {
+				maxAssetConcentrationPct: 18,
+				maxSectorConcentrationPct: 35,
+				targetRiskReductionPct: 20,
+			},
+			renda: {
+				maxAssetConcentrationPct: 22,
+				maxSectorConcentrationPct: 40,
+				targetRiskReductionPct: 15,
+			},
+			crescimento: {
+				maxAssetConcentrationPct: 25,
+				maxSectorConcentrationPct: 45,
+				targetRiskReductionPct: 12,
+			},
+			agressivo: {
+				maxAssetConcentrationPct: 30,
+				maxSectorConcentrationPct: 50,
+				targetRiskReductionPct: 10,
+			},
+		};
+
+		const targets = profileTargetByRisk[params.investorProfile];
+		const currentRiskScore = Number(params.portfolioRisk?.risk?.score || 0);
+		const targetRiskScore = this.safeMoney(
+			currentRiskScore * (1 - targets.targetRiskReductionPct / 100)
+		);
+		const topAsset = params.portfolioRisk?.concentrationByAsset?.[0];
+		const topSector = params.portfolioRisk?.concentrationBySector?.[0];
+		const topAssetPct = this.resolveConcentrationPercentage(topAsset);
+		const topSectorPct = this.resolveConcentrationPercentage(topSector);
+		const topAssetSymbol = topAsset?.symbol || topAsset?.key || null;
+
+		const actions: string[] = [];
+		if (topAssetSymbol && topAssetPct > targets.maxAssetConcentrationPct) {
+			actions.push(
+				`Reduzir ${topAssetSymbol} de ${topAssetPct.toFixed(2)}% para até ${targets.maxAssetConcentrationPct.toFixed(2)}%.`
+			);
+		}
+		if (topSector?.key && topSectorPct > targets.maxSectorConcentrationPct) {
+			actions.push(
+				`Reduzir setor ${topSector.key} de ${topSectorPct.toFixed(2)}% para até ${targets.maxSectorConcentrationPct.toFixed(2)}%.`
+			);
+		}
+		if (!actions.length) {
+			actions.push(
+				'Distribuição atual está próxima dos limites sugeridos para o perfil; manter rebalanceamento gradual entre aportes.'
+			);
+		}
+
+		return {
+			modelVersion: 'profile_rebalance_suggestion_v1',
+			profile: params.investorProfile,
+			disclaimer:
+				'Sugestão determinística e estimativa por perfil, não recomendação individual de investimento.',
+			riskScore: {
+				current: this.safeMoney(currentRiskScore),
+				targetSuggested: targetRiskScore,
+				targetReductionPct: targets.targetRiskReductionPct,
+			},
+			targetRanges: {
+				maxAssetConcentrationPct: targets.maxAssetConcentrationPct,
+				maxSectorConcentrationPct: targets.maxSectorConcentrationPct,
+			},
+			targetAllocationMix: targetAllocationMixByProfile[params.investorProfile],
+			topConcentration: {
+				asset: topAssetSymbol
+					? {
+							symbol: topAssetSymbol,
+							currentPct: this.safeMoney(topAssetPct),
+							targetPct: targets.maxAssetConcentrationPct,
+							deltaPct: this.safeMoney(topAssetPct - targets.maxAssetConcentrationPct),
+					  }
+					: null,
+				sector: topSector?.key
+					? {
+							sector: topSector.key,
+							currentPct: this.safeMoney(topSectorPct),
+							targetPct: targets.maxSectorConcentrationPct,
+							deltaPct: this.safeMoney(topSectorPct - targets.maxSectorConcentrationPct),
+					  }
+					: null,
+			},
+			actions,
+		};
+	}
+
+	private resolveConcentrationPercentage(entry: any): number {
+		if (!entry || typeof entry !== 'object') return 0;
+		const weight = Number(entry.weightPct);
+		if (Number.isFinite(weight) && weight > 0) return weight;
+		const percentage = Number(entry.percentage);
+		if (Number.isFinite(percentage) && percentage > 0) return percentage;
+		return 0;
 	}
 
 	private resolveInvestorProfile(

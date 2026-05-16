@@ -61,6 +61,28 @@ export class StripeService {
 		}
 	}
 
+	async updateProduct(
+		productId: string,
+		data: {
+			name?: string;
+			description?: string;
+			active?: boolean;
+		}
+	): Promise<Stripe.Product> {
+		try {
+			const product = await this.stripe.products.update(productId, {
+				name: data.name,
+				description: data.description,
+				active: data.active,
+			});
+			this.logger.log(`Produto atualizado no Stripe: ${product.id}`);
+			return product;
+		} catch (error) {
+			this.logger.error('Erro ao atualizar produto no Stripe:', error);
+			throw error;
+		}
+	}
+
 	async createCustomer(email: string, name?: string): Promise<Stripe.Customer> {
 		try {
 			const customer = await this.stripe.customers.create({

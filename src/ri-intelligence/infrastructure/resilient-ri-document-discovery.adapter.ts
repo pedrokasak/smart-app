@@ -27,11 +27,10 @@ export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryP
 		} else {
 			primaryDocs = await this.safeDiscoverWithTimeout(this.cvmAdapter, input);
 		}
-
-		if (primaryDocs.length > 0) return primaryDocs;
-
 		const fallbackDocs = await this.safeDiscoverWithTimeout(this.fallbackAdapter, input);
-		return fallbackDocs;
+		if (primaryDocs.length === 0) return fallbackDocs;
+		if (fallbackDocs.length === 0) return primaryDocs;
+		return this.mergeWithoutDuplicates(primaryDocs, fallbackDocs);
 	}
 
 	private async safeDiscoverWithTimeout(

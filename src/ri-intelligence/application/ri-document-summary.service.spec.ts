@@ -32,18 +32,18 @@ describe('RiDocumentSummaryService', () => {
 		O capex do período teve aumento para sustentar expansão operacional.
 	`.repeat(4);
 
-	it('returns ai summary successfully and stores cache', async () => {
-		const cache: RiSummaryCachePort<any> = {
-			get: jest.fn().mockResolvedValue(null),
-			set: jest.fn().mockResolvedValue(undefined),
-		};
-		const synthesizer: RiSummarySynthesizerPort = {
-			summarize: jest.fn().mockResolvedValue({
-				highlights: ['Receita em alta', 'Lucro cresceu', 'Guidance reiterado'],
-				narrative: 'Resumo da RI com foco em crescimento e riscos monitorados.',
-				metadata: { tokenUsage: 321, model: 'test-model' },
-			}),
-		};
+		it('returns ai summary successfully and stores cache', async () => {
+			const cache: RiSummaryCachePort<any> = {
+				get: jest.fn(async (_key: string) => null),
+				set: jest.fn(async (_key: string, _value: any) => undefined),
+			};
+			const synthesizer: RiSummarySynthesizerPort = {
+				summarize: jest.fn(async () => ({
+					highlights: ['Receita em alta', 'Lucro cresceu', 'Guidance reiterado'],
+					narrative: 'Resumo da RI com foco em crescimento e riscos monitorados.',
+					metadata: { tokenUsage: 321, model: 'test-model' },
+				})),
+			};
 		const service = new RiDocumentSummaryService(synthesizer, cache);
 
 		const output = await service.summarize({
@@ -62,14 +62,18 @@ describe('RiDocumentSummaryService', () => {
 		expect(cache.set).toHaveBeenCalled();
 	});
 
-	it('returns insufficient content without calling ai', async () => {
-		const cache: RiSummaryCachePort<any> = {
-			get: jest.fn(),
-			set: jest.fn(),
-		};
-		const synthesizer: RiSummarySynthesizerPort = {
-			summarize: jest.fn(),
-		};
+		it('returns insufficient content without calling ai', async () => {
+			const cache: RiSummaryCachePort<any> = {
+				get: jest.fn(async (_key: string) => null),
+				set: jest.fn(async (_key: string, _value: any) => undefined),
+			};
+			const synthesizer: RiSummarySynthesizerPort = {
+				summarize: jest.fn(async () => ({
+					highlights: [],
+					narrative: '',
+					metadata: {},
+				})),
+			};
 		const service = new RiDocumentSummaryService(synthesizer, cache);
 
 		const output = await service.summarize({
@@ -85,14 +89,16 @@ describe('RiDocumentSummaryService', () => {
 		expect(output.cost.aiCalls).toBe(0);
 	});
 
-	it('falls back safely when ai summarization fails', async () => {
-		const cache: RiSummaryCachePort<any> = {
-			get: jest.fn().mockResolvedValue(null),
-			set: jest.fn(),
-		};
-		const synthesizer: RiSummarySynthesizerPort = {
-			summarize: jest.fn().mockRejectedValue(new Error('ai down')),
-		};
+		it('falls back safely when ai summarization fails', async () => {
+			const cache: RiSummaryCachePort<any> = {
+				get: jest.fn(async (_key: string) => null),
+				set: jest.fn(async (_key: string, _value: any) => undefined),
+			};
+			const synthesizer: RiSummarySynthesizerPort = {
+				summarize: jest.fn(async () => {
+					throw new Error('ai down');
+				}),
+			};
 		const service = new RiDocumentSummaryService(synthesizer, cache);
 
 		const output = await service.summarize({
@@ -108,7 +114,7 @@ describe('RiDocumentSummaryService', () => {
 		expect(output.structuredSignals.profit.detected).toBe(true);
 	});
 
-	it('returns cached summary when cache hit occurs', async () => {
+		it('returns cached summary when cache hit occurs', async () => {
 		const cachedValue = {
 			document: {
 				id: baseDocument.id,
@@ -138,13 +144,17 @@ describe('RiDocumentSummaryService', () => {
 			cache: { key: 'k', hit: false, ttlSeconds: 100 },
 			cost: { aiCalls: 1, tokenUsageEstimate: 100 },
 		};
-		const cache: RiSummaryCachePort<any> = {
-			get: jest.fn().mockResolvedValue(cachedValue),
-			set: jest.fn(),
-		};
-		const synthesizer: RiSummarySynthesizerPort = {
-			summarize: jest.fn(),
-		};
+			const cache: RiSummaryCachePort<any> = {
+				get: jest.fn(async (_key: string) => cachedValue),
+				set: jest.fn(async (_key: string, _value: any) => undefined),
+			};
+			const synthesizer: RiSummarySynthesizerPort = {
+				summarize: jest.fn(async () => ({
+					highlights: [],
+					narrative: '',
+					metadata: {},
+				})),
+			};
 		const service = new RiDocumentSummaryService(synthesizer, cache);
 
 		const output = await service.summarize({

@@ -25,6 +25,7 @@ import { BrokerSyncModule } from './broker-sync/broker-sync.module';
 import { FiscalModule } from './fiscal/fiscal.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
 import { EndpointRateLimitMiddleware } from 'src/security/rate-limit/endpoint-rate-limit.middleware';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
 	imports: [
@@ -43,6 +44,7 @@ import { EndpointRateLimitMiddleware } from 'src/security/rate-limit/endpoint-ra
 		BrokerSyncModule,
 		PortfolioModule,
 		FiscalModule,
+		AdminModule,
 	],
 	controllers: [AppController],
 	providers: [
