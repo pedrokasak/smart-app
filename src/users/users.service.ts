@@ -14,6 +14,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Role } from 'src/auth/enums/role.enum';
 import { EmailService } from 'src/notifications/email/email.service';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
+import { INITIAL_ADMIN_EMAIL } from 'src/admin/constants/admin.constants';
 
 @Injectable()
 export class UsersService {
@@ -47,6 +48,7 @@ export class UsersService {
 				lastName,
 				email,
 				password: hashedPassword,
+				role: email === INITIAL_ADMIN_EMAIL ? Role.Admin : Role.User,
 			});
 
 			await newUser.save();
@@ -65,7 +67,11 @@ export class UsersService {
 			}
 
 			// Gera o token JWT com o formato aceito pelo JwtStrategy
-			const payload = { userId: newUser.id, type: 'access' };
+			const payload = {
+				userId: newUser.id,
+				type: 'access',
+				role: newUser.role ?? Role.User,
+			};
 			const accessToken = this.jwtService.sign(payload);
 
 			return {
@@ -75,6 +81,7 @@ export class UsersService {
 					firstName: newUser.firstName,
 					lastName: newUser.lastName,
 					email: newUser.email,
+					role: newUser.role,
 					// Retorna o token JWT
 				},
 				accessToken,

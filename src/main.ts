@@ -19,17 +19,20 @@ async function bootstrap() {
 	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
 	app.use(bodyParser.json({ limit: '1mb' }));
 
+	const corsOrigins = [
+		urlDevelopment,
+		urlProduction,
+		'https://trackerr.com.br',
+		'https://www.trackerr.com.br',
+		'https://api.trackerr.com.br',
+		...['3000', '5173', '8080'].flatMap((port) => [
+			`http://localhost:${port}`,
+			`http://127.0.0.1:${port}`,
+		]),
+	];
+
 	app.enableCors({
-		origin: [
-			urlDevelopment,
-			urlProduction,
-			'http://localhost:3000',
-			'http://localhost:8080',
-			'http://localhost:5173',
-			'http://127.0.0.1:8080',
-			'http://127.0.0.1:3000',
-			'http://127.0.0.1:5173',
-		],
+		origin: corsOrigins,
 		methods: 'GET,PUT,PATCH,POST,DELETE',
 		allowedHeaders: [
 			'Content-Type',
@@ -51,9 +54,9 @@ async function bootstrap() {
 	const port = process.env.PORT || 3000;
 
 	const configSwagger = new DocumentBuilder()
-		.setTitle('Trakker API')
-		.setDescription('The Trakker API description')
-		.addTag('trakker-api')
+		.setTitle('TrackerInvest API')
+		.setDescription('The TrackerInvest API description')
+		.addTag('tracker-invest-api')
 		.setVersion('1.0')
 		.addBearerAuth(
 			{
