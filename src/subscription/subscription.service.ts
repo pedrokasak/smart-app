@@ -74,8 +74,10 @@ export class SubscriptionService {
 	// Buscar todos os planos
 	async findAllSubscriptions() {
 		try {
+			// Listagem pública: apenas planos ativos. O painel admin usa
+			// AdminService.listPlans(), que continua retornando todos.
 			const subscriptions = await this.subscriptionModel
-				.find()
+				.find({ isActive: true })
 				.sort({ price: 1 });
 			return subscriptions;
 		} catch (error) {
@@ -219,7 +221,7 @@ export class SubscriptionService {
 			// Criar assinatura no banco de dados
 			const userSubscription = new this.userSubscriptionModel({
 				user: createUserSubscriptionDto.userId,
-				subscription: plan._id,
+				plan: plan._id,
 				stripeSubscriptionId: stripeSubscription.id,
 				stripeCustomerId,
 				status: stripeSubscription.status,

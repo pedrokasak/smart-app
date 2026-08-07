@@ -70,6 +70,7 @@ export class ProfileController {
 		return { avatarUrl };
 	}
 
+	@Post('create/:id')
 	@UseGuards(JwtAuthGuard)
 	@ApiOkResponse({ type: CreateProfileDto, description: 'Success' })
 	@ApiResponse({ status: 403, description: 'Forbidden.' })

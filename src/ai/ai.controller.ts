@@ -158,6 +158,9 @@ export class AiController {
 				const riskScore = (data as any)?.portfolioRisk?.risk?.score;
 				const topAsset = (data as any)?.portfolioRisk
 					?.concentrationByAsset?.[0];
+				const topConcentrationPct = Number(topAsset?.percentage ?? 0);
+				const rebalanceSuggestion = (data as any)?.portfolioRisk
+					?.rebalanceSuggestion;
 
 				let msg = 'Avaliei a exposição e as concentrações do seu portfólio.';
 				if (typeof riskScore === 'number') {
