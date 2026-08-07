@@ -18,6 +18,29 @@ export class WebhooksService {
 		private userSubscriptionModel: Model<UserSubscription>
 	) {}
 
+	/**
+	 * A partir da API 2025-08-27.basil o Stripe expõe current_period_start/end
+	 * no item da assinatura, e não mais no objeto raiz. Lê do item e mantém
+	 * fallback na raiz para compatibilidade com versões anteriores.
+	 */
+	private resolvePeriod(subscription: Stripe.Subscription): {
+		start: Date;
+		end: Date;
+	} {
+		const item = subscription.items?.data?.[0] as any;
+		const root = subscription as any;
+
+		const startUnix = item?.current_period_start ?? root.current_period_start;
+		const endUnix = item?.current_period_end ?? root.current_period_end;
+
+		return {
+			start: startUnix ? new Date(startUnix * 1000) : new Date(),
+			end: endUnix
+				? new Date(endUnix * 1000)
+				: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+		};
+	}
+
 	// Processar webhook do Stripe
 	async handleWebhook(event: Stripe.Event): Promise<void> {
 		try {
@@ -100,16 +123,12 @@ export class WebhooksService {
 
 			const newUserSubscription = new this.userSubscriptionModel({
 				user: user._id,
-				subscription: plan._id,
+				plan: plan._id,
 				stripeSubscriptionId: subscription.id,
 				stripeCustomerId: subscription.customer as string,
 				status: subscription.status,
-				currentPeriodStart: (subscription as any).current_period_start
-					? new Date((subscription as any).current_period_start * 1000)
-					: new Date(),
-				currentPeriodEnd: (subscription as any).current_period_end
-					? new Date((subscription as any).current_period_end * 1000)
-					: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
+				currentPeriodStart: this.resolvePeriod(subscription).start,
+				currentPeriodEnd: this.resolvePeriod(subscription).end,
 				cancelAtPeriodEnd: subscription.cancel_at_period_end,
 				trialStart: (subscription as any).trial_start
 					? new Date((subscription as any).trial_start * 1000)
@@ -143,13 +162,10 @@ export class WebhooksService {
 			}
 
 			// Atualizar campos da assinatura
+			const period = this.resolvePeriod(subscription);
 			userSubscription.status = subscription.status as any;
-			userSubscription.currentPeriodStart = new Date(
-				(subscription as any).current_period_start * 1000
-			);
-			userSubscription.currentPeriodEnd = new Date(
-				(subscription as any).current_period_end * 1000
-			);
+			userSubscription.currentPeriodStart = period.start;
+			userSubscription.currentPeriodEnd = period.end;
 			userSubscription.cancelAtPeriodEnd = subscription.cancel_at_period_end;
 			userSubscription.quantity = subscription.items.data[0].quantity || 1;
 
