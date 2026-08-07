@@ -34,15 +34,15 @@ describe('RiDocumentSummaryService', () => {
 
 	it('returns ai summary successfully and stores cache', async () => {
 		const cache: RiSummaryCachePort<any> = {
-			get: jest.fn().mockResolvedValue(null),
-			set: jest.fn().mockResolvedValue(undefined),
+			get: jest.fn(async () => null) as any,
+			set: jest.fn(async () => undefined) as any,
 		};
 		const synthesizer: RiSummarySynthesizerPort = {
-			summarize: jest.fn().mockResolvedValue({
+			summarize: jest.fn(async () => ({
 				highlights: ['Receita em alta', 'Lucro cresceu', 'Guidance reiterado'],
 				narrative: 'Resumo da RI com foco em crescimento e riscos monitorados.',
 				metadata: { tokenUsage: 321, model: 'test-model' },
-			}),
+			})) as any,
 		};
 		const service = new RiDocumentSummaryService(synthesizer, cache);
 
@@ -64,11 +64,11 @@ describe('RiDocumentSummaryService', () => {
 
 	it('returns insufficient content without calling ai', async () => {
 		const cache: RiSummaryCachePort<any> = {
-			get: jest.fn(),
-			set: jest.fn(),
+			get: jest.fn() as any,
+			set: jest.fn() as any,
 		};
 		const synthesizer: RiSummarySynthesizerPort = {
-			summarize: jest.fn(),
+			summarize: jest.fn() as any,
 		};
 		const service = new RiDocumentSummaryService(synthesizer, cache);
 
@@ -87,11 +87,13 @@ describe('RiDocumentSummaryService', () => {
 
 	it('falls back safely when ai summarization fails', async () => {
 		const cache: RiSummaryCachePort<any> = {
-			get: jest.fn().mockResolvedValue(null),
-			set: jest.fn(),
+			get: jest.fn(async () => null) as any,
+			set: jest.fn() as any,
 		};
 		const synthesizer: RiSummarySynthesizerPort = {
-			summarize: jest.fn().mockRejectedValue(new Error('ai down')),
+			summarize: jest.fn(async () => {
+				throw new Error('ai down');
+			}) as any,
 		};
 		const service = new RiDocumentSummaryService(synthesizer, cache);
 
@@ -139,11 +141,11 @@ describe('RiDocumentSummaryService', () => {
 			cost: { aiCalls: 1, tokenUsageEstimate: 100 },
 		};
 		const cache: RiSummaryCachePort<any> = {
-			get: jest.fn().mockResolvedValue(cachedValue),
-			set: jest.fn(),
+			get: jest.fn(async () => cachedValue) as any,
+			set: jest.fn() as any,
 		};
 		const synthesizer: RiSummarySynthesizerPort = {
-			summarize: jest.fn(),
+			summarize: jest.fn() as any,
 		};
 		const service = new RiDocumentSummaryService(synthesizer, cache);
 

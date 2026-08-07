@@ -54,6 +54,8 @@ describe('ri-quarter-resolution', () => {
 		});
 		expect(expectedFromJanuary).toEqual({ year: 2025, quarter: 4 });
 		expect(toQuarterLabel(expectedFromApril)).toBe('1T26');
-		expect(sameQuarter(expectedFromApril, { year: 2026, quarter: 1 })).toBe(true);
+		expect(sameQuarter(expectedFromApril, { year: 2026, quarter: 1 })).toBe(
+			true
+		);
 	});
 });

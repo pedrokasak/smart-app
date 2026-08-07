@@ -25,9 +25,7 @@ describe('StockService', () => {
 		}
 	) => Promise<any>;
 	type TwelveGetStockQuoteFn = (symbol: string) => Promise<any>;
-	type FundamentusGetSnapshotFn = (
-		symbol: string
-	) => Promise<{
+	type FundamentusGetSnapshotFn = (symbol: string) => Promise<{
 		numeric: Record<string, number>;
 		text: Record<string, string>;
 	}>;

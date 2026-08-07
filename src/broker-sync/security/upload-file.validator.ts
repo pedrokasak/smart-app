@@ -9,7 +9,9 @@ export type UploadValidationResult = {
 const ALLOWED_EXTENSIONS = new Set(['.pdf', '.csv', '.xlsx', '.xls']);
 
 function getExtension(fileName: string): string {
-	const normalized = String(fileName || '').trim().toLowerCase();
+	const normalized = String(fileName || '')
+		.trim()
+		.toLowerCase();
 	const dot = normalized.lastIndexOf('.');
 	return dot >= 0 ? normalized.slice(dot) : '';
 }
@@ -67,7 +69,8 @@ function looksLikeTextCsv(buffer: Buffer): boolean {
 		return false;
 	}
 
-	const hasDelimiter = text.includes(',') || text.includes(';') || text.includes('\t');
+	const hasDelimiter =
+		text.includes(',') || text.includes(';') || text.includes('\t');
 	return hasDelimiter;
 }
 

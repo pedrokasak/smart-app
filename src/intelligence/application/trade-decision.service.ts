@@ -78,10 +78,13 @@ export class TradeDecisionService {
 			stockMonthlyGrossSales: input.stockMonthlyGrossSales,
 		});
 
-		const grossProceeds = Number(input.quantityToSell || 0) * Number(input.sellPrice || 0);
+		const grossProceeds =
+			Number(input.quantityToSell || 0) * Number(input.sellPrice || 0);
 		const portfolioImpactPercent =
 			input.totalPortfolioValue > 0
-				? Number((-(grossProceeds / input.totalPortfolioValue) * 100).toFixed(2))
+				? Number(
+						(-(grossProceeds / input.totalPortfolioValue) * 100).toFixed(2)
+					)
 				: 0;
 		if (input.totalPortfolioValue <= 0) {
 			warnings.push('trade_decision_portfolio_value_unavailable');
@@ -113,7 +116,9 @@ export class TradeDecisionService {
 		];
 
 		const status: TradeDecisionOutput['status'] =
-			sellImpact.taxRateApplied > 0 || sellImpact.realizedPnl !== 0 ? 'ok' : 'degraded';
+			sellImpact.taxRateApplied > 0 || sellImpact.realizedPnl !== 0
+				? 'ok'
+				: 'degraded';
 		if (status === 'degraded') {
 			warnings.push('trade_decision_partial_estimation');
 		}
@@ -125,10 +130,9 @@ export class TradeDecisionService {
 				taxRateApplied: sellImpact.taxRateApplied,
 				classification: sellImpact.classification,
 				alternatives,
-				explanation:
-					sellImpact.monthlyExemptionApplied
-						? 'Pré-trade: a simulação indica isenção mensal aplicável para a venda atual.'
-						: 'Pré-trade: imposto estimado calculado com engine fiscal determinística.',
+				explanation: sellImpact.monthlyExemptionApplied
+					? 'Pré-trade: a simulação indica isenção mensal aplicável para a venda atual.'
+					: 'Pré-trade: imposto estimado calculado com engine fiscal determinística.',
 			},
 			postTrade: {
 				estimatedDarf: sellImpact.estimatedTax,

@@ -80,6 +80,8 @@ describe('TrackerrScoreService', () => {
 			},
 		});
 
-		expect(output.reasonCodes.downward).toContain('score_down_qualidade_vs_previous');
+		expect(output.reasonCodes.downward).toContain(
+			'score_down_qualidade_vs_previous'
+		);
 	});
 });

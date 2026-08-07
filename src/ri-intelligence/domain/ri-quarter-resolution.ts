@@ -60,8 +60,49 @@ function parseQuarterFromText(text: string): RiQuarterRef | null {
 	return null;
 }
 
+/**
+ * Deriva o trimestre REPORTADO a partir da data de publicação, assumindo a
+ * temporada de resultados brasileira: a empresa divulga o trimestre ANTERIOR
+ * já fechado, com ~1-2 meses de defasagem:
+ *   publicado jan-mar → Q4 do ano anterior (resultados do 4T)
+ *   publicado abr-jun → Q1 (resultados do 1T)
+ *   publicado jul-set → Q2 (resultados do 2T)
+ *   publicado out-dez → Q3 (resultados do 3T)
+ *
+ * Usado como FALLBACK quando o título/URL/periodo do documento não contém um
+ * rótulo de trimestre parseável (ex.: "2T26"). Sem isto, um release lançado
+ * hoje sem rótulo retornaria null e nunca seria selecionado como "resultado
+ * do trimestre atual".
+ */
+function inferQuarterFromPublishedAt(
+	publishedAt: Date | string | undefined
+): RiQuarterRef | null {
+	const date =
+		publishedAt instanceof Date
+			? publishedAt
+			: new Date(String(publishedAt || ''));
+	if (!Number.isFinite(date.getTime())) return null;
+	const month = date.getUTCMonth() + 1;
+	const year = date.getUTCFullYear();
+	let quarter: RiQuarterRef['quarter'];
+	let refYear = year;
+	if (month <= 3) {
+		quarter = 4;
+		refYear = year - 1;
+	} else if (month <= 6) {
+		quarter = 1;
+	} else if (month <= 9) {
+		quarter = 2;
+	} else {
+		quarter = 3;
+	}
+	return { year: refYear, quarter };
+}
+
 export function inferQuarterFromDocument(
-	document: Pick<RiDocumentRecord, 'period' | 'title' | 'source'>
+	document: Pick<RiDocumentRecord, 'period' | 'title' | 'source'> & {
+		publishedAt?: string;
+	}
 ): RiQuarterRef | null {
 	const fromPeriod = parseQuarterFromText(document.period || '');
 	if (fromPeriod) return fromPeriod;
@@ -72,10 +113,13 @@ export function inferQuarterFromDocument(
 	const fromUrl = parseQuarterFromText(document.source?.value || '');
 	if (fromUrl) return fromUrl;
 
-	return null;
+	// Fallback: derivar da data de publicação quando não há rótulo de trimestre.
+	return inferQuarterFromPublishedAt(document.publishedAt);
 }
 
-export function resolveExpectedReportingQuarter(referenceDate: Date): RiQuarterRef {
+export function resolveExpectedReportingQuarter(
+	referenceDate: Date
+): RiQuarterRef {
 	const year = referenceDate.getUTCFullYear();
 	const month = referenceDate.getUTCMonth() + 1;
 	const currentQuarter = Math.ceil(month / 3);
@@ -98,7 +142,10 @@ export function previousQuarter(ref: RiQuarterRef): RiQuarterRef {
 	};
 }
 
-export function sameQuarter(a: RiQuarterRef | null, b: RiQuarterRef | null): boolean {
+export function sameQuarter(
+	a: RiQuarterRef | null,
+	b: RiQuarterRef | null
+): boolean {
 	if (!a || !b) return false;
 	return a.year === b.year && a.quarter === b.quarter;
 }

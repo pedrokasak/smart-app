@@ -40,12 +40,16 @@ export class RiIntelligenceController {
 	async getDocuments(
 		@Query('query') query = '',
 		@Query('documentType') documentType?: string,
-		@Query('limit') limit = '50'
+		@Query('limit') limit = '50',
+		@Query('dateFrom') dateFrom?: string,
+		@Query('dateTo') dateTo?: string
 	) {
 		const input: SearchRiDocumentsInput = {
 			query,
 			documentType: this.parseDocumentType(documentType),
 			limit: parseInt(limit, 10),
+			dateFrom: this.parseIsoDate(dateFrom),
+			dateTo: this.parseIsoDate(dateTo),
 		};
 		return this.catalogService.search(input);
 	}
@@ -53,11 +57,15 @@ export class RiIntelligenceController {
 	@Get('documents/relevant')
 	async getMostRelevantDocument(
 		@Query('ticker') ticker = '',
-		@Query('documentType') documentType?: string
+		@Query('documentType') documentType?: string,
+		@Query('dateFrom') dateFrom?: string,
+		@Query('dateTo') dateTo?: string
 	) {
 		return this.catalogService.retrieveMostRelevantDocument({
 			ticker,
 			documentType: this.parseDocumentType(documentType),
+			dateFrom: this.parseIsoDate(dateFrom),
+			dateTo: this.parseIsoDate(dateTo),
 		});
 	}
 
@@ -86,5 +94,20 @@ export class RiIntelligenceController {
 		return CANONICAL_RI_DOCUMENT_TYPES.includes(normalized as RiDocumentType)
 			? (normalized as RiDocumentType)
 			: undefined;
+	}
+
+	/**
+	 * Aceita ISO date (ex.: `2025-01-01` ou `2025-01-01T00:00:00.000Z`).
+	 * Retorna `undefined` quando omitido (aditivo) e rejeita datas inválidas
+	 * com 400, evitando propagar lixo para os adapters.
+	 */
+	private parseIsoDate(value?: string): string | undefined {
+		const normalized = String(value || '').trim();
+		if (!normalized) return undefined;
+		const parsed = new Date(normalized);
+		if (!Number.isFinite(parsed.getTime())) {
+			throw new BadRequestException('ri_invalid_date_range');
+		}
+		return parsed.toISOString();
 	}
 }

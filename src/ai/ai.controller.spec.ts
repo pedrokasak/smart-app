@@ -3,7 +3,6 @@ import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
-import { IntelligentChatService } from './intelligence/intelligent-chat.service';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',

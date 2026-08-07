@@ -34,7 +34,7 @@ export class PortfolioService {
 			.exec();
 	}
 
-	async recordHistorySnapshot(portfolioId: string) {
+	async recordHistorySnapshot(portfolioId: string, date?: string) {
 		const portfolio = await this.portfolioModel
 			.findById(portfolioId)
 			.populate('assets');
@@ -46,16 +46,61 @@ export class PortfolioService {
 			0
 		);
 
-		const today = new Date().toISOString().split('T')[0];
+		const snapshotDate = date || new Date().toISOString().split('T')[0];
 
 		await this.portfolioHistoryModel.findOneAndUpdate(
-			{ portfolioId, date: today },
+			{ portfolioId, date: snapshotDate },
 			{
 				userId: portfolio.userId,
 				totalValue,
 			},
 			{ upsert: true, new: true }
 		);
+	}
+
+	/**
+	 * Backfill contínuo dia-a-dia (forward-fill) do `fromDate` até hoje:
+	 * grava o MESMO `totalValue` do relatório importado em todos os dias
+	 * corridos do intervalo (upsert por portfolioId+date, preserva datas já
+	 * existentes). Valores intermediários são estimados (não mark-to-market
+	 * real) — serve para o gráfico de período mostrar uma linha contínua a
+	 * partir da data do relatório compartado com os snapshots diários futuros.
+	 */
+	async backfillHistorySnapshots(
+		portfolioId: string,
+		fromDate: string,
+		totalValue: number
+	) {
+		const portfolio = await this.portfolioModel.findById(portfolioId).lean();
+		if (!portfolio) return;
+
+		const start = new Date(fromDate);
+		if (Number.isNaN(start.getTime())) return;
+		start.setUTCHours(0, 0, 0, 0);
+
+		const today = new Date();
+		today.setUTCHours(0, 0, 0, 0);
+
+		for (
+			let cursor = new Date(start);
+			cursor <= today;
+			cursor.setUTCDate(cursor.getUTCDate() + 1)
+		) {
+			const dateStr = cursor.toISOString().split('T')[0];
+			await this.portfolioHistoryModel.findOneAndUpdate(
+				{ portfolioId, date: dateStr },
+				{
+					userId: portfolio.userId,
+					totalValue,
+				},
+				{ upsert: true, new: true }
+			);
+		}
+	}
+
+	async getAllPortfolioIds(): Promise<string[]> {
+		const portfolios = await this.portfolioModel.find({}, { _id: 1 }).lean();
+		return portfolios.map((p) => String(p._id));
 	}
 
 	async getPortfolioWithAssets(portfolioId: string) {

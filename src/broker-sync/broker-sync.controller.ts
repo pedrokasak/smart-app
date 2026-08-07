@@ -134,7 +134,8 @@ export class BrokerSyncController {
 		});
 		if (!validation.ok) {
 			return {
-				message: validation.reason || 'Arquivo rejeitado por validação de segurança',
+				message:
+					validation.reason || 'Arquivo rejeitado por validação de segurança',
 				status: 'failed',
 			};
 		}

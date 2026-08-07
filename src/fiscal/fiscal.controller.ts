@@ -263,10 +263,7 @@ export class FiscalController {
 		}));
 
 		const monthly = this.fiscalService
-			.calculateMonthlyTaxSummary(
-				normalizedTrades,
-				typeBySymbol
-			)
+			.calculateMonthlyTaxSummary(normalizedTrades, typeBySymbol)
 			.filter((item) => item.year === yearNum);
 		const taxDrivers = this.fiscalService
 			.calculateTaxDrivers(normalizedTrades, typeBySymbol)
@@ -508,7 +505,9 @@ export class FiscalController {
 			sellPrice,
 			averagePrice: avgPrice,
 			currentQuantity,
-			remainingQuantity: Number((currentQuantity - effectiveQuantity).toFixed(8)),
+			remainingQuantity: Number(
+				(currentQuantity - effectiveQuantity).toFixed(8)
+			),
 			profit: preview.pnl,
 			estimatedTax: preview.tax,
 			exempt: preview.exempt,

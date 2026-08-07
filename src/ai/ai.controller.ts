@@ -6,6 +6,7 @@ import {
 	Request,
 	HttpCode,
 	HttpStatus,
+	UnauthorizedException,
 } from '@nestjs/common';
 import { AiService } from './ai.service';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
@@ -47,7 +48,10 @@ export class AiController {
 		@Request() req: any,
 		@Body() body: AiAnalysisRequestDto & Record<string, any>
 	): Promise<AiAnalysisResponseDto> {
-		const userId = req.user?.userId || req.user?.sub;
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
 
 		// Monta o payload completo para o trakker-ia
 		// O frontend pode enviar o portfólio já formatado; completamos com o userId
@@ -80,8 +84,10 @@ export class AiController {
 		@Request() req: any,
 		@Body() body: IntelligentChatRequestDto
 	): Promise<any> {
-		const userId =
-			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
+		const userId = String(req.user?.userId ?? req.user?.id ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
 		const orchestration = await this.chatOrchestratorService.orchestrate(
 			userId,
 			body?.question || '',
@@ -114,8 +120,10 @@ export class AiController {
 			previousPillarScores?: Record<string, number>;
 		}
 	) {
-		const userId =
-			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
+		const userId = String(req.user?.userId ?? req.user?.id ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
 		return this.trackerrScoreService.getScoreForUser(userId, body?.symbol, {
 			previousPillarScores: body?.previousPillarScores as any,
 		});

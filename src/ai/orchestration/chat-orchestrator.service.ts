@@ -1429,6 +1429,18 @@ export class ChatOrchestratorService {
 		}
 
 		if (intent === 'narrative_synthesis') {
+			// A síntese narrativa precisa do contexto da carteira para o LLM não
+			// responder de forma genérica. Populamos o data com o mesmo resumo
+			// determinístico usado pelo handler `portfolio_summary` (linhas acima),
+			// assim o ChatNarrativeSynthesisService.toSynthesisInput extrai facts
+			// reais (ver extractFacts) e o prompt inclui a carteira do usuário.
+			const portfolioSummary =
+				this.unifiedIntelligenceFacade.getPortfolioSummary({
+					positions,
+				});
+			const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
+				positions,
+			});
 			const response = this.buildResponse({
 				intent,
 				routeType: 'synthesis_required',
@@ -1438,7 +1450,7 @@ export class ChatOrchestratorService {
 				ownedSymbols,
 				externalSymbols,
 				positionsCount: positions.length,
-				data: {},
+				data: { portfolioSummary, trackerrScore },
 				unavailable,
 				warnings,
 				assumptions,
@@ -1456,6 +1468,17 @@ export class ChatOrchestratorService {
 			return response;
 		}
 
+		// Pergunta ambígua: ainda assim injetamos o resumo da carteira para o
+		// LLM da síntese narrativa ter contexto (mesma motivação do handler
+		// `narrative_synthesis` logo acima).
+		const portfolioSummary = this.unifiedIntelligenceFacade.getPortfolioSummary(
+			{
+				positions,
+			}
+		);
+		const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
+			positions,
+		});
 		const response = this.buildResponse({
 			intent: 'unknown',
 			routeType: 'synthesis_required',
@@ -1465,7 +1488,7 @@ export class ChatOrchestratorService {
 			ownedSymbols,
 			externalSymbols,
 			positionsCount: positions.length,
-			data: {},
+			data: { portfolioSummary, trackerrScore },
 			unavailable,
 			warnings,
 			assumptions,
@@ -1724,8 +1747,20 @@ export class ChatOrchestratorService {
 		) {
 			return 'investment_committee';
 		}
+		// Síntese narrativa (LLM com contexto da carteira):
+		//  - "estratégia" SEMPRE vira narrativa (pedido de análise estratégica,
+		//    mesmo mencionando carteira) — intenção original do orquestrador;
+		//  - "explica/detalhe/por que" vira narrativa, EXCETO quando a pergunta
+		//    pede um SNAPSHOT explícito da carteira ("minha carteira", "resumo",
+		//    "patrimônio", "saldo", "quanto tenho", "minha posição"), que então
+		//    cai no "portfolio_summary" determinístico (com números) mais abaixo.
+		//    Sem isto, "me explica minha carteira" viraria LLM genérico sem dados.
+		if (/\b(estrategia|estratégia)\b/.test(text)) {
+			return 'narrative_synthesis';
+		}
 		if (
-			/\b(explique|explica|estrategia|estratégia|detalhe|por que|porque)\b/.test(
+			/\b(explique|explica|detalhe|por que|porque)\b/.test(text) &&
+			!/\b(minha carteira|meu portfolio|meu portfólio|resumo da carteira|resumo do portfolio|meu patrimônio|quanto tenho|quanto eu tenho|minha posição|minhas posições|minha composição|meu saldo|meus saldos)\b/.test(
 				text
 			)
 		) {
@@ -1788,7 +1823,9 @@ export class ChatOrchestratorService {
 			return 'portfolio_fit_analysis';
 		}
 		if (
-			/\b(carteira|portfolio|alocacao|alocação|resumo|aloc\w*)\b/.test(text)
+			/\b(carteira|portfolio|portfólio|alocacao|alocação|aloc\w*|resumo|patrimonio|patrimônio|saldo|saldos|quanto tenho|quanto eu tenho|meu patrimônio|minha posição|minhas posições|composic\w*|minha composição)\b/.test(
+				text
+			)
 		) {
 			return 'portfolio_summary';
 		}

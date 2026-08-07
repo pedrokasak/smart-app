@@ -29,6 +29,8 @@ export interface SearchRiDocumentsInput {
 	query?: string;
 	documentType?: RiDocumentType;
 	limit?: number;
+	dateFrom?: string | Date;
+	dateTo?: string | Date;
 }
 
 export interface SearchRiDocumentsOutput {
@@ -46,6 +48,8 @@ export interface RetrieveRelevantRiDocumentInput {
 	ticker: string;
 	documentType?: RiDocumentType;
 	asOfDate?: Date | string;
+	dateFrom?: string | Date;
+	dateTo?: string | Date;
 }
 
 export interface RetrieveRelevantRiDocumentOutput {
@@ -138,6 +142,9 @@ export class RiDocumentCatalogService {
 		const query = String(input.query || '').trim();
 		const limit = this.normalizeLimit(input.limit || 50, 1, 200);
 		const documentType = input.documentType;
+		const dateFrom = input.dateFrom;
+		const dateTo = input.dateTo;
+		const hasExplicitRange = Boolean(dateFrom || dateTo);
 		const warnings: string[] = [];
 
 		const matches = await this.resolveMatches(query);
@@ -161,6 +168,8 @@ export class RiDocumentCatalogService {
 					ticker: match.ticker,
 					company: match.company,
 					origin,
+					dateFrom,
+					dateTo,
 				});
 				return documents.slice(0, this.maxDocumentsPerTicker);
 			})
@@ -169,21 +178,25 @@ export class RiDocumentCatalogService {
 		const merged = gathered.flat();
 		if (!merged.length) warnings.push('ri_no_documents_found');
 
-		const recent = merged.filter((document) =>
-			this.matchesRecentRelevantScope(document)
-		);
-		if (merged.length && !recent.length)
+		// Quando o caller fornece janela explícita, ela substitui a janela rolante
+		// default de 540 dias — garante o recorte temporal mesmo que o adapter não
+		// filtre server-side (Http/Puppeteer). Caso contrário, mantém o escopo de
+		// relevância recente.
+		const scoped = hasExplicitRange
+			? this.filterByDateRange(merged, dateFrom, dateTo)
+			: merged.filter((document) => this.matchesRecentRelevantScope(document));
+		if (merged.length && !scoped.length)
 			warnings.push('ri_no_recent_releases_found');
 
 		const validated = (
 			await Promise.all(
-				recent.map((document) => this.resolveAndValidateDocument(document))
+				scoped.map((document) => this.resolveAndValidateDocument(document))
 			)
 		).filter((document): document is RiDocumentRecord => Boolean(document));
 
-		if (recent.length && !validated.length)
+		if (scoped.length && !validated.length)
 			warnings.push('ri_no_valid_documents_found');
-		if (validated.length < recent.length)
+		if (validated.length < scoped.length)
 			warnings.push('ri_invalid_documents_filtered');
 
 		const filteredByType = documentType
@@ -276,8 +289,18 @@ export class RiDocumentCatalogService {
 			ticker: match.ticker,
 			company: match.company,
 			origin: officialRiUrl,
+			dateFrom: input.dateFrom,
+			dateTo: input.dateTo,
 		});
-		if (!discovered.length) {
+
+		// Janela explícita recalca o recorte temporal sobre o que o adapter
+		// retornou (garante o contrato mesmo em adapters sem pré-filtro server-side).
+		const withinRange = this.filterByDateRange(
+			discovered,
+			input.dateFrom,
+			input.dateTo
+		);
+		if (!withinRange.length) {
 			return this.unavailableResult({
 				ticker,
 				company: match.company,
@@ -290,7 +313,7 @@ export class RiDocumentCatalogService {
 
 		const validated = (
 			await Promise.all(
-				discovered.map((document) => this.resolveAndValidateDocument(document))
+				withinRange.map((document) => this.resolveAndValidateDocument(document))
 			)
 		).filter((document): document is RiDocumentRecord => Boolean(document));
 		if (!validated.length) {
@@ -611,6 +634,35 @@ export class RiDocumentCatalogService {
 	private matchesRecentRelevantScope(document: RiDocumentRecord): boolean {
 		if (!this.isRecentDocument(document.publishedAt)) return false;
 		return true;
+	}
+
+	/**
+	 * Filtra documentos cujo `publishedAt` cai dentro de `[dateFrom, dateTo]`
+	 * (limites inclusivos). Quando ambos são opcionais, nenhum filtro é
+	 * aplicado (retorna a lista intacta) — preserva o comportamento atual.
+	 * Limites inválidos são tratados como abertos.
+	 */
+	private filterByDateRange(
+		documents: RiDocumentRecord[],
+		dateFrom?: string | Date,
+		dateTo?: string | Date
+	): RiDocumentRecord[] {
+		if (!dateFrom && !dateTo) return documents;
+		const fromMs = this.toEpochMs(dateFrom);
+		const toMs = this.toEpochMs(dateTo);
+		return documents.filter((document) => {
+			const publishedMs = new Date(document.publishedAt).getTime();
+			if (!Number.isFinite(publishedMs)) return false;
+			if (fromMs !== null && publishedMs < fromMs) return false;
+			if (toMs !== null && publishedMs > toMs) return false;
+			return true;
+		});
+	}
+
+	private toEpochMs(value?: string | Date): number | null {
+		if (!value) return null;
+		const parsed = value instanceof Date ? value : new Date(value);
+		return Number.isFinite(parsed.getTime()) ? parsed.getTime() : null;
 	}
 
 	private collectAvailableDocumentTypes(

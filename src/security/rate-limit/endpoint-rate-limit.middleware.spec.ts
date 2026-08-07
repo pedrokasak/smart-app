@@ -53,7 +53,10 @@ describe('EndpointRateLimitMiddleware', () => {
 		expect((thrown as HttpException).getStatus()).toBe(
 			HttpStatus.TOO_MANY_REQUESTS
 		);
-		expect(res.setHeader).toHaveBeenCalledWith('Retry-After', expect.any(String));
+		expect(res.setHeader).toHaveBeenCalledWith(
+			'Retry-After',
+			expect.any(String)
+		);
 	});
 
 	it('keeps independent buckets for different fingerprints', () => {
@@ -62,17 +65,17 @@ describe('EndpointRateLimitMiddleware', () => {
 			method: 'POST',
 			path: '/auth/signin',
 			ip: '127.0.0.1',
-			headers: {'user-agent': 'ua-a', 'accept-language': 'pt-BR'},
-			socket: {remoteAddress: '127.0.0.1'},
+			headers: { 'user-agent': 'ua-a', 'accept-language': 'pt-BR' },
+			socket: { remoteAddress: '127.0.0.1' },
 		};
 		const reqB: any = {
 			method: 'POST',
 			path: '/auth/signin',
 			ip: '127.0.0.2',
-			headers: {'user-agent': 'ua-b', 'accept-language': 'pt-BR'},
-			socket: {remoteAddress: '127.0.0.2'},
+			headers: { 'user-agent': 'ua-b', 'accept-language': 'pt-BR' },
+			socket: { remoteAddress: '127.0.0.2' },
 		};
-		const res: any = {setHeader: jest.fn()};
+		const res: any = { setHeader: jest.fn() };
 		const next = jest.fn();
 
 		for (let i = 0; i < 12; i += 1) {

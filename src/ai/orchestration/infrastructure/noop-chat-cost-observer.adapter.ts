@@ -6,5 +6,9 @@ import {
 
 @Injectable()
 export class NoopChatCostObserverAdapter implements ChatCostObserverPort {
-	record(_observation: ChatCostObservation): void {}
+	record(observation: ChatCostObservation): void {
+		// noop intencional: o observador existe apenas para satisfazer a porta
+		// quando não há coleta de custo ativa. Marca o parâmetro como usado.
+		void observation;
+	}
 }

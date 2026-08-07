@@ -38,7 +38,9 @@ export class TrackerrScoreService {
 			previousPillarScores?: Partial<Record<TrackerrScorePillar, number>>;
 		}
 	): Promise<TrackerrScoreOutput> {
-		const normalizedSymbol = String(symbol || '').trim().toUpperCase();
+		const normalizedSymbol = String(symbol || '')
+			.trim()
+			.toUpperCase();
 		const warnings: string[] = [];
 		const portfolios = await this.portfolioService.getUserPortfolios(userId);
 		const assets = portfolios.flatMap((portfolio: any) =>
@@ -61,7 +63,8 @@ export class TrackerrScoreService {
 			(position) => position.symbol === normalizedSymbol
 		);
 
-		const snapshot = await this.marketDataProvider.getAssetSnapshot(normalizedSymbol);
+		const snapshot =
+			await this.marketDataProvider.getAssetSnapshot(normalizedSymbol);
 		if (!snapshot) {
 			warnings.push('trackerr_score_market_data_unavailable');
 		}
@@ -72,7 +75,9 @@ export class TrackerrScoreService {
 		);
 		const concentrationPct =
 			totalValue > 0 && ownedPosition
-				? Number((((ownedPosition.totalValue || 0) / totalValue) * 100).toFixed(2))
+				? Number(
+						(((ownedPosition.totalValue || 0) / totalValue) * 100).toFixed(2)
+					)
 				: null;
 
 		let fiscalEstimatedTax = 0;
@@ -106,8 +111,7 @@ export class TrackerrScoreService {
 					symbol: normalizedSymbol,
 					assetType: snapshot.assetType,
 					quantity: ownedPosition?.quantity || 1,
-					totalValue:
-						ownedPosition?.totalValue || Number(snapshot.price || 0),
+					totalValue: ownedPosition?.totalValue || Number(snapshot.price || 0),
 					currentPrice: Number(snapshot.price || 0),
 					sector: snapshot.sector,
 				}
@@ -122,7 +126,10 @@ export class TrackerrScoreService {
 
 		const score = this.computeScore({
 			symbol: normalizedSymbol,
-			assetType: (snapshot?.assetType as any) || (ownedPosition?.assetType as any) || 'other',
+			assetType:
+				(snapshot?.assetType as any) ||
+				(ownedPosition?.assetType as any) ||
+				'other',
 			qualityMetrics: {
 				roe: snapshot?.fundamentals?.returnOnEquity ?? null,
 				netMargin: snapshot?.fundamentals?.netMargin ?? null,
@@ -149,8 +156,10 @@ export class TrackerrScoreService {
 			previousPillarScores: input?.previousPillarScores,
 		});
 
-		if (snapshot?.metadata?.partial) warnings.push('trackerr_score_partial_market_data');
-		if (snapshot?.metadata?.fallbackUsed) warnings.push('trackerr_score_fallback_market_data');
+		if (snapshot?.metadata?.partial)
+			warnings.push('trackerr_score_partial_market_data');
+		if (snapshot?.metadata?.fallbackUsed)
+			warnings.push('trackerr_score_fallback_market_data');
 
 		return {
 			...score,
@@ -168,16 +177,19 @@ export class TrackerrScoreService {
 
 		const pillars = [quality, risk, valuation, fiscal, fit].map((pillar) => ({
 			...pillar,
-			weightedScore: Number((pillar.score * PILLAR_WEIGHTS[pillar.pillar]).toFixed(2)),
+			weightedScore: Number(
+				(pillar.score * PILLAR_WEIGHTS[pillar.pillar]).toFixed(2)
+			),
 		}));
 
 		const overallScore = Number(
-			pillars
-				.reduce((sum, pillar) => sum + pillar.weightedScore, 0)
-				.toFixed(2)
+			pillars.reduce((sum, pillar) => sum + pillar.weightedScore, 0).toFixed(2)
 		);
 
-		const scoreDirectionReasons = this.buildScoreDirectionReasons(input, pillars);
+		const scoreDirectionReasons = this.buildScoreDirectionReasons(
+			input,
+			pillars
+		);
 
 		return {
 			symbol: input.symbol,
@@ -210,8 +222,9 @@ export class TrackerrScoreService {
 			return this.computeScore(input as TrackerrScoreInput);
 		}
 		const positions = Array.isArray(input?.positions) ? input.positions : [];
-		const targetSymbol =
-			String(input?.targetSymbol || positions?.[0]?.symbol || 'PORTFOLIO').toUpperCase();
+		const targetSymbol = String(
+			input?.targetSymbol || positions?.[0]?.symbol || 'PORTFOLIO'
+		).toUpperCase();
 		const targetSnapshot = input?.targetSnapshot;
 		const targetPosition =
 			positions.find(
@@ -224,12 +237,19 @@ export class TrackerrScoreService {
 		);
 		const concentrationPct =
 			totalValue > 0 && targetPosition
-				? Number(((Number(targetPosition.totalValue || 0) / totalValue) * 100).toFixed(2))
+				? Number(
+						(
+							(Number(targetPosition.totalValue || 0) / totalValue) *
+							100
+						).toFixed(2)
+					)
 				: null;
 		const sellSimulation = input?.sellSimulation;
 		return this.computeScore({
 			symbol: targetSymbol,
-			assetType: (targetSnapshot?.assetType || targetPosition?.assetType || 'other') as any,
+			assetType: (targetSnapshot?.assetType ||
+				targetPosition?.assetType ||
+				'other') as any,
 			qualityMetrics: {
 				roe: targetSnapshot?.fundamentals?.returnOnEquity ?? null,
 				netMargin: targetSnapshot?.fundamentals?.netMargin ?? null,
@@ -246,7 +266,9 @@ export class TrackerrScoreService {
 			fiscalMetrics: {
 				estimatedTaxRateOnPnl: sellSimulation?.taxRateApplied ?? null,
 				estimatedTaxAbsolute: sellSimulation?.estimatedTax ?? null,
-				monthlyExemptionApplied: Boolean(sellSimulation?.monthlyExemptionApplied),
+				monthlyExemptionApplied: Boolean(
+					sellSimulation?.monthlyExemptionApplied
+				),
 				hasOwnedPosition: Boolean(targetPosition),
 			},
 			portfolioFitMetrics: {
@@ -266,28 +288,76 @@ export class TrackerrScoreService {
 		if (roe !== null) {
 			if (roe >= 18) {
 				score += 25;
-				reasonCodes.push(this.reason('score_up_quality_roe_high', 'qualidade', 'up', 'ROE robusto sustentando qualidade.', 0.25));
+				reasonCodes.push(
+					this.reason(
+						'score_up_quality_roe_high',
+						'qualidade',
+						'up',
+						'ROE robusto sustentando qualidade.',
+						0.25
+					)
+				);
 			} else if (roe < 8) {
 				score -= 20;
-				reasonCodes.push(this.reason('score_down_quality_roe_low', 'qualidade', 'down', 'ROE baixo reduz qualidade estrutural.', 0.25));
+				reasonCodes.push(
+					this.reason(
+						'score_down_quality_roe_low',
+						'qualidade',
+						'down',
+						'ROE baixo reduz qualidade estrutural.',
+						0.25
+					)
+				);
 			}
 		} else {
-			reasonCodes.push(this.reason('score_neutral_quality_roe_missing', 'qualidade', 'neutral', 'ROE indisponível.', 0));
+			reasonCodes.push(
+				this.reason(
+					'score_neutral_quality_roe_missing',
+					'qualidade',
+					'neutral',
+					'ROE indisponível.',
+					0
+				)
+			);
 		}
 
 		if (margin !== null) {
 			if (margin >= 0.15) {
 				score += 15;
-				reasonCodes.push(this.reason('score_up_quality_margin_high', 'qualidade', 'up', 'Margem líquida saudável.', 0.15));
+				reasonCodes.push(
+					this.reason(
+						'score_up_quality_margin_high',
+						'qualidade',
+						'up',
+						'Margem líquida saudável.',
+						0.15
+					)
+				);
 			} else if (margin < 0.05) {
 				score -= 12;
-				reasonCodes.push(this.reason('score_down_quality_margin_low', 'qualidade', 'down', 'Margem comprimida.', 0.15));
+				reasonCodes.push(
+					this.reason(
+						'score_down_quality_margin_low',
+						'qualidade',
+						'down',
+						'Margem comprimida.',
+						0.15
+					)
+				);
 			}
 		}
 
 		if (dy !== null && dy >= 0.06) {
 			score += 5;
-			reasonCodes.push(this.reason('score_up_quality_dividend_support', 'qualidade', 'up', 'Dividend yield contribui para consistência.', 0.05));
+			reasonCodes.push(
+				this.reason(
+					'score_up_quality_dividend_support',
+					'qualidade',
+					'up',
+					'Dividend yield contribui para consistência.',
+					0.05
+				)
+			);
 		}
 
 		return {
@@ -306,15 +376,39 @@ export class TrackerrScoreService {
 
 		if (change24h !== null && Math.abs(change24h) >= 6) {
 			score -= 15;
-			reasonCodes.push(this.reason('score_down_risk_volatility_spike', 'risco', 'down', 'Volatilidade de curto prazo elevada.', 0.2));
+			reasonCodes.push(
+				this.reason(
+					'score_down_risk_volatility_spike',
+					'risco',
+					'down',
+					'Volatilidade de curto prazo elevada.',
+					0.2
+				)
+			);
 		}
 		if (concentration !== null) {
 			if (concentration >= 20) {
 				score -= 20;
-				reasonCodes.push(this.reason('score_down_risk_concentration_high', 'risco', 'down', 'Concentração elevada no ativo.', 0.2));
+				reasonCodes.push(
+					this.reason(
+						'score_down_risk_concentration_high',
+						'risco',
+						'down',
+						'Concentração elevada no ativo.',
+						0.2
+					)
+				);
 			} else if (concentration <= 8) {
 				score += 8;
-				reasonCodes.push(this.reason('score_up_risk_concentration_balanced', 'risco', 'up', 'Peso equilibrado na carteira.', 0.1));
+				reasonCodes.push(
+					this.reason(
+						'score_up_risk_concentration_balanced',
+						'risco',
+						'up',
+						'Peso equilibrado na carteira.',
+						0.1
+					)
+				);
 			}
 		}
 
@@ -335,19 +429,51 @@ export class TrackerrScoreService {
 		if (pe !== null) {
 			if (pe > 22) {
 				score -= 18;
-				reasonCodes.push(this.reason('score_down_valuation_pe_expensive', 'valuation', 'down', 'P/L acima da faixa de conforto.', 0.2));
+				reasonCodes.push(
+					this.reason(
+						'score_down_valuation_pe_expensive',
+						'valuation',
+						'down',
+						'P/L acima da faixa de conforto.',
+						0.2
+					)
+				);
 			} else if (pe > 0 && pe <= 12) {
 				score += 18;
-				reasonCodes.push(this.reason('score_up_valuation_pe_attractive', 'valuation', 'up', 'P/L atrativo frente ao lucro.', 0.2));
+				reasonCodes.push(
+					this.reason(
+						'score_up_valuation_pe_attractive',
+						'valuation',
+						'up',
+						'P/L atrativo frente ao lucro.',
+						0.2
+					)
+				);
 			}
 		}
 		if (pb !== null) {
 			if (pb > 3) {
 				score -= 10;
-				reasonCodes.push(this.reason('score_down_valuation_pb_stretched', 'valuation', 'down', 'P/VP esticado.', 0.1));
+				reasonCodes.push(
+					this.reason(
+						'score_down_valuation_pb_stretched',
+						'valuation',
+						'down',
+						'P/VP esticado.',
+						0.1
+					)
+				);
 			} else if (pb > 0 && pb <= 1.5) {
 				score += 10;
-				reasonCodes.push(this.reason('score_up_valuation_pb_reasonable', 'valuation', 'up', 'P/VP em faixa razoável.', 0.1));
+				reasonCodes.push(
+					this.reason(
+						'score_up_valuation_pb_reasonable',
+						'valuation',
+						'up',
+						'P/VP em faixa razoável.',
+						0.1
+					)
+				);
 			}
 		}
 
@@ -362,7 +488,15 @@ export class TrackerrScoreService {
 	private computeFiscalScore(input: TrackerrScoreInput) {
 		const reasonCodes: TrackerrScoreReasonCode[] = [];
 		if (!input.fiscalMetrics.hasOwnedPosition) {
-			reasonCodes.push(this.reason('score_neutral_fiscal_no_owned_position', 'fiscal', 'neutral', 'Sem posição própria para simulação fiscal.', 0));
+			reasonCodes.push(
+				this.reason(
+					'score_neutral_fiscal_no_owned_position',
+					'fiscal',
+					'neutral',
+					'Sem posição própria para simulação fiscal.',
+					0
+				)
+			);
 			return {
 				pillar: 'fiscal' as const,
 				weight: PILLAR_WEIGHTS.fiscal,
@@ -374,11 +508,27 @@ export class TrackerrScoreService {
 		let score = 55;
 		if (input.fiscalMetrics.monthlyExemptionApplied) {
 			score += 25;
-			reasonCodes.push(this.reason('score_up_fiscal_monthly_exemption', 'fiscal', 'up', 'Isenção mensal aplicável na simulação.', 0.15));
+			reasonCodes.push(
+				this.reason(
+					'score_up_fiscal_monthly_exemption',
+					'fiscal',
+					'up',
+					'Isenção mensal aplicável na simulação.',
+					0.15
+				)
+			);
 		}
 		if ((input.fiscalMetrics.estimatedTaxAbsolute || 0) > 0) {
 			score -= 18;
-			reasonCodes.push(this.reason('score_down_fiscal_tax_due', 'fiscal', 'down', 'Venda gera DARF estimado positivo.', 0.15));
+			reasonCodes.push(
+				this.reason(
+					'score_down_fiscal_tax_due',
+					'fiscal',
+					'down',
+					'Venda gera DARF estimado positivo.',
+					0.15
+				)
+			);
 		}
 
 		return {
@@ -394,22 +544,62 @@ export class TrackerrScoreService {
 		let score = 50;
 		if (input.portfolioFitMetrics.fitClassification === 'bom') {
 			score = 80;
-			reasonCodes.push(this.reason('score_up_portfolio_fit_good', 'portfolio_fit', 'up', 'Ativo melhora encaixe da carteira.', 0.2));
+			reasonCodes.push(
+				this.reason(
+					'score_up_portfolio_fit_good',
+					'portfolio_fit',
+					'up',
+					'Ativo melhora encaixe da carteira.',
+					0.2
+				)
+			);
 		} else if (input.portfolioFitMetrics.fitClassification === 'ruim') {
 			score = 30;
-			reasonCodes.push(this.reason('score_down_portfolio_fit_poor', 'portfolio_fit', 'down', 'Ativo piora perfil de carteira.', 0.2));
+			reasonCodes.push(
+				this.reason(
+					'score_down_portfolio_fit_poor',
+					'portfolio_fit',
+					'down',
+					'Ativo piora perfil de carteira.',
+					0.2
+				)
+			);
 		} else if (input.portfolioFitMetrics.fitClassification === 'unknown') {
-			reasonCodes.push(this.reason('score_neutral_portfolio_fit_unknown', 'portfolio_fit', 'neutral', 'Fit não pôde ser validado.', 0));
+			reasonCodes.push(
+				this.reason(
+					'score_neutral_portfolio_fit_unknown',
+					'portfolio_fit',
+					'neutral',
+					'Fit não pôde ser validado.',
+					0
+				)
+			);
 		}
 
 		const delta = input.portfolioFitMetrics.diversificationDeltaScore;
 		if (typeof delta === 'number') {
 			if (delta >= 3) {
 				score += 8;
-				reasonCodes.push(this.reason('score_up_portfolio_fit_diversification', 'portfolio_fit', 'up', 'Diversificação melhora no cenário estimado.', 0.1));
+				reasonCodes.push(
+					this.reason(
+						'score_up_portfolio_fit_diversification',
+						'portfolio_fit',
+						'up',
+						'Diversificação melhora no cenário estimado.',
+						0.1
+					)
+				);
 			} else if (delta <= -3) {
 				score -= 8;
-				reasonCodes.push(this.reason('score_down_portfolio_fit_diversification', 'portfolio_fit', 'down', 'Diversificação piora no cenário estimado.', 0.1));
+				reasonCodes.push(
+					this.reason(
+						'score_down_portfolio_fit_diversification',
+						'portfolio_fit',
+						'down',
+						'Diversificação piora no cenário estimado.',
+						0.1
+					)
+				);
 			}
 		}
 
@@ -423,7 +613,11 @@ export class TrackerrScoreService {
 
 	private buildScoreDirectionReasons(
 		input: TrackerrScoreInput,
-		pillars: Array<{ pillar: TrackerrScorePillar; score: number; reasonCodes: TrackerrScoreReasonCode[] }>
+		pillars: Array<{
+			pillar: TrackerrScorePillar;
+			score: number;
+			reasonCodes: TrackerrScoreReasonCode[];
+		}>
 	) {
 		if (input.previousPillarScores) {
 			const upward = pillars
