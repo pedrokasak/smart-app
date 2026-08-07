@@ -153,9 +153,13 @@ describe('ChatOrchestratorService', () => {
 		expect((response.data.rebalanceSuggestion as any)?.modelVersion).toBe(
 			'profile_rebalance_suggestion_v1'
 		);
-		expect((response.data.rebalanceSuggestion as any)?.riskScore?.targetReductionPct).toBe(20);
 		expect(
-			Array.isArray((response.data.rebalanceSuggestion as any)?.targetAllocationMix)
+			(response.data.rebalanceSuggestion as any)?.riskScore?.targetReductionPct
+		).toBe(20);
+		expect(
+			Array.isArray(
+				(response.data.rebalanceSuggestion as any)?.targetAllocationMix
+			)
 		).toBe(true);
 		expect(
 			(response.data.rebalanceSuggestion as any)?.targetAllocationMix?.[0]
@@ -219,7 +223,9 @@ describe('ChatOrchestratorService', () => {
 
 		expect(response.intent).toBe('portfolio_risk');
 		expect(response.route.type).toBe('deterministic_no_llm');
-		expect((response.data.rebalanceSuggestion as any)?.actions?.length).toBeGreaterThan(0);
+		expect(
+			(response.data.rebalanceSuggestion as any)?.actions?.length
+		).toBeGreaterThan(0);
 	});
 
 	it('returns cache hit when same deterministic question is repeated', async () => {

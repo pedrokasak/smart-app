@@ -67,7 +67,9 @@ describe('AdminController', () => {
 		};
 		service.createPlan.mockResolvedValue({ _id: 'plan-1', ...payload });
 
-		await expect(controller.createPlan(payload)).resolves.toMatchObject(payload);
+		await expect(controller.createPlan(payload)).resolves.toMatchObject(
+			payload
+		);
 		expect(service.createPlan).toHaveBeenCalledWith(payload);
 	});
 

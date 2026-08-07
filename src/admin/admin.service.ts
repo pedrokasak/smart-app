@@ -9,10 +9,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Role } from 'src/auth/enums/role.enum';
 import { StripeService } from 'src/subscription/stripe.service';
-import {
-	Subscription,
-	UserSubscription,
-} from 'src/subscription/schema';
+import { Subscription, UserSubscription } from 'src/subscription/schema';
 import { CreateSubscriptionDto } from 'src/subscription/dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from 'src/subscription/dto/update-subscription.dto';
 import { User } from 'src/users/schema/user.model';
@@ -22,7 +19,10 @@ import {
 } from './constants/admin.constants';
 import { ManualGrantAudit } from './schema/manual-grant-audit.model';
 import { ManualGrantDto } from './dto/manual-grant.dto';
-import { AdminOverviewResponse, PlanUsageMetric } from './dto/admin-overview.dto';
+import {
+	AdminOverviewResponse,
+	PlanUsageMetric,
+} from './dto/admin-overview.dto';
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -203,10 +203,7 @@ export class AdminService implements OnModuleInit {
 		};
 	}
 
-	async grantSubscriptionByEmail(
-		adminUserId: string,
-		dto: ManualGrantDto
-	) {
+	async grantSubscriptionByEmail(adminUserId: string, dto: ManualGrantDto) {
 		const normalizedEmail = dto.email.trim().toLowerCase();
 		const user = await this.userModel.findOne({ email: normalizedEmail });
 		if (!user) {
@@ -318,7 +315,10 @@ export class AdminService implements OnModuleInit {
 							planId: '$_id',
 							count: 1,
 							planName: {
-								$ifNull: [{ $arrayElemAt: ['$plan.name', 0] }, 'Plano removido'],
+								$ifNull: [
+									{ $arrayElemAt: ['$plan.name', 0] },
+									'Plano removido',
+								],
 							},
 						},
 					},

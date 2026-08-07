@@ -1,7 +1,10 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { SubscriptionModule } from 'src/subscription/subscription.module';
-import { SubscriptionModel, UserSubscriptionModel } from 'src/subscription/schema';
+import {
+	SubscriptionModel,
+	UserSubscriptionModel,
+} from 'src/subscription/schema';
 import { UserModel } from 'src/users/schema/user.model';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';

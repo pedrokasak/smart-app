@@ -2253,7 +2253,9 @@ export class ChatOrchestratorService {
 					quantity: Number(position.quantity || 0),
 					totalValue: this.safeMoney(positionValue),
 					allocationPct:
-						totalValue > 0 ? this.safeMoney((positionValue / totalValue) * 100) : 0,
+						totalValue > 0
+							? this.safeMoney((positionValue / totalValue) * 100)
+							: 0,
 				};
 			})
 			.sort((a, b) => Number(b.totalValue || 0) - Number(a.totalValue || 0));
@@ -2268,32 +2270,108 @@ export class ChatOrchestratorService {
 			Array<{ bucket: string; targetPct: number; note: string }>
 		> = {
 			conservador: [
-				{ bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)', targetPct: 45, note: 'Base defensiva de carteira.' },
-				{ bucket: 'Ações Brasil', targetPct: 25, note: 'Exposição moderada a crescimento local.' },
-				{ bucket: 'FIIs', targetPct: 15, note: 'Complemento de renda e diversificação.' },
-				{ bucket: 'Ações internacionais', targetPct: 10, note: 'Diversificação geográfica.' },
-				{ bucket: 'Caixa/Cripto', targetPct: 5, note: 'Reserva tática e opcionalidade.' },
+				{
+					bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)',
+					targetPct: 45,
+					note: 'Base defensiva de carteira.',
+				},
+				{
+					bucket: 'Ações Brasil',
+					targetPct: 25,
+					note: 'Exposição moderada a crescimento local.',
+				},
+				{
+					bucket: 'FIIs',
+					targetPct: 15,
+					note: 'Complemento de renda e diversificação.',
+				},
+				{
+					bucket: 'Ações internacionais',
+					targetPct: 10,
+					note: 'Diversificação geográfica.',
+				},
+				{
+					bucket: 'Caixa/Cripto',
+					targetPct: 5,
+					note: 'Reserva tática e opcionalidade.',
+				},
 			],
 			renda: [
-				{ bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)', targetPct: 35, note: 'Manter previsibilidade de fluxo.' },
-				{ bucket: 'FIIs', targetPct: 25, note: 'Foco em geração de renda recorrente.' },
-				{ bucket: 'Ações Brasil', targetPct: 20, note: 'Equilíbrio entre renda e valorização.' },
-				{ bucket: 'Ações internacionais', targetPct: 15, note: 'Hedge e expansão de universo.' },
-				{ bucket: 'Caixa/Cripto', targetPct: 5, note: 'Margem tática para oportunidades.' },
+				{
+					bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)',
+					targetPct: 35,
+					note: 'Manter previsibilidade de fluxo.',
+				},
+				{
+					bucket: 'FIIs',
+					targetPct: 25,
+					note: 'Foco em geração de renda recorrente.',
+				},
+				{
+					bucket: 'Ações Brasil',
+					targetPct: 20,
+					note: 'Equilíbrio entre renda e valorização.',
+				},
+				{
+					bucket: 'Ações internacionais',
+					targetPct: 15,
+					note: 'Hedge e expansão de universo.',
+				},
+				{
+					bucket: 'Caixa/Cripto',
+					targetPct: 5,
+					note: 'Margem tática para oportunidades.',
+				},
 			],
 			crescimento: [
-				{ bucket: 'Ações Brasil', targetPct: 35, note: 'Motor principal de crescimento local.' },
-				{ bucket: 'Ações internacionais', targetPct: 25, note: 'Escala global e diversificação.' },
-				{ bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)', targetPct: 20, note: 'Amortecimento de volatilidade.' },
-				{ bucket: 'FIIs', targetPct: 15, note: 'Diversificação com renda imobiliária.' },
-				{ bucket: 'Caixa/Cripto', targetPct: 5, note: 'Liquidez e assimetria opcional.' },
+				{
+					bucket: 'Ações Brasil',
+					targetPct: 35,
+					note: 'Motor principal de crescimento local.',
+				},
+				{
+					bucket: 'Ações internacionais',
+					targetPct: 25,
+					note: 'Escala global e diversificação.',
+				},
+				{
+					bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)',
+					targetPct: 20,
+					note: 'Amortecimento de volatilidade.',
+				},
+				{
+					bucket: 'FIIs',
+					targetPct: 15,
+					note: 'Diversificação com renda imobiliária.',
+				},
+				{
+					bucket: 'Caixa/Cripto',
+					targetPct: 5,
+					note: 'Liquidez e assimetria opcional.',
+				},
 			],
 			agressivo: [
-				{ bucket: 'Ações Brasil', targetPct: 40, note: 'Alta convicção em renda variável local.' },
-				{ bucket: 'Ações internacionais', targetPct: 30, note: 'Exposição global relevante.' },
-				{ bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)', targetPct: 10, note: 'Proteção mínima de carteira.' },
+				{
+					bucket: 'Ações Brasil',
+					targetPct: 40,
+					note: 'Alta convicção em renda variável local.',
+				},
+				{
+					bucket: 'Ações internacionais',
+					targetPct: 30,
+					note: 'Exposição global relevante.',
+				},
+				{
+					bucket: 'Renda fixa BR (Tesouro/LCI/Prefixado)',
+					targetPct: 10,
+					note: 'Proteção mínima de carteira.',
+				},
 				{ bucket: 'FIIs', targetPct: 10, note: 'Diversificação complementar.' },
-				{ bucket: 'Caixa/Cripto', targetPct: 10, note: 'Reserva para volatilidade/oportunidades.' },
+				{
+					bucket: 'Caixa/Cripto',
+					targetPct: 10,
+					note: 'Reserva para volatilidade/oportunidades.',
+				},
 			],
 		};
 
@@ -2376,16 +2454,20 @@ export class ChatOrchestratorService {
 							symbol: topAssetSymbol,
 							currentPct: this.safeMoney(topAssetPct),
 							targetPct: targets.maxAssetConcentrationPct,
-							deltaPct: this.safeMoney(topAssetPct - targets.maxAssetConcentrationPct),
-					  }
+							deltaPct: this.safeMoney(
+								topAssetPct - targets.maxAssetConcentrationPct
+							),
+						}
 					: null,
 				sector: topSector?.key
 					? {
 							sector: topSector.key,
 							currentPct: this.safeMoney(topSectorPct),
 							targetPct: targets.maxSectorConcentrationPct,
-							deltaPct: this.safeMoney(topSectorPct - targets.maxSectorConcentrationPct),
-					  }
+							deltaPct: this.safeMoney(
+								topSectorPct - targets.maxSectorConcentrationPct
+							),
+						}
 					: null,
 			},
 			actions,

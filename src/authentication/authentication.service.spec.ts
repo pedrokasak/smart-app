@@ -244,7 +244,9 @@ describe('AuthenticationService', () => {
 				}),
 			});
 			(UserModel.updateOne as jest.Mock).mockReturnValue({
-				exec: jest.fn().mockResolvedValue({ acknowledged: true, modifiedCount: 0 }),
+				exec: jest
+					.fn()
+					.mockResolvedValue({ acknowledged: true, modifiedCount: 0 }),
 			});
 			(UserModel.findById as jest.Mock).mockReturnValue({
 				select: jest.fn().mockReturnValue({

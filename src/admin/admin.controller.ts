@@ -9,11 +9,7 @@ import {
 	Req,
 	UseGuards,
 } from '@nestjs/common';
-import {
-	ApiBearerAuth,
-	ApiOperation,
-	ApiTags,
-} from '@nestjs/swagger';
+import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
 import { Role } from 'src/auth/enums/role.enum';

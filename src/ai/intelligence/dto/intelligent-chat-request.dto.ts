@@ -37,7 +37,12 @@ export class IntelligentChatRequestDto {
 	investorProfile?: 'renda' | 'crescimento' | 'conservador' | 'agressivo';
 
 	@IsOptional()
-	@IsIn(['sell_asset', 'rebalance_portfolio', 'reduce_risk_20', 'committee_mode'])
+	@IsIn([
+		'sell_asset',
+		'rebalance_portfolio',
+		'reduce_risk_20',
+		'committee_mode',
+	])
 	copilotFlow?:
 		| 'sell_asset'
 		| 'rebalance_portfolio'

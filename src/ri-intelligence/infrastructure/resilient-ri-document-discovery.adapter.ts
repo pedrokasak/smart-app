@@ -6,9 +6,7 @@ import {
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 
 @Injectable()
-export class ResilientRiDocumentDiscoveryAdapter
-	implements RiDocumentDiscoveryPort
-{
+export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 	private readonly providerTimeoutMs: number;
 
 	constructor(
