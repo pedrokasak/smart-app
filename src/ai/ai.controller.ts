@@ -6,6 +6,7 @@ import {
 	Request,
 	HttpCode,
 	HttpStatus,
+	UnauthorizedException,
 	Logger,
 } from '@nestjs/common';
 import { AiService } from './ai.service';
@@ -50,7 +51,10 @@ export class AiController {
 		@Request() req: any,
 		@Body() body: AiAnalysisRequestDto & Record<string, any>
 	): Promise<AiAnalysisResponseDto> {
-		const userId = req.user?.userId || req.user?.sub;
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
 
 		// Monta o payload completo para o trakker-ia
 		// O frontend pode enviar o portfólio já formatado; completamos com o userId
@@ -83,48 +87,29 @@ export class AiController {
 		@Request() req: any,
 		@Body() body: IntelligentChatRequestDto
 	): Promise<any> {
-		const userId =
-			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
-		try {
-			const orchestration = await this.chatOrchestratorService.orchestrate(
-				userId,
-				body?.question || '',
-				{
-					investorProfile: body?.investorProfile,
-					copilotFlow: body?.copilotFlow,
-					decisionFlow: body?.decisionFlow,
-				}
-			);
-			return {
-				intent: orchestration.intent,
-				deterministic: orchestration.deterministic,
-				route: orchestration.route,
-				message: this.buildIntelligentMessage(orchestration),
-				data: orchestration.data,
-				unavailable: orchestration.unavailable,
-				warnings: orchestration.warnings,
-				assumptions: orchestration.assumptions,
-			};
-		} catch (error: any) {
-			this.logger.error(
-				`intelligentChat orchestration failed: ${error?.message || 'unknown_error'}`
-			);
-			return {
-				intent: 'unknown',
-				deterministic: false,
-				route: {
-					type: 'synthesis_required',
-					llmEligible: true,
-					reason: 'insufficient_structured_data',
-				},
-				message:
-					'Não consegui consolidar todos os dados agora, mas posso continuar te ajudando. Tente reformular a pergunta ou repetir em instantes.',
-				data: {},
-				unavailable: [],
-				warnings: ['chat_orchestration_failed'],
-				assumptions: [],
-			};
+		const userId = String(req.user?.userId ?? req.user?.id ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
 		}
+		const orchestration = await this.chatOrchestratorService.orchestrate(
+			userId,
+			body?.question || '',
+			{
+				investorProfile: body?.investorProfile,
+				copilotFlow: body?.copilotFlow,
+				decisionFlow: body?.decisionFlow,
+			}
+		);
+		return {
+			intent: orchestration.intent,
+			deterministic: orchestration.deterministic,
+			route: orchestration.route,
+			message: this.buildIntelligentMessage(orchestration),
+			data: orchestration.data,
+			unavailable: orchestration.unavailable,
+			warnings: orchestration.warnings,
+			assumptions: orchestration.assumptions,
+		};
 	}
 
 	@Post('trackerr-score')
@@ -138,8 +123,10 @@ export class AiController {
 			previousPillarScores?: Record<string, number>;
 		}
 	) {
-		const userId =
-			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
+		const userId = String(req.user?.userId ?? req.user?.id ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
 		return this.trackerrScoreService.getScoreForUser(userId, body?.symbol, {
 			previousPillarScores: body?.previousPillarScores as any,
 		});
@@ -169,9 +156,8 @@ export class AiController {
 		switch (response.intent) {
 			case 'portfolio_risk': {
 				const riskScore = (data as any)?.portfolioRisk?.risk?.score;
-				const topAsset = (data as any)?.portfolioRisk?.concentrationByAsset?.[0];
-				const topConcentrationPct = this.resolveConcentrationPct(topAsset);
-				const rebalanceSuggestion = (data as any)?.rebalanceSuggestion;
+				const topAsset = (data as any)?.portfolioRisk
+					?.concentrationByAsset?.[0];
 
 				let msg = 'Avaliei a exposição e as concentrações do seu portfólio.';
 				if (typeof riskScore === 'number') {
@@ -183,10 +169,16 @@ export class AiController {
 				if (rebalanceSuggestion?.riskScore?.targetReductionPct) {
 					msg += ` Sugestão estimada por perfil (${rebalanceSuggestion.profile || 'conservador'}): reduzir risco em ${Number(rebalanceSuggestion.riskScore.targetReductionPct).toFixed(0)}% para alvo de score ${Number(rebalanceSuggestion.riskScore.targetSuggested || 0).toFixed(1)}.`;
 				}
-				if (Array.isArray(rebalanceSuggestion?.targetAllocationMix) && rebalanceSuggestion.targetAllocationMix.length > 0) {
+				if (
+					Array.isArray(rebalanceSuggestion?.targetAllocationMix) &&
+					rebalanceSuggestion.targetAllocationMix.length > 0
+				) {
 					const mixLabel = rebalanceSuggestion.targetAllocationMix
 						.slice(0, 4)
-						.map((item: any) => `${item.bucket}: ${Number(item.targetPct || 0).toFixed(0)}%`)
+						.map(
+							(item: any) =>
+								`${item.bucket}: ${Number(item.targetPct || 0).toFixed(0)}%`
+						)
 						.join(' · ');
 					msg += ` Mix sugerido para balanceamento: ${mixLabel}.`;
 				}
@@ -217,9 +209,7 @@ export class AiController {
 						? topRecommended
 						: topRecommended?.symbol || null;
 				const topAvoidSymbol =
-					typeof topAvoid === 'string'
-						? topAvoid
-						: topAvoid?.symbol || null;
+					typeof topAvoid === 'string' ? topAvoid : topAvoid?.symbol || null;
 				const topRecommendedReason =
 					typeof topRecommended === 'object' &&
 					Array.isArray(topRecommended?.reasons) &&
@@ -249,7 +239,7 @@ export class AiController {
 			case 'sell_simulation': {
 				const tax = (data as any)?.sellSimulation?.estimatedTax;
 				const pnl = (data as any)?.sellSimulation?.realizedPnl;
-				
+
 				if (typeof tax === 'number' && typeof pnl === 'number') {
 					if (tax > 0) {
 						return `Se você vender a posição, precisará pagar aproximadamente R$ ${tax.toFixed(2)} de imposto sobre um lucro estimado de R$ ${pnl.toFixed(2)}.`;
@@ -278,7 +268,9 @@ export class AiController {
 						.slice(0, 8)
 						.map((asset) => {
 							const pct = Number(asset?.allocationPct || 0);
-							const pctLabel = Number.isFinite(pct) ? `${pct.toFixed(1)}%` : 'N/D';
+							const pctLabel = Number.isFinite(pct)
+								? `${pct.toFixed(1)}%`
+								: 'N/D';
 							return `${asset?.symbol || 'Ativo'} (${pctLabel})`;
 						})
 						.join(', ');
@@ -295,8 +287,10 @@ export class AiController {
 
 	private isPortfolioAssetListQuestion(question: string): boolean {
 		const text = String(question || '').toLowerCase();
-		return /\b(listar|liste|quais|mostrar|mostre|descrev\w*)\b/.test(text) &&
-			/\b(ativos?|carteira|portf[oó]lio)\b/.test(text);
+		return (
+			/\b(listar|liste|quais|mostrar|mostre|descrev\w*)\b/.test(text) &&
+			/\b(ativos?|carteira|portf[oó]lio)\b/.test(text)
+		);
 	}
 
 	private resolveConcentrationPct(entry: any): number {

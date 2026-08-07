@@ -529,4 +529,120 @@ describe('RiDocumentCatalogService', () => {
 		expect(output.warnings).toContain('ri_official_source_not_found');
 		expect(output.document).toBeNull();
 	});
+
+	it('propagates dateFrom/dateTo down to the discovery adapter', async () => {
+		const autocomplete: RiAssetAutocompletePort = {
+			search: jest
+				.fn()
+				.mockResolvedValue([
+					{ ticker: 'BBDC4', company: 'Banco Bradesco S.A.' },
+				]),
+		};
+		const discovery: RiDocumentDiscoveryPort = {
+			discover: jest.fn().mockResolvedValue([baseDocument()]),
+		};
+		const resolver: RiDocumentLinkResolverPort = {
+			resolve: jest.fn().mockResolvedValue(validResolution()),
+		};
+		const service = new RiDocumentCatalogService(
+			autocomplete,
+			discovery,
+			resolver
+		);
+
+		await service.search({
+			query: 'BBDC4',
+			dateFrom: '2025-01-01',
+			dateTo: '2025-12-31',
+		});
+
+		expect(discovery.discover).toHaveBeenCalledWith(
+			expect.objectContaining({
+				ticker: 'BBDC4',
+				dateFrom: '2025-01-01',
+				dateTo: '2025-12-31',
+			})
+		);
+	});
+
+	it('uses explicit date window instead of the 540-day rolling scope', async () => {
+		// Documento de 2024-01-15: > 540 dias atrás → excluído pelo escopo rolante
+		// default, mas dentro da janela explícita [2024-01-01, 2024-12-31].
+		const explicitDoc = baseDocument({
+			id: 'BBDC4:earnings_release:2024-01-15T00:00:00.000Z:0',
+			publishedAt: '2024-01-15T00:00:00.000Z',
+			period: '4T23',
+		});
+
+		const autocomplete: RiAssetAutocompletePort = {
+			search: jest
+				.fn()
+				.mockResolvedValue([
+					{ ticker: 'BBDC4', company: 'Banco Bradesco S.A.' },
+				]),
+		};
+		const discovery: RiDocumentDiscoveryPort = {
+			discover: jest.fn().mockResolvedValue([explicitDoc]),
+		};
+		const resolver: RiDocumentLinkResolverPort = {
+			resolve: jest.fn().mockResolvedValue(validResolution()),
+		};
+		const service = new RiDocumentCatalogService(
+			autocomplete,
+			discovery,
+			resolver
+		);
+
+		const output = await service.search({
+			query: 'BBDC4',
+			dateFrom: '2024-01-01',
+			dateTo: '2024-12-31',
+		});
+
+		// Explicit window brensuporta o documento que o escopo rolante excluiria.
+		expect(output.documents).toHaveLength(1);
+		expect(output.documents[0].id).toBe(explicitDoc.id);
+		// Não deve ter disparado o warning de ausência de releases recentes.
+		expect(output.warnings).not.toContain('ri_no_recent_releases_found');
+	});
+
+	it('excludes documents outside the explicit date window', async () => {
+		const within = baseDocument({
+			id: 'BBDC4:earnings_release:2025-06-01T00:00:00.000Z:0',
+			publishedAt: '2025-06-01T00:00:00.000Z',
+			period: '2T25',
+		});
+		const outside = baseDocument({
+			id: 'BBDC4:earnings_release:2026-02-06T00:00:00.000Z:0',
+			publishedAt: '2026-02-06T00:00:00.000Z',
+		});
+
+		const autocomplete: RiAssetAutocompletePort = {
+			search: jest
+				.fn()
+				.mockResolvedValue([
+					{ ticker: 'BBDC4', company: 'Banco Bradesco S.A.' },
+				]),
+		};
+		const discovery: RiDocumentDiscoveryPort = {
+			discover: jest.fn().mockResolvedValue([within, outside]),
+		};
+		const resolver: RiDocumentLinkResolverPort = {
+			resolve: jest.fn().mockResolvedValue(validResolution()),
+		};
+		const service = new RiDocumentCatalogService(
+			autocomplete,
+			discovery,
+			resolver
+		);
+
+		const output = await service.search({
+			query: 'BBDC4',
+			dateFrom: '2025-01-01',
+			dateTo: '2025-12-31',
+		});
+
+		expect(output.documents).toHaveLength(1);
+		expect(output.documents[0].id).toBe(within.id);
+	});
 });

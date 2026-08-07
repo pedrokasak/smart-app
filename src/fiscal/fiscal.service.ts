@@ -327,7 +327,10 @@ export class FiscalService {
 			if (category !== 'stock') continue;
 			const monthKey = this.toMonthKey(trade.date);
 			const gross = Number(trade.quantity || 0) * Number(trade.price || 0);
-			stockSalesByMonth.set(monthKey, (stockSalesByMonth.get(monthKey) || 0) + gross);
+			stockSalesByMonth.set(
+				monthKey,
+				(stockSalesByMonth.get(monthKey) || 0) + gross
+			);
 		}
 
 		const grouped = new Map<string, FiscalTaxDriverSummary>();
@@ -410,7 +413,8 @@ export class FiscalService {
 				estimatedTax: this.round(item.estimatedTax),
 			}))
 			.sort((a, b) => {
-				if (b.estimatedTax !== a.estimatedTax) return b.estimatedTax - a.estimatedTax;
+				if (b.estimatedTax !== a.estimatedTax)
+					return b.estimatedTax - a.estimatedTax;
 				return b.realizedProfit - a.realizedProfit;
 			});
 	}

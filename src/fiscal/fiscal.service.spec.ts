@@ -42,7 +42,7 @@ describe('FiscalService', () => {
 					date: new Date('2026-01-20T00:00:00.000Z'),
 				},
 			],
-			{ PETR4: 'stock' },
+			{ PETR4: 'stock' }
 		);
 
 		expect(drivers[0].symbol).toBe('PETR4');
@@ -70,7 +70,7 @@ describe('FiscalService', () => {
 					date: new Date('2026-01-20T00:00:00.000Z'),
 				},
 			],
-			{ PETR4: 'stock' },
+			{ PETR4: 'stock' }
 		);
 
 		expect(drivers[0].estimatedTax).toBe(0);

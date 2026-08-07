@@ -35,7 +35,9 @@ describe('upload file validator', () => {
 	});
 
 	it('rejects suspicious csv with image/script tracker payload', () => {
-		const buffer = Buffer.from('ativo,preco\nPETR4,38\n<img src=x onerror=alert(1)>');
+		const buffer = Buffer.from(
+			'ativo,preco\nPETR4,38\n<img src=x onerror=alert(1)>'
+		);
 		expect(detectUploadKind(buffer)).toBe('unknown');
 		const result = validateUploadFile({
 			buffer,

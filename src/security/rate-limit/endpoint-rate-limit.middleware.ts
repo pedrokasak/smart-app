@@ -35,7 +35,10 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 
 	use(req: Request, res: Response, next: NextFunction): void {
 		if (!this.cleanupTimer) {
-			this.cleanupTimer = setInterval(() => this.cleanup(), this.cleanupIntervalMs);
+			this.cleanupTimer = setInterval(
+				() => this.cleanup(),
+				this.cleanupIntervalMs
+			);
 			this.cleanupTimer.unref();
 		}
 

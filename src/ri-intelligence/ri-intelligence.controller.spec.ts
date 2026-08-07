@@ -78,12 +78,84 @@ describe('RiIntelligenceController', () => {
 
 		await controller.getMostRelevantDocument('VALE3', 'earnings_release');
 
-		expect(mockCatalogService.retrieveMostRelevantDocument).toHaveBeenCalledWith(
-			{
-				ticker: 'VALE3',
-				documentType: 'earnings_release',
-			}
+		expect(
+			mockCatalogService.retrieveMostRelevantDocument
+		).toHaveBeenCalledWith({
+			ticker: 'VALE3',
+			documentType: 'earnings_release',
+		});
+	});
+
+	it('parses and forwards dateFrom/dateTo to documents search', async () => {
+		mockCatalogService.search.mockResolvedValue({
+			documents: [],
+			total: 0,
+			warnings: [],
+			matches: [],
+		});
+
+		await controller.getDocuments(
+			'BBDC4',
+			'earnings_release',
+			'20',
+			'2025-01-01',
+			'2025-12-31'
 		);
+
+		expect(mockCatalogService.search).toHaveBeenCalledWith({
+			query: 'BBDC4',
+			documentType: 'earnings_release',
+			limit: 20,
+			dateFrom: new Date('2025-01-01').toISOString(),
+			dateTo: new Date('2025-12-31').toISOString(),
+		});
+	});
+
+	it('forwards dateFrom/dateTo for relevant document retrieval', async () => {
+		mockCatalogService.retrieveMostRelevantDocument.mockResolvedValue({
+			status: 'unavailable',
+		});
+
+		await controller.getMostRelevantDocument(
+			'VALE3',
+			'earnings_release',
+			'2025-01-01',
+			'2025-06-30'
+		);
+
+		expect(
+			mockCatalogService.retrieveMostRelevantDocument
+		).toHaveBeenCalledWith({
+			ticker: 'VALE3',
+			documentType: 'earnings_release',
+			dateFrom: new Date('2025-01-01').toISOString(),
+			dateTo: new Date('2025-06-30').toISOString(),
+		});
+	});
+
+	it('omits dateFrom/dateTo when not provided (additive contract)', async () => {
+		mockCatalogService.search.mockResolvedValue({
+			documents: [],
+			total: 0,
+			warnings: [],
+			matches: [],
+		});
+
+		await controller.getDocuments('BBDC4', 'earnings_release', '20');
+
+		expect(mockCatalogService.search).toHaveBeenCalledWith({
+			query: 'BBDC4',
+			documentType: 'earnings_release',
+			limit: 20,
+			dateFrom: undefined,
+			dateTo: undefined,
+		});
+	});
+
+	it('rejects an invalid dateFrom with bad request', async () => {
+		await expect(
+			controller.getDocuments('BBDC4', 'earnings_release', '20', 'not-a-date')
+		).rejects.toBeInstanceOf(BadRequestException);
 	});
 
 	it('returns not found when requested pdf does not exist', async () => {

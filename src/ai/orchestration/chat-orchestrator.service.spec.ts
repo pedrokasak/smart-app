@@ -1273,8 +1273,9 @@ describe('ChatOrchestratorService', () => {
 				expect.stringContaining('Capex mudou de down para up'),
 			])
 		);
-		expect((response.data.riComparison as any)?.differences?.keyChanges?.capex)
-			.toEqual({ from: 'down', to: 'up' });
+		expect(
+			(response.data.riComparison as any)?.differences?.keyChanges?.capex
+		).toEqual({ from: 'down', to: 'up' });
 	});
 
 	it('routes committee flow and returns weekly briefing structure', async () => {
@@ -1283,8 +1284,10 @@ describe('ChatOrchestratorService', () => {
 			positionsCount: 2,
 		});
 		(mockUnifiedFacade.getPortfolioRiskAnalysis as jest.Mock).mockReturnValue({
-			risk: { score: 62, flags: [{severity: 'high', message: 'Risco alto'}] },
-			concentrationByAsset: [{key: 'ITUB4', percentage: 42, severity: 'high'}],
+			risk: { score: 62, flags: [{ severity: 'high', message: 'Risco alto' }] },
+			concentrationByAsset: [
+				{ key: 'ITUB4', percentage: 42, severity: 'high' },
+			],
 			concentrationBySector: [],
 			rebalanceSuggestionInputs: {},
 		});
@@ -1294,14 +1297,16 @@ describe('ChatOrchestratorService', () => {
 			unavailableSymbols: [],
 			warnings: [],
 		});
-		(mockMarketDataProvider.getManyAssetSnapshots as jest.Mock).mockResolvedValue([
+		(
+			mockMarketDataProvider.getManyAssetSnapshots as jest.Mock
+		).mockResolvedValue([
 			{
 				symbol: 'ITUB4',
 				assetType: 'stock',
 				sector: 'Financial',
 				price: 30,
 				dividendYield: 0.08,
-				performance: {changePercent: 1},
+				performance: { changePercent: 1 },
 				fundamentals: {
 					priceToEarnings: 8,
 					priceToBook: 1,
@@ -1310,7 +1315,12 @@ describe('ChatOrchestratorService', () => {
 					evEbitda: 5,
 					marketCap: 100,
 				},
-				metadata: {source: 'primary', fallbackUsed: false, partial: false, fallbackSources: []},
+				metadata: {
+					source: 'primary',
+					fallbackUsed: false,
+					partial: false,
+					fallbackSources: [],
+				},
 			},
 		]);
 
@@ -1318,38 +1328,40 @@ describe('ChatOrchestratorService', () => {
 		const response = await service.orchestrate(
 			'user-1',
 			'gerar briefing semanal',
-			{copilotFlow: 'committee_mode'},
+			{ copilotFlow: 'committee_mode' }
 		);
 
 		expect(response.intent).toBe('investment_committee');
 		expect((response.data.investmentCommittee as any)?.modelVersion).toBe(
-			'investment_committee_v1',
+			'investment_committee_v1'
 		);
-		expect((response.data.investmentCommittee as any)?.objectivePlan?.length).toBeGreaterThan(0);
+		expect(
+			(response.data.investmentCommittee as any)?.objectivePlan?.length
+		).toBeGreaterThan(0);
 	});
 
 	it('supports guided reduce_risk flow with deterministic target override', async () => {
 		(mockUnifiedFacade.getPortfolioRiskAnalysis as jest.Mock).mockReturnValue({
 			risk: { score: 80, flags: [] },
-			concentrationByAsset: [{ key: 'ITUB4', symbol: 'ITUB4', severity: 'high' }],
+			concentrationByAsset: [
+				{ key: 'ITUB4', symbol: 'ITUB4', severity: 'high' },
+			],
 			concentrationBySector: [{ key: 'Financial', severity: 'high' }],
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate(
-			'user-1',
-			'reduzir risco',
-			{
-				copilotFlow: 'reduce_risk_20',
-				decisionFlow: {
-					action: 'reduce_risk',
-					targetRiskReductionPct: 25,
-				},
-			}
-		);
+		const response = await service.orchestrate('user-1', 'reduzir risco', {
+			copilotFlow: 'reduce_risk_20',
+			decisionFlow: {
+				action: 'reduce_risk',
+				targetRiskReductionPct: 25,
+			},
+		});
 
 		expect(response.intent).toBe('portfolio_risk');
-		expect((response.data.rebalancePlan as any)?.targetRiskReductionPct).toBe(25);
+		expect((response.data.rebalancePlan as any)?.targetRiskReductionPct).toBe(
+			25
+		);
 		expect((response.data.rebalancePlan as any)?.targetRiskScore).toBe(60);
 		expect(response.route.type).toBe('deterministic_no_llm');
 	});
@@ -1389,12 +1401,23 @@ describe('ChatOrchestratorService', () => {
 		});
 
 		const service = makeService();
-		const response = await service.orchestrate('user-1', 'Simular venda de ITUB4');
+		const response = await service.orchestrate(
+			'user-1',
+			'Simular venda de ITUB4'
+		);
 
 		expect(response.intent).toBe('sell_simulation');
-		expect((response.data.tradePlaybook as any)?.preTrade?.estimatedTax).toBe(30);
-		expect((response.data.tradePlaybook as any)?.preTrade?.taxRateApplied).toBe(15);
-		expect((response.data.tradePlaybook as any)?.postTrade?.estimatedDarf).toBe(30);
-		expect((response.data.tradePlaybook as any)?.preTrade?.alternatives?.length).toBe(3);
+		expect((response.data.tradePlaybook as any)?.preTrade?.estimatedTax).toBe(
+			30
+		);
+		expect((response.data.tradePlaybook as any)?.preTrade?.taxRateApplied).toBe(
+			15
+		);
+		expect((response.data.tradePlaybook as any)?.postTrade?.estimatedDarf).toBe(
+			30
+		);
+		expect(
+			(response.data.tradePlaybook as any)?.preTrade?.alternatives?.length
+		).toBe(3);
 	});
 });

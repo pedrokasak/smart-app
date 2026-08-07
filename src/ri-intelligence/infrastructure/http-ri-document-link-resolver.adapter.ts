@@ -49,7 +49,9 @@ export class HttpRiDocumentLinkResolverAdapter implements RiDocumentLinkResolver
 		}
 
 		const finalUrl = String(response.url || absoluteUrl);
-		const isExplicitPdf = this.safePathname(finalUrl).toLowerCase().endsWith('.pdf');
+		const isExplicitPdf = this.safePathname(finalUrl)
+			.toLowerCase()
+			.endsWith('.pdf');
 
 		if (!response.ok) {
 			this.cancelBody(response);

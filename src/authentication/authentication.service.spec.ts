@@ -13,11 +13,17 @@ import { UserModel } from 'src/users/schema/user.model';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 
 jest.mock('src/users/schema/user.model', () => {
+	// `updateOne(...)` no serviço é encadeado como `.exec()` (Mongoose), então
+	// o mock precisa retornar um objeto com `exec` que resolve. Sem isto, o
+	// caminho de sincronização de perfil (ex.: googleSignin) lança
+	// `Cannot read properties of undefined (reading 'exec')`.
 	const mockUserModel = {
 		findOne: jest.fn(),
 		findById: jest.fn(),
 		create: jest.fn(),
-		updateOne: jest.fn(),
+		updateOne: jest.fn().mockReturnValue({
+			exec: jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 }),
+		}),
 	};
 	return { UserModel: mockUserModel };
 });
@@ -250,6 +256,22 @@ describe('AuthenticationService', () => {
 						lastName: 'User',
 						role: 'user',
 						twoFactorEnabled: false,
+						save,
+					}),
+				}),
+			});
+			// Após sincronizar `isEmailVerified`, o serviço re-busca o user via
+			// `findById(...).select('+password').exec()` — precisa estar mockado.
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					exec: jest.fn().mockResolvedValue({
+						id: 'u-google',
+						email: 'google@example.com',
+						firstName: 'Google',
+						lastName: 'User',
+						role: 'user',
+						twoFactorEnabled: false,
+						password: 'no-password-oauth-user',
 						save,
 					}),
 				}),

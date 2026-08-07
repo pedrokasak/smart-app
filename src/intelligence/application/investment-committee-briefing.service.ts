@@ -36,10 +36,11 @@ export class InvestmentCommitteeBriefingService {
 		const risk = this.unifiedIntelligenceFacade.getPortfolioRiskAnalysis({
 			positions: input.positions,
 		});
-		const opportunities = await this.unifiedIntelligenceFacade.detectOpportunities({
-			portfolioPositions: input.positions,
-			candidateSymbols: input.watchlistSymbols,
-		});
+		const opportunities =
+			await this.unifiedIntelligenceFacade.detectOpportunities({
+				portfolioPositions: input.positions,
+				candidateSymbols: input.watchlistSymbols,
+			});
 
 		const risksCritical = risk.risk.flags
 			.filter((flag) => flag.severity !== 'low')
@@ -48,9 +49,7 @@ export class InvestmentCommitteeBriefingService {
 
 		const recommendedAssets = Array.from(
 			new Set(
-				opportunities.opportunities
-					.map((item) => item.symbol)
-					.filter(Boolean)
+				opportunities.opportunities.map((item) => item.symbol).filter(Boolean)
 			)
 		).slice(0, 3);
 

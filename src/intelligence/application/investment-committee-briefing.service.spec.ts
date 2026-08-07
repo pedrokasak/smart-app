@@ -4,7 +4,16 @@ describe('InvestmentCommitteeBriefingService', () => {
 	it('builds weekly briefing with risks, recommend and avoid lists', async () => {
 		const facadeMock = {
 			getPortfolioRiskAnalysis: jest.fn().mockReturnValue({
-				risk: { score: 72, level: 'high', flags: [{ severity: 'high', message: 'Concentração elevada em setor financeiro.' }] },
+				risk: {
+					score: 72,
+					level: 'high',
+					flags: [
+						{
+							severity: 'high',
+							message: 'Concentração elevada em setor financeiro.',
+						},
+					],
+				},
 				concentrationByAsset: [
 					{ key: 'ITUB4', severity: 'high' },
 					{ key: 'BBDC4', severity: 'medium' },
@@ -12,7 +21,11 @@ describe('InvestmentCommitteeBriefingService', () => {
 				],
 			}),
 			detectOpportunities: jest.fn().mockResolvedValue({
-				opportunities: [{ symbol: 'WEGE3' }, { symbol: 'TAEE11' }, { symbol: 'EGIE3' }],
+				opportunities: [
+					{ symbol: 'WEGE3' },
+					{ symbol: 'TAEE11' },
+					{ symbol: 'EGIE3' },
+				],
 				warnings: [],
 			}),
 		} as any;

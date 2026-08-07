@@ -160,6 +160,16 @@ export class ChatNarrativeSynthesisService {
 						externalSymbols: orchestration.context.externalSymbols,
 					},
 				};
+			// narrative_synthesis e unknown agora recebem o resumo da carteira
+			// injetado pelo orchestrator (handlers dessas intents populam data
+			// com portfolioSummary/trackerrScore). Sem estes cases, o LLM da
+			// síntese narrativa receberia facts: null e ignoraria a carteira.
+			case 'narrative_synthesis':
+			case 'unknown':
+				return {
+					portfolioSummary: data.portfolioSummary || null,
+					trackerrScore: data.trackerrScore || null,
+				};
 			default:
 				return null;
 		}

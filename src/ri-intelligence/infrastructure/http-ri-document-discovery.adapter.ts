@@ -33,7 +33,9 @@ export class HttpRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 		const queued = new Set<string>(scanTargets);
 		const visited = new Set<string>();
 		const queue = [...scanTargets];
-		const candidates: RawLinkCandidate[] = [...sitemapDiscovery.documentCandidates];
+		const candidates: RawLinkCandidate[] = [
+			...sitemapDiscovery.documentCandidates,
+		];
 
 		while (queue.length > 0 && visited.size < this.maxPagesToScan) {
 			const target = queue.shift();
@@ -227,7 +229,10 @@ export class HttpRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 		})();
 		if (!robotsUrl) return [];
 
-		const content = await this.fetchText(robotsUrl, 'text/plain,text/*,*/*;q=0.1');
+		const content = await this.fetchText(
+			robotsUrl,
+			'text/plain,text/*,*/*;q=0.1'
+		);
 		if (!content) return [];
 
 		const output = new Set<string>();
@@ -502,16 +507,9 @@ export class HttpRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 	private isLikelyDocumentUrl(url: string): boolean {
 		const pathname = this.safePathname(url).toLowerCase();
 		if (
-			[
-				'.pdf',
-				'.doc',
-				'.docx',
-				'.ppt',
-				'.pptx',
-				'.xls',
-				'.xlsx',
-				'.zip',
-			].some((suffix) => pathname.endsWith(suffix))
+			['.pdf', '.doc', '.docx', '.ppt', '.pptx', '.xls', '.xlsx', '.zip'].some(
+				(suffix) => pathname.endsWith(suffix)
+			)
 		) {
 			return true;
 		}

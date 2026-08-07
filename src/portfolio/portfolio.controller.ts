@@ -281,6 +281,24 @@ export class PortfolioController {
 
 		await this.portfolioService.recordHistorySnapshot(id);
 
+		// Backfill contínuo (forward-fill) entre a data do relatório e hoje,
+		// para o gráfico de período mostrar curva contínua a partir do upload.
+		// O totalValue é a soma das posições importadas (quantity * price do
+		// relatório, que é a "fonte da verdade" da consolidação B3). Snapshots
+		// de datas já existentes são preservados (upsert).
+		const reportTotalValue = parsedAssets.reduce(
+			(acc, a) => acc + (a.quantity || 0) * (a.price || 0),
+			0
+		);
+		if (reportDate && reportTotalValue > 0) {
+			const reportDateStr = reportDate.toISOString().split('T')[0];
+			await this.portfolioService.backfillHistorySnapshots(
+				id,
+				reportDateStr,
+				reportTotalValue
+			);
+		}
+
 		return {
 			message: 'Relatório importado com sucesso',
 			fiscalWarning:

@@ -29,10 +29,16 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 		const fallback: RiDocumentDiscoveryPort = {
 			discover: jest.fn().mockResolvedValue([baseDocument('ITUB4')]),
 		};
+		const empty: RiDocumentDiscoveryPort = {
+			discover: jest.fn().mockResolvedValue([]),
+		};
 
+		// (httpAdapter, cvmAdapter, fiiAdapter, fallbackAdapter) — ITUB4 é ação,
+		// então o httpAdapter (primary) é usado como primário.
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
 			primary,
-			primary,
+			empty,
+			empty,
 			fallback
 		);
 		const output = await adapter.discover({
@@ -41,21 +47,31 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 			origin: 'https://ri.example.com',
 		});
 
-		expect(output).toHaveLength(1);
-		expect(output[0].ticker).toBe('ITUB4');
+		// merge de primary (1) + fallback (1, ticker diferente) = 2 documentos.
+		expect(output).toHaveLength(2);
+		expect(output.some((doc) => doc.ticker === 'ITUB4')).toBe(true);
+		expect(fallback.discover).toHaveBeenCalledTimes(1);
 	});
 
 	it('falls back to in-memory provider when primary fails or is empty', async () => {
 		const primary: RiDocumentDiscoveryPort = {
 			discover: jest.fn().mockResolvedValue([]),
 		};
+		const cvm: RiDocumentDiscoveryPort = {
+			discover: jest.fn().mockResolvedValue([]),
+		};
 		const fallback: RiDocumentDiscoveryPort = {
 			discover: jest.fn().mockResolvedValue([baseDocument('PETR4')]),
 		};
+		const empty: RiDocumentDiscoveryPort = {
+			discover: jest.fn().mockResolvedValue([]),
+		};
 
+		// http (primary) vazio → cvm vazio → nenhum primário; fallback (puppeteer) retorn.
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
 			primary,
-			primary,
+			cvm,
+			empty,
 			fallback
 		);
 		const output = await adapter.discover({
@@ -86,7 +102,8 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
 			primary,
-			primary,
+			{ discover: jest.fn().mockResolvedValue([]) },
+			{ discover: jest.fn().mockResolvedValue([]) },
 			fallback,
 			20
 		);
@@ -96,6 +113,7 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 			origin: 'https://ri.example.com',
 		});
 
+		// primary timeoutou → retorna [] no race; fallback entrega PETR4.
 		expect(output).toHaveLength(1);
 		expect(output[0].ticker).toBe('PETR4');
 	});
@@ -124,7 +142,8 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
 			primary,
-			primary,
+			{ discover: jest.fn().mockResolvedValue([]) },
+			{ discover: jest.fn().mockResolvedValue([]) },
 			fallback
 		);
 		const output = await adapter.discover({

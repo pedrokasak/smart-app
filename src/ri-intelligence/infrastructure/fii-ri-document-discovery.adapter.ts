@@ -10,7 +10,9 @@ import { PuppeteerRiDocumentDiscoveryAdapter } from './puppeteer-ri-document-dis
 export class FiiRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 	private readonly logger = new Logger(FiiRiDocumentDiscoveryAdapter.name);
 
-	constructor(private readonly puppeteerAdapter: PuppeteerRiDocumentDiscoveryAdapter) {}
+	constructor(
+		private readonly puppeteerAdapter: PuppeteerRiDocumentDiscoveryAdapter
+	) {}
 
 	async discover(input: RiDocumentDiscoveryInput): Promise<RiDocumentRecord[]> {
 		this.logger.log(`Consulting FII specific sources for: ${input.ticker}`);
@@ -18,17 +20,27 @@ export class FiiRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 		const fundsExplorerUrl = `https://www.fundsexplorer.com.br/funds/${input.ticker.toLowerCase()}`;
 
 		try {
-			const siDocuments = await this.puppeteerAdapter.discover({ ...input, origin: statusInvestUrl });
+			const siDocuments = await this.puppeteerAdapter.discover({
+				...input,
+				origin: statusInvestUrl,
+			});
 			if (siDocuments.length > 0) return siDocuments;
 		} catch (error) {
-			this.logger.warn(`Failed to discover FII documents on StatusInvest for ${input.ticker}`);
+			this.logger.warn(
+				`Failed to discover FII documents on StatusInvest for ${input.ticker}`
+			);
 		}
 
 		try {
-			const feDocuments = await this.puppeteerAdapter.discover({ ...input, origin: fundsExplorerUrl });
+			const feDocuments = await this.puppeteerAdapter.discover({
+				...input,
+				origin: fundsExplorerUrl,
+			});
 			return feDocuments;
 		} catch (error) {
-			this.logger.warn(`Failed to discover FII documents on FundsExplorer for ${input.ticker}`);
+			this.logger.warn(
+				`Failed to discover FII documents on FundsExplorer for ${input.ticker}`
+			);
 			return [];
 		}
 	}

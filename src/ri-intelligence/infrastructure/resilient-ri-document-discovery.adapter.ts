@@ -6,10 +6,13 @@ import {
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 
 @Injectable()
-export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
+export class ResilientRiDocumentDiscoveryAdapter
+	implements RiDocumentDiscoveryPort
+{
 	private readonly providerTimeoutMs: number;
 
 	constructor(
+		private readonly httpAdapter: RiDocumentDiscoveryPort,
 		private readonly cvmAdapter: RiDocumentDiscoveryPort,
 		private readonly fiiAdapter: RiDocumentDiscoveryPort,
 		private readonly fallbackAdapter: RiDocumentDiscoveryPort,
@@ -20,16 +23,32 @@ export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryP
 
 	async discover(input: RiDocumentDiscoveryInput): Promise<RiDocumentRecord[]> {
 		const isFii = input.ticker.toUpperCase().endsWith('11');
-		
+
+		// Primário: para FIIs, o adapter específico de FII; para ações, o adapter
+		// HTTP (bate RI sites estáticos, mais rápido que Puppeteer). O CVM fica
+		// como segundo nível para não-FIIs (atualmente mock, mas mantido no
+		// encadeamento para uma futura implementação real da CVM/dados.cvm.gov).
 		let primaryDocs: RiDocumentRecord[] = [];
 		if (isFii) {
 			primaryDocs = await this.safeDiscoverWithTimeout(this.fiiAdapter, input);
 		} else {
-			primaryDocs = await this.safeDiscoverWithTimeout(this.cvmAdapter, input);
+			primaryDocs = await this.safeDiscoverWithTimeout(this.httpAdapter, input);
+			if (primaryDocs.length === 0) {
+				primaryDocs = await this.safeDiscoverWithTimeout(
+					this.cvmAdapter,
+					input
+				);
+			}
 		}
-		const fallbackDocs = await this.safeDiscoverWithTimeout(this.fallbackAdapter, input);
-		if (primaryDocs.length === 0) return fallbackDocs;
-		if (fallbackDocs.length === 0) return primaryDocs;
+
+		const fallbackDocs = await this.safeDiscoverWithTimeout(
+			this.fallbackAdapter,
+			input
+		);
+
+		// Funde primário + fallback sem duplicatas: uma fonte pode ter o título
+		// do release de hoje e outra os PDFs históricos — juntamos ambos para a
+		// seleção de "resultado do trimestre atual" não perder o documento novo.
 		return this.mergeWithoutDuplicates(primaryDocs, fallbackDocs);
 	}
 

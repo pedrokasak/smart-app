@@ -22,7 +22,6 @@ jest.mock('./schema/user.model', () => {
 
 describe('UsersService', () => {
 	let service: UsersService;
-	let jwtService: JwtService;
 
 	const emailService = {
 		sendWelcomeEmail: jest.fn().mockResolvedValue(undefined),
@@ -43,7 +42,9 @@ describe('UsersService', () => {
 		}).compile();
 
 		service = module.get<UsersService>(UsersService);
-		jwtService = module.get<JwtService>(JwtService);
+		// JwtService é resolvido para satisfazer a dependência do módulo, mas
+		// não é usado diretamente nos testes — descartamos o valor.
+		module.get<JwtService>(JwtService);
 	});
 
 	afterEach(() => jest.clearAllMocks());

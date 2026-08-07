@@ -60,7 +60,11 @@ describe('HttpRiDocumentDiscoveryAdapter', () => {
 
 	it('keeps recent guidance links even when url has no pdf extension', async () => {
 		global.fetch = jest.fn().mockImplementation(async (url: string) => {
-			if (url.includes('/ri') || url === 'https://vale.com/' || url === 'https://vale.com') {
+			if (
+				url.includes('/ri') ||
+				url === 'https://vale.com/' ||
+				url === 'https://vale.com'
+			) {
 				return {
 					ok: true,
 					headers: { get: () => 'text/html; charset=utf-8' },
@@ -93,7 +97,9 @@ describe('HttpRiDocumentDiscoveryAdapter', () => {
 
 	it('follows RI navigation pages in the same domain before extracting documents', async () => {
 		global.fetch = jest.fn().mockImplementation(async (url: string) => {
-			if (url.includes('/pt/comunicados-resultados-apresentacoes-e-relatorios')) {
+			if (
+				url.includes('/pt/comunicados-resultados-apresentacoes-e-relatorios')
+			) {
 				return {
 					ok: true,
 					headers: { get: () => 'text/html; charset=utf-8' },
@@ -128,8 +134,12 @@ describe('HttpRiDocumentDiscoveryAdapter', () => {
 			origin: 'https://vale.com/ri',
 		});
 
-		expect(output.some((doc) => doc.source.value.includes('vale-release-1t26.pdf'))).toBe(true);
-		expect(output.some((doc) => doc.documentType === 'earnings_release')).toBe(true);
+		expect(
+			output.some((doc) => doc.source.value.includes('vale-release-1t26.pdf'))
+		).toBe(true);
+		expect(output.some((doc) => doc.documentType === 'earnings_release')).toBe(
+			true
+		);
 	});
 
 	it('discovers document candidates from robots sitemap entries', async () => {
@@ -169,7 +179,13 @@ describe('HttpRiDocumentDiscoveryAdapter', () => {
 		});
 
 		expect(output.length).toBeGreaterThan(0);
-		expect(output.some((doc) => doc.source.value.includes('/documents/release-de-resultados-1t26.pdf'))).toBe(true);
-		expect(output.some((doc) => doc.documentType === 'earnings_release')).toBe(true);
+		expect(
+			output.some((doc) =>
+				doc.source.value.includes('/documents/release-de-resultados-1t26.pdf')
+			)
+		).toBe(true);
+		expect(output.some((doc) => doc.documentType === 'earnings_release')).toBe(
+			true
+		);
 	});
 });
