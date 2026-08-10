@@ -1,17 +1,25 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import {
 	AssetQuote,
 	AssetWithIndicators,
 	IAssetApiAdapter,
 } from 'src/assets/interface/asset.api.interface';
+import {
+	MARKET_DATA_PROVIDER,
+	MarketDataProviderPort,
+} from 'src/market-data/application/market-data-provider.port';
 
 @Injectable()
 export class BrapiStockAdapter implements IAssetApiAdapter {
 	private readonly baseUrl = 'https://brapi.dev/api';
 
-	constructor(private readonly httpService: HttpService) {}
+	constructor(
+		private readonly httpService: HttpService,
+		@Inject(MARKET_DATA_PROVIDER)
+		private readonly marketData: MarketDataProviderPort
+	) {}
 
 	async getQuote(
 		symbols: string,
@@ -93,19 +101,37 @@ export class BrapiStockAdapter implements IAssetApiAdapter {
 
 			const stock = response.data.results[0];
 
+			let indicators: AssetWithIndicators['indicators'] =
+				stock.dividendYield || stock.epsTrailingTwelveMonths
+					? {
+							dividendYield: stock.dividendYield || 0,
+							priceToEarnings: stock.epsTrailingTwelveMonths
+								? stock.regularMarketPrice / stock.epsTrailingTwelveMonths
+								: 0,
+							marketCap: stock.marketCap,
+							volume: stock.regularMarketVolume,
+						}
+					: undefined;
+
+			if (!indicators) {
+				const snapshot = await this.marketData.getAssetSnapshot(symbol);
+				if (snapshot) {
+					indicators = {
+						dividendYield: snapshot.dividendYield ?? undefined,
+						priceToEarnings: snapshot.fundamentals.priceToEarnings ?? undefined,
+						marketCap: snapshot.fundamentals.marketCap ?? undefined,
+						volume: undefined,
+					};
+					const hasAnyValue = Object.values(indicators).some(
+						(value) => value !== undefined
+					);
+					if (!hasAnyValue) indicators = undefined;
+				}
+			}
+
 			return {
 				...quote,
-				indicators:
-					stock.dividendYield || stock.epsTrailingTwelveMonths
-						? {
-								dividendYield: stock.dividendYield || 0,
-								priceToEarnings: stock.epsTrailingTwelveMonths
-									? stock.regularMarketPrice / stock.epsTrailingTwelveMonths
-									: 0,
-								marketCap: stock.marketCap,
-								volume: stock.regularMarketVolume,
-							}
-						: undefined,
+				indicators,
 				restrictedData:
 					stock.restrictedData ||
 					(quote.restrictedData?.length ? quote.restrictedData : undefined),

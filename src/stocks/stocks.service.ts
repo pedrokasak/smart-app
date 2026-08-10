@@ -4,6 +4,7 @@ import { TwelveDataAdapter } from './adapter/twelveDataApi';
 import { StockRepository } from 'src/stocks/repositories/stock-repository';
 import { FundamentusFallbackAdapter } from 'src/stocks/adapter/fundamentus-fallback.adapter';
 import { CvmOpenDataAdapter } from 'src/stocks/adapter/cvm-open-data.adapter';
+import { YahooFinanceAdapter } from 'src/market-data/infrastructure/yahoo-finance.adapter';
 import axios from 'axios';
 
 @Injectable()
@@ -11,6 +12,7 @@ export class StockService implements StockRepository {
 	private readonly logger = new Logger(StockService.name);
 	private static readonly GLOBAL_QUOTE_CHAIN = [
 		'twelve_data',
+		'yahoo_finance',
 		'brapi',
 		'b3_future',
 	] as const;
@@ -19,7 +21,8 @@ export class StockService implements StockRepository {
 		private readonly brapi: BrapiAdapter,
 		private readonly twelveData: TwelveDataAdapter,
 		private readonly fundamentusFallback: FundamentusFallbackAdapter,
-		private readonly cvmAdapter: CvmOpenDataAdapter
+		private readonly cvmAdapter: CvmOpenDataAdapter,
+		private readonly yahooFinance: YahooFinanceAdapter
 	) {}
 
 	private isMissing(
@@ -123,17 +126,87 @@ export class StockService implements StockRepository {
 
 		if (!shouldFallback) return response;
 
+		let yahooSnapshot: Awaited<
+			ReturnType<YahooFinanceAdapter['getSnapshot']>
+		> = null;
+		try {
+			yahooSnapshot = await this.yahooFinance.getSnapshot(cleanSymbol, 'stock');
+		} catch (error) {
+			this.logger.warn(
+				`Yahoo Finance indisponivel para ${cleanSymbol}: ${error?.message || error}`
+			);
+		}
+
+		const usedYahooForAnyField = !!yahooSnapshot;
+		if (yahooSnapshot) {
+			stock.priceEarnings = this.withFallback(
+				stock.priceEarnings,
+				yahooSnapshot.priceToEarnings ?? undefined,
+				{ zeroIsMissing: true }
+			);
+			stock.priceToBook = this.withFallback(
+				stock.priceToBook,
+				yahooSnapshot.priceToBook ?? undefined,
+				{ zeroIsMissing: true }
+			);
+			stock.returnOnEquity = this.withFallback(
+				stock.returnOnEquity,
+				yahooSnapshot.returnOnEquity ?? undefined,
+				{ zeroIsMissing: true }
+			);
+			stock.netMargin = this.withFallback(
+				stock.netMargin,
+				yahooSnapshot.netMargin ?? undefined,
+				{ zeroIsMissing: true }
+			);
+			stock.enterpriseValueEbitda = this.withFallback(
+				stock.enterpriseValueEbitda,
+				yahooSnapshot.evEbitda ?? undefined,
+				{ zeroIsMissing: true }
+			);
+			stock.dividendYield = this.withFallback(
+				stock.dividendYield,
+				yahooSnapshot.dividendYield ?? undefined,
+				{ zeroIsMissing: true }
+			);
+			stock.marketCap = this.withFallback(
+				stock.marketCap,
+				yahooSnapshot.marketCap ?? undefined,
+				{ zeroIsMissing: true }
+			);
+			stock.sector = stock.sector || yahooSnapshot.sector || undefined;
+		}
+
+		const stillNeedsFundamentus =
+			this.isMissing(stock.priceEarnings, { zeroIsMissing: true }) ||
+			this.isMissing(stock.priceToBook, { zeroIsMissing: true }) ||
+			this.isMissing(stock.returnOnEquity, { zeroIsMissing: true }) ||
+			this.isMissing(stock.netMargin, { zeroIsMissing: true }) ||
+			this.isMissing(stock.enterpriseValueEbitda, { zeroIsMissing: true }) ||
+			this.isMissing(stock.dividendYield, { zeroIsMissing: true }) ||
+			!stock.longName ||
+			!stock.industry ||
+			!stock.longBusinessSummary ||
+			this.isMissing(stock.returnOnInvestedCapital, { zeroIsMissing: true }) ||
+			this.isMissing(stock.totalRevenue, { zeroIsMissing: true }) ||
+			this.isMissing(stock.netIncomeToCommon, { zeroIsMissing: true }) ||
+			this.isMissing(stock.totalAssets, { zeroIsMissing: true }) ||
+			this.isMissing(stock.totalStockholderEquity, { zeroIsMissing: true }) ||
+			this.isMissing(stock.totalDebt, { zeroIsMissing: true });
+
 		let fundamentusSnapshot: {
 			numeric: Record<string, number>;
 			text: Record<string, string>;
 		} = { numeric: {}, text: {} };
-		try {
-			fundamentusSnapshot =
-				await this.fundamentusFallback.getSnapshot(cleanSymbol);
-		} catch (error) {
-			this.logger.warn(
-				`Fallback Fundamentus indisponivel para ${cleanSymbol}: ${error?.message || error}`
-			);
+		if (stillNeedsFundamentus) {
+			try {
+				fundamentusSnapshot =
+					await this.fundamentusFallback.getSnapshot(cleanSymbol);
+			} catch (error) {
+				this.logger.warn(
+					`Fallback Fundamentus indisponivel para ${cleanSymbol}: ${error?.message || error}`
+				);
+			}
 		}
 		const fundamentals = fundamentusSnapshot.numeric || {};
 		const fundamentusText = fundamentusSnapshot.text || {};
@@ -272,7 +345,8 @@ export class StockService implements StockRepository {
 			}),
 			fallbackSources: [
 				...(Array.isArray(stock.fallbackSources) ? stock.fallbackSources : []),
-				'fundamentus',
+				...(usedYahooForAnyField ? ['yahoo_finance'] : []),
+				...(stillNeedsFundamentus ? ['fundamentus'] : []),
 			],
 		};
 
@@ -420,12 +494,49 @@ export class StockService implements StockRepository {
 		}
 
 		try {
+			const yahooSnapshot = await this.yahooFinance.getSnapshot(
+				cleanSymbol,
+				'stock'
+			);
+			if (yahooSnapshot && yahooSnapshot.price !== null) {
+				return this.normalizeGlobalQuoteResponse(
+					{
+						results: [
+							{
+								symbol: cleanSymbol,
+								price: yahooSnapshot.price,
+								regularMarketPrice: yahooSnapshot.price,
+								regularMarketChangePercent: yahooSnapshot.changePercent,
+								dividendYield: yahooSnapshot.dividendYield,
+								sector: yahooSnapshot.sector,
+								priceEarnings: yahooSnapshot.priceToEarnings,
+								priceToBook: yahooSnapshot.priceToBook,
+								returnOnEquity: yahooSnapshot.returnOnEquity,
+								netMargin: yahooSnapshot.netMargin,
+								enterpriseValueEbitda: yahooSnapshot.evEbitda,
+								marketCap: yahooSnapshot.marketCap,
+							},
+						],
+					},
+					cleanSymbol,
+					'yahoo_finance',
+					['twelve_data'],
+					startedAt
+				);
+			}
+		} catch (yahooError) {
+			this.logger.warn(
+				`Falha no provider de fallback (yahoo_finance) para ${cleanSymbol}: ${yahooError?.message || yahooError}`
+			);
+		}
+
+		try {
 			const fallbackResponse = await this.brapi.getStockQuote(cleanSymbol);
 			return this.normalizeGlobalQuoteResponse(
 				fallbackResponse,
 				cleanSymbol,
 				'brapi',
-				['twelve_data'],
+				['twelve_data', 'yahoo_finance'],
 				startedAt
 			);
 		} catch (fallbackError) {
@@ -445,15 +556,15 @@ export class StockService implements StockRepository {
 			requestedAt: new Date().toISOString(),
 			took: `${Date.now() - startedAt}ms`,
 			source: 'unavailable',
-			fallbackSources: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 2),
-			unavailableProviders: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 2),
+			fallbackSources: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 3),
+			unavailableProviders: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 3),
 		};
 	}
 
 	private normalizeGlobalQuoteResponse(
 		rawResponse: any,
 		requestedSymbol: string,
-		source: 'twelve_data' | 'brapi',
+		source: 'twelve_data' | 'yahoo_finance' | 'brapi',
 		fallbackSources: string[],
 		startedAtMs: number
 	): any {

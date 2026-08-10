@@ -7,6 +7,7 @@ import { BrapiStockAdapter } from 'src/portfolio/adapter/brapi.adapter';
 import { CoinGeckoAdapter } from 'src/portfolio/adapter/coingecko.adapter';
 import { FiisApiAdapter } from 'src/portfolio/adapter/fiis-adapter';
 import { TwelveDataEtfAdapter } from 'src/portfolio/adapter/twelvedata.adapter';
+import { MarketDataModule } from 'src/market-data/market-data.module';
 import { PortfolioEnrichService } from 'src/portfolio/portfolio-enrich.service';
 import { PortfolioController } from 'src/portfolio/portfolio.controller';
 import { PortfolioIntelligenceService } from 'src/portfolio/intelligence/application/portfolio-intelligence.service';
@@ -31,6 +32,7 @@ import { SubscriptionModule } from 'src/subscription/subscription.module';
 		HttpModule,
 		forwardRef(() => AssetsModule),
 		SubscriptionModule,
+		MarketDataModule,
 	],
 	providers: [
 		// Adapters
