@@ -63,18 +63,21 @@ import { PuppeteerBrowserPool } from 'src/ri-intelligence/infrastructure/puppete
 		{
 			provide: RI_DOCUMENT_DISCOVERY,
 			useFactory: (
+				inMemoryAdapter: InMemoryRiDocumentDiscoveryAdapter,
 				httpAdapter: HttpRiDocumentDiscoveryAdapter,
 				cvmAdapter: CvmRiDocumentDiscoveryAdapter,
 				fiiAdapter: FiiRiDocumentDiscoveryAdapter,
 				puppeteerAdapter: PuppeteerRiDocumentDiscoveryAdapter
 			) =>
 				new ResilientRiDocumentDiscoveryAdapter(
+					inMemoryAdapter,
 					httpAdapter,
 					cvmAdapter,
 					fiiAdapter,
 					puppeteerAdapter
 				),
 			inject: [
+				InMemoryRiDocumentDiscoveryAdapter,
 				HttpRiDocumentDiscoveryAdapter,
 				CvmRiDocumentDiscoveryAdapter,
 				FiiRiDocumentDiscoveryAdapter,

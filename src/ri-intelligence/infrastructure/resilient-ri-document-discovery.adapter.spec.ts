@@ -33,9 +33,10 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 			discover: jest.fn().mockResolvedValue([]),
 		};
 
-		// (httpAdapter, cvmAdapter, fiiAdapter, fallbackAdapter) — ITUB4 é ação,
-		// então o httpAdapter (primary) é usado como primário.
+		// (inMemoryAdapter, httpAdapter, cvmAdapter, fiiAdapter, fallbackAdapter) —
+		// ITUB4 é ação, então o httpAdapter (primary) é usado como primário.
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
+			empty,
 			primary,
 			empty,
 			empty,
@@ -69,6 +70,7 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 
 		// http (primary) vazio → cvm vazio → nenhum primário; fallback (puppeteer) retorn.
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
+			empty,
 			primary,
 			cvm,
 			empty,
@@ -101,6 +103,7 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 		};
 
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
+			{ discover: jest.fn().mockResolvedValue([]) },
 			primary,
 			{ discover: jest.fn().mockResolvedValue([]) },
 			{ discover: jest.fn().mockResolvedValue([]) },
@@ -141,6 +144,7 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 		};
 
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
+			{ discover: jest.fn().mockResolvedValue([]) },
 			primary,
 			{ discover: jest.fn().mockResolvedValue([]) },
 			{ discover: jest.fn().mockResolvedValue([]) },
@@ -159,5 +163,57 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 		expect(
 			output.some((doc) => doc.source.value.includes('fallback-avisos'))
 		).toBe(true);
+	});
+});
+
+describe('ResilientRiDocumentDiscoveryAdapter — in-memory catalog', () => {
+	function buildAdapter(overrides: {
+		inMemoryDocs?: any[];
+		httpDocs?: any[];
+	}) {
+		const inMemoryAdapter = {
+			discover: jest.fn().mockResolvedValue(overrides.inMemoryDocs || []),
+		};
+		const httpAdapter = { discover: jest.fn().mockResolvedValue(overrides.httpDocs || []) };
+		const cvmAdapter = { discover: jest.fn().mockResolvedValue([]) };
+		const fiiAdapter = { discover: jest.fn().mockResolvedValue([]) };
+		const fallbackAdapter = { discover: jest.fn().mockResolvedValue([]) };
+
+		const { ResilientRiDocumentDiscoveryAdapter } = require('./resilient-ri-document-discovery.adapter');
+		const adapter = new ResilientRiDocumentDiscoveryAdapter(
+			inMemoryAdapter,
+			httpAdapter,
+			cvmAdapter,
+			fiiAdapter,
+			fallbackAdapter,
+			1000
+		);
+		return { adapter, inMemoryAdapter, httpAdapter, cvmAdapter };
+	}
+
+	it('includes in-memory catalog documents alongside http/cvm results for a known ticker', async () => {
+		const { adapter } = buildAdapter({
+			inMemoryDocs: [{ ticker: 'PETR4', documentType: 'earnings_release', title: 'In-memory doc', source: { value: 'x' } }],
+			httpDocs: [{ ticker: 'PETR4', documentType: 'material_fact', title: 'Http doc', source: { value: 'y' } }],
+		});
+
+		const result = await adapter.discover({ ticker: 'PETR4', company: 'Petrobras', origin: 'https://petrobras.com.br/ri' });
+
+		expect(result.map((d: any) => d.title)).toEqual(
+			expect.arrayContaining(['In-memory doc', 'Http doc'])
+		);
+	});
+
+	it('still returns http/cvm documents for a ticker with no in-memory catalog entry', async () => {
+		const { adapter, inMemoryAdapter, httpAdapter } = buildAdapter({
+			inMemoryDocs: [],
+			httpDocs: [{ ticker: 'ABCD3', documentType: 'material_fact', title: 'Http doc', source: { value: 'y' } }],
+		});
+
+		const result = await adapter.discover({ ticker: 'ABCD3', company: 'Empresa', origin: 'https://ri.empresa.com.br' });
+
+		expect(inMemoryAdapter.discover).toHaveBeenCalled();
+		expect(httpAdapter.discover).toHaveBeenCalled();
+		expect(result.map((d: any) => d.title)).toEqual(['Http doc']);
 	});
 });
