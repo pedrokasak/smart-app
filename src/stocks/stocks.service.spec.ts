@@ -202,9 +202,10 @@ describe('StockService', () => {
 			const result = await service.getStockQuoteGlobal('AAPL');
 
 			expect(twelveData.getStockQuote).toHaveBeenCalledWith('AAPL');
+			expect(yahooFinance.getSnapshot).toHaveBeenCalledWith('AAPL', 'stock');
 			expect(brapi.getStockQuote).toHaveBeenCalledWith('AAPL');
 			expect(result.source).toBe('brapi');
-			expect(result.fallbackSources).toEqual(['twelve_data']);
+			expect(result.fallbackSources).toEqual(['twelve_data', 'yahoo_finance']);
 			expect(result.results[0].symbol).toBe('AAPL');
 		});
 
@@ -217,7 +218,11 @@ describe('StockService', () => {
 			expect(result.source).toBe('unavailable');
 			expect(result.results[0].symbol).toBe('MSFT');
 			expect(result.results[0].unavailable).toBe(true);
-			expect(result.fallbackSources).toEqual(['twelve_data', 'brapi']);
+			expect(result.fallbackSources).toEqual([
+				'twelve_data',
+				'yahoo_finance',
+				'brapi',
+			]);
 		});
 	});
 });
@@ -382,5 +387,89 @@ describe('StockService.getNationalQuote — Yahoo Finance fallback chain', () =>
 
 		expect(fundamentusFallback.getSnapshot).toHaveBeenCalled();
 		expect(response.results[0].priceEarnings).toBe(6);
+	});
+});
+
+describe('StockService.getStockQuoteGlobal', () => {
+	function buildService(overrides: {
+		twelveDataError?: boolean;
+		yahooSnapshot?: any;
+		brapiResult?: any;
+	}) {
+		const brapi = {
+			getStockQuote: jest
+				.fn<(symbol: string, options?: any) => Promise<any>>()
+				.mockResolvedValue({ results: [overrides.brapiResult || { symbol: 'AAPL' }] }),
+		} as unknown as BrapiAdapter;
+		const twelveData = {
+			getStockQuote: overrides.twelveDataError
+				? jest
+						.fn<(symbol: string) => Promise<any>>()
+						.mockRejectedValue(new Error('twelve data down'))
+				: jest
+						.fn<(symbol: string) => Promise<any>>()
+						.mockResolvedValue({ results: [{ symbol: 'AAPL', price: 190 }] }),
+		} as unknown as TwelveDataAdapter;
+		const fundamentusFallback = {
+			getSnapshot: jest.fn<(symbol: string) => Promise<any>>(),
+		} as unknown as FundamentusFallbackAdapter;
+		const cvmAdapter = {} as unknown as CvmOpenDataAdapter;
+		const yahooFinance = {
+			getSnapshot: jest
+				.fn<(symbol: string, assetType: string) => Promise<any>>()
+				.mockResolvedValue(overrides.yahooSnapshot ?? null),
+		} as unknown as YahooFinanceAdapter;
+
+		return new StockService(
+			brapi,
+			twelveData,
+			fundamentusFallback,
+			cvmAdapter,
+			yahooFinance
+		);
+	}
+
+	it('uses Twelve Data when it succeeds, without calling Yahoo Finance', async () => {
+		const yahooFinance = { getSnapshot: jest.fn() } as unknown as YahooFinanceAdapter;
+		const service = buildService({});
+		const result = await service.getStockQuoteGlobal('AAPL');
+
+		expect(result.source).toBe('twelve_data');
+	});
+
+	it('falls back to Yahoo Finance when Twelve Data fails, before Brapi', async () => {
+		const service = buildService({
+			twelveDataError: true,
+			yahooSnapshot: {
+				price: 191,
+				dividendYield: 0.005,
+				sector: 'Technology',
+				changePercent: 0.3,
+				priceToEarnings: 28,
+				priceToBook: 40,
+				returnOnEquity: 1.5,
+				netMargin: 0.25,
+				evEbitda: 22,
+				marketCap: 3000000,
+			},
+		});
+
+		const result = await service.getStockQuoteGlobal('AAPL');
+
+		expect(result.source).toBe('yahoo_finance');
+		expect(result.results[0].price).toBe(191);
+	});
+
+	it('falls back to Brapi when both Twelve Data and Yahoo Finance fail', async () => {
+		const service = buildService({
+			twelveDataError: true,
+			yahooSnapshot: null,
+			brapiResult: { symbol: 'AAPL', regularMarketPrice: 189 },
+		});
+
+		const result = await service.getStockQuoteGlobal('AAPL');
+
+		expect(result.source).toBe('brapi');
+		expect(result.fallbackSources).toEqual(['twelve_data', 'yahoo_finance']);
 	});
 });

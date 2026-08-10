@@ -12,6 +12,7 @@ export class StockService implements StockRepository {
 	private readonly logger = new Logger(StockService.name);
 	private static readonly GLOBAL_QUOTE_CHAIN = [
 		'twelve_data',
+		'yahoo_finance',
 		'brapi',
 		'b3_future',
 	] as const;
@@ -484,12 +485,49 @@ export class StockService implements StockRepository {
 		}
 
 		try {
+			const yahooSnapshot = await this.yahooFinance.getSnapshot(
+				cleanSymbol,
+				'stock'
+			);
+			if (yahooSnapshot && yahooSnapshot.price !== null) {
+				return this.normalizeGlobalQuoteResponse(
+					{
+						results: [
+							{
+								symbol: cleanSymbol,
+								price: yahooSnapshot.price,
+								regularMarketPrice: yahooSnapshot.price,
+								regularMarketChangePercent: yahooSnapshot.changePercent,
+								dividendYield: yahooSnapshot.dividendYield,
+								sector: yahooSnapshot.sector,
+								priceEarnings: yahooSnapshot.priceToEarnings,
+								priceToBook: yahooSnapshot.priceToBook,
+								returnOnEquity: yahooSnapshot.returnOnEquity,
+								netMargin: yahooSnapshot.netMargin,
+								enterpriseValueEbitda: yahooSnapshot.evEbitda,
+								marketCap: yahooSnapshot.marketCap,
+							},
+						],
+					},
+					cleanSymbol,
+					'yahoo_finance',
+					['twelve_data'],
+					startedAt
+				);
+			}
+		} catch (yahooError) {
+			this.logger.warn(
+				`Falha no provider de fallback (yahoo_finance) para ${cleanSymbol}: ${yahooError?.message || yahooError}`
+			);
+		}
+
+		try {
 			const fallbackResponse = await this.brapi.getStockQuote(cleanSymbol);
 			return this.normalizeGlobalQuoteResponse(
 				fallbackResponse,
 				cleanSymbol,
 				'brapi',
-				['twelve_data'],
+				['twelve_data', 'yahoo_finance'],
 				startedAt
 			);
 		} catch (fallbackError) {
@@ -509,15 +547,15 @@ export class StockService implements StockRepository {
 			requestedAt: new Date().toISOString(),
 			took: `${Date.now() - startedAt}ms`,
 			source: 'unavailable',
-			fallbackSources: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 2),
-			unavailableProviders: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 2),
+			fallbackSources: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 3),
+			unavailableProviders: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 3),
 		};
 	}
 
 	private normalizeGlobalQuoteResponse(
 		rawResponse: any,
 		requestedSymbol: string,
-		source: 'twelve_data' | 'brapi',
+		source: 'twelve_data' | 'yahoo_finance' | 'brapi',
 		fallbackSources: string[],
 		startedAtMs: number
 	): any {
