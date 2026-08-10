@@ -3,6 +3,7 @@ import {
 	RiIssuerCatalogPort,
 	RiIssuerRef,
 } from 'src/ri-intelligence/application/ri-issuer-catalog.port';
+import { B3RegistryCnpjResolverAdapter } from 'src/ri-intelligence/infrastructure/b3-registry-cnpj-resolver.adapter';
 import { StockService } from 'src/stocks/stocks.service';
 
 /**
@@ -26,7 +27,10 @@ export class StocksRiIssuerCatalogAdapter implements RiIssuerCatalogPort {
 	private readonly inflight = new Map<string, Promise<RiIssuerRef | null>>();
 	private readonly ttlMs = 6 * 60 * 60 * 1000;
 
-	constructor(private readonly stockService: StockService) {}
+	constructor(
+		private readonly stockService: StockService,
+		private readonly b3Registry: B3RegistryCnpjResolverAdapter
+	) {}
 
 	async resolveByTicker(ticker: string): Promise<RiIssuerRef | null> {
 		const normalizedTicker = String(ticker || '')
@@ -49,10 +53,29 @@ export class StocksRiIssuerCatalogAdapter implements RiIssuerCatalogPort {
 					{ fundamental: true }
 				);
 				const stock = response?.results?.[0];
-				const cnpj = this.normalizeCnpj(stock?.cnpj);
+				let cnpj = this.normalizeCnpj(stock?.cnpj);
+				let company: string =
+					stock?.longName || stock?.shortName || normalizedTicker;
+
+				if (!cnpj) {
+					try {
+						const registryMatch = await this.b3Registry.resolveCnpj(
+							normalizedTicker
+						);
+						if (registryMatch) {
+							cnpj = registryMatch.cnpj;
+							company = registryMatch.company || company;
+						}
+					} catch (error) {
+						this.logger.warn(
+							`Falha ao consultar registro B3 para ${normalizedTicker}: ${error?.message || error}`
+						);
+					}
+				}
+
 				if (!cnpj) {
 					this.logger.debug(
-						`Sem CNPJ na cotação de ${normalizedTicker}; descoberta CVM indisponível`
+						`Sem CNPJ na cotação nem no registro B3 de ${normalizedTicker}; descoberta CVM indisponível`
 					);
 					this.cache.set(normalizedTicker, {
 						expiresAt: Date.now() + this.ttlMs,
@@ -60,8 +83,7 @@ export class StocksRiIssuerCatalogAdapter implements RiIssuerCatalogPort {
 					});
 					return null;
 				}
-				const company: string =
-					stock?.longName || stock?.shortName || normalizedTicker;
+
 				const ref: RiIssuerRef = {
 					ticker: normalizedTicker,
 					company,

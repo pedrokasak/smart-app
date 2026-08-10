@@ -16,6 +16,7 @@ import { InMemoryRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastr
 import { InMemoryRiSummaryCacheAdapter } from 'src/ri-intelligence/infrastructure/in-memory-ri-summary-cache.adapter';
 import { StocksRiAssetAutocompleteAdapter } from 'src/ri-intelligence/infrastructure/stocks-ri-asset-autocomplete.adapter';
 import { StocksRiIssuerCatalogAdapter } from 'src/ri-intelligence/infrastructure/stocks-ri-issuer-catalog.adapter';
+import { B3RegistryCnpjResolverAdapter } from 'src/ri-intelligence/infrastructure/b3-registry-cnpj-resolver.adapter';
 import { RiIntelligenceController } from 'src/ri-intelligence/ri-intelligence.controller';
 import { HttpRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastructure/http-ri-document-discovery.adapter';
 import { ResilientRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastructure/resilient-ri-document-discovery.adapter';
@@ -32,6 +33,7 @@ import { PuppeteerBrowserPool } from 'src/ri-intelligence/infrastructure/puppete
 		RiDocumentCatalogService,
 		RiDocumentSummaryService,
 		StocksRiAssetAutocompleteAdapter,
+		B3RegistryCnpjResolverAdapter,
 		StocksRiIssuerCatalogAdapter,
 		InMemoryRiDocumentDiscoveryAdapter,
 		HttpRiDocumentDiscoveryAdapter,
