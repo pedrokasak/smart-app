@@ -183,7 +183,16 @@ export class StockService implements StockRepository {
 			this.isMissing(stock.returnOnEquity, { zeroIsMissing: true }) ||
 			this.isMissing(stock.netMargin, { zeroIsMissing: true }) ||
 			this.isMissing(stock.enterpriseValueEbitda, { zeroIsMissing: true }) ||
-			this.isMissing(stock.dividendYield, { zeroIsMissing: true });
+			this.isMissing(stock.dividendYield, { zeroIsMissing: true }) ||
+			!stock.longName ||
+			!stock.industry ||
+			!stock.longBusinessSummary ||
+			this.isMissing(stock.returnOnInvestedCapital, { zeroIsMissing: true }) ||
+			this.isMissing(stock.totalRevenue, { zeroIsMissing: true }) ||
+			this.isMissing(stock.netIncomeToCommon, { zeroIsMissing: true }) ||
+			this.isMissing(stock.totalAssets, { zeroIsMissing: true }) ||
+			this.isMissing(stock.totalStockholderEquity, { zeroIsMissing: true }) ||
+			this.isMissing(stock.totalDebt, { zeroIsMissing: true });
 
 		let fundamentusSnapshot: {
 			numeric: Record<string, number>;

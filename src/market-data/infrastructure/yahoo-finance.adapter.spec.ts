@@ -51,7 +51,8 @@ describe('YahooFinanceAdapter', () => {
 					'financialData',
 					'summaryProfile',
 				]),
-			})
+			}),
+			expect.anything()
 		);
 		expect(result).toEqual({
 			price: 30.5,
@@ -81,6 +82,7 @@ describe('YahooFinanceAdapter', () => {
 
 		expect(mockedQuoteSummary).toHaveBeenCalledWith(
 			'AAPL',
+			expect.anything(),
 			expect.anything()
 		);
 	});
@@ -115,5 +117,41 @@ describe('YahooFinanceAdapter', () => {
 		await adapter.getSnapshot('WEGE3', 'stock');
 
 		expect(mockedQuoteSummary).toHaveBeenCalledTimes(1);
+	});
+
+	it('negatively caches a failed lookup for the same normalized symbol, avoiding a repeat call', async () => {
+		mockedQuoteSummary.mockRejectedValue(
+			new Error('Quote not found for ticker symbol: NEGC1.SA')
+		);
+
+		const adapter = new YahooFinanceAdapter();
+		const first = await adapter.getSnapshot('NEGC1', 'stock');
+		const second = await adapter.getSnapshot('NEGC1', 'stock');
+
+		expect(first).toBeNull();
+		expect(second).toBeNull();
+		expect(mockedQuoteSummary).toHaveBeenCalledTimes(1);
+	});
+
+	it('passes an abort signal via fetchOptions for a bounded timeout', async () => {
+		mockedQuoteSummary.mockResolvedValue({
+			price: { regularMarketPrice: 5, regularMarketChangePercent: 0 },
+			summaryDetail: {},
+			defaultKeyStatistics: {},
+			financialData: {},
+			summaryProfile: {},
+		});
+
+		const adapter = new YahooFinanceAdapter();
+		await adapter.getSnapshot('TOUT3', 'stock');
+
+		const callArgs = mockedQuoteSummary.mock.calls[0];
+		expect(callArgs[2]).toEqual(
+			expect.objectContaining({
+				fetchOptions: expect.objectContaining({
+					signal: expect.anything(),
+				}),
+			})
+		);
 	});
 });

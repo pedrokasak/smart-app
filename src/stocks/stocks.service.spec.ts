@@ -269,15 +269,28 @@ describe('StockService.getNationalQuote — Yahoo Finance fallback chain', () =>
 	}
 
 	it('fills missing fundamentals from Yahoo Finance before falling back to Fundamentus', async () => {
+		// Brapi already supplies everything Fundamentus would otherwise be the
+		// only source for (company profile + balance-sheet/income fields), so
+		// once Yahoo fills the 6 valuation fields there is nothing left for
+		// Fundamentus to contribute and it should be skipped for performance.
 		const { service, fundamentusFallback, yahooFinance } = buildService({
 			brapiResult: {
 				symbol: 'WEGE3',
+				longName: 'WEG S.A.',
+				industry: 'Electrical Equipment',
+				longBusinessSummary: 'WEG manufactures electrical equipment.',
 				priceEarnings: null,
 				priceToBook: null,
 				returnOnEquity: null,
 				netMargin: null,
 				enterpriseValueEbitda: null,
 				dividendYield: null,
+				returnOnInvestedCapital: 0.2,
+				totalRevenue: 30000,
+				netIncomeToCommon: 4000,
+				totalAssets: 25000,
+				totalStockholderEquity: 12000,
+				totalDebt: 3000,
 			},
 			yahooSnapshot: {
 				price: 40,
@@ -304,6 +317,53 @@ describe('StockService.getNationalQuote — Yahoo Finance fallback chain', () =>
 		expect(result.returnOnEquity).toBe(0.25);
 		expect(result.fallbackSources).toContain('yahoo_finance');
 		expect(fundamentusFallback.getSnapshot).not.toHaveBeenCalled();
+	});
+
+	it('still calls Fundamentus when Yahoo fills the 6 valuation fields but Brapi is missing company profile / balance-sheet fields', async () => {
+		const { service, fundamentusFallback } = buildService({
+			brapiResult: {
+				symbol: 'WEGE3',
+				// No longName/industry/longBusinessSummary and no
+				// returnOnInvestedCapital/totalRevenue/netIncomeToCommon/
+				// totalAssets/totalStockholderEquity/totalDebt — these are
+				// fields only Fundamentus (not Yahoo) can fill.
+				priceEarnings: null,
+				priceToBook: null,
+				returnOnEquity: null,
+				netMargin: null,
+				enterpriseValueEbitda: null,
+				dividendYield: null,
+			},
+			yahooSnapshot: {
+				price: 40,
+				dividendYield: 0.02,
+				sector: 'Industrials',
+				changePercent: 1,
+				priceToEarnings: 30,
+				priceToBook: 12,
+				returnOnEquity: 0.25,
+				netMargin: 0.18,
+				evEbitda: 20,
+				marketCap: 150000,
+			},
+			fundamentusSnapshot: {
+				numeric: { ROIC: 15 },
+				text: { EMPRESA: 'WEG S.A.', SETOR: 'Industrials', SUBSETOR: 'Bens de Capital' },
+			},
+		});
+
+		const response = await service.getNationalQuote('WEGE3', {
+			fundamental: true,
+		});
+		const result = response.results[0];
+
+		expect(fundamentusFallback.getSnapshot).toHaveBeenCalledWith('WEGE3');
+		expect(result.priceEarnings).toBe(30); // still from Yahoo
+		expect(result.longName).toBe('WEG S.A.'); // filled by Fundamentus
+		expect(result.returnOnInvestedCapital).toBeCloseTo(0.15, 4); // filled by Fundamentus
+		expect(result.fallbackSources).toEqual(
+			expect.arrayContaining(['yahoo_finance', 'fundamentus'])
+		);
 	});
 
 	it('falls back to Fundamentus for any field Yahoo Finance still leaves missing', async () => {

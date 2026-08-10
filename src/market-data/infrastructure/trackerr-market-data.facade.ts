@@ -195,7 +195,7 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 			fundamentals,
 			metadata: {
 				source: 'primary',
-				fallbackUsed: fallbackSources.includes('fundamentus'),
+				fallbackUsed: fallbackSources.length > 0,
 				partial,
 				fallbackSources,
 			},

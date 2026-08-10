@@ -29,13 +29,33 @@ export class YahooFinanceAdapter {
 	private readonly logger = new Logger(YahooFinanceAdapter.name);
 	private static readonly cache = new Map<
 		string,
-		{ expiresAt: number; data: YahooFundamentalsSnapshot }
+		{ expiresAt: number; data: YahooFundamentalsSnapshot | null }
 	>();
 	private static readonly inflight = new Map<
 		string,
 		Promise<YahooFundamentalsSnapshot | null>
 	>();
 	private static readonly CACHE_TTL_MS = 10 * 60 * 1000;
+	private static readonly NEGATIVE_CACHE_TTL_MS = 3 * 60 * 1000;
+	private static readonly FETCH_TIMEOUT_MS = 8000;
+	private static noticesSuppressed = false;
+
+	constructor() {
+		if (
+			!YahooFinanceAdapter.noticesSuppressed &&
+			typeof (yahooFinance as any)?.suppressNotices === 'function'
+		) {
+			try {
+				(yahooFinance as any).suppressNotices(['yahooSurvey']);
+			} catch (error) {
+				this.logger.warn(
+					`Falha ao suprimir avisos do Yahoo Finance: ${error?.message || error}`
+				);
+			} finally {
+				YahooFinanceAdapter.noticesSuppressed = true;
+			}
+		}
+	}
 
 	private toNullableNumber(value: unknown): number | null {
 		return typeof value === 'number' && Number.isFinite(value) ? value : null;
@@ -66,9 +86,17 @@ export class YahooFinanceAdapter {
 		yahooSymbol: string
 	): Promise<YahooFundamentalsSnapshot | null> {
 		try {
-			const raw = await yahooFinance.quoteSummary(yahooSymbol, {
-				modules: [...QUOTE_SUMMARY_MODULES],
-			});
+			const raw = await yahooFinance.quoteSummary(
+				yahooSymbol,
+				{
+					modules: [...QUOTE_SUMMARY_MODULES],
+				},
+				{
+					fetchOptions: {
+						signal: AbortSignal.timeout(YahooFinanceAdapter.FETCH_TIMEOUT_MS),
+					},
+				}
+			);
 
 			const snapshot: YahooFundamentalsSnapshot = {
 				price: this.toNullableNumber(raw?.price?.regularMarketPrice),
@@ -100,6 +128,10 @@ export class YahooFinanceAdapter {
 			this.logger.warn(
 				`Falha ao consultar Yahoo Finance para ${yahooSymbol}: ${error?.message || error}`
 			);
+			YahooFinanceAdapter.cache.set(yahooSymbol, {
+				expiresAt: Date.now() + YahooFinanceAdapter.NEGATIVE_CACHE_TTL_MS,
+				data: null,
+			});
 			return null;
 		}
 	}
