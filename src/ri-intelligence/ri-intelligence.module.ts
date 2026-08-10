@@ -5,6 +5,8 @@ import { RI_ASSET_AUTOCOMPLETE } from 'src/ri-intelligence/application/ri-asset-
 import { RiDocumentCatalogService } from 'src/ri-intelligence/application/ri-document-catalog.service';
 import { RI_DOCUMENT_DISCOVERY } from 'src/ri-intelligence/application/ri-document-discovery.port';
 import { RI_DOCUMENT_LINK_RESOLVER } from 'src/ri-intelligence/application/ri-document-link-resolver.port';
+import { RI_ORIGIN_SEARCH } from 'src/ri-intelligence/application/ri-origin-search.port';
+import { GoogleCseRiOriginSearchAdapter } from 'src/ri-intelligence/infrastructure/google-cse-ri-origin-search.adapter';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RI_DOCUMENT_QUERY } from 'src/ri-intelligence/application/ri-document-query.port';
 import { RI_ISSUER_CATALOG } from 'src/ri-intelligence/application/ri-issuer-catalog.port';
@@ -35,6 +37,11 @@ import { PuppeteerBrowserPool } from 'src/ri-intelligence/infrastructure/puppete
 		HttpRiDocumentDiscoveryAdapter,
 		HttpRiDocumentLinkResolverAdapter,
 		CatalogRiDocumentQueryAdapter,
+		GoogleCseRiOriginSearchAdapter,
+		{
+			provide: RI_ORIGIN_SEARCH,
+			useExisting: GoogleCseRiOriginSearchAdapter,
+		},
 		{
 			provide: RI_SUMMARY_CACHE,
 			useClass: InMemoryRiSummaryCacheAdapter,

@@ -316,7 +316,7 @@ export class HttpRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 		return Array.from(targets);
 	}
 
-	private normalizeOrigin(origin: string): string | null {
+	private normalizeOrigin(origin: string | null): string | null {
 		try {
 			const parsed = new URL(String(origin || '').trim());
 			if (!['http:', 'https:'].includes(parsed.protocol)) return null;

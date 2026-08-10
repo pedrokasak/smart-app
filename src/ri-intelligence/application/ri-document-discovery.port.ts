@@ -5,7 +5,7 @@ export const RI_DOCUMENT_DISCOVERY = Symbol('RI_DOCUMENT_DISCOVERY');
 export interface RiDocumentDiscoveryInput {
 	ticker: string;
 	company: string;
-	origin: string;
+	origin: string | null;
 	/**
 	 * Filtro opcional de janela temporal (ISO date). Quando ausente, o adapter
 	 * usa seu default interno (ex.: últimos N dias). Aditivo: undefined preserva
