@@ -27,6 +27,7 @@ import {
 	RiDocumentQueryPort,
 } from 'src/ri-intelligence/application/ri-document-query.port';
 import { RiDocumentSummaryOutput } from 'src/ri-intelligence/application/ri-summary.types';
+import { StockService } from 'src/stocks/stocks.service';
 
 @Injectable()
 export class ChatOrchestratorService {
@@ -42,7 +43,8 @@ export class ChatOrchestratorService {
 		private readonly riDocumentSummaryService: RiDocumentSummaryService,
 		@Optional()
 		@Inject(RI_DOCUMENT_QUERY)
-		private readonly riDocumentQuery?: RiDocumentQueryPort
+		private readonly riDocumentQuery?: RiDocumentQueryPort,
+		private readonly stockService?: StockService
 	) {}
 
 	async orchestrate(
@@ -77,7 +79,7 @@ export class ChatOrchestratorService {
 			this.mapDecisionFlowToCopilot(options?.decisionFlow || null);
 		const symbols = options?.decisionFlow?.ticker
 			? [this.normalizeTicker(options.decisionFlow.ticker)]
-			: this.extractSymbols(normalizedQuestion);
+			: await this.extractSymbols(normalizedQuestion);
 		const investorProfile = this.resolveInvestorProfile(
 			options?.investorProfile || null,
 			normalizedQuestion
@@ -1889,22 +1891,85 @@ export class ChatOrchestratorService {
 		return Number.isFinite(inferred) && inferred > 0 ? inferred : 0;
 	}
 
-	private extractSymbols(question: string): string[] {
-		const normalized = question.toUpperCase();
-		const brSymbols = normalized.match(/\b[A-Z]{4}\d{1,2}\b/g) || [];
-		const cryptoSymbols = normalized.match(/\b(BTC|ETH|SOL|ADA|XRP)\b/g) || [];
-		const usSymbols = normalized.match(/\b[A-Z]{1,5}\.[A-Z]{1,3}\b/g) || [];
+	private static knownTickersCache: { expiresAt: number; tickers: Set<string> } | null = null;
+	private static readonly KNOWN_TICKERS_TTL_MS = 24 * 60 * 60 * 1000;
 
-		const candidateSymbols = [
-			...brSymbols,
-			...cryptoSymbols,
-			...usSymbols,
-		].filter((symbol) => symbol.length >= 3 && !this.stopWords.has(symbol));
-		return Array.from(
-			new Set(candidateSymbols.map((symbol) => this.normalizeTicker(symbol)))
-		)
+	private async getKnownTickers(): Promise<Set<string>> {
+		const now = Date.now();
+		if (
+			ChatOrchestratorService.knownTickersCache &&
+			ChatOrchestratorService.knownTickersCache.expiresAt > now
+		) {
+			return ChatOrchestratorService.knownTickersCache.tickers;
+		}
+		if (!this.stockService) return new Set();
+		try {
+			const response = await this.stockService.getAllNational('', 1000, 1, 'name');
+			const tickers = new Set<string>(
+				(response?.stocks || [])
+					.map((entry: any) => String(entry?.stock || '').toUpperCase())
+					.filter(Boolean)
+			);
+			ChatOrchestratorService.knownTickersCache = {
+				expiresAt: now + ChatOrchestratorService.KNOWN_TICKERS_TTL_MS,
+				tickers,
+			};
+			return tickers;
+		} catch {
+			return ChatOrchestratorService.knownTickersCache?.tickers || new Set();
+		}
+	}
+
+	private resolveKnownTicker(candidate: string, knownTickers: Set<string>): string | null {
+		if (knownTickers.has(candidate)) return candidate;
+
+		const match = candidate.match(/^([A-Z]+)(\d{1,2})$/);
+		if (!match) return null;
+		const [, alphaPrefix, digits] = match;
+
+		for (const known of knownTickers) {
+			const knownMatch = known.match(/^([A-Z]+)(\d{1,2})$/);
+			if (!knownMatch) continue;
+			const [, knownAlpha, knownDigits] = knownMatch;
+			if (knownDigits === digits && knownAlpha.startsWith(alphaPrefix)) {
+				return known;
+			}
+		}
+		return null;
+	}
+
+	private async extractSymbols(question: string): Promise<string[]> {
+		const normalized = question.toUpperCase();
+		const explicitMentions: string[] =
+			normalized.match(/@([A-Z]{3,6}\d{1,2})\b/g) || [];
+		const explicitTickers = explicitMentions.map((mention) => mention.slice(1));
+
+		const brSymbols: string[] = normalized.match(/\b[A-Z]{3,6}\d{1,2}\b/g) || [];
+		const cryptoSymbols: string[] =
+			normalized.match(/\b(BTC|ETH|SOL|ADA|XRP)\b/g) || [];
+		const usSymbols: string[] = normalized.match(/\b[A-Z]{1,5}\.[A-Z]{1,3}\b/g) || [];
+
+		const candidateSymbols = [...brSymbols, ...cryptoSymbols, ...usSymbols].filter(
+			(symbol) => symbol.length >= 3 && !this.stopWords.has(symbol)
+		);
+
+		const knownTickers = await this.getKnownTickers();
+		const resolvedFromText = candidateSymbols
+			.map((symbol) => this.normalizeTicker(symbol))
 			.filter(Boolean)
-			.slice(0, 6);
+			.map((symbol) => {
+				// Crypto/US symbols aren't in the B3 known-ticker list — pass them through unresolved.
+				if (cryptoSymbols.includes(symbol) || usSymbols.includes(symbol)) return symbol;
+				return this.resolveKnownTicker(symbol, knownTickers);
+			})
+			.filter((symbol): symbol is string => !!symbol);
+
+		const allSymbols = [
+			...explicitTickers.map((symbol) => this.normalizeTicker(symbol)),
+			...resolvedFromText,
+		];
+
+		return Array.from(new Set(allSymbols)).filter(Boolean).slice(0, 6);
 	}
 
 	private parseSellInputs(question: string): {

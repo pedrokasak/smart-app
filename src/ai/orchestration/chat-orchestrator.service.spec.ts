@@ -6,6 +6,7 @@ import { MarketDataProviderPort } from 'src/market-data/application/market-data-
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiDocumentQueryPort } from 'src/ri-intelligence/application/ri-document-query.port';
+import { StockService } from 'src/stocks/stocks.service';
 
 describe('ChatOrchestratorService', () => {
 	const mockPortfolioService = {
@@ -46,6 +47,17 @@ describe('ChatOrchestratorService', () => {
 		getPreviousComparable: jest.fn(),
 	};
 
+	// Known-ticker universe covering every symbol referenced by question text
+	// across this suite, so the new known-ticker validation in extractSymbols
+	// doesn't silently drop symbols these pre-existing tests rely on.
+	const mockStockService = {
+		getAllNational: jest.fn().mockResolvedValue({
+			stocks: ['ITUB4', 'PETR4', 'BBAS3', 'BBDC4', 'ABCD3', 'XPLG11'].map(
+				(stock) => ({ stock, name: stock })
+			),
+		}),
+	} as unknown as StockService;
+
 	const makeService = () =>
 		new ChatOrchestratorService(
 			mockPortfolioService,
@@ -54,7 +66,8 @@ describe('ChatOrchestratorService', () => {
 			mockResponseCache,
 			mockCostObserver,
 			mockRiDocumentSummaryService,
-			mockRiDocumentQuery
+			mockRiDocumentQuery,
+			mockStockService
 		);
 
 	beforeEach(() => {
@@ -1425,5 +1438,62 @@ describe('ChatOrchestratorService', () => {
 		expect(
 			(response.data.tradePlaybook as any)?.preTrade?.alternatives?.length
 		).toBe(3);
+	});
+});
+
+describe('ChatOrchestratorService.extractSymbols', () => {
+	beforeEach(() => {
+		// The known-ticker cache is a static field shared across instances (and
+		// across the describe block above, which already populated it) — reset
+		// it so each test here observes only its own stub stock list.
+		(ChatOrchestratorService as any).knownTickersCache = null;
+	});
+
+	function buildServiceWithStubStockList(stockSymbols: string[]) {
+		const stockService = {
+			getAllNational: jest.fn().mockResolvedValue({
+				stocks: stockSymbols.map((stock) => ({ stock, name: stock })),
+			}),
+		} as unknown as StockService;
+
+		// Construct with minimal stub dependencies for the other constructor params —
+		// none of them are exercised by extractSymbols, so simple empty objects are fine.
+		const service = new (ChatOrchestratorService as any)(
+			{} /* portfolioService */,
+			{} /* unifiedIntelligenceFacade */,
+			{} /* marketDataProvider */,
+			{} /* responseCache */,
+			{} /* costObserver */,
+			{} /* riDocumentSummaryService */,
+			undefined /* riDocumentQuery */,
+			stockService
+		);
+		return service;
+	}
+
+	it('recognizes an exact 4-letter+digit ticker unchanged (regression)', async () => {
+		const service = buildServiceWithStubStockList(['PETR4', 'WEGE3']);
+		const result = await (service as any).extractSymbols('PETR4 é uma boa compra?');
+		expect(result).toEqual(['PETR4']);
+	});
+
+	it('resolves a colloquial 3-letter ticker to the real 4-letter ticker via prefix match', async () => {
+		const service = buildServiceWithStubStockList(['WEGE3', 'PETR4']);
+		const result = await (service as any).extractSymbols('WEG3 é uma boa compra?');
+		expect(result).toEqual(['WEGE3']);
+	});
+
+	it('discards a 3-6 letter+digit candidate that matches no real ticker', async () => {
+		const service = buildServiceWithStubStockList(['WEGE3', 'PETR4']);
+		const result = await (service as any).extractSymbols('ABC9 é uma boa compra?');
+		expect(result).toEqual([]);
+	});
+
+	it('caches the ticker list across calls within the TTL (single network call for two extractions)', async () => {
+		const service = buildServiceWithStubStockList(['WEGE3']);
+		const stockService = (service as any).stockService as StockService;
+		await (service as any).extractSymbols('WEG3?');
+		await (service as any).extractSymbols('WEGE3?');
+		expect(stockService.getAllNational).toHaveBeenCalledTimes(1);
 	});
 });
