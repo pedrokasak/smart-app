@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { createHash } from 'crypto';
 import {
 	CHAT_COST_OBSERVER,
@@ -31,6 +31,8 @@ import { StockService } from 'src/stocks/stocks.service';
 
 @Injectable()
 export class ChatOrchestratorService {
+	private readonly logger = new Logger(ChatOrchestratorService.name);
+
 	constructor(
 		private readonly portfolioService: PortfolioService,
 		private readonly unifiedIntelligenceFacade: UnifiedIntelligenceFacade,
@@ -41,10 +43,10 @@ export class ChatOrchestratorService {
 		@Inject(CHAT_COST_OBSERVER)
 		private readonly costObserver: ChatCostObserverPort,
 		private readonly riDocumentSummaryService: RiDocumentSummaryService,
+		private readonly stockService: StockService,
 		@Optional()
 		@Inject(RI_DOCUMENT_QUERY)
-		private readonly riDocumentQuery?: RiDocumentQueryPort,
-		private readonly stockService?: StockService
+		private readonly riDocumentQuery?: RiDocumentQueryPort
 	) {}
 
 	async orchestrate(
@@ -1891,18 +1893,55 @@ export class ChatOrchestratorService {
 		return Number.isFinite(inferred) && inferred > 0 ? inferred : 0;
 	}
 
-	private static knownTickersCache: { expiresAt: number; tickers: Set<string> } | null = null;
+	private static knownTickersCache: {
+		expiresAt: number;
+		tickers: Set<string>;
+		byDigitSuffix: Map<string, Array<{ alpha: string; full: string }>>;
+	} | null = null;
+	// Distinct from "never fetched": set only after a failed fetch, so a
+	// provider outage is retried after a short cooldown instead of on every
+	// single chat message (or never, if we kept the stale empty cache forever).
+	private static knownTickersNegativeCacheExpiresAt: number | null = null;
 	private static readonly KNOWN_TICKERS_TTL_MS = 24 * 60 * 60 * 1000;
+	private static readonly KNOWN_TICKERS_NEGATIVE_TTL_MS = 5 * 60 * 1000;
 
-	private async getKnownTickers(): Promise<Set<string>> {
+	private static buildDigitSuffixIndex(
+		tickers: Set<string>
+	): Map<string, Array<{ alpha: string; full: string }>> {
+		const index = new Map<string, Array<{ alpha: string; full: string }>>();
+		for (const known of tickers) {
+			const knownMatch = known.match(/^([A-Z]+)(\d{1,2})$/);
+			if (!knownMatch) continue;
+			const [, knownAlpha, knownDigits] = knownMatch;
+			const bucket = index.get(knownDigits) || [];
+			bucket.push({ alpha: knownAlpha, full: known });
+			index.set(knownDigits, bucket);
+		}
+		return index;
+	}
+
+	private async getKnownTickers(): Promise<{
+		tickers: Set<string>;
+		byDigitSuffix: Map<string, Array<{ alpha: string; full: string }>>;
+	}> {
 		const now = Date.now();
 		if (
 			ChatOrchestratorService.knownTickersCache &&
 			ChatOrchestratorService.knownTickersCache.expiresAt > now
 		) {
-			return ChatOrchestratorService.knownTickersCache.tickers;
+			return ChatOrchestratorService.knownTickersCache;
 		}
-		if (!this.stockService) return new Set();
+		if (
+			ChatOrchestratorService.knownTickersNegativeCacheExpiresAt &&
+			ChatOrchestratorService.knownTickersNegativeCacheExpiresAt > now
+		) {
+			return (
+				ChatOrchestratorService.knownTickersCache || {
+					tickers: new Set(),
+					byDigitSuffix: new Map(),
+				}
+			);
+		}
 		try {
 			const response = await this.stockService.getAllNational('', 1000, 1, 'name');
 			const tickers = new Set<string>(
@@ -1910,32 +1949,48 @@ export class ChatOrchestratorService {
 					.map((entry: any) => String(entry?.stock || '').toUpperCase())
 					.filter(Boolean)
 			);
+			const byDigitSuffix = ChatOrchestratorService.buildDigitSuffixIndex(tickers);
 			ChatOrchestratorService.knownTickersCache = {
 				expiresAt: now + ChatOrchestratorService.KNOWN_TICKERS_TTL_MS,
 				tickers,
+				byDigitSuffix,
 			};
-			return tickers;
-		} catch {
-			return ChatOrchestratorService.knownTickersCache?.tickers || new Set();
+			ChatOrchestratorService.knownTickersNegativeCacheExpiresAt = null;
+			return ChatOrchestratorService.knownTickersCache;
+		} catch (error) {
+			this.logger.warn(
+				`Failed to fetch known B3 tickers for chat ticker validation: ${error instanceof Error ? error.message : String(error)}`
+			);
+			ChatOrchestratorService.knownTickersNegativeCacheExpiresAt =
+				now + ChatOrchestratorService.KNOWN_TICKERS_NEGATIVE_TTL_MS;
+			return (
+				ChatOrchestratorService.knownTickersCache || {
+					tickers: new Set(),
+					byDigitSuffix: new Map(),
+				}
+			);
 		}
 	}
 
-	private resolveKnownTicker(candidate: string, knownTickers: Set<string>): string | null {
-		if (knownTickers.has(candidate)) return candidate;
+	private resolveKnownTicker(
+		candidate: string,
+		knownTickers: {
+			tickers: Set<string>;
+			byDigitSuffix: Map<string, Array<{ alpha: string; full: string }>>;
+		}
+	): string | null {
+		if (knownTickers.tickers.has(candidate)) return candidate;
 
 		const match = candidate.match(/^([A-Z]+)(\d{1,2})$/);
 		if (!match) return null;
 		const [, alphaPrefix, digits] = match;
 
-		for (const known of knownTickers) {
-			const knownMatch = known.match(/^([A-Z]+)(\d{1,2})$/);
-			if (!knownMatch) continue;
-			const [, knownAlpha, knownDigits] = knownMatch;
-			if (knownDigits === digits && knownAlpha.startsWith(alphaPrefix)) {
-				return known;
-			}
-		}
-		return null;
+		const bucket = knownTickers.byDigitSuffix.get(digits) || [];
+		const matches = bucket.filter((item) => item.alpha.startsWith(alphaPrefix));
+		// Ambiguous prefix (multiple real tickers share this short prefix + digit
+		// suffix): don't guess which one the user meant — treat as unresolved.
+		if (matches.length !== 1) return null;
+		return matches[0].full;
 	}
 
 	private async extractSymbols(question: string): Promise<string[]> {
@@ -1960,6 +2015,13 @@ export class ChatOrchestratorService {
 			.map((symbol) => {
 				// Crypto/US symbols aren't in the B3 known-ticker list — pass them through unresolved.
 				if (cryptoSymbols.includes(symbol) || usSymbols.includes(symbol)) return symbol;
+				// Legacy shape (exactly 4 letters + 1-2 digits): this is what the old,
+				// pre-widening regex accepted with NO validation. Known-ticker
+				// validation only gates the newly-introduced 3/5/6-letter matching
+				// space; gating this legacy shape too would silently drop FIIs/BDRs
+				// (e.g. XPLG11, AAPL34) that the stocks-only known-ticker source
+				// (StockService.getAllNational -> type=stock) never returns.
+				if (/^[A-Z]{4}\d{1,2}$/.test(symbol)) return symbol;
 				return this.resolveKnownTicker(symbol, knownTickers);
 			})
 			.filter((symbol): symbol is string => !!symbol);
