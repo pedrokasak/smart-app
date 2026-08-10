@@ -6,6 +6,7 @@ import { MarketDataProviderPort } from 'src/market-data/application/market-data-
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiDocumentQueryPort } from 'src/ri-intelligence/application/ri-document-query.port';
+import { StockService } from 'src/stocks/stocks.service';
 
 describe('ChatOrchestratorService', () => {
 	const mockPortfolioService = {
@@ -46,6 +47,17 @@ describe('ChatOrchestratorService', () => {
 		getPreviousComparable: jest.fn(),
 	};
 
+	// Known-ticker universe covering every symbol referenced by question text
+	// across this suite, so the new known-ticker validation in extractSymbols
+	// doesn't silently drop symbols these pre-existing tests rely on.
+	const mockStockService = {
+		getAllNational: jest.fn().mockResolvedValue({
+			stocks: ['ITUB4', 'PETR4', 'BBAS3', 'BBDC4', 'ABCD3', 'XPLG11'].map(
+				(stock) => ({ stock, name: stock })
+			),
+		}),
+	} as unknown as StockService;
+
 	const makeService = () =>
 		new ChatOrchestratorService(
 			mockPortfolioService,
@@ -54,6 +66,7 @@ describe('ChatOrchestratorService', () => {
 			mockResponseCache,
 			mockCostObserver,
 			mockRiDocumentSummaryService,
+			mockStockService,
 			mockRiDocumentQuery
 		);
 
@@ -1425,5 +1438,164 @@ describe('ChatOrchestratorService', () => {
 		expect(
 			(response.data.tradePlaybook as any)?.preTrade?.alternatives?.length
 		).toBe(3);
+	});
+});
+
+describe('ChatOrchestratorService.extractSymbols', () => {
+	beforeEach(() => {
+		// The known-ticker cache is a static field shared across instances (and
+		// across the describe block above, which already populated it) — reset
+		// it so each test here observes only its own stub stock list.
+		(ChatOrchestratorService as any).knownTickersCache = null;
+		(ChatOrchestratorService as any).knownTickersNegativeCacheExpiresAt = null;
+	});
+
+	function buildServiceWithStubStockList(stockSymbols: string[]) {
+		const stockService = {
+			getAllNational: jest.fn().mockResolvedValue({
+				stocks: stockSymbols.map((stock) => ({ stock, name: stock })),
+			}),
+		} as unknown as StockService;
+
+		// Construct with minimal stub dependencies for the other constructor params —
+		// none of them are exercised by extractSymbols, so simple empty objects are fine.
+		const service = new (ChatOrchestratorService as any)(
+			{} /* portfolioService */,
+			{} /* unifiedIntelligenceFacade */,
+			{} /* marketDataProvider */,
+			{} /* responseCache */,
+			{} /* costObserver */,
+			{} /* riDocumentSummaryService */,
+			stockService,
+			undefined /* riDocumentQuery */
+		);
+		return service;
+	}
+
+	function buildServiceWithFailingStockList() {
+		const stockService = {
+			getAllNational: jest.fn().mockRejectedValue(new Error('brapi unavailable')),
+		} as unknown as StockService;
+
+		const service = new (ChatOrchestratorService as any)(
+			{} /* portfolioService */,
+			{} /* unifiedIntelligenceFacade */,
+			{} /* marketDataProvider */,
+			{} /* responseCache */,
+			{} /* costObserver */,
+			{} /* riDocumentSummaryService */,
+			stockService,
+			undefined /* riDocumentQuery */
+		);
+		return service;
+	}
+
+	it('recognizes an exact 4-letter+digit ticker unchanged (regression)', async () => {
+		const service = buildServiceWithStubStockList(['PETR4', 'WEGE3']);
+		const result = await (service as any).extractSymbols('PETR4 é uma boa compra?');
+		expect(result).toEqual(['PETR4']);
+	});
+
+	it('resolves a colloquial 3-letter ticker to the real 4-letter ticker via prefix match', async () => {
+		const service = buildServiceWithStubStockList(['WEGE3', 'PETR4']);
+		const result = await (service as any).extractSymbols('WEG3 é uma boa compra?');
+		expect(result).toEqual(['WEGE3']);
+	});
+
+	it('discards a 3-6 letter+digit candidate that matches no real ticker', async () => {
+		const service = buildServiceWithStubStockList(['WEGE3', 'PETR4']);
+		const result = await (service as any).extractSymbols('ABC9 é uma boa compra?');
+		expect(result).toEqual([]);
+	});
+
+	it('caches the ticker list across calls within the TTL (single network call for two extractions)', async () => {
+		const service = buildServiceWithStubStockList(['WEGE3']);
+		const stockService = (service as any).stockService as StockService;
+		await (service as any).extractSymbols('WEG3?');
+		await (service as any).extractSymbols('WEGE3?');
+		expect(stockService.getAllNational).toHaveBeenCalledTimes(1);
+	});
+
+	// Finding 1 (Critical): the real known-ticker source (StockService.getAllNational
+	// -> BrapiAdapter.listAllStocks, hardcoded type=stock) never returns FIIs or BDRs.
+	// A candidate matching the legacy strict 4-letter+digit shape must pass through
+	// unvalidated, exactly like before this branch, so these aren't silently dropped.
+	it('does not drop a FII ticker (4-letter shape) even though it is absent from the stocks-only known-ticker list', async () => {
+		const service = buildServiceWithStubStockList(['PETR4']); // no FIIs in the known list
+		const result = await (service as any).extractSymbols('Vale a pena comprar XPLG11?');
+		expect(result).toEqual(['XPLG11']);
+	});
+
+	it('does not drop a BDR ticker (4-letter shape) even though it is absent from the stocks-only known-ticker list', async () => {
+		const service = buildServiceWithStubStockList(['PETR4']); // no BDRs in the known list
+		const result = await (service as any).extractSymbols('O que acha de AAPL34?');
+		expect(result).toEqual(['AAPL34']);
+	});
+
+	// Finding 2 (Important): on a cold cache with a failed fetch, exact 4-letter
+	// tickers must still resolve — they no longer depend on the known-ticker set.
+	it('still recognizes an exact 4-letter ticker when the known-ticker fetch fails', async () => {
+		const service = buildServiceWithFailingStockList();
+		const result = await (service as any).extractSymbols('PETR4 é uma boa compra?');
+		expect(result).toEqual(['PETR4']);
+	});
+
+	// Finding 3 (Important): a fetch failure must be logged and negatively cached so
+	// an outage doesn't trigger a fresh failing HTTP call on every chat message.
+	it('logs a warning and negatively caches a fetch failure instead of retrying on every call', async () => {
+		const service = buildServiceWithFailingStockList();
+		const stockService = (service as any).stockService as StockService;
+		const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+
+		await (service as any).extractSymbols('PETR4?');
+		await (service as any).extractSymbols('PETR4?');
+
+		expect(warnSpy).toHaveBeenCalled();
+		expect(stockService.getAllNational).toHaveBeenCalledTimes(1);
+	});
+
+	// Finding 4 (Important): an ambiguous short prefix that matches more than one
+	// real known ticker with the same digit suffix must not be auto-resolved.
+	it('does not resolve an ambiguous prefix that matches multiple known tickers with the same digit suffix', async () => {
+		const service = buildServiceWithStubStockList(['WEGE3', 'WEGA3']);
+		const result = await (service as any).extractSymbols('WEG3 é uma boa compra?');
+		expect(result).toEqual([]);
+	});
+
+	it('still resolves a prefix that unambiguously matches exactly one known ticker', async () => {
+		const service = buildServiceWithStubStockList(['WEGE3', 'PETR4']);
+		const result = await (service as any).extractSymbols('WEG3 é uma boa compra?');
+		expect(result).toEqual(['WEGE3']);
+	});
+
+	// Finding 5 (Important): server-side coverage for the @TICKER explicit-mention
+	// path, the branch's headline feature.
+	it('recognizes an @TICKER explicit mention', async () => {
+		const service = buildServiceWithStubStockList(['WEGE3']);
+		const result = await (service as any).extractSymbols('O que acha de @WEGE3?');
+		expect(result).toEqual(['WEGE3']);
+	});
+
+	it('accepts an unknown/fake ticker via the @ explicit-mention bypass (deliberate design, not an oversight)', async () => {
+		const service = buildServiceWithStubStockList(['WEGE3']);
+		const result = await (service as any).extractSymbols('O que acha de @FAKE9?');
+		expect(result).toEqual(['FAKE9']);
+	});
+
+	it('gives explicit @ mentions priority over text-derived candidates in the top-6 truncation', async () => {
+		const service = buildServiceWithStubStockList([
+			'PETR4',
+			'VALE3',
+			'ITUB4',
+			'BBAS3',
+			'BBDC4',
+			'ABEV3',
+			'WEGE3',
+		]);
+		const result = await (service as any).extractSymbols(
+			'@WEGE3 comparado com PETR4 VALE3 ITUB4 BBAS3 BBDC4 ABEV3'
+		);
+		expect(result).toHaveLength(6);
+		expect(result[0]).toBe('WEGE3');
 	});
 });

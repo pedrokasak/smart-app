@@ -5,6 +5,7 @@ import { IntelligenceModule } from 'src/intelligence/intelligence.module';
 import { MarketDataModule } from 'src/market-data/market-data.module';
 import { PortfolioModule } from 'src/portfolio/portfolio.module';
 import { RiIntelligenceModule } from 'src/ri-intelligence/ri-intelligence.module';
+import { StockModule } from 'src/stocks/stocks.module';
 import { AiController } from './ai.controller';
 import { IntelligentChatService } from './intelligence/intelligent-chat.service';
 import { CHAT_COST_OBSERVER } from './orchestration/chat-cost-observer.port';
@@ -22,6 +23,7 @@ import { AiService } from './ai.service';
 		ComparisonModule,
 		IntelligenceModule,
 		RiIntelligenceModule,
+		StockModule,
 	],
 	controllers: [AiController],
 	providers: [
