@@ -30,6 +30,7 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		'POST:/auth/google/signin': { limit: 12, windowMs: 60_000 },
 		'POST:/auth/forgot-password': { limit: 8, windowMs: 60_000 },
 		'POST:/broker-sync/upload-note': { limit: 20, windowMs: 10 * 60_000 },
+		'POST:/leads/purchase-intent': { limit: 5, windowMs: 60_000 },
 	};
 	private cleanupTimer: NodeJS.Timeout | null = null;
 

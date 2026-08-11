@@ -94,4 +94,37 @@ describe('EndpointRateLimitMiddleware', () => {
 		);
 		expect(() => middleware.use(reqB, res, next)).not.toThrow();
 	});
+
+	it('applies a tight limit to POST:/leads/purchase-intent', () => {
+		const middleware = new EndpointRateLimitMiddleware();
+		const req: any = {
+			method: 'POST',
+			path: '/leads/purchase-intent',
+			ip: '127.0.0.1',
+			headers: {
+				'user-agent': 'jest',
+				'accept-language': 'pt-BR',
+			},
+			socket: { remoteAddress: '127.0.0.1' },
+		};
+		const res: any = { setHeader: jest.fn() };
+		const next = jest.fn();
+
+		for (let i = 0; i < 5; i += 1) {
+			middleware.use(req, res, next);
+		}
+
+		expect(next).toHaveBeenCalledTimes(5);
+
+		let thrown: unknown;
+		try {
+			middleware.use(req, res, next);
+		} catch (error) {
+			thrown = error;
+		}
+		expect(thrown).toBeInstanceOf(HttpException);
+		expect((thrown as HttpException).getStatus()).toBe(
+			HttpStatus.TOO_MANY_REQUESTS
+		);
+	});
 });
