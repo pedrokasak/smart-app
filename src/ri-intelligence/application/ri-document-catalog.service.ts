@@ -167,9 +167,11 @@ export class RiDocumentCatalogService {
 			};
 		}
 
+		const originByTicker = new Map<string, string | null>();
 		const gathered = await Promise.all(
 			matches.map(async (match) => {
 				const origin = await this.resolveOrigin(match);
+				originByTicker.set(match.ticker.toUpperCase(), origin);
 				const documents = await this.documentDiscovery.discover({
 					ticker: match.ticker,
 					company: match.company,
@@ -196,7 +198,12 @@ export class RiDocumentCatalogService {
 
 		const validated = (
 			await Promise.all(
-				scoped.map((document) => this.resolveAndValidateDocument(document))
+				scoped.map((document) =>
+					this.resolveAndValidateDocument(
+						document,
+						originByTicker.get(document.ticker.toUpperCase()) ?? null
+					)
+				)
 			)
 		).filter((document): document is RiDocumentRecord => Boolean(document));
 
@@ -319,7 +326,9 @@ export class RiDocumentCatalogService {
 
 		const validated = (
 			await Promise.all(
-				withinRange.map((document) => this.resolveAndValidateDocument(document))
+				withinRange.map((document) =>
+					this.resolveAndValidateDocument(document, officialRiUrl)
+				)
 			)
 		).filter((document): document is RiDocumentRecord => Boolean(document));
 		if (!validated.length) {
@@ -610,14 +619,11 @@ export class RiDocumentCatalogService {
 	}
 
 	private async resolveAndValidateDocument(
-		document: RiDocumentRecord
+		document: RiDocumentRecord,
+		origin: string | null
 	): Promise<RiDocumentRecord | null> {
 		if (document.source?.type !== 'url') return document;
 
-		const origin = await this.resolveOrigin({
-			ticker: document.ticker,
-			company: document.company,
-		});
 		const resolved = await this.documentLinkResolver.resolve({
 			url: document.source.value,
 			origin: origin || undefined,

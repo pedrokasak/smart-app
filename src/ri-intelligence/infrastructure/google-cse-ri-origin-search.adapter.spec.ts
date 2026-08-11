@@ -38,4 +38,44 @@ describe('GoogleCseRiOriginSearchAdapter', () => {
 		expect(result).toBeNull();
 		expect(httpService.get).not.toHaveBeenCalled();
 	});
+
+	it('returns null instead of the URL when the top result is a known financial aggregator (statusinvest)', async () => {
+		const adapter = buildAdapter(() =>
+			of({
+				data: {
+					items: [
+						{
+							link: 'https://statusinvest.com.br/acoes/empresa-real',
+						},
+					],
+				},
+			})
+		);
+		const result = await adapter.searchOfficialOrigin('Empresa Real S.A.');
+		expect(result).toBeNull();
+	});
+
+	it('returns null when the top result is on a subdomain of a denylisted aggregator', async () => {
+		const adapter = buildAdapter(() =>
+			of({
+				data: {
+					items: [{ link: 'https://einvestidor.estadao.com.br/empresa-real' }],
+				},
+			})
+		);
+		const result = await adapter.searchOfficialOrigin('Empresa Real S.A.');
+		expect(result).toBeNull();
+	});
+
+	it('still resolves normally when the top result is the issuer own domain (regression check)', async () => {
+		const adapter = buildAdapter(() =>
+			of({
+				data: {
+					items: [{ link: 'https://ri.empresa-real.com.br/resultados' }],
+				},
+			})
+		);
+		const result = await adapter.searchOfficialOrigin('Empresa Real S.A.');
+		expect(result).toBe('https://ri.empresa-real.com.br');
+	});
 });

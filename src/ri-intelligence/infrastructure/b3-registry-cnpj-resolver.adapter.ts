@@ -123,7 +123,15 @@ export class B3RegistryCnpjResolverAdapter {
 				this.logger.warn(
 					`Falha ao carregar registro B3 de companhias: ${error?.message || error}`
 				);
-				return this.cache?.byTicker || new Map();
+				// Se já existe um registro carregado com sucesso anteriormente
+				// (mesmo expirado), preferimos servi-lo a falhar — é dado real,
+				// só potencialmente desatualizado. Só propagamos o erro quando
+				// NUNCA houve um carregamento bem-sucedido, para que o chamador
+				// (StocksRiIssuerCatalogAdapter) possa distinguir "não encontrado
+				// num registro carregado" de "registro indisponível agora" e
+				// evitar poluir o cache negativo de 6h com uma falha transitória.
+				if (this.cache?.byTicker) return this.cache.byTicker;
+				throw error;
 			} finally {
 				this.inflight = null;
 			}

@@ -4,11 +4,51 @@ import { firstValueFrom } from 'rxjs';
 import { RiOriginSearchPort } from 'src/ri-intelligence/application/ri-origin-search.port';
 import { googleCseApiKey, googleCseEngineId } from 'src/env';
 
+/**
+ * Hosts de agregadores/portais financeiros conhecidos por aparecerem como
+ * resultado orgânico top para buscas de "{empresa} relações com
+ * investidores" sem serem o domínio oficial do emissor. Tratar o top-1 como
+ * "não encontrado" quando cair aqui é mais seguro do que rastrear o site
+ * errado e apresentar conteúdo de terceiros como documento oficial do
+ * emissor — nesse caso a descoberta degrada para CVM-only.
+ */
+const DENYLISTED_ORIGIN_HOSTS: ReadonlySet<string> = new Set([
+	'statusinvest.com.br',
+	'infomoney.com.br',
+	'fundamentei.com',
+	'investing.com',
+	'b3.com.br',
+	'money.cnn.com',
+	'google.com',
+	'investidor10.com.br',
+	'suno.com.br',
+	'oceans14.com.br',
+	'guiainvest.com.br',
+	'meusdividendos.com',
+	'tradingview.com',
+	'einvestidor.estadao.com.br',
+	'valor.globo.com',
+	'exame.com',
+	'bloomberg.com',
+	'reuters.com',
+	'wikipedia.org',
+	'linkedin.com',
+	'youtube.com',
+]);
+
 @Injectable()
 export class GoogleCseRiOriginSearchAdapter implements RiOriginSearchPort {
 	private readonly logger = new Logger(GoogleCseRiOriginSearchAdapter.name);
 	private readonly cache = new Map<string, { expiresAt: number; origin: string | null }>();
 	private readonly ttlMs = 24 * 60 * 60 * 1000;
+
+	private isDenylistedHost(hostname: string): boolean {
+		const normalized = hostname.toLowerCase();
+		for (const denied of DENYLISTED_ORIGIN_HOSTS) {
+			if (normalized === denied || normalized.endsWith(`.${denied}`)) return true;
+		}
+		return false;
+	}
 
 	constructor(
 		private readonly httpService: HttpService,
@@ -50,6 +90,13 @@ export class GoogleCseRiOriginSearchAdapter implements RiOriginSearchPort {
 				return null;
 			}
 			const url = new URL(firstLink);
+			if (this.isDenylistedHost(url.hostname)) {
+				this.logger.debug(
+					`Top resultado do CSE para "${normalizedName}" é um agregador conhecido (${url.hostname}); tratando como não encontrado`
+				);
+				this.cache.set(normalizedName, { expiresAt: now + this.ttlMs, origin: null });
+				return null;
+			}
 			const origin = `${url.protocol}//${url.host}`;
 			this.cache.set(normalizedName, { expiresAt: now + this.ttlMs, origin });
 			return origin;

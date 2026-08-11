@@ -45,9 +45,51 @@ describe('B3RegistryCnpjResolverAdapter', () => {
 		expect(result).toBeNull();
 	});
 
-	it('returns null and does not throw when the request fails', async () => {
+	it('propagates the error when the request fails and no registry was ever loaded successfully', async () => {
+		// Importante: isso é diferente de "ticker não encontrado". Se o
+		// carregamento do registro falhar completamente (rede fora, etc.) e
+		// nunca tivermos tido um snapshot bem-sucedido, resolveCnpj precisa
+		// rejeitar (em vez de resolver com null) para que o chamador
+		// (StocksRiIssuerCatalogAdapter) não confunda essa falha transitória
+		// com "ticker genuinamente ausente do registro B3" e não poluir o
+		// cache negativo de 6h com uma falha de rede.
 		const adapter = buildAdapter(() => throwError(() => new Error('network down')));
-		await expect(adapter.resolveCnpj('ABCD3')).resolves.toBeNull();
+		await expect(adapter.resolveCnpj('ABCD3')).rejects.toThrow('network down');
+	});
+
+	it('serves the last successfully loaded registry when a later refresh fails (stale-but-known data beats an error)', async () => {
+		const getMock = jest
+			.fn()
+			.mockReturnValueOnce(
+				of(
+					singlePageResponse([
+						{
+							codeCVM: '9512',
+							issuingCompany: 'ABCD',
+							companyName: 'Empresa Real S.A.',
+							cnpj: '3987364000103',
+						},
+					])
+				)
+			)
+			.mockReturnValue(throwError(() => new Error('network down')));
+		const adapter = buildAdapter(getMock);
+
+		const first = await adapter.resolveCnpj('ABCD3');
+		expect(first).toEqual({
+			cnpj: '03987364000103',
+			company: 'Empresa Real S.A.',
+		});
+
+		// Força a expiração do cache interno para simular um refresh
+		// necessário que falha.
+		(adapter as any).cache = { ...(adapter as any).cache, expiresAt: 0 };
+
+		const second = await adapter.resolveCnpj('ABCD3');
+		expect(second).toEqual({
+			cnpj: '03987364000103',
+			company: 'Empresa Real S.A.',
+		});
 	});
 
 	it('caches the full registry across calls (single network call for two lookups)', async () => {

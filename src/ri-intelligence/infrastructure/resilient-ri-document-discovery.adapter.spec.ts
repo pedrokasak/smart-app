@@ -23,11 +23,18 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 	});
 
 	it('returns deduplicated primary documents when primary succeeds', async () => {
+		const primaryDocument = baseDocument('ITUB4');
+		const fallbackDocument = baseDocument('ITUB4');
+		fallbackDocument.id = 'ITUB4:material_fact:2026-02-10T00:00:00.000Z:0';
+		fallbackDocument.documentType = 'material_fact';
+		fallbackDocument.title = 'Fato Relevante';
+		fallbackDocument.source.value = 'https://ri.example.com/fallback-doc.pdf';
+
 		const primary: RiDocumentDiscoveryPort = {
-			discover: jest.fn().mockResolvedValue([baseDocument('ITUB4')]),
+			discover: jest.fn().mockResolvedValue([primaryDocument]),
 		};
 		const fallback: RiDocumentDiscoveryPort = {
-			discover: jest.fn().mockResolvedValue([baseDocument('ITUB4')]),
+			discover: jest.fn().mockResolvedValue([fallbackDocument]),
 		};
 		const empty: RiDocumentDiscoveryPort = {
 			discover: jest.fn().mockResolvedValue([]),
@@ -48,7 +55,9 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 			origin: 'https://ri.example.com',
 		});
 
-		// merge de primary (1) + fallback (1, ticker diferente) = 2 documentos.
+		// primary e fallback trazem documentos genuinamente distintos (tipos e
+		// fontes diferentes) — não devem ser colapsados pelo dedup, então o merge
+		// resulta em 2 documentos.
 		expect(output).toHaveLength(2);
 		expect(output.some((doc) => doc.ticker === 'ITUB4')).toBe(true);
 		expect(fallback.discover).toHaveBeenCalledTimes(1);

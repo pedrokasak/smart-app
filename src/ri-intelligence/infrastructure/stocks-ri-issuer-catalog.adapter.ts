@@ -57,6 +57,7 @@ export class StocksRiIssuerCatalogAdapter implements RiIssuerCatalogPort {
 				let company: string =
 					stock?.longName || stock?.shortName || normalizedTicker;
 
+				let b3RegistryFailed = false;
 				if (!cnpj) {
 					try {
 						const registryMatch = await this.b3Registry.resolveCnpj(
@@ -67,6 +68,11 @@ export class StocksRiIssuerCatalogAdapter implements RiIssuerCatalogPort {
 							company = registryMatch.company || company;
 						}
 					} catch (error) {
+						// Falha ao CARREGAR o registro B3 (rede, parsing, etc.) é
+						// transitória — não confirma que o ticker não existe. Não
+						// deve poluir o cache negativo de 6h (mesmo tratamento que
+						// já damos à falha da Brapi no catch externo).
+						b3RegistryFailed = true;
 						this.logger.warn(
 							`Falha ao consultar registro B3 para ${normalizedTicker}: ${error?.message || error}`
 						);
@@ -74,6 +80,12 @@ export class StocksRiIssuerCatalogAdapter implements RiIssuerCatalogPort {
 				}
 
 				if (!cnpj) {
+					if (b3RegistryFailed) {
+						this.logger.debug(
+							`Registro B3 indisponível para ${normalizedTicker} (falha transitória); não armazenando cache negativo de 6h`
+						);
+						return null;
+					}
 					this.logger.debug(
 						`Sem CNPJ na cotação nem no registro B3 de ${normalizedTicker}; descoberta CVM indisponível`
 					);

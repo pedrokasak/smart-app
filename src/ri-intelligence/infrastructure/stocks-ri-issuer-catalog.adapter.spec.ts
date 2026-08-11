@@ -158,4 +158,63 @@ describe('StocksRiIssuerCatalogAdapter — B3 registry fallback', () => {
 
 		expect(result).toBeNull();
 	});
+
+	it('does not poison the 6h negative cache when the B3 registry lookup itself fails (transient), so a later lookup retries it', async () => {
+		const stockService = {
+			getNationalQuote: jest.fn().mockResolvedValue({
+				results: [{ symbol: 'WXYZ3', cnpj: null }],
+			}),
+		};
+		const b3Registry = {
+			resolveCnpj: jest
+				.fn()
+				.mockRejectedValueOnce(new Error('b3 registry unreachable'))
+				.mockResolvedValueOnce({
+					cnpj: '98765432000111',
+					company: 'Empresa Recuperada S.A.',
+				}),
+		};
+		const adapter = new (require('./stocks-ri-issuer-catalog.adapter').StocksRiIssuerCatalogAdapter)(
+			stockService,
+			b3Registry
+		);
+
+		const first = await adapter.resolveByTicker('WXYZ3');
+		expect(first).toBeNull();
+
+		// Uma segunda tentativa logo em seguida deve tentar o registro B3 de
+		// novo (não deve estar servindo um cache negativo de 6h construído a
+		// partir de uma falha transitória de rede).
+		const second = await adapter.resolveByTicker('WXYZ3');
+
+		expect(b3Registry.resolveCnpj).toHaveBeenCalledTimes(2);
+		expect(second).toEqual({
+			ticker: 'WXYZ3',
+			company: 'Empresa Recuperada S.A.',
+			cnpj: '98765432000111',
+		});
+	});
+
+	it('does write the 6h negative cache when the B3 registry loads successfully but genuinely has no match', async () => {
+		const stockService = {
+			getNationalQuote: jest.fn().mockResolvedValue({
+				results: [{ symbol: 'NOPE3', cnpj: null }],
+			}),
+		};
+		const b3Registry = { resolveCnpj: jest.fn().mockResolvedValue(null) };
+		const adapter = new (require('./stocks-ri-issuer-catalog.adapter').StocksRiIssuerCatalogAdapter)(
+			stockService,
+			b3Registry
+		);
+
+		const first = await adapter.resolveByTicker('NOPE3');
+		const second = await adapter.resolveByTicker('NOPE3');
+
+		expect(first).toBeNull();
+		expect(second).toBeNull();
+		// Cache negativo válido (registro carregou com sucesso, ticker
+		// genuinamente ausente): segunda chamada não deve re-consultar nada.
+		expect(b3Registry.resolveCnpj).toHaveBeenCalledTimes(1);
+		expect(stockService.getNationalQuote).toHaveBeenCalledTimes(1);
+	});
 });
