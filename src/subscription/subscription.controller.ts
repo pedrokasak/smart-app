@@ -18,6 +18,7 @@ import {
 	ApiResponse,
 	ApiTags,
 } from '@nestjs/swagger';
+import { Public } from 'src/utils/constants';
 
 @Controller('subscription')
 @ApiTags('subscription')
@@ -39,6 +40,7 @@ export class SubscriptionController {
 		};
 	}
 
+	@Public()
 	@Get()
 	@ApiOperation({ summary: 'Listar todos os planos' })
 	findAll() {

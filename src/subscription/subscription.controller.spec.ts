@@ -1,10 +1,12 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { Reflector } from '@nestjs/core';
 import { SubscriptionController } from './subscription.controller';
 import { SubscriptionService } from './subscription.service';
 import { NotFoundException } from '@nestjs/common';
 import { CreateSubscriptionDto, UpdateSubscriptionDto } from './dto';
 import { WebhooksService } from 'src/subscription/webhooks.service';
 import { StripeService } from 'src/subscription/stripe.service';
+import { IS_PUBLIC_KEY } from 'src/utils/constants';
 
 const mockSubscriptionModel = {
 	create: jest.fn(),
@@ -188,6 +190,17 @@ describe('SubscriptionController', () => {
 				body.cancelUrl,
 				'annual'
 			);
+		});
+	});
+
+	describe('SubscriptionController — public routes', () => {
+		it('marks findAll as public (no auth required)', () => {
+			const reflector = new Reflector();
+			const isPublic = reflector.get(
+				IS_PUBLIC_KEY,
+				SubscriptionController.prototype.findAll
+			);
+			expect(isPublic).toBe(true);
 		});
 	});
 });
