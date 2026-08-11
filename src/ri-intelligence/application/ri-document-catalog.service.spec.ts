@@ -694,19 +694,21 @@ describe('RiDocumentCatalogService', () => {
 describe('RiDocumentCatalogService — origin resolution', () => {
 	it('uses the Google CSE fallback origin for a company outside the known list, instead of guessing a slug', async () => {
 		const originSearch = {
-			searchOfficialOrigin: jest.fn().mockResolvedValue('https://ri.empresa-real.com.br'),
+			searchOfficialOrigin: jest
+				.fn()
+				.mockResolvedValue('https://ri.empresa-real.com.br'),
 		};
 		const documentDiscovery = {
 			discover: jest.fn().mockResolvedValue([]),
 		};
 		const assetAutocomplete = {
-			search: jest.fn().mockResolvedValue([
-				{ ticker: 'ABCD3', company: 'Empresa Real S.A.' },
-			]),
+			search: jest
+				.fn()
+				.mockResolvedValue([{ ticker: 'ABCD3', company: 'Empresa Real S.A.' }]),
 		};
 		const linkResolver = { resolve: jest.fn() };
 
-		const service = new (require('./ri-document-catalog.service').RiDocumentCatalogService)(
+		const service = new RiDocumentCatalogService(
 			assetAutocomplete,
 			documentDiscovery,
 			linkResolver,
@@ -715,7 +717,9 @@ describe('RiDocumentCatalogService — origin resolution', () => {
 
 		await service.search({ query: 'ABCD3', limit: 10 });
 
-		expect(originSearch.searchOfficialOrigin).toHaveBeenCalledWith('Empresa Real S.A.');
+		expect(originSearch.searchOfficialOrigin).toHaveBeenCalledWith(
+			'Empresa Real S.A.'
+		);
 		expect(documentDiscovery.discover).toHaveBeenCalledWith(
 			expect.objectContaining({ origin: 'https://ri.empresa-real.com.br' })
 		);
@@ -725,11 +729,13 @@ describe('RiDocumentCatalogService — origin resolution', () => {
 		const originSearch = { searchOfficialOrigin: jest.fn() };
 		const documentDiscovery = { discover: jest.fn().mockResolvedValue([]) };
 		const assetAutocomplete = {
-			search: jest.fn().mockResolvedValue([{ ticker: 'PETR4', company: 'Petrobras' }]),
+			search: jest
+				.fn()
+				.mockResolvedValue([{ ticker: 'PETR4', company: 'Petrobras' }]),
 		};
 		const linkResolver = { resolve: jest.fn() };
 
-		const service = new (require('./ri-document-catalog.service').RiDocumentCatalogService)(
+		const service = new RiDocumentCatalogService(
 			assetAutocomplete,
 			documentDiscovery,
 			linkResolver,
@@ -745,14 +751,18 @@ describe('RiDocumentCatalogService — origin resolution', () => {
 	});
 
 	it('passes a null origin (not a guessed slug URL) when Google CSE also finds nothing', async () => {
-		const originSearch = { searchOfficialOrigin: jest.fn().mockResolvedValue(null) };
+		const originSearch = {
+			searchOfficialOrigin: jest.fn().mockResolvedValue(null),
+		};
 		const documentDiscovery = { discover: jest.fn().mockResolvedValue([]) };
 		const assetAutocomplete = {
-			search: jest.fn().mockResolvedValue([{ ticker: 'XYZW4', company: 'Empresa Obscura' }]),
+			search: jest
+				.fn()
+				.mockResolvedValue([{ ticker: 'XYZW4', company: 'Empresa Obscura' }]),
 		};
 		const linkResolver = { resolve: jest.fn() };
 
-		const service = new (require('./ri-document-catalog.service').RiDocumentCatalogService)(
+		const service = new RiDocumentCatalogService(
 			assetAutocomplete,
 			documentDiscovery,
 			linkResolver,
@@ -827,7 +837,7 @@ describe('RiDocumentCatalogService — origin resolution', () => {
 			}),
 		};
 
-		const service = new (require('./ri-document-catalog.service').RiDocumentCatalogService)(
+		const service = new RiDocumentCatalogService(
 			assetAutocomplete,
 			documentDiscovery,
 			linkResolver,

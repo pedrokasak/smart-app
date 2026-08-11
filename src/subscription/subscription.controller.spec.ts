@@ -222,9 +222,7 @@ describe('SubscriptionController', () => {
 				}),
 			}) as unknown as ExecutionContext;
 
-		const protectedHandlers: Array<
-			[string, (...args: any[]) => any]
-		> = [
+		const protectedHandlers: Array<[string, (...args: any[]) => any]> = [
 			['create', SubscriptionController.prototype.create],
 			['update', SubscriptionController.prototype.update],
 			['updateFeatures', SubscriptionController.prototype.updateFeatures],

@@ -56,8 +56,10 @@ export class B3RegistryCnpjResolverAdapter {
 	// companhias, ou seja, ~30 páginas de 120.
 	private readonly maxPages = 60;
 
-	private cache: { expiresAt: number; byTicker: Map<string, RegistryEntry> } | null =
-		null;
+	private cache: {
+		expiresAt: number;
+		byTicker: Map<string, RegistryEntry>;
+	} | null = null;
 	private inflight: Promise<Map<string, RegistryEntry>> | null = null;
 	private readonly ttlMs = 24 * 60 * 60 * 1000;
 
@@ -108,16 +110,16 @@ export class B3RegistryCnpjResolverAdapter {
 				const first = await this.fetchPage(1);
 				this.mergeRows(byBaseCode, first.results);
 
-				const totalPages = Math.min(
-					first.page?.totalPages || 1,
-					this.maxPages
-				);
+				const totalPages = Math.min(first.page?.totalPages || 1, this.maxPages);
 				for (let page = 2; page <= totalPages; page++) {
 					const next = await this.fetchPage(page);
 					this.mergeRows(byBaseCode, next.results);
 				}
 
-				this.cache = { expiresAt: Date.now() + this.ttlMs, byTicker: byBaseCode };
+				this.cache = {
+					expiresAt: Date.now() + this.ttlMs,
+					byTicker: byBaseCode,
+				};
 				return byBaseCode;
 			} catch (error) {
 				this.logger.warn(
@@ -158,7 +160,9 @@ export class B3RegistryCnpjResolverAdapter {
 	async resolveCnpj(
 		ticker: string
 	): Promise<{ cnpj: string; company: string } | null> {
-		const normalizedTicker = String(ticker || '').trim().toUpperCase();
+		const normalizedTicker = String(ticker || '')
+			.trim()
+			.toUpperCase();
 		if (!normalizedTicker) return null;
 		const registry = await this.loadRegistry();
 		const entry = registry.get(this.baseCode(normalizedTicker));

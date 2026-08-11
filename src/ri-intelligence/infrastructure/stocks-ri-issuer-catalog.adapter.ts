@@ -60,9 +60,8 @@ export class StocksRiIssuerCatalogAdapter implements RiIssuerCatalogPort {
 				let b3RegistryFailed = false;
 				if (!cnpj) {
 					try {
-						const registryMatch = await this.b3Registry.resolveCnpj(
-							normalizedTicker
-						);
+						const registryMatch =
+							await this.b3Registry.resolveCnpj(normalizedTicker);
 						if (registryMatch) {
 							cnpj = registryMatch.cnpj;
 							company = registryMatch.company || company;

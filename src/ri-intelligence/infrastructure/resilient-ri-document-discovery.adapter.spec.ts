@@ -176,19 +176,17 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 });
 
 describe('ResilientRiDocumentDiscoveryAdapter — in-memory catalog', () => {
-	function buildAdapter(overrides: {
-		inMemoryDocs?: any[];
-		httpDocs?: any[];
-	}) {
+	function buildAdapter(overrides: { inMemoryDocs?: any[]; httpDocs?: any[] }) {
 		const inMemoryAdapter = {
 			discover: jest.fn().mockResolvedValue(overrides.inMemoryDocs || []),
 		};
-		const httpAdapter = { discover: jest.fn().mockResolvedValue(overrides.httpDocs || []) };
+		const httpAdapter = {
+			discover: jest.fn().mockResolvedValue(overrides.httpDocs || []),
+		};
 		const cvmAdapter = { discover: jest.fn().mockResolvedValue([]) };
 		const fiiAdapter = { discover: jest.fn().mockResolvedValue([]) };
 		const fallbackAdapter = { discover: jest.fn().mockResolvedValue([]) };
 
-		const { ResilientRiDocumentDiscoveryAdapter } = require('./resilient-ri-document-discovery.adapter');
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
 			inMemoryAdapter,
 			httpAdapter,
@@ -202,11 +200,29 @@ describe('ResilientRiDocumentDiscoveryAdapter — in-memory catalog', () => {
 
 	it('includes in-memory catalog documents alongside http/cvm results for a known ticker', async () => {
 		const { adapter } = buildAdapter({
-			inMemoryDocs: [{ ticker: 'PETR4', documentType: 'earnings_release', title: 'In-memory doc', source: { value: 'x' } }],
-			httpDocs: [{ ticker: 'PETR4', documentType: 'material_fact', title: 'Http doc', source: { value: 'y' } }],
+			inMemoryDocs: [
+				{
+					ticker: 'PETR4',
+					documentType: 'earnings_release',
+					title: 'In-memory doc',
+					source: { value: 'x' },
+				},
+			],
+			httpDocs: [
+				{
+					ticker: 'PETR4',
+					documentType: 'material_fact',
+					title: 'Http doc',
+					source: { value: 'y' },
+				},
+			],
 		});
 
-		const result = await adapter.discover({ ticker: 'PETR4', company: 'Petrobras', origin: 'https://petrobras.com.br/ri' });
+		const result = await adapter.discover({
+			ticker: 'PETR4',
+			company: 'Petrobras',
+			origin: 'https://petrobras.com.br/ri',
+		});
 
 		expect(result.map((d: any) => d.title)).toEqual(
 			expect.arrayContaining(['In-memory doc', 'Http doc'])
@@ -216,10 +232,21 @@ describe('ResilientRiDocumentDiscoveryAdapter — in-memory catalog', () => {
 	it('still returns http/cvm documents for a ticker with no in-memory catalog entry', async () => {
 		const { adapter, inMemoryAdapter, httpAdapter } = buildAdapter({
 			inMemoryDocs: [],
-			httpDocs: [{ ticker: 'ABCD3', documentType: 'material_fact', title: 'Http doc', source: { value: 'y' } }],
+			httpDocs: [
+				{
+					ticker: 'ABCD3',
+					documentType: 'material_fact',
+					title: 'Http doc',
+					source: { value: 'y' },
+				},
+			],
 		});
 
-		const result = await adapter.discover({ ticker: 'ABCD3', company: 'Empresa', origin: 'https://ri.empresa.com.br' });
+		const result = await adapter.discover({
+			ticker: 'ABCD3',
+			company: 'Empresa',
+			origin: 'https://ri.empresa.com.br',
+		});
 
 		expect(inMemoryAdapter.discover).toHaveBeenCalled();
 		expect(httpAdapter.discover).toHaveBeenCalled();
