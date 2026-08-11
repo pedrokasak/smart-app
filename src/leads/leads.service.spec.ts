@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { PurchaseIntentService } from './leads.service';
 import { EmailService } from 'src/notifications/email/email.service';
 
@@ -91,5 +92,37 @@ describe('PurchaseIntentService', () => {
 
 		expect(resendContactsCreate).not.toHaveBeenCalled();
 		expect(result).toEqual({ success: true });
+	});
+
+	it('logs a warning and skips the Resend contact call when RESEND_API_KEY is not configured but RESEND_AUDIENCE_ID is', async () => {
+		const originalApiKey = process.env.RESEND_API_KEY;
+		delete process.env.RESEND_API_KEY;
+		process.env.RESEND_AUDIENCE_ID = 'audience_123';
+
+		const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+		const emailService = {
+			sendPurchaseIntentConfirmationEmail: jest
+				.fn()
+				.mockResolvedValue(undefined),
+		} as unknown as EmailService;
+
+		const service = new PurchaseIntentService(emailService);
+
+		const result = await service.captureIntent({
+			email: 'investidor@example.com',
+			planName: 'Premium',
+		});
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'RESEND_API_KEY não configurado; pulando criação de contato na audience'
+		);
+		expect(result).toEqual({ success: true });
+
+		warnSpy.mockRestore();
+		if (originalApiKey === undefined) {
+			delete process.env.RESEND_API_KEY;
+		} else {
+			process.env.RESEND_API_KEY = originalApiKey;
+		}
 	});
 });

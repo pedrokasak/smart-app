@@ -36,6 +36,10 @@ export class PurchaseIntentService {
 			this.logger.warn(
 				'RESEND_AUDIENCE_ID não configurado; pulando criação de contato na audience'
 			);
+		} else {
+			this.logger.warn(
+				'RESEND_API_KEY não configurado; pulando criação de contato na audience'
+			);
 		}
 
 		try {
