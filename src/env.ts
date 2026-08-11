@@ -17,6 +17,8 @@ const envSchema = z.object({
 	ASAAS_API_KEY: z.string(),
 	ASAAS_URL_SANDBOX: z.string(),
 	GOOGLE_CLIENT_ID: z.string().optional(),
+	GOOGLE_CSE_API_KEY: z.string().optional(),
+	GOOGLE_CSE_ENGINE_ID: z.string().optional(),
 });
 
 const isTestEnvironment = process.env.NODE_ENV === 'test';
@@ -64,3 +66,6 @@ export const port: string = env.data.PORT;
 export const asaasApiKey: string = env.data.ASAAS_API_KEY;
 export const asaasUrlSandbox: string = env.data.ASAAS_URL_SANDBOX;
 export const googleClientId: string | undefined = env.data.GOOGLE_CLIENT_ID;
+export const googleCseApiKey: string | undefined = env.data.GOOGLE_CSE_API_KEY;
+export const googleCseEngineId: string | undefined =
+	env.data.GOOGLE_CSE_ENGINE_ID;

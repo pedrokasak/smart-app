@@ -9,6 +9,7 @@ import {
 	ResolveRiDocumentLinkResult,
 } from 'src/ri-intelligence/application/ri-document-link-resolver.port';
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
+import { RiOriginSearchPort } from 'src/ri-intelligence/application/ri-origin-search.port';
 
 describe('RiDocumentCatalogService', () => {
 	const baseDocument = (
@@ -65,13 +66,17 @@ describe('RiDocumentCatalogService', () => {
 			resolve:
 				params?.resolve || jest.fn().mockResolvedValue(validResolution()),
 		};
+		const originSearch: RiOriginSearchPort = {
+			searchOfficialOrigin: jest.fn().mockResolvedValue(null),
+		};
 
 		const service = new RiDocumentCatalogService(
 			autocomplete,
 			discovery,
-			resolver
+			resolver,
+			originSearch
 		);
-		return { service, autocomplete, discovery, resolver };
+		return { service, autocomplete, discovery, resolver, originSearch };
 	}
 
 	it('1) returns a valid resolved document when link validation succeeds', async () => {
@@ -118,23 +123,23 @@ describe('RiDocumentCatalogService', () => {
 	});
 
 	it('resolves known RI origins for BBDC4 and PETR4 before link validation', async () => {
+		// Query genérica (sem match exato de ticker) para que resolveMatches
+		// retorne ambos os tickers e cada um seja descoberto/validado com a sua
+		// própria origem — replica o fan-out real por ticker (não por documento).
 		const resolve = jest
 			.fn()
 			.mockResolvedValue(
 				validResolution('https://ri.example.com/doc-valid.pdf')
 			);
-
-		const { service, resolver } = makeService({
-			matches: [
-				{ ticker: 'BBDC4', company: 'Banco Bradesco S.A.' },
-				{ ticker: 'PETR4', company: 'Petróleo Brasileiro S.A. - Petrobras' },
-			],
-			documents: [
+		const documentsByTicker: Record<string, RiDocumentRecord[]> = {
+			BBDC4: [
 				baseDocument({
 					ticker: 'BBDC4',
 					company: 'Banco Bradesco S.A.',
 					source: { type: 'url', value: '/docs/resultado-4t25.pdf' },
 				}),
+			],
+			PETR4: [
 				baseDocument({
 					id: 'PETR4:earnings_release:2026-02-26T00:00:00.000Z:0',
 					ticker: 'PETR4',
@@ -142,10 +147,33 @@ describe('RiDocumentCatalogService', () => {
 					source: { type: 'url', value: '/ri/release-resultados-4t25.pdf' },
 				}),
 			],
-			resolve,
-		});
+		};
 
-		await service.search({ query: 'PETR4' });
+		const autocomplete: RiAssetAutocompletePort = {
+			search: jest.fn().mockResolvedValue([
+				{ ticker: 'BBDC4', company: 'Banco Bradesco S.A.' },
+				{ ticker: 'PETR4', company: 'Petróleo Brasileiro S.A. - Petrobras' },
+			]),
+		};
+		const discovery: RiDocumentDiscoveryPort = {
+			discover: jest
+				.fn()
+				.mockImplementation(
+					async ({ ticker }) => documentsByTicker[ticker] || []
+				),
+		};
+		const resolver: RiDocumentLinkResolverPort = { resolve };
+		const originSearch: RiOriginSearchPort = {
+			searchOfficialOrigin: jest.fn().mockResolvedValue(null),
+		};
+		const service = new RiDocumentCatalogService(
+			autocomplete,
+			discovery,
+			resolver,
+			originSearch
+		);
+
+		await service.search({ query: 'bancos e petroleo' });
 
 		const calls = (resolver.resolve as jest.Mock).mock.calls.map(
 			(call) => call[0]
@@ -383,10 +411,14 @@ describe('RiDocumentCatalogService', () => {
 		const resolver: RiDocumentLinkResolverPort = {
 			resolve: jest.fn().mockResolvedValue(validResolution()),
 		};
+		const originSearch: RiOriginSearchPort = {
+			searchOfficialOrigin: jest.fn().mockResolvedValue(null),
+		};
 		const service = new RiDocumentCatalogService(
 			autocomplete,
 			discovery,
-			resolver
+			resolver,
+			originSearch
 		);
 
 		const output = await service.search({ query: 'ITUB4' });
@@ -544,10 +576,14 @@ describe('RiDocumentCatalogService', () => {
 		const resolver: RiDocumentLinkResolverPort = {
 			resolve: jest.fn().mockResolvedValue(validResolution()),
 		};
+		const originSearch: RiOriginSearchPort = {
+			searchOfficialOrigin: jest.fn().mockResolvedValue(null),
+		};
 		const service = new RiDocumentCatalogService(
 			autocomplete,
 			discovery,
-			resolver
+			resolver,
+			originSearch
 		);
 
 		await service.search({
@@ -587,10 +623,14 @@ describe('RiDocumentCatalogService', () => {
 		const resolver: RiDocumentLinkResolverPort = {
 			resolve: jest.fn().mockResolvedValue(validResolution()),
 		};
+		const originSearch: RiOriginSearchPort = {
+			searchOfficialOrigin: jest.fn().mockResolvedValue(null),
+		};
 		const service = new RiDocumentCatalogService(
 			autocomplete,
 			discovery,
-			resolver
+			resolver,
+			originSearch
 		);
 
 		const output = await service.search({
@@ -630,10 +670,14 @@ describe('RiDocumentCatalogService', () => {
 		const resolver: RiDocumentLinkResolverPort = {
 			resolve: jest.fn().mockResolvedValue(validResolution()),
 		};
+		const originSearch: RiOriginSearchPort = {
+			searchOfficialOrigin: jest.fn().mockResolvedValue(null),
+		};
 		const service = new RiDocumentCatalogService(
 			autocomplete,
 			discovery,
-			resolver
+			resolver,
+			originSearch
 		);
 
 		const output = await service.search({
@@ -644,5 +688,159 @@ describe('RiDocumentCatalogService', () => {
 
 		expect(output.documents).toHaveLength(1);
 		expect(output.documents[0].id).toBe(within.id);
+	});
+});
+
+describe('RiDocumentCatalogService — origin resolution', () => {
+	it('uses the Google CSE fallback origin for a company outside the known list, instead of guessing a slug', async () => {
+		const originSearch = {
+			searchOfficialOrigin: jest.fn().mockResolvedValue('https://ri.empresa-real.com.br'),
+		};
+		const documentDiscovery = {
+			discover: jest.fn().mockResolvedValue([]),
+		};
+		const assetAutocomplete = {
+			search: jest.fn().mockResolvedValue([
+				{ ticker: 'ABCD3', company: 'Empresa Real S.A.' },
+			]),
+		};
+		const linkResolver = { resolve: jest.fn() };
+
+		const service = new (require('./ri-document-catalog.service').RiDocumentCatalogService)(
+			assetAutocomplete,
+			documentDiscovery,
+			linkResolver,
+			originSearch
+		);
+
+		await service.search({ query: 'ABCD3', limit: 10 });
+
+		expect(originSearch.searchOfficialOrigin).toHaveBeenCalledWith('Empresa Real S.A.');
+		expect(documentDiscovery.discover).toHaveBeenCalledWith(
+			expect.objectContaining({ origin: 'https://ri.empresa-real.com.br' })
+		);
+	});
+
+	it('does not call Google CSE for a known ticker (uses the hardcoded origin)', async () => {
+		const originSearch = { searchOfficialOrigin: jest.fn() };
+		const documentDiscovery = { discover: jest.fn().mockResolvedValue([]) };
+		const assetAutocomplete = {
+			search: jest.fn().mockResolvedValue([{ ticker: 'PETR4', company: 'Petrobras' }]),
+		};
+		const linkResolver = { resolve: jest.fn() };
+
+		const service = new (require('./ri-document-catalog.service').RiDocumentCatalogService)(
+			assetAutocomplete,
+			documentDiscovery,
+			linkResolver,
+			originSearch
+		);
+
+		await service.search({ query: 'PETR4', limit: 10 });
+
+		expect(originSearch.searchOfficialOrigin).not.toHaveBeenCalled();
+		expect(documentDiscovery.discover).toHaveBeenCalledWith(
+			expect.objectContaining({ origin: 'https://petrobras.com.br/ri' })
+		);
+	});
+
+	it('passes a null origin (not a guessed slug URL) when Google CSE also finds nothing', async () => {
+		const originSearch = { searchOfficialOrigin: jest.fn().mockResolvedValue(null) };
+		const documentDiscovery = { discover: jest.fn().mockResolvedValue([]) };
+		const assetAutocomplete = {
+			search: jest.fn().mockResolvedValue([{ ticker: 'XYZW4', company: 'Empresa Obscura' }]),
+		};
+		const linkResolver = { resolve: jest.fn() };
+
+		const service = new (require('./ri-document-catalog.service').RiDocumentCatalogService)(
+			assetAutocomplete,
+			documentDiscovery,
+			linkResolver,
+			originSearch
+		);
+
+		await service.search({ query: 'XYZW4', limit: 10 });
+
+		expect(documentDiscovery.discover).toHaveBeenCalledWith(
+			expect.objectContaining({ origin: null })
+		);
+	});
+
+	it('resolves the origin only once for a ticker even when multiple documents are validated (no fan-out per document)', async () => {
+		const originSearch = {
+			searchOfficialOrigin: jest
+				.fn()
+				.mockResolvedValue('https://ri.empresa-real.com.br'),
+		};
+		const documents = [
+			{
+				id: 'ABCD3:earnings_release:2026-02-06T00:00:00.000Z:0',
+				ticker: 'ABCD3',
+				company: 'Empresa Real S.A.',
+				title: 'Release de Resultados 4T25',
+				documentType: 'earnings_release',
+				period: '4T25',
+				publishedAt: '2026-02-06T00:00:00.000Z',
+				source: { type: 'url', value: 'https://ri.empresa-real.com.br/1.pdf' },
+				classification: { method: 'deterministic_rules', confidence: 'high' },
+				contentStatus: 'metadata_only',
+			},
+			{
+				id: 'ABCD3:material_fact:2026-02-10T00:00:00.000Z:0',
+				ticker: 'ABCD3',
+				company: 'Empresa Real S.A.',
+				title: 'Fato Relevante',
+				documentType: 'material_fact',
+				period: null,
+				publishedAt: '2026-02-10T00:00:00.000Z',
+				source: { type: 'url', value: 'https://ri.empresa-real.com.br/2.pdf' },
+				classification: { method: 'deterministic_rules', confidence: 'high' },
+				contentStatus: 'metadata_only',
+			},
+			{
+				id: 'ABCD3:investor_presentation:2026-02-12T00:00:00.000Z:0',
+				ticker: 'ABCD3',
+				company: 'Empresa Real S.A.',
+				title: 'Apresentação',
+				documentType: 'investor_presentation',
+				period: null,
+				publishedAt: '2026-02-12T00:00:00.000Z',
+				source: { type: 'url', value: 'https://ri.empresa-real.com.br/3.pdf' },
+				classification: { method: 'deterministic_rules', confidence: 'high' },
+				contentStatus: 'metadata_only',
+			},
+		];
+		const documentDiscovery = {
+			discover: jest.fn().mockResolvedValue(documents),
+		};
+		const assetAutocomplete = {
+			search: jest
+				.fn()
+				.mockResolvedValue([{ ticker: 'ABCD3', company: 'Empresa Real S.A.' }]),
+		};
+		const linkResolver = {
+			resolve: jest.fn().mockResolvedValue({
+				isValid: true,
+				resolvedUrl: 'https://ri.empresa-real.com.br/resolved.pdf',
+				statusCode: 200,
+				contentType: 'application/pdf',
+			}),
+		};
+
+		const service = new (require('./ri-document-catalog.service').RiDocumentCatalogService)(
+			assetAutocomplete,
+			documentDiscovery,
+			linkResolver,
+			originSearch
+		);
+
+		const output = await service.search({ query: 'ABCD3', limit: 10 });
+
+		expect(output.documents).toHaveLength(3);
+		// Regressão: sem o fix, resolveAndValidateDocument re-resolvia a origem
+		// para CADA documento, gerando 1 chamada de CSE por documento (fan-out).
+		// Com o fix, a origem é resolvida uma única vez por ticker e reutilizada.
+		expect(originSearch.searchOfficialOrigin).toHaveBeenCalledTimes(1);
+		expect(linkResolver.resolve).toHaveBeenCalledTimes(3);
 	});
 });

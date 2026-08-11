@@ -10,6 +10,7 @@ export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryP
 	private readonly providerTimeoutMs: number;
 
 	constructor(
+		private readonly inMemoryAdapter: RiDocumentDiscoveryPort,
 		private readonly httpAdapter: RiDocumentDiscoveryPort,
 		private readonly cvmAdapter: RiDocumentDiscoveryPort,
 		private readonly fiiAdapter: RiDocumentDiscoveryPort,
@@ -21,6 +22,12 @@ export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryP
 
 	async discover(input: RiDocumentDiscoveryInput): Promise<RiDocumentRecord[]> {
 		const isFii = input.ticker.toUpperCase().endsWith('11');
+
+		// Catálogo em memória (tickers em destaque, curados à mão): consultado em
+		// paralelo com o restante da cadeia para não somar latência, mas usando o
+		// mesmo guard de timeout — um adapter travado não bloqueia a resposta além
+		// de providerTimeoutMs.
+		const inMemoryDocsPromise = this.safeDiscoverWithTimeout(this.inMemoryAdapter, input);
 
 		// Primário: para FIIs, o adapter específico de FII; para ações, o adapter
 		// HTTP (bate RI sites estáticos, mais rápido que Puppeteer). O CVM fica
@@ -43,11 +50,16 @@ export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryP
 			this.fallbackAdapter,
 			input
 		);
+		const inMemoryDocs = await inMemoryDocsPromise;
 
-		// Funde primário + fallback sem duplicatas: uma fonte pode ter o título
-		// do release de hoje e outra os PDFs históricos — juntamos ambos para a
-		// seleção de "resultado do trimestre atual" não perder o documento novo.
-		return this.mergeWithoutDuplicates(primaryDocs, fallbackDocs);
+		// Funde catálogo em memória + primário + fallback sem duplicatas: uma
+		// fonte pode ter o título do release de hoje e outra os PDFs históricos —
+		// juntamos todas para a seleção de "resultado do trimestre atual" não
+		// perder o documento novo.
+		return this.mergeWithoutDuplicates(
+			this.mergeWithoutDuplicates(inMemoryDocs, primaryDocs),
+			fallbackDocs
+		);
 	}
 
 	private async safeDiscoverWithTimeout(

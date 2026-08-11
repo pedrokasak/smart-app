@@ -13,6 +13,10 @@ import {
 	RiDocumentLinkResolverPort,
 } from 'src/ri-intelligence/application/ri-document-link-resolver.port';
 import {
+	RI_ORIGIN_SEARCH,
+	RiOriginSearchPort,
+} from 'src/ri-intelligence/application/ri-origin-search.port';
+import {
 	RiDocumentRecord,
 	RiDocumentType,
 } from 'src/ri-intelligence/domain/ri-document.types';
@@ -128,7 +132,9 @@ export class RiDocumentCatalogService {
 		@Inject(RI_DOCUMENT_DISCOVERY)
 		private readonly documentDiscovery: RiDocumentDiscoveryPort,
 		@Inject(RI_DOCUMENT_LINK_RESOLVER)
-		private readonly documentLinkResolver: RiDocumentLinkResolverPort
+		private readonly documentLinkResolver: RiDocumentLinkResolverPort,
+		@Inject(RI_ORIGIN_SEARCH)
+		private readonly originSearch: RiOriginSearchPort
 	) {}
 
 	async autocomplete(query: string, limit = 8): Promise<RiAssetSuggestion[]> {
@@ -161,9 +167,11 @@ export class RiDocumentCatalogService {
 			};
 		}
 
+		const originByTicker = new Map<string, string | null>();
 		const gathered = await Promise.all(
 			matches.map(async (match) => {
-				const origin = this.resolveOrigin(match);
+				const origin = await this.resolveOrigin(match);
+				originByTicker.set(match.ticker.toUpperCase(), origin);
 				const documents = await this.documentDiscovery.discover({
 					ticker: match.ticker,
 					company: match.company,
@@ -190,7 +198,12 @@ export class RiDocumentCatalogService {
 
 		const validated = (
 			await Promise.all(
-				scoped.map((document) => this.resolveAndValidateDocument(document))
+				scoped.map((document) =>
+					this.resolveAndValidateDocument(
+						document,
+						originByTicker.get(document.ticker.toUpperCase()) ?? null
+					)
+				)
 			)
 		).filter((document): document is RiDocumentRecord => Boolean(document));
 
@@ -313,7 +326,9 @@ export class RiDocumentCatalogService {
 
 		const validated = (
 			await Promise.all(
-				withinRange.map((document) => this.resolveAndValidateDocument(document))
+				withinRange.map((document) =>
+					this.resolveAndValidateDocument(document, officialRiUrl)
+				)
 			)
 		).filter((document): document is RiDocumentRecord => Boolean(document));
 		if (!validated.length) {
@@ -429,7 +444,7 @@ export class RiDocumentCatalogService {
 		}
 	}
 
-	private resolveOrigin(match: RiAssetSuggestion): string {
+	private async resolveOrigin(match: RiAssetSuggestion): Promise<string | null> {
 		const knownOrigins: Record<string, string> = {
 			BBDC4: 'https://ri.bradesco.com.br',
 			ITUB4: 'https://www.itau.com.br/relacoes-com-investidores',
@@ -445,16 +460,11 @@ export class RiDocumentCatalogService {
 			return `https://statusinvest.com.br/fii/${ticker.toLowerCase()}`;
 		}
 
-		const companySlug = String(match.company || '')
-			.toLowerCase()
-			.normalize('NFD')
-			.replace(/[\u0300-\u036f]/g, '')
-			.replace(/[^a-z0-9]+/g, '-')
-			.replace(/(^-|-$)/g, '')
-			.slice(0, 40);
-		return companySlug
-			? `https://ri.${companySlug}.com.br`
-			: 'https://ri.empresa.com.br';
+		try {
+			return await this.originSearch.searchOfficialOrigin(match.company);
+		} catch (error) {
+			return null;
+		}
 	}
 
 	private selectMostRelevantDocument(
@@ -609,16 +619,14 @@ export class RiDocumentCatalogService {
 	}
 
 	private async resolveAndValidateDocument(
-		document: RiDocumentRecord
+		document: RiDocumentRecord,
+		origin: string | null
 	): Promise<RiDocumentRecord | null> {
 		if (document.source?.type !== 'url') return document;
 
 		const resolved = await this.documentLinkResolver.resolve({
 			url: document.source.value,
-			origin: this.resolveOrigin({
-				ticker: document.ticker,
-				company: document.company,
-			}),
+			origin: origin || undefined,
 		});
 		if (!resolved.isValid || !resolved.resolvedUrl) return null;
 

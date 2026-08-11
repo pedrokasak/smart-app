@@ -5,6 +5,8 @@ import { RI_ASSET_AUTOCOMPLETE } from 'src/ri-intelligence/application/ri-asset-
 import { RiDocumentCatalogService } from 'src/ri-intelligence/application/ri-document-catalog.service';
 import { RI_DOCUMENT_DISCOVERY } from 'src/ri-intelligence/application/ri-document-discovery.port';
 import { RI_DOCUMENT_LINK_RESOLVER } from 'src/ri-intelligence/application/ri-document-link-resolver.port';
+import { RI_ORIGIN_SEARCH } from 'src/ri-intelligence/application/ri-origin-search.port';
+import { GoogleCseRiOriginSearchAdapter } from 'src/ri-intelligence/infrastructure/google-cse-ri-origin-search.adapter';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RI_DOCUMENT_QUERY } from 'src/ri-intelligence/application/ri-document-query.port';
 import { RI_ISSUER_CATALOG } from 'src/ri-intelligence/application/ri-issuer-catalog.port';
@@ -14,6 +16,7 @@ import { InMemoryRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastr
 import { InMemoryRiSummaryCacheAdapter } from 'src/ri-intelligence/infrastructure/in-memory-ri-summary-cache.adapter';
 import { StocksRiAssetAutocompleteAdapter } from 'src/ri-intelligence/infrastructure/stocks-ri-asset-autocomplete.adapter';
 import { StocksRiIssuerCatalogAdapter } from 'src/ri-intelligence/infrastructure/stocks-ri-issuer-catalog.adapter';
+import { B3RegistryCnpjResolverAdapter } from 'src/ri-intelligence/infrastructure/b3-registry-cnpj-resolver.adapter';
 import { RiIntelligenceController } from 'src/ri-intelligence/ri-intelligence.controller';
 import { HttpRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastructure/http-ri-document-discovery.adapter';
 import { ResilientRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastructure/resilient-ri-document-discovery.adapter';
@@ -30,11 +33,17 @@ import { PuppeteerBrowserPool } from 'src/ri-intelligence/infrastructure/puppete
 		RiDocumentCatalogService,
 		RiDocumentSummaryService,
 		StocksRiAssetAutocompleteAdapter,
+		B3RegistryCnpjResolverAdapter,
 		StocksRiIssuerCatalogAdapter,
 		InMemoryRiDocumentDiscoveryAdapter,
 		HttpRiDocumentDiscoveryAdapter,
 		HttpRiDocumentLinkResolverAdapter,
 		CatalogRiDocumentQueryAdapter,
+		GoogleCseRiOriginSearchAdapter,
+		{
+			provide: RI_ORIGIN_SEARCH,
+			useExisting: GoogleCseRiOriginSearchAdapter,
+		},
 		{
 			provide: RI_SUMMARY_CACHE,
 			useClass: InMemoryRiSummaryCacheAdapter,
@@ -54,18 +63,21 @@ import { PuppeteerBrowserPool } from 'src/ri-intelligence/infrastructure/puppete
 		{
 			provide: RI_DOCUMENT_DISCOVERY,
 			useFactory: (
+				inMemoryAdapter: InMemoryRiDocumentDiscoveryAdapter,
 				httpAdapter: HttpRiDocumentDiscoveryAdapter,
 				cvmAdapter: CvmRiDocumentDiscoveryAdapter,
 				fiiAdapter: FiiRiDocumentDiscoveryAdapter,
 				puppeteerAdapter: PuppeteerRiDocumentDiscoveryAdapter
 			) =>
 				new ResilientRiDocumentDiscoveryAdapter(
+					inMemoryAdapter,
 					httpAdapter,
 					cvmAdapter,
 					fiiAdapter,
 					puppeteerAdapter
 				),
 			inject: [
+				InMemoryRiDocumentDiscoveryAdapter,
 				HttpRiDocumentDiscoveryAdapter,
 				CvmRiDocumentDiscoveryAdapter,
 				FiiRiDocumentDiscoveryAdapter,
