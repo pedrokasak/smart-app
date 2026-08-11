@@ -22,11 +22,17 @@ export class PurchaseIntentService {
 
 		if (audienceId && this.resendClient?.contacts) {
 			try {
-				await this.resendClient.contacts.create({
+				const { error } = await this.resendClient.contacts.create({
 					audienceId,
 					email: dto.email,
 					properties: { planName: dto.planName },
 				} as Parameters<Resend['contacts']['create']>[0]);
+
+				if (error) {
+					this.logger.warn(
+						`Falha ao adicionar contato na audience do Resend: ${error?.message || error}`
+					);
+				}
 			} catch (error) {
 				this.logger.warn(
 					`Falha ao adicionar contato na audience do Resend: ${error?.message || error}`

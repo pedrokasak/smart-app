@@ -1,5 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
-import { IsEmail, IsNotEmpty, IsString } from 'class-validator';
+import { IsEmail, IsIn } from 'class-validator';
 
 export class PurchaseIntentDto {
 	@ApiProperty({
@@ -13,7 +13,6 @@ export class PurchaseIntentDto {
 		description: 'Nome do plano que gerou o interesse',
 		example: 'Premium',
 	})
-	@IsString()
-	@IsNotEmpty({ message: 'O nome do plano é obrigatório' })
+	@IsIn(['Premium', 'Global Investor'], { message: 'Plano inválido' })
 	planName: string;
 }

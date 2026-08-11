@@ -53,7 +53,7 @@ describe('PurchaseIntentService', () => {
 		).toHaveBeenCalledWith('investidor@example.com', 'Premium');
 	});
 
-	it('returns success even when the Resend contact creation fails', async () => {
+	it('returns success even when the Resend contact creation throws', async () => {
 		const failingCreate = jest.fn().mockRejectedValue(new Error('Resend down'));
 		const { service } = buildService({ resendContactsCreate: failingCreate });
 		process.env.RESEND_AUDIENCE_ID = 'audience_123';
@@ -64,6 +64,27 @@ describe('PurchaseIntentService', () => {
 		});
 
 		expect(result).toEqual({ success: true });
+	});
+
+	it('logs a warning and returns success when the Resend contact creation resolves with an error', async () => {
+		const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+		const errorCreate = jest
+			.fn()
+			.mockResolvedValue({ data: null, error: { message: 'some error' } });
+		const { service } = buildService({ resendContactsCreate: errorCreate });
+		process.env.RESEND_AUDIENCE_ID = 'audience_123';
+
+		const result = await service.captureIntent({
+			email: 'investidor@example.com',
+			planName: 'Premium',
+		});
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			'Falha ao adicionar contato na audience do Resend: some error'
+		);
+		expect(result).toEqual({ success: true });
+
+		warnSpy.mockRestore();
 	});
 
 	it('returns success even when sending the confirmation email fails', async () => {

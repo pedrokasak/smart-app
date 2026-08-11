@@ -31,4 +31,33 @@ describe('PurchaseIntentDto', () => {
 		expect(errors.length).toBeGreaterThan(0);
 		expect(errors[0].property).toBe('planName');
 	});
+
+	it('passes validation with the other whitelisted plan name', async () => {
+		const dto = plainToInstance(PurchaseIntentDto, {
+			email: 'investidor@example.com',
+			planName: 'Global Investor',
+		});
+		const errors = await validate(dto);
+		expect(errors).toHaveLength(0);
+	});
+
+	it('fails validation with a plan name outside the whitelist', async () => {
+		const dto = plainToInstance(PurchaseIntentDto, {
+			email: 'investidor@example.com',
+			planName: 'NotARealPlan',
+		});
+		const errors = await validate(dto);
+		expect(errors.length).toBeGreaterThan(0);
+		expect(errors[0].property).toBe('planName');
+	});
+
+	it('fails validation when plan name contains HTML/script injection attempts', async () => {
+		const dto = plainToInstance(PurchaseIntentDto, {
+			email: 'investidor@example.com',
+			planName: '<script>alert(1)</script>',
+		});
+		const errors = await validate(dto);
+		expect(errors.length).toBeGreaterThan(0);
+		expect(errors[0].property).toBe('planName');
+	});
 });
