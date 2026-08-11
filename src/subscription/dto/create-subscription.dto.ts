@@ -67,6 +67,22 @@ export class CreateSubscriptionDto {
 	@IsBoolean()
 	isActive?: boolean;
 
+	@ApiPropertyOptional({
+		description: 'Se o plano deve ser destacado na landing',
+		default: false,
+	})
+	@IsOptional()
+	@IsBoolean()
+	isFeatured?: boolean;
+
+	@ApiPropertyOptional({
+		description: 'Se o plano deve ser exibido como "em breve"',
+		default: false,
+	})
+	@IsOptional()
+	@IsBoolean()
+	isComingSoon?: boolean;
+
 	@ApiPropertyOptional({ description: 'Lista de recursos incluídos' })
 	@IsOptional()
 	@IsArray()

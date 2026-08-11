@@ -11,6 +11,8 @@ export interface Subscription extends Document {
 	stripeProductId?: string;
 	annualPrice?: number;
 	annualStripePriceId?: string;
+	isFeatured?: boolean;
+	isComingSoon?: boolean;
 	isActive: boolean;
 	features?: string[];
 	maxUsers?: number;
@@ -34,6 +36,8 @@ const subscriptionSchema = new Schema<Subscription>({
 	stripeProductId: { type: String, unique: true, sparse: true },
 	annualPrice: { type: Number },
 	annualStripePriceId: { type: String, unique: true, sparse: true },
+	isFeatured: { type: Boolean, default: false },
+	isComingSoon: { type: Boolean, default: false },
 	isActive: { type: Boolean, default: true },
 	features: [{ type: String }],
 	maxUsers: { type: Number },

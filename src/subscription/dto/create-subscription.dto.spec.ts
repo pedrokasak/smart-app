@@ -36,4 +36,31 @@ describe('CreateSubscriptionDto', () => {
 		expect(errors.length).toBeGreaterThan(0);
 		expect(errors.some((e) => e.property === 'annualPrice')).toBe(true);
 	});
+
+	it('accepts isFeatured and isComingSoon as booleans', async () => {
+		const dto = plainToInstance(CreateSubscriptionDto, {
+			name: 'Plano',
+			price: 10,
+			interval: 'month',
+			isFeatured: true,
+			isComingSoon: false,
+		});
+
+		const errors = await validate(dto);
+
+		expect(errors).toHaveLength(0);
+	});
+
+	it('rejects non-boolean isFeatured', async () => {
+		const dto = plainToInstance(CreateSubscriptionDto, {
+			name: 'Plano',
+			price: 10,
+			interval: 'month',
+			isFeatured: 'sim',
+		});
+
+		const errors = await validate(dto);
+
+		expect(errors.some((error) => error.property === 'isFeatured')).toBe(true);
+	});
 });
