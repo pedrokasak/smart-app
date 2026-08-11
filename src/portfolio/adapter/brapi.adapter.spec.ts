@@ -1,13 +1,10 @@
-import { of, throwError } from 'rxjs';
+import { of } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { BrapiStockAdapter } from './brapi.adapter';
 import { MarketDataProviderPort } from 'src/market-data/application/market-data-provider.port';
 
 describe('BrapiStockAdapter.getIndicators', () => {
-	function buildAdapter(
-		brapiResponseData: any,
-		marketDataSnapshot: any
-	) {
+	function buildAdapter(brapiResponseData: any, marketDataSnapshot: any) {
 		const httpService = {
 			get: jest.fn().mockReturnValue(of({ data: brapiResponseData })),
 		} as unknown as HttpService;
