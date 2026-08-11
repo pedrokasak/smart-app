@@ -126,9 +126,8 @@ export class StockService implements StockRepository {
 
 		if (!shouldFallback) return response;
 
-		let yahooSnapshot: Awaited<
-			ReturnType<YahooFinanceAdapter['getSnapshot']>
-		> = null;
+		let yahooSnapshot: Awaited<ReturnType<YahooFinanceAdapter['getSnapshot']>> =
+			null;
 		try {
 			yahooSnapshot = await this.yahooFinance.getSnapshot(cleanSymbol, 'stock');
 		} catch (error) {

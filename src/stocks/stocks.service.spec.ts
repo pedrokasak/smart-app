@@ -231,7 +231,10 @@ describe('StockService.getNationalQuote — Yahoo Finance fallback chain', () =>
 	function buildService(overrides: {
 		brapiResult: any;
 		yahooSnapshot?: any;
-		fundamentusSnapshot?: { numeric: Record<string, number>; text: Record<string, string> };
+		fundamentusSnapshot?: {
+			numeric: Record<string, number>;
+			text: Record<string, string>;
+		};
 	}) {
 		const brapi = {
 			getStockQuote: jest
@@ -348,7 +351,11 @@ describe('StockService.getNationalQuote — Yahoo Finance fallback chain', () =>
 			},
 			fundamentusSnapshot: {
 				numeric: { ROIC: 15 },
-				text: { EMPRESA: 'WEG S.A.', SETOR: 'Industrials', SUBSETOR: 'Bens de Capital' },
+				text: {
+					EMPRESA: 'WEG S.A.',
+					SETOR: 'Industrials',
+					SUBSETOR: 'Bens de Capital',
+				},
 			},
 		});
 
@@ -459,7 +466,9 @@ describe('StockService.getStockQuoteGlobal', () => {
 		const brapi = {
 			getStockQuote: jest
 				.fn<(symbol: string, options?: any) => Promise<any>>()
-				.mockResolvedValue({ results: [overrides.brapiResult || { symbol: 'AAPL' }] }),
+				.mockResolvedValue({
+					results: [overrides.brapiResult || { symbol: 'AAPL' }],
+				}),
 		} as unknown as BrapiAdapter;
 		const twelveData = {
 			getStockQuote: overrides.twelveDataError
@@ -490,7 +499,6 @@ describe('StockService.getStockQuoteGlobal', () => {
 	}
 
 	it('uses Twelve Data when it succeeds, without calling Yahoo Finance', async () => {
-		const yahooFinance = { getSnapshot: jest.fn() } as unknown as YahooFinanceAdapter;
 		const service = buildService({});
 		const result = await service.getStockQuoteGlobal('AAPL');
 

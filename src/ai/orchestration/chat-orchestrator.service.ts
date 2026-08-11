@@ -1943,13 +1943,19 @@ export class ChatOrchestratorService {
 			);
 		}
 		try {
-			const response = await this.stockService.getAllNational('', 1000, 1, 'name');
+			const response = await this.stockService.getAllNational(
+				'',
+				1000,
+				1,
+				'name'
+			);
 			const tickers = new Set<string>(
 				(response?.stocks || [])
 					.map((entry: any) => String(entry?.stock || '').toUpperCase())
 					.filter(Boolean)
 			);
-			const byDigitSuffix = ChatOrchestratorService.buildDigitSuffixIndex(tickers);
+			const byDigitSuffix =
+				ChatOrchestratorService.buildDigitSuffixIndex(tickers);
 			ChatOrchestratorService.knownTickersCache = {
 				expiresAt: now + ChatOrchestratorService.KNOWN_TICKERS_TTL_MS,
 				tickers,
@@ -1999,14 +2005,18 @@ export class ChatOrchestratorService {
 			normalized.match(/@([A-Z]{3,6}\d{1,2})\b/g) || [];
 		const explicitTickers = explicitMentions.map((mention) => mention.slice(1));
 
-		const brSymbols: string[] = normalized.match(/\b[A-Z]{3,6}\d{1,2}\b/g) || [];
+		const brSymbols: string[] =
+			normalized.match(/\b[A-Z]{3,6}\d{1,2}\b/g) || [];
 		const cryptoSymbols: string[] =
 			normalized.match(/\b(BTC|ETH|SOL|ADA|XRP)\b/g) || [];
-		const usSymbols: string[] = normalized.match(/\b[A-Z]{1,5}\.[A-Z]{1,3}\b/g) || [];
+		const usSymbols: string[] =
+			normalized.match(/\b[A-Z]{1,5}\.[A-Z]{1,3}\b/g) || [];
 
-		const candidateSymbols = [...brSymbols, ...cryptoSymbols, ...usSymbols].filter(
-			(symbol) => symbol.length >= 3 && !this.stopWords.has(symbol)
-		);
+		const candidateSymbols = [
+			...brSymbols,
+			...cryptoSymbols,
+			...usSymbols,
+		].filter((symbol) => symbol.length >= 3 && !this.stopWords.has(symbol));
 
 		const knownTickers = await this.getKnownTickers();
 		const resolvedFromText = candidateSymbols
@@ -2014,7 +2024,8 @@ export class ChatOrchestratorService {
 			.filter(Boolean)
 			.map((symbol) => {
 				// Crypto/US symbols aren't in the B3 known-ticker list — pass them through unresolved.
-				if (cryptoSymbols.includes(symbol) || usSymbols.includes(symbol)) return symbol;
+				if (cryptoSymbols.includes(symbol) || usSymbols.includes(symbol))
+					return symbol;
 				// Legacy shape (exactly 4 letters + 1-2 digits): this is what the old,
 				// pre-widening regex accepted with NO validation. Known-ticker
 				// validation only gates the newly-introduced 3/5/6-letter matching

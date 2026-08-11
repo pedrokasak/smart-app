@@ -88,7 +88,9 @@ describe('YahooFinanceAdapter', () => {
 	});
 
 	it('returns null when the ticker is not found', async () => {
-		mockedQuoteSummary.mockRejectedValue(new Error('Quote not found for ticker symbol: ZZZZ9.SA'));
+		mockedQuoteSummary.mockRejectedValue(
+			new Error('Quote not found for ticker symbol: ZZZZ9.SA')
+		);
 
 		const adapter = new YahooFinanceAdapter();
 		const result = await adapter.getSnapshot('ZZZZ9', 'stock');

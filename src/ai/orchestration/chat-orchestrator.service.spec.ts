@@ -1474,7 +1474,9 @@ describe('ChatOrchestratorService.extractSymbols', () => {
 
 	function buildServiceWithFailingStockList() {
 		const stockService = {
-			getAllNational: jest.fn().mockRejectedValue(new Error('brapi unavailable')),
+			getAllNational: jest
+				.fn()
+				.mockRejectedValue(new Error('brapi unavailable')),
 		} as unknown as StockService;
 
 		const service = new (ChatOrchestratorService as any)(
@@ -1492,19 +1494,25 @@ describe('ChatOrchestratorService.extractSymbols', () => {
 
 	it('recognizes an exact 4-letter+digit ticker unchanged (regression)', async () => {
 		const service = buildServiceWithStubStockList(['PETR4', 'WEGE3']);
-		const result = await (service as any).extractSymbols('PETR4 é uma boa compra?');
+		const result = await (service as any).extractSymbols(
+			'PETR4 é uma boa compra?'
+		);
 		expect(result).toEqual(['PETR4']);
 	});
 
 	it('resolves a colloquial 3-letter ticker to the real 4-letter ticker via prefix match', async () => {
 		const service = buildServiceWithStubStockList(['WEGE3', 'PETR4']);
-		const result = await (service as any).extractSymbols('WEG3 é uma boa compra?');
+		const result = await (service as any).extractSymbols(
+			'WEG3 é uma boa compra?'
+		);
 		expect(result).toEqual(['WEGE3']);
 	});
 
 	it('discards a 3-6 letter+digit candidate that matches no real ticker', async () => {
 		const service = buildServiceWithStubStockList(['WEGE3', 'PETR4']);
-		const result = await (service as any).extractSymbols('ABC9 é uma boa compra?');
+		const result = await (service as any).extractSymbols(
+			'ABC9 é uma boa compra?'
+		);
 		expect(result).toEqual([]);
 	});
 
@@ -1522,13 +1530,17 @@ describe('ChatOrchestratorService.extractSymbols', () => {
 	// unvalidated, exactly like before this branch, so these aren't silently dropped.
 	it('does not drop a FII ticker (4-letter shape) even though it is absent from the stocks-only known-ticker list', async () => {
 		const service = buildServiceWithStubStockList(['PETR4']); // no FIIs in the known list
-		const result = await (service as any).extractSymbols('Vale a pena comprar XPLG11?');
+		const result = await (service as any).extractSymbols(
+			'Vale a pena comprar XPLG11?'
+		);
 		expect(result).toEqual(['XPLG11']);
 	});
 
 	it('does not drop a BDR ticker (4-letter shape) even though it is absent from the stocks-only known-ticker list', async () => {
 		const service = buildServiceWithStubStockList(['PETR4']); // no BDRs in the known list
-		const result = await (service as any).extractSymbols('O que acha de AAPL34?');
+		const result = await (service as any).extractSymbols(
+			'O que acha de AAPL34?'
+		);
 		expect(result).toEqual(['AAPL34']);
 	});
 
@@ -1536,7 +1548,9 @@ describe('ChatOrchestratorService.extractSymbols', () => {
 	// tickers must still resolve — they no longer depend on the known-ticker set.
 	it('still recognizes an exact 4-letter ticker when the known-ticker fetch fails', async () => {
 		const service = buildServiceWithFailingStockList();
-		const result = await (service as any).extractSymbols('PETR4 é uma boa compra?');
+		const result = await (service as any).extractSymbols(
+			'PETR4 é uma boa compra?'
+		);
 		expect(result).toEqual(['PETR4']);
 	});
 
@@ -1545,7 +1559,9 @@ describe('ChatOrchestratorService.extractSymbols', () => {
 	it('logs a warning and negatively caches a fetch failure instead of retrying on every call', async () => {
 		const service = buildServiceWithFailingStockList();
 		const stockService = (service as any).stockService as StockService;
-		const warnSpy = jest.spyOn((service as any).logger, 'warn').mockImplementation(() => undefined);
+		const warnSpy = jest
+			.spyOn((service as any).logger, 'warn')
+			.mockImplementation(() => undefined);
 
 		await (service as any).extractSymbols('PETR4?');
 		await (service as any).extractSymbols('PETR4?');
@@ -1558,13 +1574,17 @@ describe('ChatOrchestratorService.extractSymbols', () => {
 	// real known ticker with the same digit suffix must not be auto-resolved.
 	it('does not resolve an ambiguous prefix that matches multiple known tickers with the same digit suffix', async () => {
 		const service = buildServiceWithStubStockList(['WEGE3', 'WEGA3']);
-		const result = await (service as any).extractSymbols('WEG3 é uma boa compra?');
+		const result = await (service as any).extractSymbols(
+			'WEG3 é uma boa compra?'
+		);
 		expect(result).toEqual([]);
 	});
 
 	it('still resolves a prefix that unambiguously matches exactly one known ticker', async () => {
 		const service = buildServiceWithStubStockList(['WEGE3', 'PETR4']);
-		const result = await (service as any).extractSymbols('WEG3 é uma boa compra?');
+		const result = await (service as any).extractSymbols(
+			'WEG3 é uma boa compra?'
+		);
 		expect(result).toEqual(['WEGE3']);
 	});
 
@@ -1572,13 +1592,17 @@ describe('ChatOrchestratorService.extractSymbols', () => {
 	// path, the branch's headline feature.
 	it('recognizes an @TICKER explicit mention', async () => {
 		const service = buildServiceWithStubStockList(['WEGE3']);
-		const result = await (service as any).extractSymbols('O que acha de @WEGE3?');
+		const result = await (service as any).extractSymbols(
+			'O que acha de @WEGE3?'
+		);
 		expect(result).toEqual(['WEGE3']);
 	});
 
 	it('accepts an unknown/fake ticker via the @ explicit-mention bypass (deliberate design, not an oversight)', async () => {
 		const service = buildServiceWithStubStockList(['WEGE3']);
-		const result = await (service as any).extractSymbols('O que acha de @FAKE9?');
+		const result = await (service as any).extractSymbols(
+			'O que acha de @FAKE9?'
+		);
 		expect(result).toEqual(['FAKE9']);
 	});
 

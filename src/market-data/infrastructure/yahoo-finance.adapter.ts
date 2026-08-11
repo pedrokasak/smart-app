@@ -108,7 +108,9 @@ export class YahooFinanceAdapter {
 					raw?.price?.regularMarketChangePercent
 				),
 				priceToEarnings: this.toNullableNumber(raw?.summaryDetail?.trailingPE),
-				priceToBook: this.toNullableNumber(raw?.defaultKeyStatistics?.priceToBook),
+				priceToBook: this.toNullableNumber(
+					raw?.defaultKeyStatistics?.priceToBook
+				),
 				returnOnEquity: this.toNullableNumber(
 					raw?.financialData?.returnOnEquity
 				),
