@@ -26,8 +26,8 @@ jest.mock('stripe', () => {
 describe('SubscriptionService', () => {
 	let service: SubscriptionService;
 	let mockSubscriptionModel: any;
-	// let mockUserSubscriptionModel: any;
-	// let mockUserModel: any;
+	let mockUserSubscriptionModel: any;
+	let mockUserModel: any;
 	let mockStripeService: any;
 	let mockWebhooksService: any;
 
@@ -45,8 +45,8 @@ describe('SubscriptionService', () => {
 		});
 
 		mockSubscriptionModel.findById = jest.fn();
-		const mockUserSubscriptionModel = { findOne: jest.fn(), create: jest.fn() };
-		const mockUserModel = { findById: jest.fn() };
+		mockUserSubscriptionModel = { findOne: jest.fn(), create: jest.fn() };
+		mockUserModel = { findById: jest.fn() };
 		mockStripeService = {
 			createProduct: jest.fn().mockResolvedValue({ id: 'prod_123' }),
 			createPrice: jest.fn().mockResolvedValue({ id: 'price_123' }),
@@ -103,6 +103,101 @@ describe('SubscriptionService', () => {
 			const result = await service.checkExpiredSubscriptions();
 			expect(result).toBe('ok');
 			expect(mockWebhooksService.checkExpiredSubscriptions).toHaveBeenCalled();
+		});
+	});
+
+	describe('createCheckoutSession — billing interval', () => {
+		const plan = {
+			_id: 'plan_1',
+			stripePriceId: 'price_monthly_123',
+			annualStripePriceId: 'price_annual_123',
+		};
+
+		beforeEach(() => {
+			mockUserModel.findById.mockResolvedValue({ _id: 'user_1' });
+			mockSubscriptionModel.findById.mockResolvedValue(plan);
+			mockStripeService.createCheckoutSession.mockResolvedValue({
+				url: 'https://checkout.stripe.com/x',
+			});
+		});
+
+		it('uses stripePriceId when billingInterval is monthly (default)', async () => {
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel'
+			);
+
+			expect(mockStripeService.createCheckoutSession).toHaveBeenCalledWith(
+				'user_1',
+				'price_monthly_123',
+				'https://ok',
+				'https://cancel'
+			);
+		});
+
+		it('uses annualStripePriceId when billingInterval is annual', async () => {
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel',
+				'annual'
+			);
+
+			expect(mockStripeService.createCheckoutSession).toHaveBeenCalledWith(
+				'user_1',
+				'price_annual_123',
+				'https://ok',
+				'https://cancel'
+			);
+		});
+
+		it('falls back to stripePriceId when billingInterval is annual but annualStripePriceId is not configured', async () => {
+			mockSubscriptionModel.findById.mockResolvedValue({
+				...plan,
+				annualStripePriceId: undefined,
+			});
+
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel',
+				'annual'
+			);
+
+			expect(mockStripeService.createCheckoutSession).toHaveBeenCalledWith(
+				'user_1',
+				'price_monthly_123',
+				'https://ok',
+				'https://cancel'
+			);
+		});
+
+		it('falls back to stripePriceId and logs a warning when an invalid billingInterval reaches the service directly', async () => {
+			const warnSpy = jest
+				.spyOn((service as any).logger, 'warn')
+				.mockImplementation(() => undefined);
+
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel',
+				'yearly' as any
+			);
+
+			expect(mockStripeService.createCheckoutSession).toHaveBeenCalledWith(
+				'user_1',
+				'price_monthly_123',
+				'https://ok',
+				'https://cancel'
+			);
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining('billingInterval inválido')
+			);
 		});
 	});
 });
@@ -227,7 +322,30 @@ describe('SubscriptionController', () => {
 				body.userId,
 				'sub123',
 				body.successUrl,
-				body.cancelUrl
+				body.cancelUrl,
+				undefined
+			);
+		});
+
+		it('should pass billingInterval through to the service', async () => {
+			const body = {
+				userId: 'user1',
+				successUrl: 'http://success.url',
+				cancelUrl: 'http://cancel.url',
+				billingInterval: 'annual' as const,
+			};
+			const result = { sessionId: 'sess_123' };
+			mockSubscriptionService.createCheckoutSession.mockResolvedValue(result);
+
+			expect(await controller.createCheckout('sub123', body)).toEqual(result);
+			expect(
+				mockSubscriptionService.createCheckoutSession
+			).toHaveBeenCalledWith(
+				body.userId,
+				'sub123',
+				body.successUrl,
+				body.cancelUrl,
+				'annual'
 			);
 		});
 	});

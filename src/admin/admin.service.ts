@@ -103,6 +103,9 @@ export class AdminService implements OnModuleInit {
 		const nextCurrency = dto.currency ?? plan.currency;
 		const nextInterval = dto.interval ?? plan.interval;
 		const nextIntervalCount = dto.intervalCount ?? plan.intervalCount;
+		const nextAnnualPrice = dto.annualPrice ?? plan.annualPrice;
+		const nextAnnualStripePriceId =
+			dto.annualStripePriceId ?? plan.annualStripePriceId;
 
 		if (
 			(dto.name && dto.name !== plan.name) ||
@@ -138,6 +141,20 @@ export class AdminService implements OnModuleInit {
 				nextIntervalCount
 			);
 			plan.stripePriceId = stripePrice.id;
+
+			// O novo preço mensal não tem relação automática com o preço anual
+			// já configurado. Se o admin não atualizar annualStripePriceId
+			// nesta mesma requisição, os dois preços podem ficar dessincronizados.
+			const annualUnchanged =
+				dto.annualStripePriceId === undefined ||
+				dto.annualStripePriceId === plan.annualStripePriceId;
+			if (plan.annualStripePriceId && annualUnchanged) {
+				this.logger.warn(
+					`Plano ${plan._id} teve o preço mensal alterado (novo stripePriceId: ${stripePrice.id}), ` +
+						`mas annualStripePriceId (${plan.annualStripePriceId}) não foi atualizado junto. ` +
+						'Verifique manualmente se os preços mensal e anual ainda estão consistentes.'
+				);
+			}
 		}
 
 		plan.name = nextName;
@@ -146,6 +163,8 @@ export class AdminService implements OnModuleInit {
 		plan.currency = nextCurrency;
 		plan.interval = nextInterval as Subscription['interval'];
 		plan.intervalCount = nextIntervalCount;
+		plan.annualPrice = nextAnnualPrice;
+		plan.annualStripePriceId = nextAnnualStripePriceId;
 		if (dto.features) {
 			plan.features = dto.features;
 		}

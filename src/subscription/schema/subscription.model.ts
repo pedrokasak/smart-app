@@ -9,6 +9,8 @@ export interface Subscription extends Document {
 	intervalCount: number;
 	stripePriceId?: string;
 	stripeProductId?: string;
+	annualPrice?: number;
+	annualStripePriceId?: string;
 	isActive: boolean;
 	features?: string[];
 	maxUsers?: number;
@@ -30,6 +32,8 @@ const subscriptionSchema = new Schema<Subscription>({
 	intervalCount: { type: Number, default: 1, required: true },
 	stripePriceId: { type: String, unique: true, sparse: true },
 	stripeProductId: { type: String, unique: true, sparse: true },
+	annualPrice: { type: Number },
+	annualStripePriceId: { type: String, unique: true, sparse: true },
 	isActive: { type: Boolean, default: true },
 	features: [{ type: String }],
 	maxUsers: { type: Number },
