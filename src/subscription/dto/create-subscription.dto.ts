@@ -49,6 +49,16 @@ export class CreateSubscriptionDto {
 	@IsString()
 	stripeProductId?: string;
 
+	@ApiPropertyOptional({ description: 'Preço anual da assinatura' })
+	@IsOptional()
+	@IsNumber()
+	annualPrice?: number;
+
+	@ApiPropertyOptional({ description: 'ID do preço anual no Stripe' })
+	@IsOptional()
+	@IsString()
+	annualStripePriceId?: string;
+
 	@ApiPropertyOptional({
 		description: 'Se a assinatura está ativa',
 		default: true,
