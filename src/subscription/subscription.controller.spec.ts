@@ -1,12 +1,15 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { SubscriptionController } from './subscription.controller';
 import { SubscriptionService } from './subscription.service';
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { CreateSubscriptionDto, UpdateSubscriptionDto } from './dto';
 import { WebhooksService } from 'src/subscription/webhooks.service';
 import { StripeService } from 'src/subscription/stripe.service';
 import { IS_PUBLIC_KEY } from 'src/utils/constants';
+import { RolesGuard } from 'src/auth/guards/roles.guard';
+import { Role } from 'src/auth/enums/role.enum';
 
 const mockSubscriptionModel = {
 	create: jest.fn(),
@@ -202,5 +205,50 @@ describe('SubscriptionController', () => {
 			);
 			expect(isPublic).toBe(true);
 		});
+	});
+
+	describe('SubscriptionController — plan mutation role protection', () => {
+		const rolesGuard = new RolesGuard(new Reflector());
+
+		const buildContext = (
+			handler: (...args: any[]) => any,
+			role: Role
+		): ExecutionContext =>
+			({
+				getHandler: () => handler,
+				getClass: () => SubscriptionController,
+				switchToHttp: () => ({
+					getRequest: () => ({ user: { userId: 'user-1', role } }),
+				}),
+			}) as unknown as ExecutionContext;
+
+		const protectedHandlers: Array<
+			[string, (...args: any[]) => any]
+		> = [
+			['create', SubscriptionController.prototype.create],
+			['update', SubscriptionController.prototype.update],
+			['updateFeatures', SubscriptionController.prototype.updateFeatures],
+			['remove', SubscriptionController.prototype.remove],
+		];
+
+		it.each(protectedHandlers)(
+			'denies %s to a non-admin authenticated user (403)',
+			(_name, handler) => {
+				const context = buildContext(handler, Role.User);
+
+				expect(() => rolesGuard.canActivate(context)).toThrow(
+					ForbiddenException
+				);
+			}
+		);
+
+		it.each(protectedHandlers)(
+			'allows %s for an admin user',
+			(_name, handler) => {
+				const context = buildContext(handler, Role.Admin);
+
+				expect(rolesGuard.canActivate(context)).toBe(true);
+			}
+		);
 	});
 });

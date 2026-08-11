@@ -7,11 +7,13 @@ import {
 	Param,
 	Delete,
 	Req,
+	UseGuards,
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { UpdateFeaturesDto } from './dto/update-features.dto';
+import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import {
 	ApiBearerAuth,
 	ApiOperation,
@@ -19,6 +21,9 @@ import {
 	ApiTags,
 } from '@nestjs/swagger';
 import { Public } from 'src/utils/constants';
+import { Roles } from 'src/auth/decorators/roles.decorator';
+import { RolesGuard } from 'src/auth/guards/roles.guard';
+import { Role } from 'src/auth/enums/role.enum';
 
 @Controller('subscription')
 @ApiTags('subscription')
@@ -58,13 +63,7 @@ export class SubscriptionController {
 	@Post(':subscriptionId/checkout')
 	createCheckout(
 		@Param('subscriptionId') subscriptionId: string,
-		@Body()
-		body: {
-			userId: string;
-			successUrl: string;
-			cancelUrl: string;
-			billingInterval?: 'monthly' | 'annual';
-		}
+		@Body() body: CreateCheckoutDto
 	) {
 		return this.subscriptionService.createCheckoutSession(
 			body.userId,
@@ -84,11 +83,15 @@ export class SubscriptionController {
 	}
 
 	@Post('create')
+	@UseGuards(RolesGuard)
+	@Roles(Role.Admin)
 	create(@Body() createSubscriptionDto: CreateSubscriptionDto) {
 		return this.subscriptionService.createSubscription(createSubscriptionDto);
 	}
 
 	@Patch(':id')
+	@UseGuards(RolesGuard)
+	@Roles(Role.Admin)
 	update(
 		@Param('id') id: string,
 		@Body() updateSubscriptionDto: UpdateSubscriptionDto
@@ -100,6 +103,8 @@ export class SubscriptionController {
 	}
 
 	@Patch(':id/features')
+	@UseGuards(RolesGuard)
+	@Roles(Role.Admin)
 	updateFeatures(
 		@Param('id') id: string,
 		@Body() updateFeaturesDto: UpdateFeaturesDto
@@ -116,6 +121,8 @@ export class SubscriptionController {
 	}
 
 	@Delete('delete/:id')
+	@UseGuards(RolesGuard)
+	@Roles(Role.Admin)
 	remove(@Param('id') id: string) {
 		return this.subscriptionService.removeSubscription(id);
 	}

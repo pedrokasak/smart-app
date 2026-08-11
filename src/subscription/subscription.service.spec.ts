@@ -175,6 +175,30 @@ describe('SubscriptionService', () => {
 				'https://cancel'
 			);
 		});
+
+		it('falls back to stripePriceId and logs a warning when an invalid billingInterval reaches the service directly', async () => {
+			const warnSpy = jest
+				.spyOn((service as any).logger, 'warn')
+				.mockImplementation(() => undefined);
+
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel',
+				'yearly' as any
+			);
+
+			expect(mockStripeService.createCheckoutSession).toHaveBeenCalledWith(
+				'user_1',
+				'price_monthly_123',
+				'https://ok',
+				'https://cancel'
+			);
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining('billingInterval inválido')
+			);
+		});
 	});
 });
 

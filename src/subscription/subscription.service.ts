@@ -336,6 +336,10 @@ export class SubscriptionService {
 					`Plano ${plan._id} não tem annualStripePriceId configurado; usando preço mensal como fallback`
 				);
 			}
+		} else if (billingInterval !== 'monthly') {
+			this.logger.warn(
+				`billingInterval inválido recebido ("${billingInterval}") para o plano ${plan._id}; usando preço mensal como fallback`
+			);
 		}
 
 		return this.stripeService.createCheckoutSession(
