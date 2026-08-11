@@ -93,4 +93,28 @@ export class EmailService {
 			text,
 		});
 	}
+
+	async sendPurchaseIntentConfirmationEmail(
+		email: string,
+		planName: string
+	): Promise<void> {
+		const subject = `Recebemos seu interesse no plano ${planName} - Trakker`;
+		const html = this.getBaseTemplate({
+			title: `Interesse registrado: ${planName}`,
+			hero: 'Estamos finalizando os acessos para o seu setor',
+			description: `Recebemos seu interesse no plano ${planName}. Nossa equipe está priorizando os próximos convites — você vai receber um e-mail assim que seu acesso estiver liberado.`,
+			ctaLabel: 'Conhecer o Trakker',
+			ctaUrl: this.getAppBaseUrl(),
+			footerNote:
+				'Se você não solicitou este contato, pode ignorar este e-mail com segurança.',
+		});
+		const text = `Interesse registrado: ${planName}\n\nRecebemos seu interesse no plano ${planName}. Você vai receber um e-mail assim que seu acesso estiver liberado.`;
+
+		await this.sender.send({
+			to: email,
+			subject,
+			html,
+			text,
+		});
+	}
 }
