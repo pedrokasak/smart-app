@@ -56,13 +56,20 @@ export class SubscriptionController {
 	@Post(':subscriptionId/checkout')
 	createCheckout(
 		@Param('subscriptionId') subscriptionId: string,
-		@Body() body: { userId: string; successUrl: string; cancelUrl: string }
+		@Body()
+		body: {
+			userId: string;
+			successUrl: string;
+			cancelUrl: string;
+			billingInterval?: 'monthly' | 'annual';
+		}
 	) {
 		return this.subscriptionService.createCheckoutSession(
 			body.userId,
 			subscriptionId,
 			body.successUrl,
-			body.cancelUrl
+			body.cancelUrl,
+			body.billingInterval
 		);
 	}
 

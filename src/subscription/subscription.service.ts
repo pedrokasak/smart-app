@@ -317,7 +317,8 @@ export class SubscriptionService {
 		userId: string,
 		subscriptionId: string,
 		successUrl: string,
-		cancelUrl: string
+		cancelUrl: string,
+		billingInterval: 'monthly' | 'annual' = 'monthly'
 	) {
 		// lógica de negócio
 		const user = await this.userModel.findById(userId);
@@ -326,9 +327,20 @@ export class SubscriptionService {
 		const plan = await this.subscriptionModel.findById(subscriptionId);
 		if (!plan) throw new NotFoundException('Plano não encontrado');
 
+		let priceId = plan.stripePriceId;
+		if (billingInterval === 'annual') {
+			if (plan.annualStripePriceId) {
+				priceId = plan.annualStripePriceId;
+			} else {
+				this.logger.warn(
+					`Plano ${plan._id} não tem annualStripePriceId configurado; usando preço mensal como fallback`
+				);
+			}
+		}
+
 		return this.stripeService.createCheckoutSession(
 			user._id.toString(),
-			plan.stripePriceId,
+			priceId,
 			successUrl,
 			cancelUrl
 		);

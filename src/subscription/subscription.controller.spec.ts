@@ -164,7 +164,29 @@ describe('SubscriptionController', () => {
 				body.userId,
 				'sub123',
 				body.successUrl,
-				body.cancelUrl
+				body.cancelUrl,
+				undefined
+			);
+		});
+
+		it('should pass billingInterval through to the service', async () => {
+			const body = {
+				userId: 'user123',
+				successUrl: 'http://success',
+				cancelUrl: 'http://cancel',
+				billingInterval: 'annual' as const,
+			};
+			const result = { sessionId: 'sess_123', url: 'http://stripe.url' };
+
+			mockSubscriptionService.createCheckoutSession.mockResolvedValue(result);
+
+			expect(await controller.createCheckout('sub123', body)).toEqual(result);
+			expect(service.createCheckoutSession).toHaveBeenCalledWith(
+				body.userId,
+				'sub123',
+				body.successUrl,
+				body.cancelUrl,
+				'annual'
 			);
 		});
 	});
