@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { PurchaseIntentService } from './leads.service';
 
 describe('PurchaseIntentService', () => {
@@ -181,5 +182,42 @@ describe('PurchaseIntentService', () => {
 
 		expect(result).toEqual({ success: true });
 		expect(emailService.sendPurchaseIntentConfirmationEmail).toHaveBeenCalled();
+	});
+
+	it('logs an error stating the lead was NOT recorded when both create and update fail', async () => {
+		const errorSpy = jest
+			.spyOn(Logger.prototype, 'error')
+			.mockImplementation(() => undefined);
+
+		const emailService = {
+			sendPurchaseIntentConfirmationEmail: jest
+				.fn()
+				.mockResolvedValue(undefined),
+		} as any;
+		const contacts = {
+			create: jest.fn().mockRejectedValue(new Error('resend down')),
+			update: jest.fn().mockRejectedValue(new Error('resend down')),
+		};
+		const service = new PurchaseIntentService(
+			emailService,
+			makeSubscriptionModel(activePlan),
+			{ contacts } as any
+		);
+
+		try {
+			await service.captureIntent({
+				email: 'investidor@example.com',
+				planId: '6995af0198591333bb0d4862',
+			} as any);
+
+			expect(errorSpy).toHaveBeenCalledWith(
+				expect.stringContaining('investidor@example.com')
+			);
+			expect(errorSpy).toHaveBeenCalledWith(
+				expect.stringMatching(/NÃO registrado/)
+			);
+		} finally {
+			errorSpy.mockRestore();
+		}
 	});
 });

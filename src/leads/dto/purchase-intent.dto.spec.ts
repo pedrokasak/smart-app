@@ -49,7 +49,7 @@ describe('PurchaseIntentDto', () => {
 		expect(errors).toHaveLength(0);
 	});
 
-	it('rejects a utm value with characters outside the allowed charset', async () => {
+	it('strips a utm value with characters outside the allowed charset instead of rejecting', async () => {
 		const dto = plainToInstance(PurchaseIntentDto, {
 			email: 'investidor@example.com',
 			planId: '6995af0198591333bb0d4862',
@@ -58,10 +58,11 @@ describe('PurchaseIntentDto', () => {
 
 		const errors = await validate(dto);
 
-		expect(errors.some((error) => error.property === 'utmSource')).toBe(true);
+		expect(errors).toHaveLength(0);
+		expect(dto.utmSource).toBeUndefined();
 	});
 
-	it('rejects a utm value longer than 64 characters', async () => {
+	it('strips a utm value longer than 64 characters instead of rejecting', async () => {
 		const dto = plainToInstance(PurchaseIntentDto, {
 			email: 'investidor@example.com',
 			planId: '6995af0198591333bb0d4862',
@@ -70,6 +71,33 @@ describe('PurchaseIntentDto', () => {
 
 		const errors = await validate(dto);
 
-		expect(errors.some((error) => error.property === 'utmCampaign')).toBe(true);
+		expect(errors).toHaveLength(0);
+		expect(dto.utmCampaign).toBeUndefined();
+	});
+
+	it('strips a utm value containing a space instead of rejecting', async () => {
+		const dto = plainToInstance(PurchaseIntentDto, {
+			email: 'investidor@example.com',
+			planId: '6995af0198591333bb0d4862',
+			utmCampaign: 'Anúncio Julho',
+		});
+
+		const errors = await validate(dto);
+
+		expect(errors).toHaveLength(0);
+		expect(dto.utmCampaign).toBeUndefined();
+	});
+
+	it('strips a utm value with accented characters instead of rejecting', async () => {
+		const dto = plainToInstance(PurchaseIntentDto, {
+			email: 'investidor@example.com',
+			planId: '6995af0198591333bb0d4862',
+			utmCampaign: 'validação_agosto',
+		});
+
+		const errors = await validate(dto);
+
+		expect(errors).toHaveLength(0);
+		expect(dto.utmCampaign).toBeUndefined();
 	});
 });

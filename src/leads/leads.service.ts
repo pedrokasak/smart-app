@@ -119,13 +119,13 @@ export class PurchaseIntentService {
 			} as Parameters<Resend['contacts']['update']>[0]);
 
 			if (error) {
-				this.logger.warn(
-					`Falha ao atualizar contato na audience do Resend: ${error?.message || error}`
+				this.logger.error(
+					`Lead NÃO registrado no Resend (create e update falharam) para ${email}: ${error?.message || error}`
 				);
 			}
 		} catch (error) {
-			this.logger.warn(
-				`Falha ao atualizar contato na audience do Resend: ${error?.message || error}`
+			this.logger.error(
+				`Lead NÃO registrado no Resend (create e update falharam) para ${email}: ${error?.message || error}`
 			);
 		}
 	}
