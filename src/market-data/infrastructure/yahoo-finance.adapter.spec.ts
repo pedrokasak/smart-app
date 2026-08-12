@@ -5,6 +5,7 @@ jest.mock('yahoo-finance2', () => ({
 	},
 }));
 
+import { Logger } from '@nestjs/common';
 import yahooFinance from 'yahoo-finance2';
 import { YahooFinanceAdapter } from './yahoo-finance.adapter';
 
@@ -13,6 +14,7 @@ const mockedQuoteSummary = yahooFinance.quoteSummary as jest.Mock;
 describe('YahooFinanceAdapter', () => {
 	beforeEach(() => {
 		mockedQuoteSummary.mockReset();
+		(YahooFinanceAdapter as any).rateLimitedUntil = 0;
 	});
 
 	it('maps a full quoteSummary response to a snapshot, normalizing the B3 ticker', async () => {
@@ -155,5 +157,119 @@ describe('YahooFinanceAdapter', () => {
 				}),
 			})
 		);
+	});
+
+	describe('rate limit handling', () => {
+		let warnSpy: jest.SpyInstance;
+
+		beforeEach(() => {
+			warnSpy = jest
+				.spyOn(Logger.prototype, 'warn')
+				.mockImplementation(() => undefined);
+		});
+
+		afterEach(() => {
+			warnSpy.mockRestore();
+		});
+
+		it('triggers a global cooldown when the error exposes a 429 status', async () => {
+			const rateLimitError = Object.assign(new Error('boom'), {
+				response: { status: 429 },
+			});
+			mockedQuoteSummary.mockRejectedValueOnce(rateLimitError);
+
+			const adapter = new YahooFinanceAdapter();
+			const result = await adapter.getSnapshot('RATE1', 'stock');
+
+			expect(result).toBeNull();
+			expect((YahooFinanceAdapter as any).rateLimitedUntil).toBeGreaterThan(
+				Date.now()
+			);
+		});
+
+		it('triggers a global cooldown when the error message says Too Many Requests', async () => {
+			mockedQuoteSummary.mockRejectedValueOnce(new Error('Too Many Requests'));
+
+			const adapter = new YahooFinanceAdapter();
+			const result = await adapter.getSnapshot('RATE2', 'stock');
+
+			expect(result).toBeNull();
+			expect((YahooFinanceAdapter as any).rateLimitedUntil).toBeGreaterThan(
+				Date.now()
+			);
+		});
+
+		it('skips the network call for a different symbol while the cooldown is active', async () => {
+			mockedQuoteSummary.mockRejectedValueOnce(new Error('Too Many Requests'));
+
+			const adapter = new YahooFinanceAdapter();
+			await adapter.getSnapshot('RATE3', 'stock');
+			mockedQuoteSummary.mockClear();
+
+			const second = await adapter.getSnapshot('RATE4', 'stock');
+
+			expect(second).toBeNull();
+			expect(mockedQuoteSummary).not.toHaveBeenCalled();
+		});
+
+		it('still serves a valid positive cache entry during the cooldown', async () => {
+			mockedQuoteSummary.mockResolvedValueOnce({
+				price: { regularMarketPrice: 42, regularMarketChangePercent: 1 },
+				summaryDetail: {},
+				defaultKeyStatistics: {},
+				financialData: {},
+				summaryProfile: {},
+			});
+
+			const adapter = new YahooFinanceAdapter();
+			const cachedResult = await adapter.getSnapshot('RATE5', 'stock');
+			expect(cachedResult?.price).toBe(42);
+
+			mockedQuoteSummary.mockRejectedValueOnce(new Error('Too Many Requests'));
+			await adapter.getSnapshot('RATE6', 'stock');
+			mockedQuoteSummary.mockClear();
+
+			const stillCached = await adapter.getSnapshot('RATE5', 'stock');
+			expect(stillCached?.price).toBe(42);
+			expect(mockedQuoteSummary).not.toHaveBeenCalled();
+		});
+
+		it('does not trigger the cooldown for an ordinary error and only negative-caches that symbol', async () => {
+			mockedQuoteSummary.mockRejectedValueOnce(
+				new Error('Quote not found for ticker symbol: RATE7.SA')
+			);
+
+			const adapter = new YahooFinanceAdapter();
+			const result = await adapter.getSnapshot('RATE7', 'stock');
+
+			expect(result).toBeNull();
+			expect((YahooFinanceAdapter as any).rateLimitedUntil).toBeLessThanOrEqual(
+				Date.now()
+			);
+
+			mockedQuoteSummary.mockResolvedValueOnce({
+				price: { regularMarketPrice: 7, regularMarketChangePercent: 0 },
+				summaryDetail: {},
+				defaultKeyStatistics: {},
+				financialData: {},
+				summaryProfile: {},
+			});
+			const otherSymbol = await adapter.getSnapshot('RATE8', 'stock');
+			expect(otherSymbol?.price).toBe(7);
+		});
+
+		it('logs the rate-limit warning only once while the cooldown is active', async () => {
+			mockedQuoteSummary.mockRejectedValueOnce(new Error('Too Many Requests'));
+
+			const adapter = new YahooFinanceAdapter();
+			await adapter.getSnapshot('RATE9', 'stock');
+			await adapter.getSnapshot('RATE10', 'stock');
+			await adapter.getSnapshot('RATE11', 'stock');
+
+			const rateLimitWarnings = warnSpy.mock.calls.filter((call) =>
+				String(call[0]).includes('rate limit')
+			);
+			expect(rateLimitWarnings).toHaveLength(1);
+		});
 	});
 });

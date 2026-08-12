@@ -444,7 +444,9 @@ export class RiDocumentCatalogService {
 		}
 	}
 
-	private async resolveOrigin(match: RiAssetSuggestion): Promise<string | null> {
+	private async resolveOrigin(
+		match: RiAssetSuggestion
+	): Promise<string | null> {
 		const knownOrigins: Record<string, string> = {
 			BBDC4: 'https://ri.bradesco.com.br',
 			ITUB4: 'https://www.itau.com.br/relacoes-com-investidores',

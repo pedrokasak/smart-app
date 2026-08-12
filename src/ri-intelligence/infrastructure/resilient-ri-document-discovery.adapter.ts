@@ -27,7 +27,10 @@ export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryP
 		// paralelo com o restante da cadeia para não somar latência, mas usando o
 		// mesmo guard de timeout — um adapter travado não bloqueia a resposta além
 		// de providerTimeoutMs.
-		const inMemoryDocsPromise = this.safeDiscoverWithTimeout(this.inMemoryAdapter, input);
+		const inMemoryDocsPromise = this.safeDiscoverWithTimeout(
+			this.inMemoryAdapter,
+			input
+		);
 
 		// Primário: para FIIs, o adapter específico de FII; para ações, o adapter
 		// HTTP (bate RI sites estáticos, mais rápido que Puppeteer). O CVM fica

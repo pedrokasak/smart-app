@@ -39,13 +39,17 @@ const DENYLISTED_ORIGIN_HOSTS: ReadonlySet<string> = new Set([
 @Injectable()
 export class GoogleCseRiOriginSearchAdapter implements RiOriginSearchPort {
 	private readonly logger = new Logger(GoogleCseRiOriginSearchAdapter.name);
-	private readonly cache = new Map<string, { expiresAt: number; origin: string | null }>();
+	private readonly cache = new Map<
+		string,
+		{ expiresAt: number; origin: string | null }
+	>();
 	private readonly ttlMs = 24 * 60 * 60 * 1000;
 
 	private isDenylistedHost(hostname: string): boolean {
 		const normalized = hostname.toLowerCase();
 		for (const denied of DENYLISTED_ORIGIN_HOSTS) {
-			if (normalized === denied || normalized.endsWith(`.${denied}`)) return true;
+			if (normalized === denied || normalized.endsWith(`.${denied}`))
+				return true;
 		}
 		return false;
 	}
@@ -53,7 +57,8 @@ export class GoogleCseRiOriginSearchAdapter implements RiOriginSearchPort {
 	constructor(
 		private readonly httpService: HttpService,
 		@Optional() private readonly apiKey: string | undefined = googleCseApiKey,
-		@Optional() private readonly engineId: string | undefined = googleCseEngineId
+		@Optional()
+		private readonly engineId: string | undefined = googleCseEngineId
 	) {}
 
 	async searchOfficialOrigin(companyName: string): Promise<string | null> {
@@ -86,7 +91,10 @@ export class GoogleCseRiOriginSearchAdapter implements RiOriginSearchPort {
 			);
 			const firstLink: string | undefined = response.data?.items?.[0]?.link;
 			if (!firstLink) {
-				this.cache.set(normalizedName, { expiresAt: now + this.ttlMs, origin: null });
+				this.cache.set(normalizedName, {
+					expiresAt: now + this.ttlMs,
+					origin: null,
+				});
 				return null;
 			}
 			const url = new URL(firstLink);
@@ -94,7 +102,10 @@ export class GoogleCseRiOriginSearchAdapter implements RiOriginSearchPort {
 				this.logger.debug(
 					`Top resultado do CSE para "${normalizedName}" é um agregador conhecido (${url.hostname}); tratando como não encontrado`
 				);
-				this.cache.set(normalizedName, { expiresAt: now + this.ttlMs, origin: null });
+				this.cache.set(normalizedName, {
+					expiresAt: now + this.ttlMs,
+					origin: null,
+				});
 				return null;
 			}
 			const origin = `${url.protocol}//${url.host}`;

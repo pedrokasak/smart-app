@@ -22,7 +22,10 @@ describe('StocksRiIssuerCatalogAdapter', () => {
 				},
 			],
 		});
-		const adapter = new StocksRiIssuerCatalogAdapter(stockService, makeB3Registry());
+		const adapter = new StocksRiIssuerCatalogAdapter(
+			stockService,
+			makeB3Registry()
+		);
 
 		const ref = await adapter.resolveByTicker('petr4');
 
@@ -46,7 +49,10 @@ describe('StocksRiIssuerCatalogAdapter', () => {
 				},
 			],
 		});
-		const adapter = new StocksRiIssuerCatalogAdapter(stockService, makeB3Registry());
+		const adapter = new StocksRiIssuerCatalogAdapter(
+			stockService,
+			makeB3Registry()
+		);
 
 		const ref = await adapter.resolveByTicker('vale3.SA');
 
@@ -61,7 +67,10 @@ describe('StocksRiIssuerCatalogAdapter', () => {
 		const stockService = makeStockService({
 			results: [{ symbol: 'XXXX3', longName: 'Sem CNPJ SA' }],
 		});
-		const adapter = new StocksRiIssuerCatalogAdapter(stockService, makeB3Registry());
+		const adapter = new StocksRiIssuerCatalogAdapter(
+			stockService,
+			makeB3Registry()
+		);
 
 		const ref = await adapter.resolveByTicker('XXXX3');
 
@@ -72,7 +81,10 @@ describe('StocksRiIssuerCatalogAdapter', () => {
 		const stockService = {
 			getNationalQuote: jest.fn().mockRejectedValue(new Error('brapi down')),
 		} as unknown as StockService;
-		const adapter = new StocksRiIssuerCatalogAdapter(stockService, makeB3Registry());
+		const adapter = new StocksRiIssuerCatalogAdapter(
+			stockService,
+			makeB3Registry()
+		);
 
 		const ref = await adapter.resolveByTicker('ITUB4');
 
@@ -83,7 +95,10 @@ describe('StocksRiIssuerCatalogAdapter', () => {
 		const stockService = makeStockService({
 			results: [{ symbol: 'ITUB4', cnpj: '60.872.504/0001-23' }],
 		});
-		const adapter = new StocksRiIssuerCatalogAdapter(stockService, makeB3Registry());
+		const adapter = new StocksRiIssuerCatalogAdapter(
+			stockService,
+			makeB3Registry()
+		);
 
 		const [a, b] = await Promise.all([
 			adapter.resolveByTicker('ITUB4'),
@@ -110,9 +125,9 @@ describe('StocksRiIssuerCatalogAdapter — B3 registry fallback', () => {
 				company: 'Empresa Real S.A.',
 			}),
 		};
-		const adapter = new (require('./stocks-ri-issuer-catalog.adapter').StocksRiIssuerCatalogAdapter)(
-			stockService,
-			b3Registry
+		const adapter = new StocksRiIssuerCatalogAdapter(
+			stockService as unknown as StockService,
+			b3Registry as any
 		);
 
 		const result = await adapter.resolveByTicker('ABCD3');
@@ -128,13 +143,19 @@ describe('StocksRiIssuerCatalogAdapter — B3 registry fallback', () => {
 	it('does not call the B3 registry when Brapi already has a cnpj', async () => {
 		const stockService = {
 			getNationalQuote: jest.fn().mockResolvedValue({
-				results: [{ symbol: 'PETR4', cnpj: '33.000.167/0001-01', longName: 'Petrobras' }],
+				results: [
+					{
+						symbol: 'PETR4',
+						cnpj: '33.000.167/0001-01',
+						longName: 'Petrobras',
+					},
+				],
 			}),
 		};
 		const b3Registry = { resolveCnpj: jest.fn() };
-		const adapter = new (require('./stocks-ri-issuer-catalog.adapter').StocksRiIssuerCatalogAdapter)(
-			stockService,
-			b3Registry
+		const adapter = new StocksRiIssuerCatalogAdapter(
+			stockService as unknown as StockService,
+			b3Registry as any
 		);
 
 		await adapter.resolveByTicker('PETR4');
@@ -149,9 +170,9 @@ describe('StocksRiIssuerCatalogAdapter — B3 registry fallback', () => {
 			}),
 		};
 		const b3Registry = { resolveCnpj: jest.fn().mockResolvedValue(null) };
-		const adapter = new (require('./stocks-ri-issuer-catalog.adapter').StocksRiIssuerCatalogAdapter)(
-			stockService,
-			b3Registry
+		const adapter = new StocksRiIssuerCatalogAdapter(
+			stockService as unknown as StockService,
+			b3Registry as any
 		);
 
 		const result = await adapter.resolveByTicker('ZZZZ9');
@@ -174,9 +195,9 @@ describe('StocksRiIssuerCatalogAdapter — B3 registry fallback', () => {
 					company: 'Empresa Recuperada S.A.',
 				}),
 		};
-		const adapter = new (require('./stocks-ri-issuer-catalog.adapter').StocksRiIssuerCatalogAdapter)(
-			stockService,
-			b3Registry
+		const adapter = new StocksRiIssuerCatalogAdapter(
+			stockService as unknown as StockService,
+			b3Registry as any
 		);
 
 		const first = await adapter.resolveByTicker('WXYZ3');
@@ -202,9 +223,9 @@ describe('StocksRiIssuerCatalogAdapter — B3 registry fallback', () => {
 			}),
 		};
 		const b3Registry = { resolveCnpj: jest.fn().mockResolvedValue(null) };
-		const adapter = new (require('./stocks-ri-issuer-catalog.adapter').StocksRiIssuerCatalogAdapter)(
-			stockService,
-			b3Registry
+		const adapter = new StocksRiIssuerCatalogAdapter(
+			stockService as unknown as StockService,
+			b3Registry as any
 		);
 
 		const first = await adapter.resolveByTicker('NOPE3');

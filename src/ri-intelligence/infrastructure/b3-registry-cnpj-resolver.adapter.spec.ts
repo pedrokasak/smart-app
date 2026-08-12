@@ -9,7 +9,12 @@ import { B3RegistryCnpjResolverAdapter } from './b3-registry-cnpj-resolver.adapt
 function singlePageResponse(rows: any[]) {
 	return {
 		data: {
-			page: { pageNumber: 1, pageSize: 120, totalRecords: rows.length, totalPages: 1 },
+			page: {
+				pageNumber: 1,
+				pageSize: 120,
+				totalRecords: rows.length,
+				totalPages: 1,
+			},
 			results: rows,
 		},
 	};
@@ -36,7 +41,10 @@ describe('B3RegistryCnpjResolverAdapter', () => {
 			)
 		);
 		const result = await adapter.resolveCnpj('ABCD3');
-		expect(result).toEqual({ cnpj: '03987364000103', company: 'Empresa Real S.A.' });
+		expect(result).toEqual({
+			cnpj: '03987364000103',
+			company: 'Empresa Real S.A.',
+		});
 	});
 
 	it('returns null when the ticker is not found in the registry', async () => {
@@ -53,7 +61,9 @@ describe('B3RegistryCnpjResolverAdapter', () => {
 		// (StocksRiIssuerCatalogAdapter) não confunda essa falha transitória
 		// com "ticker genuinamente ausente do registro B3" e não poluir o
 		// cache negativo de 6h com uma falha de rede.
-		const adapter = buildAdapter(() => throwError(() => new Error('network down')));
+		const adapter = buildAdapter(() =>
+			throwError(() => new Error('network down'))
+		);
 		await expect(adapter.resolveCnpj('ABCD3')).rejects.toThrow('network down');
 	});
 
@@ -135,7 +145,12 @@ describe('B3RegistryCnpjResolverAdapter', () => {
 			data: {
 				page: { pageNumber: 1, pageSize: 120, totalRecords: 2, totalPages: 2 },
 				results: [
-					{ codeCVM: '1', issuingCompany: 'AAAA', companyName: 'A Co', cnpj: '11111111000111' },
+					{
+						codeCVM: '1',
+						issuingCompany: 'AAAA',
+						companyName: 'A Co',
+						cnpj: '11111111000111',
+					},
 				],
 			},
 		};
@@ -143,11 +158,19 @@ describe('B3RegistryCnpjResolverAdapter', () => {
 			data: {
 				page: { pageNumber: 2, pageSize: 120, totalRecords: 2, totalPages: 2 },
 				results: [
-					{ codeCVM: '2', issuingCompany: 'BBBB', companyName: 'B Co', cnpj: '22222222000122' },
+					{
+						codeCVM: '2',
+						issuingCompany: 'BBBB',
+						companyName: 'B Co',
+						cnpj: '22222222000122',
+					},
 				],
 			},
 		};
-		const getMock = jest.fn().mockReturnValueOnce(of(page1)).mockReturnValueOnce(of(page2));
+		const getMock = jest
+			.fn()
+			.mockReturnValueOnce(of(page1))
+			.mockReturnValueOnce(of(page2));
 		const adapter = buildAdapter(getMock);
 
 		const result = await adapter.resolveCnpj('BBBB3');
@@ -160,8 +183,18 @@ describe('B3RegistryCnpjResolverAdapter', () => {
 		const adapter = buildAdapter(() =>
 			of(
 				singlePageResponse([
-					{ codeCVM: '1', issuingCompany: 'CCCC', companyName: 'C Co', cnpj: '0' },
-					{ codeCVM: '2', issuingCompany: 'DDDD', companyName: '', cnpj: '33333333000133' },
+					{
+						codeCVM: '1',
+						issuingCompany: 'CCCC',
+						companyName: 'C Co',
+						cnpj: '0',
+					},
+					{
+						codeCVM: '2',
+						issuingCompany: 'DDDD',
+						companyName: '',
+						cnpj: '33333333000133',
+					},
 				])
 			)
 		);

@@ -3,7 +3,11 @@ import { of, throwError } from 'rxjs';
 import { GoogleCseRiOriginSearchAdapter } from './google-cse-ri-origin-search.adapter';
 
 describe('GoogleCseRiOriginSearchAdapter', () => {
-	function buildAdapter(getImpl: () => any, apiKey = 'key', engineId = 'engine') {
+	function buildAdapter(
+		getImpl: () => any,
+		apiKey = 'key',
+		engineId = 'engine'
+	) {
 		const httpService = { get: jest.fn(getImpl) } as unknown as HttpService;
 		return new GoogleCseRiOriginSearchAdapter(httpService, apiKey, engineId);
 	}
@@ -27,13 +31,19 @@ describe('GoogleCseRiOriginSearchAdapter', () => {
 	});
 
 	it('returns null and does not throw when the request fails', async () => {
-		const adapter = buildAdapter(() => throwError(() => new Error('quota exceeded')));
+		const adapter = buildAdapter(() =>
+			throwError(() => new Error('quota exceeded'))
+		);
 		await expect(adapter.searchOfficialOrigin('Empresa X')).resolves.toBeNull();
 	});
 
 	it('returns null immediately without a request when credentials are missing', async () => {
 		const httpService = { get: jest.fn() } as unknown as HttpService;
-		const adapter = new GoogleCseRiOriginSearchAdapter(httpService, undefined, undefined);
+		const adapter = new GoogleCseRiOriginSearchAdapter(
+			httpService,
+			undefined,
+			undefined
+		);
 		const result = await adapter.searchOfficialOrigin('Empresa Y');
 		expect(result).toBeNull();
 		expect(httpService.get).not.toHaveBeenCalled();
