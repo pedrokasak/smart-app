@@ -10,12 +10,12 @@ describe('LeadsController', () => {
 
 		const result = await controller.capturePurchaseIntent({
 			email: 'investidor@example.com',
-			planName: 'Premium',
+			planId: '6995af0198591333bb0d4862',
 		});
 
 		expect(purchaseIntentService.captureIntent).toHaveBeenCalledWith({
 			email: 'investidor@example.com',
-			planName: 'Premium',
+			planId: '6995af0198591333bb0d4862',
 		});
 		expect(result).toEqual({ success: true });
 	});

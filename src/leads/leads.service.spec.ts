@@ -1,149 +1,185 @@
-import { Logger } from '@nestjs/common';
 import { PurchaseIntentService } from './leads.service';
-import { EmailService } from 'src/notifications/email/email.service';
 
 describe('PurchaseIntentService', () => {
-	function buildService(overrides?: { resendContactsCreate?: jest.Mock }) {
+	const originalAudienceId = process.env.RESEND_AUDIENCE_ID;
+
+	beforeEach(() => {
+		process.env.RESEND_AUDIENCE_ID = 'audience_123';
+	});
+
+	afterAll(() => {
+		if (originalAudienceId === undefined) {
+			delete process.env.RESEND_AUDIENCE_ID;
+		} else {
+			process.env.RESEND_AUDIENCE_ID = originalAudienceId;
+		}
+	});
+
+	function makeSubscriptionModel(plan: unknown) {
+		return {
+			findById: jest.fn().mockResolvedValue(plan),
+		} as any;
+	}
+
+	const activePlan = {
+		_id: '6995af0198591333bb0d4862',
+		name: 'Pro',
+		isActive: true,
+	};
+
+	it('uses the plan name from the database, not from the request', async () => {
 		const emailService = {
 			sendPurchaseIntentConfirmationEmail: jest
 				.fn()
 				.mockResolvedValue(undefined),
-		} as unknown as EmailService;
-		const resendContactsCreate =
-			overrides?.resendContactsCreate ??
-			jest.fn().mockResolvedValue({ data: { id: 'contact_1' } });
-		const resendClient = { contacts: { create: resendContactsCreate } };
-
+		} as any;
+		const contacts = {
+			create: jest.fn().mockResolvedValue({ error: null }),
+			update: jest.fn().mockResolvedValue({ error: null }),
+		};
 		const service = new PurchaseIntentService(
 			emailService,
-			resendClient as any
+			makeSubscriptionModel(activePlan),
+			{ contacts } as any
 		);
-		return { service, emailService, resendContactsCreate };
-	}
-
-	it('adds the contact to the Resend audience with the plan name as a property', async () => {
-		const { service, resendContactsCreate } = buildService();
-		process.env.RESEND_AUDIENCE_ID = 'audience_123';
 
 		await service.captureIntent({
 			email: 'investidor@example.com',
-			planName: 'Premium',
-		});
+			planId: '6995af0198591333bb0d4862',
+		} as any);
 
-		expect(resendContactsCreate).toHaveBeenCalledWith(
-			expect.objectContaining({
-				audienceId: 'audience_123',
+		expect(
+			emailService.sendPurchaseIntentConfirmationEmail
+		).toHaveBeenCalledWith('investidor@example.com', 'Pro');
+	});
+
+	it('rejects an unknown plan with a generic message', async () => {
+		const emailService = {
+			sendPurchaseIntentConfirmationEmail: jest.fn(),
+		} as any;
+		const service = new PurchaseIntentService(
+			emailService,
+			makeSubscriptionModel(null),
+			{ contacts: { create: jest.fn(), update: jest.fn() } } as any
+		);
+
+		await expect(
+			service.captureIntent({
 				email: 'investidor@example.com',
-				properties: expect.objectContaining({ planName: 'Premium' }),
+				planId: '6995af0198591333bb0d4862',
+			} as any)
+		).rejects.toThrow('Plano inválido');
+
+		expect(
+			emailService.sendPurchaseIntentConfirmationEmail
+		).not.toHaveBeenCalled();
+	});
+
+	it('rejects an inactive plan', async () => {
+		const emailService = {
+			sendPurchaseIntentConfirmationEmail: jest.fn(),
+		} as any;
+		const service = new PurchaseIntentService(
+			emailService,
+			makeSubscriptionModel({ ...activePlan, isActive: false }),
+			{ contacts: { create: jest.fn(), update: jest.fn() } } as any
+		);
+
+		await expect(
+			service.captureIntent({
+				email: 'investidor@example.com',
+				planId: '6995af0198591333bb0d4862',
+			} as any)
+		).rejects.toThrow('Plano inválido');
+	});
+
+	it('sends utm values to the contact properties', async () => {
+		const emailService = {
+			sendPurchaseIntentConfirmationEmail: jest
+				.fn()
+				.mockResolvedValue(undefined),
+		} as any;
+		const contacts = {
+			create: jest.fn().mockResolvedValue({ error: null }),
+			update: jest.fn().mockResolvedValue({ error: null }),
+		};
+		const service = new PurchaseIntentService(
+			emailService,
+			makeSubscriptionModel(activePlan),
+			{ contacts } as any
+		);
+
+		await service.captureIntent({
+			email: 'investidor@example.com',
+			planId: '6995af0198591333bb0d4862',
+			utmSource: 'reddit',
+			utmCampaign: 'validacao',
+		} as any);
+
+		expect(contacts.create).toHaveBeenCalledWith(
+			expect.objectContaining({
+				properties: expect.objectContaining({
+					planName: 'Pro',
+					utmSource: 'reddit',
+					utmCampaign: 'validacao',
+				}),
 			})
 		);
 	});
 
-	it('sends the confirmation email', async () => {
-		const { service, emailService } = buildService();
-		process.env.RESEND_AUDIENCE_ID = 'audience_123';
-
-		await service.captureIntent({
-			email: 'investidor@example.com',
-			planName: 'Premium',
-		});
-
-		expect(
-			emailService.sendPurchaseIntentConfirmationEmail
-		).toHaveBeenCalledWith('investidor@example.com', 'Premium');
-	});
-
-	it('returns success even when the Resend contact creation throws', async () => {
-		const failingCreate = jest.fn().mockRejectedValue(new Error('Resend down'));
-		const { service } = buildService({ resendContactsCreate: failingCreate });
-		process.env.RESEND_AUDIENCE_ID = 'audience_123';
-
-		const result = await service.captureIntent({
-			email: 'investidor@example.com',
-			planName: 'Premium',
-		});
-
-		expect(result).toEqual({ success: true });
-	});
-
-	it('logs a warning and returns success when the Resend contact creation resolves with an error', async () => {
-		const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
-		const errorCreate = jest
-			.fn()
-			.mockResolvedValue({ data: null, error: { message: 'some error' } });
-		const { service } = buildService({ resendContactsCreate: errorCreate });
-		process.env.RESEND_AUDIENCE_ID = 'audience_123';
-
-		const result = await service.captureIntent({
-			email: 'investidor@example.com',
-			planName: 'Premium',
-		});
-
-		expect(warnSpy).toHaveBeenCalledWith(
-			'Falha ao adicionar contato na audience do Resend: some error'
-		);
-		expect(result).toEqual({ success: true });
-
-		warnSpy.mockRestore();
-	});
-
-	it('returns success even when sending the confirmation email fails', async () => {
-		const { service, emailService } = buildService();
-		process.env.RESEND_AUDIENCE_ID = 'audience_123';
-		(
-			emailService.sendPurchaseIntentConfirmationEmail as jest.Mock
-		).mockRejectedValue(new Error('email provider down'));
-
-		const result = await service.captureIntent({
-			email: 'investidor@example.com',
-			planName: 'Premium',
-		});
-
-		expect(result).toEqual({ success: true });
-	});
-
-	it('skips the Resend contact call when RESEND_AUDIENCE_ID is not configured', async () => {
-		const { service, resendContactsCreate } = buildService();
-		delete process.env.RESEND_AUDIENCE_ID;
-
-		const result = await service.captureIntent({
-			email: 'investidor@example.com',
-			planName: 'Premium',
-		});
-
-		expect(resendContactsCreate).not.toHaveBeenCalled();
-		expect(result).toEqual({ success: true });
-	});
-
-	it('logs a warning and skips the Resend contact call when RESEND_API_KEY is not configured but RESEND_AUDIENCE_ID is', async () => {
-		const originalApiKey = process.env.RESEND_API_KEY;
-		delete process.env.RESEND_API_KEY;
-		process.env.RESEND_AUDIENCE_ID = 'audience_123';
-
-		const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+	it('updates the existing contact when creation fails', async () => {
 		const emailService = {
 			sendPurchaseIntentConfirmationEmail: jest
 				.fn()
 				.mockResolvedValue(undefined),
-		} as unknown as EmailService;
+		} as any;
+		const contacts = {
+			create: jest
+				.fn()
+				.mockResolvedValue({ error: { message: 'Contact already exists' } }),
+			update: jest.fn().mockResolvedValue({ error: null }),
+		};
+		const service = new PurchaseIntentService(
+			emailService,
+			makeSubscriptionModel(activePlan),
+			{ contacts } as any
+		);
 
-		const service = new PurchaseIntentService(emailService);
+		await service.captureIntent({
+			email: 'investidor@example.com',
+			planId: '6995af0198591333bb0d4862',
+		} as any);
+
+		expect(contacts.update).toHaveBeenCalledWith(
+			expect.objectContaining({
+				email: 'investidor@example.com',
+				properties: expect.objectContaining({ planName: 'Pro' }),
+			})
+		);
+	});
+
+	it('still returns success when both create and update fail', async () => {
+		const emailService = {
+			sendPurchaseIntentConfirmationEmail: jest
+				.fn()
+				.mockResolvedValue(undefined),
+		} as any;
+		const contacts = {
+			create: jest.fn().mockRejectedValue(new Error('resend down')),
+			update: jest.fn().mockRejectedValue(new Error('resend down')),
+		};
+		const service = new PurchaseIntentService(
+			emailService,
+			makeSubscriptionModel(activePlan),
+			{ contacts } as any
+		);
 
 		const result = await service.captureIntent({
 			email: 'investidor@example.com',
-			planName: 'Premium',
-		});
+			planId: '6995af0198591333bb0d4862',
+		} as any);
 
-		expect(warnSpy).toHaveBeenCalledWith(
-			'RESEND_API_KEY não configurado; pulando criação de contato na audience'
-		);
 		expect(result).toEqual({ success: true });
-
-		warnSpy.mockRestore();
-		if (originalApiKey === undefined) {
-			delete process.env.RESEND_API_KEY;
-		} else {
-			process.env.RESEND_API_KEY = originalApiKey;
-		}
+		expect(emailService.sendPurchaseIntentConfirmationEmail).toHaveBeenCalled();
 	});
 });
