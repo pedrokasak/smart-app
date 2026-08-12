@@ -1,5 +1,5 @@
 import { Body, Controller, Post } from '@nestjs/common';
-import { ApiOkResponse, ApiTags } from '@nestjs/swagger';
+import { ApiBadRequestResponse, ApiOkResponse, ApiTags } from '@nestjs/swagger';
 import { Public } from 'src/utils/constants';
 import { PurchaseIntentDto } from './dto/purchase-intent.dto';
 import { PurchaseIntentService } from './leads.service';
@@ -12,6 +12,7 @@ export class LeadsController {
 	@Public()
 	@Post('purchase-intent')
 	@ApiOkResponse({ schema: { example: { success: true } } })
+	@ApiBadRequestResponse({ description: 'Plano inválido' })
 	async capturePurchaseIntent(@Body() dto: PurchaseIntentDto) {
 		return this.purchaseIntentService.captureIntent(dto);
 	}
