@@ -28,4 +28,32 @@ describe('SubscriptionModel', () => {
 		expect(doc.annualPrice).toBeUndefined();
 		expect(doc.annualStripePriceId).toBeUndefined();
 	});
+
+	it('defaults isFeatured and isComingSoon to false', () => {
+		const doc = new SubscriptionModel({
+			name: 'Plano Teste',
+			price: 10,
+			currency: 'brl',
+			interval: 'month',
+			intervalCount: 1,
+		});
+
+		expect(doc.isFeatured).toBe(false);
+		expect(doc.isComingSoon).toBe(false);
+	});
+
+	it('accepts isFeatured and isComingSoon when provided', () => {
+		const doc = new SubscriptionModel({
+			name: 'Plano Destaque',
+			price: 10,
+			currency: 'brl',
+			interval: 'month',
+			intervalCount: 1,
+			isFeatured: true,
+			isComingSoon: true,
+		});
+
+		expect(doc.isFeatured).toBe(true);
+		expect(doc.isComingSoon).toBe(true);
+	});
 });

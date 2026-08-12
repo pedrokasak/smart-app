@@ -174,6 +174,12 @@ export class AdminService implements OnModuleInit {
 		if (dto.isActive !== undefined) {
 			plan.isActive = dto.isActive;
 		}
+		if (dto.isFeatured !== undefined) {
+			plan.isFeatured = dto.isFeatured;
+		}
+		if (dto.isComingSoon !== undefined) {
+			plan.isComingSoon = dto.isComingSoon;
+		}
 		await plan.save();
 
 		return plan;

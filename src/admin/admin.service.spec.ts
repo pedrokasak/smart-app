@@ -152,4 +152,46 @@ describe('AdminService — updatePlan', () => {
 
 		expect(warnSpy).not.toHaveBeenCalled();
 	});
+
+	it('persists isFeatured and isComingSoon when provided', async () => {
+		const plan = buildPlan({
+			isFeatured: false,
+			isComingSoon: false,
+		});
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+		await service.updatePlan('plan_1', {
+			isFeatured: true,
+			isComingSoon: true,
+		} as any);
+
+		expect(plan.isFeatured).toBe(true);
+		expect(plan.isComingSoon).toBe(true);
+		expect(plan.save).toHaveBeenCalled();
+	});
+
+	it('leaves isFeatured and isComingSoon untouched when omitted', async () => {
+		const plan = buildPlan({
+			isFeatured: true,
+			isComingSoon: false,
+		});
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+		await service.updatePlan('plan_1', { description: 'nova descrição' } as any);
+
+		expect(plan.isFeatured).toBe(true);
+		expect(plan.isComingSoon).toBe(false);
+	});
+
+	it('allows clearing isFeatured with an explicit false', async () => {
+		const plan = buildPlan({
+			isFeatured: true,
+			isComingSoon: false,
+		});
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+		await service.updatePlan('plan_1', { isFeatured: false } as any);
+
+		expect(plan.isFeatured).toBe(false);
+	});
 });
