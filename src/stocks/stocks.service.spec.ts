@@ -6,6 +6,9 @@ import { FundamentusFallbackAdapter } from 'src/stocks/adapter/fundamentus-fallb
 import { CvmOpenDataAdapter } from 'src/stocks/adapter/cvm-open-data.adapter';
 import { YahooFinanceAdapter } from 'src/market-data/infrastructure/yahoo-finance.adapter';
 import { jest } from '@jest/globals';
+import axios from 'axios';
+
+jest.mock('axios');
 
 describe('StockService', () => {
 	let service: StockService;
@@ -672,5 +675,92 @@ describe('StockService.getStockQuoteGlobal', () => {
 
 		expect(result.source).toBe('brapi');
 		expect(result.fallbackSources).toEqual(['twelve_data', 'yahoo_finance']);
+	});
+});
+
+describe('StockService.getCdiSeries', () => {
+	const mockAxiosGet = axios.get as jest.MockedFunction<typeof axios.get>;
+
+	function makeService() {
+		const brapi = {} as unknown as BrapiAdapter;
+		const twelveData = {} as unknown as TwelveDataAdapter;
+		const fundamentusFallback = {} as unknown as FundamentusFallbackAdapter;
+		const cvmAdapter = {} as unknown as CvmOpenDataAdapter;
+		const yahooFinance = {} as unknown as YahooFinanceAdapter;
+
+		return new StockService(
+			brapi,
+			twelveData,
+			fundamentusFallback,
+			cvmAdapter,
+			yahooFinance
+		);
+	}
+
+	afterEach(() => {
+		mockAxiosGet.mockReset();
+	});
+
+	it('maps BACEN rows to iso dates and numeric values', async () => {
+		mockAxiosGet.mockResolvedValue({
+			data: [
+				{ data: '01/07/2026', valor: '0.052531' },
+				{ data: '02/07/2026', valor: '0.052531' },
+			],
+		});
+		const service = makeService();
+
+		const result = await service.getCdiSeries(
+			new Date('2026-07-01T00:00:00Z'),
+			new Date('2026-07-02T00:00:00Z')
+		);
+
+		expect(result.series).toEqual([
+			{ date: '2026-07-01', value: 0.052531 },
+			{ date: '2026-07-02', value: 0.052531 },
+		]);
+		expect(result.unit).toBe('daily_percent');
+	});
+
+	it('requests the BACEN range in dd/MM/yyyy', async () => {
+		mockAxiosGet.mockResolvedValue({ data: [] });
+		const service = makeService();
+
+		await service.getCdiSeries(
+			new Date('2026-07-01T00:00:00Z'),
+			new Date('2026-08-13T00:00:00Z')
+		);
+
+		expect(mockAxiosGet).toHaveBeenCalledWith(
+			expect.stringContaining('dataInicial=01/07/2026'),
+			expect.anything()
+		);
+		expect(mockAxiosGet).toHaveBeenCalledWith(
+			expect.stringContaining('dataFinal=13/08/2026'),
+			expect.anything()
+		);
+	});
+
+	it('drops rows whose value is not numeric', async () => {
+		mockAxiosGet.mockResolvedValue({
+			data: [
+				{ data: '01/07/2026', valor: 'n/a' },
+				{ data: '02/07/2026', valor: '0.05' },
+			],
+		});
+		const service = makeService();
+
+		const result = await service.getCdiSeries(new Date(), new Date());
+
+		expect(result.series).toEqual([{ date: '2026-07-02', value: 0.05 }]);
+	});
+
+	it('returns an empty series instead of throwing when BACEN fails', async () => {
+		mockAxiosGet.mockRejectedValue(new Error('bacen down'));
+		const service = makeService();
+
+		const result = await service.getCdiSeries(new Date(), new Date());
+
+		expect(result.series).toEqual([]);
 	});
 });
