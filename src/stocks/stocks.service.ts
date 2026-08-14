@@ -5,6 +5,7 @@ import { StockRepository } from 'src/stocks/repositories/stock-repository';
 import { FundamentusFallbackAdapter } from 'src/stocks/adapter/fundamentus-fallback.adapter';
 import { CvmOpenDataAdapter } from 'src/stocks/adapter/cvm-open-data.adapter';
 import { YahooFinanceAdapter } from 'src/market-data/infrastructure/yahoo-finance.adapter';
+import { isRangeSupportedByBrapi } from 'src/stocks/range-support';
 import axios from 'axios';
 
 @Injectable()
@@ -110,9 +111,27 @@ export class StockService implements StockRepository {
 		}
 	) {
 		const cleanSymbol = symbol.trim().toUpperCase();
-		const response = await this.brapi.getStockQuote(cleanSymbol, options);
+
+		// O range pedido pode não estar no plano do brapi. Nesse caso a cotação
+		// continua vindo do brapi (com um range que o plano aceita) e só o
+		// histórico vem do Yahoo.
+		const requestedRange = options?.range;
+		const brapiServesRange = isRangeSupportedByBrapi(requestedRange);
+		const brapiOptions = brapiServesRange
+			? options
+			: { ...options, range: undefined };
+
+		const response = await this.brapi.getStockQuote(cleanSymbol, brapiOptions);
 		const stock = response?.results?.[0];
 		if (!stock) return response;
+
+		if (!brapiServesRange && requestedRange) {
+			stock.historicalDataPrice = await this.yahooFinance.getHistory(
+				cleanSymbol,
+				'stock',
+				requestedRange
+			);
+		}
 
 		const restricted = stock.restrictedData || [];
 		const shouldFallback =

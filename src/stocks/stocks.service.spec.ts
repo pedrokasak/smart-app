@@ -457,6 +457,139 @@ describe('StockService.getNationalQuote — Yahoo Finance fallback chain', () =>
 	});
 });
 
+describe('StockService.getNationalQuote — period routing', () => {
+	function makeBrapi(response: any) {
+		return {
+			getStockQuote: jest
+				.fn<(symbol: string, options?: any) => Promise<any>>()
+				.mockResolvedValue(response),
+		} as unknown as BrapiAdapter & {
+			getStockQuote: jest.MockedFunction<(symbol: string, options?: any) => Promise<any>>;
+		};
+	}
+
+	function makeService(brapi: any, yahoo: any) {
+		const twelveData = {} as TwelveDataAdapter;
+		const fundamentusFallback = {
+			getSnapshot: jest
+				.fn<(symbol: string) => Promise<any>>()
+				.mockResolvedValue({ numeric: {}, text: {} }),
+		} as unknown as FundamentusFallbackAdapter;
+		const cvmAdapter = {
+			getComputedIndicatorsHistoryByCnpj: jest
+				.fn<(cnpj: string, years: number[]) => Promise<any[]>>()
+				.mockResolvedValue([]),
+		} as unknown as CvmOpenDataAdapter;
+
+		return new StockService(
+			brapi,
+			twelveData,
+			fundamentusFallback,
+			cvmAdapter,
+			yahoo
+		);
+	}
+
+	afterEach(() => {
+		delete process.env.BRAPI_SUPPORTED_RANGES;
+	});
+
+	it('uses brapi alone for a range the plan serves', async () => {
+		const brapi = makeBrapi({
+			results: [{ symbol: 'BBAS3', historicalDataPrice: [{ date: 1, close: 2 }] }],
+		});
+		const yahoo = {
+			getSnapshot: jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory: jest.fn<(symbol: string, assetType: string, range: string) => Promise<any[]>>(),
+		};
+		const service = makeService(brapi, yahoo);
+
+		const response = await service.getNationalQuote('BBAS3', {
+			range: '1mo',
+			interval: '1d',
+		});
+
+		expect(yahoo.getHistory).not.toHaveBeenCalled();
+		expect(response.results[0].historicalDataPrice).toEqual([
+			{ date: 1, close: 2 },
+		]);
+		expect(brapi.getStockQuote).toHaveBeenCalledWith(
+			'BBAS3',
+			expect.objectContaining({ range: '1mo' })
+		);
+	});
+
+	it('asks brapi for a supported range and yahoo for the history when the plan cannot serve it', async () => {
+		const brapi = makeBrapi({
+			results: [{ symbol: 'BBAS3', historicalDataPrice: [] }],
+		});
+		const yahoo = {
+			getSnapshot: jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory: jest
+				.fn<(symbol: string, assetType: string, range: string) => Promise<any[]>>()
+				.mockResolvedValue([{ date: 1700000000, close: 25.5 }]),
+		};
+		const service = makeService(brapi, yahoo);
+
+		const response = await service.getNationalQuote('BBAS3', {
+			range: '5y',
+			interval: '1d',
+		});
+
+		expect(yahoo.getHistory).toHaveBeenCalledWith('BBAS3', 'stock', '5y');
+		expect(response.results[0].historicalDataPrice).toEqual([
+			{ date: 1700000000, close: 25.5 },
+		]);
+		expect(brapi.getStockQuote).toHaveBeenCalledWith(
+			'BBAS3',
+			expect.not.objectContaining({ range: '5y' })
+		);
+	});
+
+	it('routes through brapi once the env declares the range as supported', async () => {
+		process.env.BRAPI_SUPPORTED_RANGES = '1d,5d,1mo,3mo,6mo,1y,5y';
+		const brapi = makeBrapi({
+			results: [{ symbol: 'BBAS3', historicalDataPrice: [{ date: 9, close: 9 }] }],
+		});
+		const yahoo = {
+			getSnapshot: jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory: jest.fn<(symbol: string, assetType: string, range: string) => Promise<any[]>>(),
+		};
+		const service = makeService(brapi, yahoo);
+
+		await service.getNationalQuote('BBAS3', { range: '5y', interval: '1d' });
+
+		expect(yahoo.getHistory).not.toHaveBeenCalled();
+		expect(brapi.getStockQuote).toHaveBeenCalledWith(
+			'BBAS3',
+			expect.objectContaining({ range: '5y' })
+		);
+	});
+
+	it('keeps the brapi quote when yahoo history fails', async () => {
+		const brapi = makeBrapi({
+			results: [
+				{ symbol: 'BBAS3', regularMarketPrice: 20, historicalDataPrice: [] },
+			],
+		});
+		const yahoo = {
+			getSnapshot: jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory: jest
+				.fn<(symbol: string, assetType: string, range: string) => Promise<any[]>>()
+				.mockResolvedValue([]),
+		};
+		const service = makeService(brapi, yahoo);
+
+		const response = await service.getNationalQuote('BBAS3', {
+			range: '1y',
+			interval: '1d',
+		});
+
+		expect(response.results[0].regularMarketPrice).toBe(20);
+		expect(response.results[0].historicalDataPrice).toEqual([]);
+	});
+});
+
 describe('StockService.getStockQuoteGlobal', () => {
 	function buildService(overrides: {
 		twelveDataError?: boolean;

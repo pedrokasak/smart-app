@@ -58,6 +58,16 @@ export class BrapiAdapter implements StockApiAdapter {
 			return response.data;
 		} catch (error) {
 			const errorData = error?.response?.data;
+
+			// INVALID_RANGE não tem relação com fundamental/dividends. Remover
+			// esses parâmetros e repetir a requisição com o mesmo range recusado
+			// falha de novo e esconde a causa real no log.
+			if (errorData?.code === 'INVALID_RANGE') {
+				throw new Error(
+					`Brapi recusou o range "${options?.range}": ${errorData.message || 'range indisponível no plano'}`
+				);
+			}
+
 			if (errorData?.code === 'FEATURE_NOT_AVAILABLE' || errorData?.error) {
 				const msg = errorData.message || '';
 				console.warn('Brapi restriction detected:', msg);
