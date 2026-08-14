@@ -19,6 +19,7 @@ const envSchema = z.object({
 	GOOGLE_CLIENT_ID: z.string().optional(),
 	GOOGLE_CSE_API_KEY: z.string().optional(),
 	GOOGLE_CSE_ENGINE_ID: z.string().optional(),
+	BRAPI_SUPPORTED_RANGES: z.string().optional(),
 });
 
 const isTestEnvironment = process.env.NODE_ENV === 'test';
@@ -69,3 +70,5 @@ export const googleClientId: string | undefined = env.data.GOOGLE_CLIENT_ID;
 export const googleCseApiKey: string | undefined = env.data.GOOGLE_CSE_API_KEY;
 export const googleCseEngineId: string | undefined =
 	env.data.GOOGLE_CSE_ENGINE_ID;
+export const brapiSupportedRanges: string | undefined =
+	env.data.BRAPI_SUPPORTED_RANGES;
