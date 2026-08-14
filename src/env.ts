@@ -70,5 +70,3 @@ export const googleClientId: string | undefined = env.data.GOOGLE_CLIENT_ID;
 export const googleCseApiKey: string | undefined = env.data.GOOGLE_CSE_API_KEY;
 export const googleCseEngineId: string | undefined =
 	env.data.GOOGLE_CSE_ENGINE_ID;
-export const brapiSupportedRanges: string | undefined =
-	env.data.BRAPI_SUPPORTED_RANGES;

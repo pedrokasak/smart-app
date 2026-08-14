@@ -81,7 +81,9 @@ export class PortfolioController {
 		// O preço médio pode não estar gravado no ativo — o import de extrato
 		// B3 insere as negociações sem calculá-lo. Derivar na leitura mantém
 		// uma única regra e conserta quem importou antes desta correção.
-		const trades = await TradeModel.find({ userId }).lean();
+		const trades = await TradeModel.find({ userId })
+			.select('symbol side quantity price fees date')
+			.lean();
 		const withAverage = withDerivedAveragePrice(
 			AssetMapper.toResponseDtoArray(assets),
 			trades as any

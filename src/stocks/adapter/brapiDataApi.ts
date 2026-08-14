@@ -68,6 +68,15 @@ export class BrapiAdapter implements StockApiAdapter {
 				);
 			}
 
+			// INVALID_INTERVAL tampouco tem relação com fundamental/dividends:
+			// stripar esses parâmetros e repetir com o mesmo interval recusado
+			// falha de novo e esconde a causa real no log.
+			if (errorData?.code === 'INVALID_INTERVAL') {
+				throw new Error(
+					`Brapi recusou o interval "${options?.interval}": ${errorData.message || 'interval indisponível no plano'}`
+				);
+			}
+
 			if (errorData?.code === 'FEATURE_NOT_AVAILABLE' || errorData?.error) {
 				const msg = errorData.message || '';
 				console.warn('Brapi restriction detected:', msg);

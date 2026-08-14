@@ -8,6 +8,8 @@ import { YahooFinanceAdapter } from 'src/market-data/infrastructure/yahoo-financ
 import { jest } from '@jest/globals';
 import axios from 'axios';
 
+// Mockado para o describe('StockService.getCdiSeries') abaixo, que chama
+// axios.get diretamente contra o BACEN. As demais suites não dependem disso.
 jest.mock('axios');
 
 describe('StockService', () => {
@@ -467,7 +469,9 @@ describe('StockService.getNationalQuote — period routing', () => {
 				.fn<(symbol: string, options?: any) => Promise<any>>()
 				.mockResolvedValue(response),
 		} as unknown as BrapiAdapter & {
-			getStockQuote: jest.MockedFunction<(symbol: string, options?: any) => Promise<any>>;
+			getStockQuote: jest.MockedFunction<
+				(symbol: string, options?: any) => Promise<any>
+			>;
 		};
 	}
 
@@ -499,11 +503,17 @@ describe('StockService.getNationalQuote — period routing', () => {
 
 	it('uses brapi alone for a range the plan serves', async () => {
 		const brapi = makeBrapi({
-			results: [{ symbol: 'BBAS3', historicalDataPrice: [{ date: 1, close: 2 }] }],
+			results: [
+				{ symbol: 'BBAS3', historicalDataPrice: [{ date: 1, close: 2 }] },
+			],
 		});
 		const yahoo = {
-			getSnapshot: jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
-			getHistory: jest.fn<(symbol: string, assetType: string, range: string) => Promise<any[]>>(),
+			getSnapshot:
+				jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory:
+				jest.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>(),
 		};
 		const service = makeService(brapi, yahoo);
 
@@ -527,9 +537,12 @@ describe('StockService.getNationalQuote — period routing', () => {
 			results: [{ symbol: 'BBAS3', historicalDataPrice: [] }],
 		});
 		const yahoo = {
-			getSnapshot: jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getSnapshot:
+				jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
 			getHistory: jest
-				.fn<(symbol: string, assetType: string, range: string) => Promise<any[]>>()
+				.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>()
 				.mockResolvedValue([{ date: 1700000000, close: 25.5 }]),
 		};
 		const service = makeService(brapi, yahoo);
@@ -549,14 +562,42 @@ describe('StockService.getNationalQuote — period routing', () => {
 		);
 	});
 
+	it('strips interval along with range when the plan cannot serve it, since interval carries the same restriction', async () => {
+		const brapi = makeBrapi({
+			results: [{ symbol: 'BBAS3', historicalDataPrice: [] }],
+		});
+		const yahoo = {
+			getSnapshot:
+				jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory: jest
+				.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>()
+				.mockResolvedValue([{ date: 1700000000, close: 25.5 }]),
+		};
+		const service = makeService(brapi, yahoo);
+
+		await service.getNationalQuote('BBAS3', { range: '5y', interval: '1mo' });
+
+		const [, calledOptions] = brapi.getStockQuote.mock.calls[0];
+		expect(calledOptions.range).toBeUndefined();
+		expect(calledOptions.interval).toBeUndefined();
+	});
+
 	it('routes through brapi once the env declares the range as supported', async () => {
 		process.env.BRAPI_SUPPORTED_RANGES = '1d,5d,1mo,3mo,6mo,1y,5y';
 		const brapi = makeBrapi({
-			results: [{ symbol: 'BBAS3', historicalDataPrice: [{ date: 9, close: 9 }] }],
+			results: [
+				{ symbol: 'BBAS3', historicalDataPrice: [{ date: 9, close: 9 }] },
+			],
 		});
 		const yahoo = {
-			getSnapshot: jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
-			getHistory: jest.fn<(symbol: string, assetType: string, range: string) => Promise<any[]>>(),
+			getSnapshot:
+				jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory:
+				jest.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>(),
 		};
 		const service = makeService(brapi, yahoo);
 
@@ -576,9 +617,12 @@ describe('StockService.getNationalQuote — period routing', () => {
 			],
 		});
 		const yahoo = {
-			getSnapshot: jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getSnapshot:
+				jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
 			getHistory: jest
-				.fn<(symbol: string, assetType: string, range: string) => Promise<any[]>>()
+				.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>()
 				.mockResolvedValue([]),
 		};
 		const service = makeService(brapi, yahoo);

@@ -40,6 +40,14 @@ export class YahooFinanceAdapter {
 		string,
 		Promise<YahooFundamentalsSnapshot | null>
 	>();
+	private static readonly historyCache = new Map<
+		string,
+		{ expiresAt: number; data: YahooHistoryPoint[] }
+	>();
+	private static readonly historyInflight = new Map<
+		string,
+		Promise<YahooHistoryPoint[]>
+	>();
 	private static readonly CACHE_TTL_MS = 10 * 60 * 1000;
 	private static readonly NEGATIVE_CACHE_TTL_MS = 3 * 60 * 1000;
 	private static readonly FETCH_TIMEOUT_MS = 8000;
@@ -136,22 +144,57 @@ export class YahooFinanceAdapter {
 		assetType: MarketAssetType,
 		range: string
 	): Promise<YahooHistoryPoint[]> {
-		if (YahooFinanceAdapter.rateLimitedUntil > Date.now()) {
+		const yahooSymbol = normalizeTickerForProvider(symbol, 'yahoo', assetType);
+		const cacheKey = `${yahooSymbol}:${range.trim().toLowerCase()}`;
+		const now = Date.now();
+
+		// Cache curto por symbol+range: sem ele, cada clique nos botões de
+		// período do gráfico bate no Yahoo de novo, e um 429 no histórico
+		// derruba o cooldown compartilhado que também protege os fundamentos.
+		const cached = YahooFinanceAdapter.historyCache.get(cacheKey);
+		if (cached && cached.expiresAt > now) {
+			return cached.data;
+		}
+
+		if (YahooFinanceAdapter.rateLimitedUntil > now) {
 			return [];
 		}
 
-		const yahooSymbol = normalizeTickerForProvider(symbol, 'yahoo', assetType);
+		const existingRequest = YahooFinanceAdapter.historyInflight.get(cacheKey);
+		if (existingRequest) return existingRequest;
 
+		const request = this.fetchHistory(yahooSymbol, range, cacheKey);
+		YahooFinanceAdapter.historyInflight.set(cacheKey, request);
 		try {
-			const result = await (yahooFinance as any).chart(yahooSymbol, {
-				period1: this.rangeToPeriod1(range),
-				interval: '1d',
-			});
+			return await request;
+		} finally {
+			YahooFinanceAdapter.historyInflight.delete(cacheKey);
+		}
+	}
+
+	private async fetchHistory(
+		yahooSymbol: string,
+		range: string,
+		cacheKey: string
+	): Promise<YahooHistoryPoint[]> {
+		try {
+			const result = await (yahooFinance as any).chart(
+				yahooSymbol,
+				{
+					period1: this.rangeToPeriod1(range),
+					interval: '1d',
+				},
+				{
+					fetchOptions: {
+						signal: AbortSignal.timeout(YahooFinanceAdapter.FETCH_TIMEOUT_MS),
+					},
+				}
+			);
 
 			const quotes: Array<{ date?: Date; close?: number | null }> =
 				result?.quotes ?? [];
 
-			return quotes
+			const points = quotes
 				.filter(
 					(quote) =>
 						quote?.date instanceof Date &&
@@ -162,17 +205,15 @@ export class YahooFinanceAdapter {
 					date: Math.floor(quote.date!.getTime() / 1000),
 					close: quote.close as number,
 				}));
+
+			YahooFinanceAdapter.historyCache.set(cacheKey, {
+				expiresAt: Date.now() + YahooFinanceAdapter.CACHE_TTL_MS,
+				data: points,
+			});
+			return points;
 		} catch (error) {
 			if (this.isRateLimitError(error)) {
-				const now = Date.now();
-				const alreadyRateLimited = YahooFinanceAdapter.rateLimitedUntil > now;
-				YahooFinanceAdapter.rateLimitedUntil =
-					now + YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS;
-				if (!alreadyRateLimited) {
-					this.logger.warn(
-						`Yahoo Finance retornou rate limit (429). Pausando consultas por ${YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS / 1000}s.`
-					);
-				}
+				this.triggerRateLimitCooldown();
 				return [];
 			}
 
@@ -180,6 +221,21 @@ export class YahooFinanceAdapter {
 				`Falha ao buscar histórico no Yahoo Finance para ${yahooSymbol}: ${error?.message || error}`
 			);
 			return [];
+		}
+	}
+
+	// Cooldown compartilhado entre getHistory e fetchSnapshot: um 429 em
+	// qualquer um dos dois pausa ambos por igual, e o aviso só é logado uma
+	// vez por janela de cooldown.
+	private triggerRateLimitCooldown(): void {
+		const now = Date.now();
+		const alreadyRateLimited = YahooFinanceAdapter.rateLimitedUntil > now;
+		YahooFinanceAdapter.rateLimitedUntil =
+			now + YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS;
+		if (!alreadyRateLimited) {
+			this.logger.warn(
+				`Yahoo Finance retornou rate limit (429). Pausando consultas por ${YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS / 1000}s.`
+			);
 		}
 	}
 
@@ -229,15 +285,7 @@ export class YahooFinanceAdapter {
 			return snapshot;
 		} catch (error) {
 			if (this.isRateLimitError(error)) {
-				const now = Date.now();
-				const alreadyRateLimited = YahooFinanceAdapter.rateLimitedUntil > now;
-				YahooFinanceAdapter.rateLimitedUntil =
-					now + YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS;
-				if (!alreadyRateLimited) {
-					this.logger.warn(
-						`Yahoo Finance retornou rate limit (429). Pausando consultas por ${YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS / 1000}s.`
-					);
-				}
+				this.triggerRateLimitCooldown();
 				return null;
 			}
 

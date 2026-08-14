@@ -18,6 +18,8 @@ describe('YahooFinanceAdapter', () => {
 		mockedQuoteSummary.mockReset();
 		mockedChart.mockReset();
 		(YahooFinanceAdapter as any).rateLimitedUntil = 0;
+		(YahooFinanceAdapter as any).historyCache.clear();
+		(YahooFinanceAdapter as any).historyInflight.clear();
 	});
 
 	it('maps a full quoteSummary response to a snapshot, normalizing the B3 ticker', async () => {
@@ -341,8 +343,50 @@ describe('YahooFinanceAdapter', () => {
 
 			expect(mockedChart).toHaveBeenCalledWith(
 				'BBAS3.SA',
-				expect.objectContaining({ interval: '1d' })
+				expect.objectContaining({ interval: '1d' }),
+				expect.anything()
 			);
+		});
+
+		it('passes an abort signal via fetchOptions for a bounded timeout', async () => {
+			mockedChart.mockResolvedValue({ quotes: [] });
+			const adapter = new YahooFinanceAdapter();
+
+			await adapter.getHistory('BBAS3', 'stock', '1y');
+
+			const callArgs = mockedChart.mock.calls[0];
+			expect(callArgs[2]).toEqual(
+				expect.objectContaining({
+					fetchOptions: expect.objectContaining({
+						signal: expect.anything(),
+					}),
+				})
+			);
+		});
+
+		it('caches a successful response for the same symbol and range, avoiding a repeat call', async () => {
+			mockedChart.mockResolvedValue({
+				quotes: [{ date: new Date('2026-01-02T00:00:00.000Z'), close: 10 }],
+			});
+			const adapter = new YahooFinanceAdapter();
+
+			const first = await adapter.getHistory('BBAS3', 'stock', '1y');
+			const second = await adapter.getHistory('BBAS3', 'stock', '1y');
+
+			expect(first).toEqual(second);
+			expect(mockedChart).toHaveBeenCalledTimes(1);
+		});
+
+		it('requests again for a different range on the same symbol', async () => {
+			mockedChart.mockResolvedValue({
+				quotes: [{ date: new Date('2026-01-02T00:00:00.000Z'), close: 10 }],
+			});
+			const adapter = new YahooFinanceAdapter();
+
+			await adapter.getHistory('BBAS3', 'stock', '1y');
+			await adapter.getHistory('BBAS3', 'stock', '5y');
+
+			expect(mockedChart).toHaveBeenCalledTimes(2);
 		});
 	});
 });

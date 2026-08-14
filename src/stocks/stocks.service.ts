@@ -117,9 +117,13 @@ export class StockService implements StockRepository {
 		// histórico vem do Yahoo.
 		const requestedRange = options?.range;
 		const brapiServesRange = isRangeSupportedByBrapi(requestedRange);
+		// interval só faz sentido junto de um range: se o brapi não serve o
+		// range pedido, interval carrega a mesma restrição de plano e vem
+		// recusado (INVALID_INTERVAL) mesmo sem range. O histórico agora vem
+		// do Yahoo, então interval também deixa de fazer sentido para o brapi.
 		const brapiOptions = brapiServesRange
 			? options
-			: { ...options, range: undefined };
+			: { ...options, range: undefined, interval: undefined };
 
 		const response = await this.brapi.getStockQuote(cleanSymbol, brapiOptions);
 		const stock = response?.results?.[0];
