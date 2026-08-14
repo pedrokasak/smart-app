@@ -13,7 +13,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Types } from 'mongoose';
-import { PDFParse } from 'pdf-parse';
+import { PDFParse } from 'pdf-parse/node';
 import * as xlsx from 'xlsx';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { BrokerSyncService } from './broker-sync.service';
