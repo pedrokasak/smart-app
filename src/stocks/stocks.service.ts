@@ -5,6 +5,7 @@ import { StockRepository } from 'src/stocks/repositories/stock-repository';
 import { FundamentusFallbackAdapter } from 'src/stocks/adapter/fundamentus-fallback.adapter';
 import { CvmOpenDataAdapter } from 'src/stocks/adapter/cvm-open-data.adapter';
 import { YahooFinanceAdapter } from 'src/market-data/infrastructure/yahoo-finance.adapter';
+import { isRangeSupportedByBrapi } from 'src/stocks/range-support';
 import axios from 'axios';
 
 @Injectable()
@@ -110,9 +111,31 @@ export class StockService implements StockRepository {
 		}
 	) {
 		const cleanSymbol = symbol.trim().toUpperCase();
-		const response = await this.brapi.getStockQuote(cleanSymbol, options);
+
+		// O range pedido pode não estar no plano do brapi. Nesse caso a cotação
+		// continua vindo do brapi (com um range que o plano aceita) e só o
+		// histórico vem do Yahoo.
+		const requestedRange = options?.range;
+		const brapiServesRange = isRangeSupportedByBrapi(requestedRange);
+		// interval só faz sentido junto de um range: se o brapi não serve o
+		// range pedido, interval carrega a mesma restrição de plano e vem
+		// recusado (INVALID_INTERVAL) mesmo sem range. O histórico agora vem
+		// do Yahoo, então interval também deixa de fazer sentido para o brapi.
+		const brapiOptions = brapiServesRange
+			? options
+			: { ...options, range: undefined, interval: undefined };
+
+		const response = await this.brapi.getStockQuote(cleanSymbol, brapiOptions);
 		const stock = response?.results?.[0];
 		if (!stock) return response;
+
+		if (!brapiServesRange && requestedRange) {
+			stock.historicalDataPrice = await this.yahooFinance.getHistory(
+				cleanSymbol,
+				'stock',
+				requestedRange
+			);
+		}
 
 		const restricted = stock.restrictedData || [];
 		const shouldFallback =
@@ -647,6 +670,56 @@ export class StockService implements StockRepository {
 				`Falha ao buscar CDI no BACEN: ${error?.message || error}`
 			);
 			return fallback;
+		}
+	}
+
+	private toBacenDate(date: Date): string {
+		const day = String(date.getUTCDate()).padStart(2, '0');
+		const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+		return `${day}/${month}/${date.getUTCFullYear()}`;
+	}
+
+	async getCdiSeries(
+		from: Date,
+		to: Date
+	): Promise<{
+		symbol: 'CDI';
+		unit: 'daily_percent';
+		source: 'BACEN_SGS_12';
+		series: Array<{ date: string; value: number }>;
+	}> {
+		const base = {
+			symbol: 'CDI' as const,
+			unit: 'daily_percent' as const,
+			source: 'BACEN_SGS_12' as const,
+		};
+
+		try {
+			const url =
+				'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json' +
+				`&dataInicial=${this.toBacenDate(from)}` +
+				`&dataFinal=${this.toBacenDate(to)}`;
+
+			const response = await axios.get(url, { timeout: 8000 });
+			const rows = Array.isArray(response.data) ? response.data : [];
+
+			const series = rows
+				.map((row: any) => {
+					const value = Number(String(row?.valor ?? '').replace(',', '.'));
+					const [day, month, year] = String(row?.data ?? '').split('/');
+					if (!day || !month || !year || !Number.isFinite(value)) return null;
+					return { date: `${year}-${month}-${day}`, value };
+				})
+				.filter(Boolean) as Array<{ date: string; value: number }>;
+
+			return { ...base, series };
+		} catch (error) {
+			// O CDI é linha de comparação: sua ausência nunca deve derrubar o
+			// dashboard inteiro.
+			this.logger.warn(
+				`Falha ao buscar série do CDI no BACEN: ${error?.message || error}`
+			);
+			return { ...base, series: [] };
 		}
 	}
 }

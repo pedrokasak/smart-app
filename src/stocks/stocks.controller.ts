@@ -50,6 +50,18 @@ export class StocksController {
 		return this.stockService.getLatestCdiRate();
 	}
 
+	@Get('macro/cdi/series')
+	@ApiResponse({ status: 200, description: 'OK' })
+	@ApiResponse({ status: 500, description: 'Internal Server Error' })
+	async getCdiSeries(@Query('from') from?: string, @Query('to') to?: string) {
+		const parsedTo = to ? new Date(to) : new Date();
+		const parsedFrom = from
+			? new Date(from)
+			: new Date(parsedTo.getTime() - 30 * 24 * 60 * 60 * 1000);
+
+		return this.stockService.getCdiSeries(parsedFrom, parsedTo);
+	}
+
 	@Get('national/quote')
 	@ApiResponse({ status: 200, description: 'OK' })
 	@ApiResponse({ status: 400, description: 'Bad Request' })

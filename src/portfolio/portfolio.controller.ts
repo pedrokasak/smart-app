@@ -28,6 +28,7 @@ import { SubscriptionService } from 'src/subscription/subscription.service';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
+import { withDerivedAveragePrice } from 'src/portfolio/derive-average-price';
 import { Types } from 'mongoose';
 import * as xlsx from 'xlsx';
 
@@ -76,7 +77,19 @@ export class PortfolioController {
 			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
 		const portfolios = await this.portfolioService.getUserPortfolios(userId);
 		const assets = portfolios.flatMap((p) => (p.assets as any) || []);
-		return AssetMapper.toResponseDtoArray(assets);
+
+		// O preço médio pode não estar gravado no ativo — o import de extrato
+		// B3 insere as negociações sem calculá-lo. Derivar na leitura mantém
+		// uma única regra e conserta quem importou antes desta correção.
+		const trades = await TradeModel.find({ userId })
+			.select('symbol side quantity price fees date')
+			.lean();
+		const withAverage = withDerivedAveragePrice(
+			AssetMapper.toResponseDtoArray(assets),
+			trades as any
+		);
+
+		return withAverage;
 	}
 
 	@Get('transactions')

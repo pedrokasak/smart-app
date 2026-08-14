@@ -2,6 +2,7 @@ jest.mock('yahoo-finance2', () => ({
 	__esModule: true,
 	default: {
 		quoteSummary: jest.fn(),
+		chart: jest.fn(),
 	},
 }));
 
@@ -10,11 +11,15 @@ import yahooFinance from 'yahoo-finance2';
 import { YahooFinanceAdapter } from './yahoo-finance.adapter';
 
 const mockedQuoteSummary = yahooFinance.quoteSummary as jest.Mock;
+const mockedChart = (yahooFinance as any).chart as jest.Mock;
 
 describe('YahooFinanceAdapter', () => {
 	beforeEach(() => {
 		mockedQuoteSummary.mockReset();
+		mockedChart.mockReset();
 		(YahooFinanceAdapter as any).rateLimitedUntil = 0;
+		(YahooFinanceAdapter as any).historyCache.clear();
+		(YahooFinanceAdapter as any).historyInflight.clear();
 	});
 
 	it('maps a full quoteSummary response to a snapshot, normalizing the B3 ticker', async () => {
@@ -270,6 +275,118 @@ describe('YahooFinanceAdapter', () => {
 				String(call[0]).includes('rate limit')
 			);
 			expect(rateLimitWarnings).toHaveLength(1);
+		});
+	});
+
+	describe('getHistory', () => {
+		it('maps yahoo quotes to brapi-shaped points with epoch seconds', async () => {
+			mockedChart.mockResolvedValue({
+				quotes: [
+					{ date: new Date('2026-01-02T00:00:00.000Z'), close: 10.5 },
+					{ date: new Date('2026-01-03T00:00:00.000Z'), close: 11 },
+				],
+			});
+
+			const adapter = new YahooFinanceAdapter();
+			const history = await adapter.getHistory('BBAS3', 'stock', '1y');
+
+			expect(history).toEqual([
+				{ date: Math.floor(Date.UTC(2026, 0, 2) / 1000), close: 10.5 },
+				{ date: Math.floor(Date.UTC(2026, 0, 3) / 1000), close: 11 },
+			]);
+		});
+
+		it('drops points without a usable close', async () => {
+			mockedChart.mockResolvedValue({
+				quotes: [
+					{ date: new Date('2026-01-02T00:00:00.000Z'), close: null },
+					{ date: new Date('2026-01-03T00:00:00.000Z'), close: 11 },
+				],
+			});
+
+			const adapter = new YahooFinanceAdapter();
+			const history = await adapter.getHistory('BBAS3', 'stock', '1y');
+
+			expect(history).toEqual([
+				{ date: Math.floor(Date.UTC(2026, 0, 3) / 1000), close: 11 },
+			]);
+		});
+
+		it('returns empty instead of throwing when yahoo fails', async () => {
+			mockedChart.mockRejectedValue(new Error('boom'));
+
+			const adapter = new YahooFinanceAdapter();
+
+			await expect(adapter.getHistory('BBAS3', 'stock', '1y')).resolves.toEqual(
+				[]
+			);
+		});
+
+		it('returns empty without calling yahoo while the rate-limit cooldown is active', async () => {
+			mockedChart.mockRejectedValue(new Error('Too Many Requests'));
+			const adapter = new YahooFinanceAdapter();
+
+			await adapter.getHistory('BBAS3', 'stock', '1y');
+			mockedChart.mockClear();
+
+			const second = await adapter.getHistory('PETR4', 'stock', '5y');
+
+			expect(second).toEqual([]);
+			expect(mockedChart).not.toHaveBeenCalled();
+		});
+
+		it('normalizes the ticker for yahoo before requesting', async () => {
+			mockedChart.mockResolvedValue({ quotes: [] });
+			const adapter = new YahooFinanceAdapter();
+
+			await adapter.getHistory('BBAS3', 'stock', '1y');
+
+			expect(mockedChart).toHaveBeenCalledWith(
+				'BBAS3.SA',
+				expect.objectContaining({ interval: '1d' }),
+				expect.anything()
+			);
+		});
+
+		it('passes an abort signal via fetchOptions for a bounded timeout', async () => {
+			mockedChart.mockResolvedValue({ quotes: [] });
+			const adapter = new YahooFinanceAdapter();
+
+			await adapter.getHistory('BBAS3', 'stock', '1y');
+
+			const callArgs = mockedChart.mock.calls[0];
+			expect(callArgs[2]).toEqual(
+				expect.objectContaining({
+					fetchOptions: expect.objectContaining({
+						signal: expect.anything(),
+					}),
+				})
+			);
+		});
+
+		it('caches a successful response for the same symbol and range, avoiding a repeat call', async () => {
+			mockedChart.mockResolvedValue({
+				quotes: [{ date: new Date('2026-01-02T00:00:00.000Z'), close: 10 }],
+			});
+			const adapter = new YahooFinanceAdapter();
+
+			const first = await adapter.getHistory('BBAS3', 'stock', '1y');
+			const second = await adapter.getHistory('BBAS3', 'stock', '1y');
+
+			expect(first).toEqual(second);
+			expect(mockedChart).toHaveBeenCalledTimes(1);
+		});
+
+		it('requests again for a different range on the same symbol', async () => {
+			mockedChart.mockResolvedValue({
+				quotes: [{ date: new Date('2026-01-02T00:00:00.000Z'), close: 10 }],
+			});
+			const adapter = new YahooFinanceAdapter();
+
+			await adapter.getHistory('BBAS3', 'stock', '1y');
+			await adapter.getHistory('BBAS3', 'stock', '5y');
+
+			expect(mockedChart).toHaveBeenCalledTimes(2);
 		});
 	});
 });

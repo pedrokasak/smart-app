@@ -6,6 +6,11 @@ import { FundamentusFallbackAdapter } from 'src/stocks/adapter/fundamentus-fallb
 import { CvmOpenDataAdapter } from 'src/stocks/adapter/cvm-open-data.adapter';
 import { YahooFinanceAdapter } from 'src/market-data/infrastructure/yahoo-finance.adapter';
 import { jest } from '@jest/globals';
+import axios from 'axios';
+
+// Mockado para o describe('StockService.getCdiSeries') abaixo, que chama
+// axios.get diretamente contra o BACEN. As demais suites não dependem disso.
+jest.mock('axios');
 
 describe('StockService', () => {
 	let service: StockService;
@@ -457,6 +462,181 @@ describe('StockService.getNationalQuote — Yahoo Finance fallback chain', () =>
 	});
 });
 
+describe('StockService.getNationalQuote — period routing', () => {
+	function makeBrapi(response: any) {
+		return {
+			getStockQuote: jest
+				.fn<(symbol: string, options?: any) => Promise<any>>()
+				.mockResolvedValue(response),
+		} as unknown as BrapiAdapter & {
+			getStockQuote: jest.MockedFunction<
+				(symbol: string, options?: any) => Promise<any>
+			>;
+		};
+	}
+
+	function makeService(brapi: any, yahoo: any) {
+		const twelveData = {} as TwelveDataAdapter;
+		const fundamentusFallback = {
+			getSnapshot: jest
+				.fn<(symbol: string) => Promise<any>>()
+				.mockResolvedValue({ numeric: {}, text: {} }),
+		} as unknown as FundamentusFallbackAdapter;
+		const cvmAdapter = {
+			getComputedIndicatorsHistoryByCnpj: jest
+				.fn<(cnpj: string, years: number[]) => Promise<any[]>>()
+				.mockResolvedValue([]),
+		} as unknown as CvmOpenDataAdapter;
+
+		return new StockService(
+			brapi,
+			twelveData,
+			fundamentusFallback,
+			cvmAdapter,
+			yahoo
+		);
+	}
+
+	afterEach(() => {
+		delete process.env.BRAPI_SUPPORTED_RANGES;
+	});
+
+	it('uses brapi alone for a range the plan serves', async () => {
+		const brapi = makeBrapi({
+			results: [
+				{ symbol: 'BBAS3', historicalDataPrice: [{ date: 1, close: 2 }] },
+			],
+		});
+		const yahoo = {
+			getSnapshot:
+				jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory:
+				jest.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>(),
+		};
+		const service = makeService(brapi, yahoo);
+
+		const response = await service.getNationalQuote('BBAS3', {
+			range: '1mo',
+			interval: '1d',
+		});
+
+		expect(yahoo.getHistory).not.toHaveBeenCalled();
+		expect(response.results[0].historicalDataPrice).toEqual([
+			{ date: 1, close: 2 },
+		]);
+		expect(brapi.getStockQuote).toHaveBeenCalledWith(
+			'BBAS3',
+			expect.objectContaining({ range: '1mo' })
+		);
+	});
+
+	it('asks brapi for a supported range and yahoo for the history when the plan cannot serve it', async () => {
+		const brapi = makeBrapi({
+			results: [{ symbol: 'BBAS3', historicalDataPrice: [] }],
+		});
+		const yahoo = {
+			getSnapshot:
+				jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory: jest
+				.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>()
+				.mockResolvedValue([{ date: 1700000000, close: 25.5 }]),
+		};
+		const service = makeService(brapi, yahoo);
+
+		const response = await service.getNationalQuote('BBAS3', {
+			range: '5y',
+			interval: '1d',
+		});
+
+		expect(yahoo.getHistory).toHaveBeenCalledWith('BBAS3', 'stock', '5y');
+		expect(response.results[0].historicalDataPrice).toEqual([
+			{ date: 1700000000, close: 25.5 },
+		]);
+		expect(brapi.getStockQuote).toHaveBeenCalledWith(
+			'BBAS3',
+			expect.not.objectContaining({ range: '5y' })
+		);
+	});
+
+	it('strips interval along with range when the plan cannot serve it, since interval carries the same restriction', async () => {
+		const brapi = makeBrapi({
+			results: [{ symbol: 'BBAS3', historicalDataPrice: [] }],
+		});
+		const yahoo = {
+			getSnapshot:
+				jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory: jest
+				.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>()
+				.mockResolvedValue([{ date: 1700000000, close: 25.5 }]),
+		};
+		const service = makeService(brapi, yahoo);
+
+		await service.getNationalQuote('BBAS3', { range: '5y', interval: '1mo' });
+
+		const [, calledOptions] = brapi.getStockQuote.mock.calls[0];
+		expect(calledOptions.range).toBeUndefined();
+		expect(calledOptions.interval).toBeUndefined();
+	});
+
+	it('routes through brapi once the env declares the range as supported', async () => {
+		process.env.BRAPI_SUPPORTED_RANGES = '1d,5d,1mo,3mo,6mo,1y,5y';
+		const brapi = makeBrapi({
+			results: [
+				{ symbol: 'BBAS3', historicalDataPrice: [{ date: 9, close: 9 }] },
+			],
+		});
+		const yahoo = {
+			getSnapshot:
+				jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory:
+				jest.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>(),
+		};
+		const service = makeService(brapi, yahoo);
+
+		await service.getNationalQuote('BBAS3', { range: '5y', interval: '1d' });
+
+		expect(yahoo.getHistory).not.toHaveBeenCalled();
+		expect(brapi.getStockQuote).toHaveBeenCalledWith(
+			'BBAS3',
+			expect.objectContaining({ range: '5y' })
+		);
+	});
+
+	it('keeps the brapi quote when yahoo history fails', async () => {
+		const brapi = makeBrapi({
+			results: [
+				{ symbol: 'BBAS3', regularMarketPrice: 20, historicalDataPrice: [] },
+			],
+		});
+		const yahoo = {
+			getSnapshot:
+				jest.fn<(symbol: string, assetType: string) => Promise<any>>(),
+			getHistory: jest
+				.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>()
+				.mockResolvedValue([]),
+		};
+		const service = makeService(brapi, yahoo);
+
+		const response = await service.getNationalQuote('BBAS3', {
+			range: '1y',
+			interval: '1d',
+		});
+
+		expect(response.results[0].regularMarketPrice).toBe(20);
+		expect(response.results[0].historicalDataPrice).toEqual([]);
+	});
+});
+
 describe('StockService.getStockQuoteGlobal', () => {
 	function buildService(overrides: {
 		twelveDataError?: boolean;
@@ -539,5 +719,92 @@ describe('StockService.getStockQuoteGlobal', () => {
 
 		expect(result.source).toBe('brapi');
 		expect(result.fallbackSources).toEqual(['twelve_data', 'yahoo_finance']);
+	});
+});
+
+describe('StockService.getCdiSeries', () => {
+	const mockAxiosGet = axios.get as jest.MockedFunction<typeof axios.get>;
+
+	function makeService() {
+		const brapi = {} as unknown as BrapiAdapter;
+		const twelveData = {} as unknown as TwelveDataAdapter;
+		const fundamentusFallback = {} as unknown as FundamentusFallbackAdapter;
+		const cvmAdapter = {} as unknown as CvmOpenDataAdapter;
+		const yahooFinance = {} as unknown as YahooFinanceAdapter;
+
+		return new StockService(
+			brapi,
+			twelveData,
+			fundamentusFallback,
+			cvmAdapter,
+			yahooFinance
+		);
+	}
+
+	afterEach(() => {
+		mockAxiosGet.mockReset();
+	});
+
+	it('maps BACEN rows to iso dates and numeric values', async () => {
+		mockAxiosGet.mockResolvedValue({
+			data: [
+				{ data: '01/07/2026', valor: '0.052531' },
+				{ data: '02/07/2026', valor: '0.052531' },
+			],
+		});
+		const service = makeService();
+
+		const result = await service.getCdiSeries(
+			new Date('2026-07-01T00:00:00Z'),
+			new Date('2026-07-02T00:00:00Z')
+		);
+
+		expect(result.series).toEqual([
+			{ date: '2026-07-01', value: 0.052531 },
+			{ date: '2026-07-02', value: 0.052531 },
+		]);
+		expect(result.unit).toBe('daily_percent');
+	});
+
+	it('requests the BACEN range in dd/MM/yyyy', async () => {
+		mockAxiosGet.mockResolvedValue({ data: [] });
+		const service = makeService();
+
+		await service.getCdiSeries(
+			new Date('2026-07-01T00:00:00Z'),
+			new Date('2026-08-13T00:00:00Z')
+		);
+
+		expect(mockAxiosGet).toHaveBeenCalledWith(
+			expect.stringContaining('dataInicial=01/07/2026'),
+			expect.anything()
+		);
+		expect(mockAxiosGet).toHaveBeenCalledWith(
+			expect.stringContaining('dataFinal=13/08/2026'),
+			expect.anything()
+		);
+	});
+
+	it('drops rows whose value is not numeric', async () => {
+		mockAxiosGet.mockResolvedValue({
+			data: [
+				{ data: '01/07/2026', valor: 'n/a' },
+				{ data: '02/07/2026', valor: '0.05' },
+			],
+		});
+		const service = makeService();
+
+		const result = await service.getCdiSeries(new Date(), new Date());
+
+		expect(result.series).toEqual([{ date: '2026-07-02', value: 0.05 }]);
+	});
+
+	it('returns an empty series instead of throwing when BACEN fails', async () => {
+		mockAxiosGet.mockRejectedValue(new Error('bacen down'));
+		const service = makeService();
+
+		const result = await service.getCdiSeries(new Date(), new Date());
+
+		expect(result.series).toEqual([]);
 	});
 });
