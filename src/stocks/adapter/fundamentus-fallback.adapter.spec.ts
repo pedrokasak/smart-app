@@ -42,11 +42,35 @@ describe('FundamentusFallbackAdapter.getFields', () => {
 		expect(fields.B.value).toBeNull();
 	});
 
+	it('mantem parseNumber devolvendo zero para ausencia, pois o facade espera numero', () => {
+		const adapter = new FundamentusFallbackAdapter();
+		const parse = (adapter as any).parseNumber.bind(adapter);
+		expect(parse('-')).toBe(0);
+		expect(parse('')).toBe(0);
+		expect(parse('N/A')).toBe(0);
+		expect(parse('24,3%')).toBeCloseTo(24.3, 5);
+	});
+
 	it('nao altera getIndicators, que segue devolvendo numeros', async () => {
 		const adapter = new FundamentusFallbackAdapter();
 		jest
 			.spyOn(adapter as any, 'loadSnapshot')
 			.mockResolvedValue({ numeric: { ROIC: 0 }, text: { ROIC: '-' } });
 		await expect(adapter.getIndicators('BBAS3')).resolves.toEqual({ ROIC: 0 });
+	});
+
+	it('devolve null para texto sem digitos, como setor', async () => {
+		const adapter = adapterWithSnapshot({
+			SETOR: 'Bancos',
+			SUBSETOR: 'Intermediários Financeiros',
+			SEGMENTO: 'Máquinas e Equipamentos',
+		});
+		const fields = await adapter.getFields('BBAS3');
+		expect(fields.SETOR.value).toBeNull();
+		expect(fields.SETOR.text).toBe('Bancos');
+		expect(fields.SUBSETOR.value).toBeNull();
+		expect(fields.SUBSETOR.text).toBe('Intermediários Financeiros');
+		expect(fields.SEGMENTO.value).toBeNull();
+		expect(fields.SEGMENTO.text).toBe('Máquinas e Equipamentos');
 	});
 });
