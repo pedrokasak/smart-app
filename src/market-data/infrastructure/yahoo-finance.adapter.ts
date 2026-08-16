@@ -44,7 +44,19 @@ export class YahooFinanceAdapter {
 		string,
 		Promise<YahooFundamentalsSnapshot | null>
 	>();
+	private static readonly payoutCache = new Map<
+		string,
+		{ expiresAt: number; data: YahooPayoutInputs }
+	>();
+	private static readonly payoutInflight = new Map<
+		string,
+		Promise<YahooPayoutInputs>
+	>();
 	private static readonly CACHE_TTL_MS = 10 * 60 * 1000;
+	// Spec 6: fundamentos mudam por trimestre. Payout vem de demonstracao
+	// anual, entao 12h e folgado e ainda assim reduz 20 chamadas de um refresh
+	// de carteira a 20 uma unica vez por meio dia.
+	private static readonly PAYOUT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 	private static readonly NEGATIVE_CACHE_TTL_MS = 3 * 60 * 1000;
 	private static readonly FETCH_TIMEOUT_MS = 8000;
 	private static readonly RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
@@ -155,7 +167,17 @@ export class YahooFinanceAdapter {
 		}
 	}
 
-	async getPayoutInputs(symbol: string): Promise<YahooPayoutInputs> {
+	/**
+	 * O simbolo TEM que ser normalizado aqui, como `getSnapshot` ja fazia. Um
+	 * ticker B3 cru nao resolve no Yahoo — e o modo de falhar barulhento. O
+	 * silencioso e pior: um ticker de 4 letras da B3 pode colidir com uma
+	 * listagem estrangeira sem relacao e devolver um payout bem formado da
+	 * empresa errada, passando por todas as guardas de null.
+	 */
+	async getPayoutInputs(
+		symbol: string,
+		assetType: MarketAssetType = 'stock'
+	): Promise<YahooPayoutInputs> {
 		const empty: YahooPayoutInputs = {
 			payoutRatio: null,
 			dividendsPaid: null,
@@ -163,12 +185,34 @@ export class YahooFinanceAdapter {
 			fiscalPeriod: null,
 		};
 
-		if (YahooFinanceAdapter.rateLimitedUntil > Date.now()) {
+		const yahooSymbol = normalizeTickerForProvider(symbol, 'yahoo', assetType);
+		const now = Date.now();
+
+		const cached = YahooFinanceAdapter.payoutCache.get(yahooSymbol);
+		if (cached && cached.expiresAt > now) return cached.data;
+
+		if (YahooFinanceAdapter.rateLimitedUntil > now) {
 			return empty;
 		}
 
+		const existingRequest = YahooFinanceAdapter.payoutInflight.get(yahooSymbol);
+		if (existingRequest) return existingRequest;
+
+		const request = this.fetchPayoutInputs(yahooSymbol, empty);
+		YahooFinanceAdapter.payoutInflight.set(yahooSymbol, request);
 		try {
-			const raw = await this.fetchQuoteSummary(symbol);
+			return await request;
+		} finally {
+			YahooFinanceAdapter.payoutInflight.delete(yahooSymbol);
+		}
+	}
+
+	private async fetchPayoutInputs(
+		yahooSymbol: string,
+		empty: YahooPayoutInputs
+	): Promise<YahooPayoutInputs> {
+		try {
+			const raw = await this.fetchQuoteSummary(yahooSymbol);
 			const cash = raw?.cashflowStatementHistory?.cashflowStatements?.[0];
 			const income = raw?.incomeStatementHistory?.incomeStatementHistory?.[0];
 
@@ -177,12 +221,19 @@ export class YahooFinanceAdapter {
 			const samePeriod =
 				cashTime !== null && incomeTime !== null && cashTime === incomeTime;
 
-			return {
+			const inputs: YahooPayoutInputs = {
 				payoutRatio: this.toNullableNumber(raw?.summaryDetail?.payoutRatio),
 				dividendsPaid: this.toNullableNumber(cash?.dividendsPaid),
 				netIncome: this.toNullableNumber(income?.netIncome),
 				fiscalPeriod: samePeriod ? this.fiscalYear(cash?.endDate) : null,
 			};
+
+			// So resposta boa entra no cache. Falha nao vira 12h de payout nulo.
+			YahooFinanceAdapter.payoutCache.set(yahooSymbol, {
+				expiresAt: Date.now() + YahooFinanceAdapter.PAYOUT_CACHE_TTL_MS,
+				data: inputs,
+			});
+			return inputs;
 		} catch (error) {
 			if (this.isRateLimitError(error)) {
 				this.triggerRateLimitCooldown();

@@ -15,6 +15,8 @@ describe('YahooFinanceAdapter', () => {
 	beforeEach(() => {
 		mockedQuoteSummary.mockReset();
 		(YahooFinanceAdapter as any).rateLimitedUntil = 0;
+		(YahooFinanceAdapter as any).payoutCache.clear();
+		(YahooFinanceAdapter as any).payoutInflight.clear();
 	});
 
 	it('maps a full quoteSummary response to a snapshot, normalizing the B3 ticker', async () => {
@@ -302,6 +304,86 @@ describe('YahooFinanceAdapter', () => {
 			expect(inputs.dividendsPaid).toBe(-3817472000);
 			expect(inputs.netIncome).toBe(6254050000);
 			expect(inputs.fiscalPeriod).toBe('2024');
+		});
+
+		it('consulta o Yahoo pelo ticker normalizado, nunca pelo ticker B3 cru', async () => {
+			// O modo de falhar barulhento e o payout sumir para todo ativo
+			// brasileiro. O perigoso e silencioso: um ticker B3 cru pode casar com
+			// uma listagem estrangeira sem relacao e devolver um payout bem
+			// formado da EMPRESA ERRADA, passando por todas as guardas de null.
+			const adapter = new YahooFinanceAdapter();
+			const fetchSpy = jest
+				.spyOn(adapter as any, 'fetchQuoteSummary')
+				.mockResolvedValue({ summaryDetail: { payoutRatio: 0.61 } });
+
+			await adapter.getPayoutInputs('WEGE3');
+
+			expect(fetchSpy).toHaveBeenCalledWith('WEGE3.SA');
+		});
+
+		it('nao adiciona .SA para ticker estrangeiro', async () => {
+			const adapter = new YahooFinanceAdapter();
+			const fetchSpy = jest
+				.spyOn(adapter as any, 'fetchQuoteSummary')
+				.mockResolvedValue({ summaryDetail: { payoutRatio: 0.25 } });
+
+			await adapter.getPayoutInputs('AAPL', 'stock');
+
+			expect(fetchSpy).toHaveBeenCalledWith('AAPL');
+		});
+
+		it('cacheia a resposta e nao repete a chamada externa na janela', async () => {
+			const adapter = new YahooFinanceAdapter();
+			const fetchSpy = jest
+				.spyOn(adapter as any, 'fetchQuoteSummary')
+				.mockResolvedValue({ summaryDetail: { payoutRatio: 0.61 } });
+
+			const first = await adapter.getPayoutInputs('CACH3');
+			const second = await adapter.getPayoutInputs('CACH3');
+
+			expect(fetchSpy).toHaveBeenCalledTimes(1);
+			expect(second).toEqual(first);
+		});
+
+		it('a janela do cache de payout e de 12 horas, como manda a spec', () => {
+			expect((YahooFinanceAdapter as any).PAYOUT_CACHE_TTL_MS).toBe(
+				12 * 60 * 60 * 1000
+			);
+		});
+
+		it('deduplica chamadas simultaneas para o mesmo simbolo', async () => {
+			const adapter = new YahooFinanceAdapter();
+			const fetchSpy = jest
+				.spyOn(adapter as any, 'fetchQuoteSummary')
+				.mockImplementation(
+					() =>
+						new Promise((resolve) =>
+							setTimeout(() => resolve({ summaryDetail: {} }), 10)
+						)
+				);
+
+			await Promise.all([
+				adapter.getPayoutInputs('DEDU3'),
+				adapter.getPayoutInputs('DEDU3'),
+				adapter.getPayoutInputs('DEDU3'),
+			]);
+
+			expect(fetchSpy).toHaveBeenCalledTimes(1);
+		});
+
+		it('nao cacheia falha: a proxima chamada tenta de novo', async () => {
+			const adapter = new YahooFinanceAdapter();
+			const fetchSpy = jest
+				.spyOn(adapter as any, 'fetchQuoteSummary')
+				.mockRejectedValueOnce(new Error('rede caiu'))
+				.mockResolvedValueOnce({ summaryDetail: { payoutRatio: 0.42 } });
+
+			const first = await adapter.getPayoutInputs('FAIL3');
+			expect(first.payoutRatio).toBeNull();
+
+			const second = await adapter.getPayoutInputs('FAIL3');
+			expect(second.payoutRatio).toBeCloseTo(0.42, 5);
+			expect(fetchSpy).toHaveBeenCalledTimes(2);
 		});
 
 		it('nao devolve periodo quando os exercicios divergem', async () => {
