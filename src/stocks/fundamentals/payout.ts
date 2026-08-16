@@ -16,5 +16,6 @@ export function computePayout(input: PayoutInput): number | null {
 	if (dividendsPeriod !== netIncomePeriod) return null;
 	if (!(netIncome > 0)) return null;
 
-	return (Math.abs(dividendsTotal) / netIncome) * 100;
+	const payout = (Math.abs(dividendsTotal) / netIncome) * 100;
+	return Number.isFinite(payout) ? payout : null;
 }

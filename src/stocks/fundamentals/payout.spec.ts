@@ -100,7 +100,7 @@ describe('computePayout', () => {
 		expect(resultado).toBeLessThan(100);
 	});
 
-	it('devolve Infinity para lucro positivo mas insignificante', () => {
+	it('devolve null quando o lucro e positivo mas insignificante demais para dar resultado finito', () => {
 		expect(
 			computePayout({
 				dividendsTotal: -500,
@@ -108,6 +108,17 @@ describe('computePayout', () => {
 				dividendsPeriod: '2024',
 				netIncomePeriod: '2024',
 			}),
-		).toBe(Infinity);
+		).toBeNull();
+	});
+
+	it('nao suprime payout legitimo acima de 100%', () => {
+		expect(
+			computePayout({
+				dividendsTotal: -1200,
+				netIncome: 1000,
+				dividendsPeriod: '2024',
+				netIncomePeriod: '2024',
+			}),
+		).toBe(120);
 	});
 });
