@@ -3,6 +3,11 @@ import yahooFinance from 'yahoo-finance2';
 import { MarketAssetType } from 'src/market-data/application/market-data-provider.port';
 import { normalizeTickerForProvider } from 'src/market-data/infrastructure/ticker-normalizer';
 
+export interface YahooHistoryPoint {
+	date: number; // epoch em SEGUNDOS, igual ao historicalDataPrice do brapi
+	close: number;
+}
+
 export interface YahooFundamentalsSnapshot {
 	price: number | null;
 	dividendYield: number | null;
@@ -278,6 +283,7 @@ export class YahooFinanceAdapter {
 			return snapshot;
 		} catch (error) {
 			if (this.isRateLimitError(error)) {
+				this.triggerRateLimitCooldown();
 				this.triggerRateLimitCooldown();
 				return null;
 			}

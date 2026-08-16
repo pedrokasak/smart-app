@@ -19,6 +19,7 @@ const envSchema = z.object({
 	GOOGLE_CLIENT_ID: z.string().optional(),
 	GOOGLE_CSE_API_KEY: z.string().optional(),
 	GOOGLE_CSE_ENGINE_ID: z.string().optional(),
+	BRAPI_SUPPORTED_RANGES: z.string().optional(),
 });
 
 const isTestEnvironment = process.env.NODE_ENV === 'test';

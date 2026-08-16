@@ -2,6 +2,7 @@ jest.mock('yahoo-finance2', () => ({
 	__esModule: true,
 	default: {
 		quoteSummary: jest.fn(),
+		chart: jest.fn(),
 	},
 }));
 
@@ -10,10 +11,12 @@ import yahooFinance from 'yahoo-finance2';
 import { YahooFinanceAdapter } from './yahoo-finance.adapter';
 
 const mockedQuoteSummary = yahooFinance.quoteSummary as jest.Mock;
+const mockedChart = (yahooFinance as any).chart as jest.Mock;
 
 describe('YahooFinanceAdapter', () => {
 	beforeEach(() => {
 		mockedQuoteSummary.mockReset();
+		mockedChart.mockReset();
 		(YahooFinanceAdapter as any).rateLimitedUntil = 0;
 		(YahooFinanceAdapter as any).payoutCache.clear();
 		(YahooFinanceAdapter as any).payoutInflight.clear();
