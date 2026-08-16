@@ -5,15 +5,17 @@ describe('isApplicable', () => {
 		'marca %s como nao aplicavel para banco',
 		(key) => {
 			expect(isApplicable('Intermediários Financeiros', key)).toBe(false);
-		},
+		}
 	);
 
-	it.each(['payout', 'priceEarnings', 'priceToBook', 'returnOnEquity'] as const)(
-		'mantem %s aplicavel para banco',
-		(key) => {
-			expect(isApplicable('Intermediários Financeiros', key)).toBe(true);
-		},
-	);
+	it.each([
+		'payout',
+		'priceEarnings',
+		'priceToBook',
+		'returnOnEquity',
+	] as const)('mantem %s aplicavel para banco', (key) => {
+		expect(isApplicable('Intermediários Financeiros', key)).toBe(true);
+	});
 
 	it('mantem tudo aplicavel para setor nao financeiro', () => {
 		expect(isApplicable('Máquinas e Equipamentos', 'roic')).toBe(true);
@@ -34,7 +36,7 @@ describe('isApplicable', () => {
 describe('normalizeSector', () => {
 	it('remove acento, colapsa espaco e sobe caixa', () => {
 		expect(normalizeSector(' Intermediários  Financeiros ')).toBe(
-			'INTERMEDIARIOS FINANCEIROS',
+			'INTERMEDIARIOS FINANCEIROS'
 		);
 	});
 

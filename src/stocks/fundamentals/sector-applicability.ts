@@ -12,7 +12,7 @@ export function normalizeSector(sector: string | null): string | null {
 	if (!sector) return null;
 	const normalized = sector
 		.normalize('NFD')
-		.replace(/[̀-ͯ]/g, '')
+		.replace(/[\u0300-\u036f]/g, '')
 		.replace(/\s+/g, ' ')
 		.trim()
 		.toUpperCase();
@@ -21,7 +21,7 @@ export function normalizeSector(sector: string | null): string | null {
 
 export function isApplicable(
 	sector: string | null,
-	key: FundamentalKey,
+	key: FundamentalKey
 ): boolean {
 	const normalized = normalizeSector(sector);
 	if (!normalized) return true;

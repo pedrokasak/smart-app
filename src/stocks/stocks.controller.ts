@@ -115,7 +115,11 @@ export class StocksController {
 		fallbackSymbol: string
 	): Promise<any[]> {
 		const enriched: any[] = [];
-		for (let start = 0; start < results.length; start += FUNDAMENTALS_BATCH_SIZE) {
+		for (
+			let start = 0;
+			start < results.length;
+			start += FUNDAMENTALS_BATCH_SIZE
+		) {
 			const batch = results.slice(start, start + FUNDAMENTALS_BATCH_SIZE);
 			const enrichedBatch = await Promise.all(
 				batch.map(async (item: any) => {

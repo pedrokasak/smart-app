@@ -8,7 +8,7 @@ describe('computePayout', () => {
 				netIncome: 6254050000,
 				dividendsPeriod: '2024',
 				netIncomePeriod: '2024',
-			}),
+			})
 		).toBeCloseTo(61.04, 1);
 	});
 
@@ -36,7 +36,7 @@ describe('computePayout', () => {
 				netIncome: 1000,
 				dividendsPeriod: '2024',
 				netIncomePeriod: '2023',
-			}),
+			})
 		).toBeNull();
 	});
 
@@ -47,7 +47,7 @@ describe('computePayout', () => {
 				netIncome: 1000,
 				dividendsPeriod: null,
 				netIncomePeriod: '2024',
-			}),
+			})
 		).toBeNull();
 	});
 
@@ -58,7 +58,7 @@ describe('computePayout', () => {
 				netIncome: 0,
 				dividendsPeriod: '2024',
 				netIncomePeriod: '2024',
-			}),
+			})
 		).toBeNull();
 		expect(
 			computePayout({
@@ -66,7 +66,7 @@ describe('computePayout', () => {
 				netIncome: -1000,
 				dividendsPeriod: '2024',
 				netIncomePeriod: '2024',
-			}),
+			})
 		).toBeNull();
 	});
 
@@ -77,7 +77,7 @@ describe('computePayout', () => {
 				netIncome: 1000,
 				dividendsPeriod: '2024',
 				netIncomePeriod: '2024',
-			}),
+			})
 		).toBeNull();
 	});
 
@@ -107,7 +107,7 @@ describe('computePayout', () => {
 				netIncome: Number.MIN_VALUE,
 				dividendsPeriod: '2024',
 				netIncomePeriod: '2024',
-			}),
+			})
 		).toBeNull();
 	});
 
@@ -118,7 +118,7 @@ describe('computePayout', () => {
 				netIncome: 1000,
 				dividendsPeriod: '2024',
 				netIncomePeriod: '2024',
-			}),
+			})
 		).toBe(120);
 	});
 });

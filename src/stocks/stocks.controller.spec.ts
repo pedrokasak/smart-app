@@ -1,8 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-	StocksController,
-	FUNDAMENTALS_BATCH_SIZE,
-} from './stocks.controller';
+import { StocksController, FUNDAMENTALS_BATCH_SIZE } from './stocks.controller';
 import { StockService } from 'src/stocks/stocks.service';
 import { FundamentalsService } from 'src/stocks/fundamentals/fundamentals.service';
 
@@ -154,10 +151,7 @@ describe('StocksController', () => {
 				results: [{ symbol: 'WEGE3', regularMarketPrice: 47.5 }],
 			});
 
-			const response = await controller.getStockQuoteNational(
-				'WEGE3',
-				'false'
-			);
+			const response = await controller.getStockQuoteNational('WEGE3', 'false');
 
 			expect(mockFundamentalsService.getFundamentals).not.toHaveBeenCalled();
 			expect(response.results[0].fundamentals).toBeNull();
