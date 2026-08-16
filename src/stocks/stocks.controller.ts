@@ -1,5 +1,6 @@
-import { Controller, Get, Query } from '@nestjs/common';
+import { Controller, Get, Logger, Query } from '@nestjs/common';
 import { StockService } from './stocks.service';
+import { FundamentalsService } from './fundamentals/fundamentals.service';
 import {
 	ApiBearerAuth,
 	ApiOkResponse,
@@ -11,7 +12,12 @@ import {
 @ApiTags('stocks')
 @ApiBearerAuth('access-token')
 export class StocksController {
-	constructor(private readonly stockService: StockService) {}
+	private readonly logger = new Logger(StocksController.name);
+
+	constructor(
+		private readonly stockService: StockService,
+		private readonly fundamentalsService: FundamentalsService
+	) {}
 
 	@Get('all/national')
 	@ApiResponse({ status: 200, description: 'OK' })
@@ -64,11 +70,30 @@ export class StocksController {
 		if (!symbol) {
 			return { error: 'O parâmetro symbol é obrigatório' };
 		}
-		return this.stockService.getNationalQuote(symbol, {
+		const quote = await this.stockService.getNationalQuote(symbol, {
 			fundamental: fundamental === 'true',
 			dividends: dividends === 'true',
 			range,
 			interval,
 		});
+
+		const results = Array.isArray(quote?.results) ? quote.results : [];
+		const enriched = await Promise.all(
+			results.map(async (item: any) => {
+				try {
+					const fundamentals = await this.fundamentalsService.getFundamentals(
+						String(item?.symbol || symbol),
+						item
+					);
+					return { ...item, fundamentals };
+				} catch (error) {
+					this.logger.warn(
+						`Falha ao montar fundamentos de ${item?.symbol}: ${String(error)}`
+					);
+					return { ...item, fundamentals: null };
+				}
+			})
+		);
+		return { ...quote, results: enriched };
 	}
 }
