@@ -22,6 +22,8 @@ const FUNDAMENTUS_LABELS: Partial<Record<FundamentalKey, string>> = {
 	returnOnEquity: 'ROE',
 };
 
+const FUNDAMENTUS_SECTOR_LABEL = 'SETOR';
+
 const BRAPI_FIELDS: Partial<Record<FundamentalKey, string>> = {
 	priceEarnings: 'priceEarnings',
 };
@@ -30,21 +32,62 @@ function unavailable(): FundamentalValue {
 	return { status: 'unavailable', value: null, source: null };
 }
 
+/**
+ * A celula de rotulo do Fundamentus carrega o marcador de ajuda dentro dela
+ * (`<span class="help tips">?</span><span class="txt">ROIC</span>`), entao o
+ * `textContent` que o adapter normaliza e `?ROIC`, nao `ROIC`. Comparar rotulo
+ * por igualdade exata erra todos os campos de uma vez — e erra em silencio,
+ * porque a pagina continua respondendo.
+ *
+ * Mesma normalizacao ja usada por `StockService.normalizeFundamentusKey` e
+ * pelo `TrackerrMarketDataFacade.normalizeKey`: tira acento e tudo que nao for
+ * letra ou digito, dos dois lados da comparacao. Vive aqui, no consumidor, e
+ * nao dentro do adapter, porque `getIndicators`/`getSnapshot` precisam
+ * continuar devolvendo exatamente as mesmas chaves para os consumidores
+ * antigos.
+ */
+function normalizeFundamentusKey(value: string): string {
+	return String(value || '')
+		.normalize('NFD')
+		.replace(/[\u0300-\u036f]/g, '')
+		.replace(/[^A-Z0-9]/gi, '')
+		.toUpperCase();
+}
+
+function indexFundamentusFields(
+	fields: Record<string, FundamentusField> | null
+): Map<string, FundamentusField> {
+	const index = new Map<string, FundamentusField>();
+	for (const [key, field] of Object.entries(fields || {})) {
+		const normalized = normalizeFundamentusKey(key);
+		if (!normalized) continue;
+		index.set(normalized, field);
+	}
+	return index;
+}
+
 @Injectable()
 export class FundamentalsService {
 	private readonly logger = new Logger(FundamentalsService.name);
 
 	constructor(
 		private readonly fundamentus: FundamentusFallbackAdapter,
-		private readonly yahoo: YahooFinanceAdapter,
+		private readonly yahoo: YahooFinanceAdapter
 	) {}
 
 	async getFundamentals(
 		symbol: string,
-		brapiQuote: unknown,
+		brapiQuote: unknown
 	): Promise<FundamentalsResult> {
 		const fields = await this.loadFundamentusFields(symbol);
-		const sector = fields?.SETOR?.text?.trim() || null;
+		const index = indexFundamentusFields(fields);
+
+		// O setor precisa passar pela MESMA normalizacao dos indicadores. Se so
+		// os indicadores fossem corrigidos, `sector` ficaria null, `isApplicable`
+		// devolveria true para tudo, a regra de banco nunca dispararia e o
+		// `0,0%` literal que o Fundamentus publica para BBAS3 viraria "margem
+		// liquida: 0,0%" — o defeito exato que a spec existe para impedir.
+		const sector = index.get(FUNDAMENTUS_SECTOR_LABEL)?.text?.trim() || null;
 
 		const values = {} as Record<FundamentalKey, FundamentalValue>;
 		for (const key of FUNDAMENTAL_KEYS) {
@@ -69,7 +112,7 @@ export class FundamentalsService {
 			(key) =>
 				key !== 'payout' &&
 				readable(key) &&
-				values[key].status === 'unavailable',
+				values[key].status === 'unavailable'
 		);
 
 		const candidates: Array<{
@@ -77,13 +120,16 @@ export class FundamentalsService {
 			read: (key: FundamentalKey) => number | null;
 		}> = [
 			{ source: 'brapi', read: (key) => this.readBrapi(brapiQuote, key) },
-			{ source: 'fundamentus', read: (key) => this.readFundamentus(fields, key) },
+			{
+				source: 'fundamentus',
+				read: (key) => this.readFundamentus(index, key),
+			},
 		];
 
 		// 1. Coerencia: a primeira fonte que cobrir TODAS as chaves desejadas
 		//    responde sozinha, e o resultado nao e misto.
 		const covering = candidates.find((candidate) =>
-			wanted.every((key) => candidate.read(key) !== null),
+			wanted.every((key) => candidate.read(key) !== null)
 		);
 
 		if (covering && wanted.length > 0) {
@@ -109,7 +155,7 @@ export class FundamentalsService {
 		}
 
 		await this.fillPayout(values, symbol);
-		this.reportSourceDrift('fundamentus', symbol, fields);
+		this.reportSourceDrift('fundamentus', symbol, index);
 
 		// `payout` nunca disputa o grupo (fonte propria: yahoo/derived) e por
 		// isso fica fora daqui. `mixed` descreve a coerencia do grupo lido do
@@ -119,20 +165,20 @@ export class FundamentalsService {
 			FUNDAMENTAL_KEYS.filter((key) => key !== 'payout')
 				.map((key) => values[key])
 				.filter((entry) => entry.status === 'ok')
-				.map((entry) => entry.source),
+				.map((entry) => entry.source)
 		);
 
 		return { symbol, sector, mixed: sources.size > 1, values };
 	}
 
 	private async loadFundamentusFields(
-		symbol: string,
+		symbol: string
 	): Promise<Record<string, FundamentusField> | null> {
 		try {
 			return await this.fundamentus.getFields(symbol);
 		} catch (error) {
 			this.logger.warn(
-				`Fundamentus indisponivel para ${symbol}: ${String(error)}`,
+				`Fundamentus indisponivel para ${symbol}: ${String(error)}`
 			);
 			return null;
 		}
@@ -143,19 +189,26 @@ export class FundamentalsService {
 	 * devolve vazio, a fonte seguinte preenche o que consegue, e o indicador
 	 * some do card sem ninguem perceber. Este metodo lembra quais simbolos a
 	 * fonte ja respondeu e avisa quando ela para de responder.
+	 *
+	 * "Respondeu" e medido pelos rotulos que ESTE servico precisa, nao pelo
+	 * tamanho do mapa. A pagina do Fundamentus devolve ~60 chaves mesmo quando
+	 * nenhum rotulo util casa: contar chaves declarava a fonte saudavel
+	 * justamente no cenario que o detector existe para pegar, e foi o que
+	 * manteve o defeito de rotulo calado ate a revisao.
 	 */
 	private static readonly answered = new Map<string, Set<string>>();
 
 	private reportSourceDrift(
 		source: string,
 		symbol: string,
-		fields: Record<string, FundamentusField> | null,
+		index: Map<string, FundamentusField>
 	): void {
-		const seen =
-			FundamentalsService.answered.get(source) ?? new Set<string>();
+		const seen = FundamentalsService.answered.get(source) ?? new Set<string>();
 		FundamentalsService.answered.set(source, seen);
 
-		const responded = !!fields && Object.keys(fields).length > 0;
+		const responded = FUNDAMENTAL_KEYS.some(
+			(key) => this.readFundamentus(index, key) !== null
+		);
 
 		if (responded) {
 			seen.add(symbol);
@@ -165,7 +218,7 @@ export class FundamentalsService {
 		if (seen.has(symbol)) {
 			seen.delete(symbol);
 			this.logger.warn(
-				`Fonte ${source} respondia para ${symbol} e parou de responder`,
+				`Fonte ${source} respondia para ${symbol} e parou de responder`
 			);
 		}
 	}
@@ -178,18 +231,17 @@ export class FundamentalsService {
 	}
 
 	private readFundamentus(
-		fields: Record<string, FundamentusField> | null,
-		key: FundamentalKey,
+		index: Map<string, FundamentusField>,
+		key: FundamentalKey
 	): number | null {
-		if (!fields) return null;
 		const label = FUNDAMENTUS_LABELS[key];
 		if (!label) return null;
-		return fields[label]?.value ?? null;
+		return index.get(normalizeFundamentusKey(label))?.value ?? null;
 	}
 
 	private async fillPayout(
 		values: Record<FundamentalKey, FundamentalValue>,
-		symbol: string,
+		symbol: string
 	): Promise<void> {
 		if (values.payout.status !== 'unavailable') return;
 
