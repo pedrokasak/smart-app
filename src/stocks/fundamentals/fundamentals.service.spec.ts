@@ -194,4 +194,44 @@ describe('FundamentalsService', () => {
 			expect.stringContaining('fundamentus'),
 		);
 	});
+
+	it('nao marca mixed quando o grupo veio coerente e so o payout veio de outra fonte', async () => {
+		const { service } = makeService({
+			fundamentusFields: {
+				...NAO_BANCO,
+				'P/L': { value: 31.88, text: '31,88' },
+				'P/VP': { value: 10.5, text: '10,50' },
+				ROE: { value: 33.2, text: '33,2%' },
+			},
+			payoutInputs: {
+				payoutRatio: 0.55,
+				dividendsPaid: null,
+				netIncome: null,
+				fiscalPeriod: null,
+			},
+		});
+		const result = await service.getFundamentals('WEGE3', {
+			priceEarnings: 31.97,
+		});
+		expect(result.mixed).toBe(false);
+		expect(result.values.payout.source).toBe('yahoo');
+	});
+
+	it('mantem mixed quando o grupo em si veio de fontes diferentes, mesmo com payout resolvido', async () => {
+		const { service } = makeService({
+			fundamentusFields: NAO_BANCO,
+			payoutInputs: {
+				payoutRatio: 0.55,
+				dividendsPaid: null,
+				netIncome: null,
+				fiscalPeriod: null,
+			},
+		});
+		const result = await service.getFundamentals('WEGE3', {
+			priceEarnings: 31.97,
+		});
+		expect(result.values.priceEarnings.source).toBe('brapi');
+		expect(result.values.roic.source).toBe('fundamentus');
+		expect(result.mixed).toBe(true);
+	});
 });

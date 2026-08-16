@@ -111,8 +111,13 @@ export class FundamentalsService {
 		await this.fillPayout(values, symbol);
 		this.reportSourceDrift('fundamentus', symbol, fields);
 
+		// `payout` nunca disputa o grupo (fonte propria: yahoo/derived) e por
+		// isso fica fora daqui. `mixed` descreve a coerencia do grupo lido do
+		// balanco (roic, margem, divida, P/L, P/VP, ROE, evEbitda) — nao a
+		// origem do payout, que ja e visivel no seu proprio `source`.
 		const sources = new Set(
-			FUNDAMENTAL_KEYS.map((key) => values[key])
+			FUNDAMENTAL_KEYS.filter((key) => key !== 'payout')
+				.map((key) => values[key])
 				.filter((entry) => entry.status === 'ok')
 				.map((entry) => entry.source),
 		);
