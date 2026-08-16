@@ -8,6 +8,35 @@ type FundamentusSnapshot = {
 	text: FundamentusTextMap;
 };
 
+export type FundamentusField = { value: number | null; text: string };
+
+export type FundamentusEntry = { label: string; value: string };
+
+/**
+ * Extracao dos pares rotulo/valor da pagina do Fundamentus.
+ *
+ * Vive fora da classe de proposito. Ela e passada para `page.$$eval`, que
+ * serializa a funcao e a executa dentro do browser, entao ela nao pode
+ * referenciar nada do escopo do modulo nem `this`. Estar no topo do arquivo,
+ * exportada e pura, e tambem o que torna a extracao testavel a partir de um
+ * HTML gravado, sem subir um Chromium: era exatamente o trecho que nenhum
+ * teste alcancava, e por isso o rotulo real (`?ROIC`, com o marcador de ajuda
+ * dentro da celula) nunca apareceu em teste nenhum.
+ */
+export function extractTdPairs(
+	nodes: ArrayLike<{ textContent: string | null }>
+): FundamentusEntry[] {
+	const out: FundamentusEntry[] = [];
+	for (let i = 0; i < nodes.length - 1; i++) {
+		const label = (nodes[i].textContent || '').trim();
+		const value = (nodes[i + 1].textContent || '').trim();
+		if (!label || !value) continue;
+		if (!/[:A-Za-zÀ-ÖØ-öø-ÿ]/.test(label)) continue;
+		out.push({ label, value });
+	}
+	return out;
+}
+
 @Injectable()
 export class FundamentusFallbackAdapter {
 	private readonly logger = new Logger(FundamentusFallbackAdapter.name);
@@ -44,6 +73,24 @@ export class FundamentusFallbackAdapter {
 			.replace(/\s+/g, ' ')
 			.trim()
 			.toUpperCase();
+	}
+
+	/**
+	 * Segundo trecho da extracao: pares crus viram o snapshot chaveado. Fica
+	 * separado de `loadSnapshot` pelo mesmo motivo que `extractTdPairs`: e o
+	 * que permite um teste levar um HTML gravado ate `getFields` sem browser.
+	 */
+	private buildSnapshot(entries: FundamentusEntry[]): FundamentusSnapshot {
+		const numeric: FundamentusIndicatorMap = {};
+		const text: FundamentusTextMap = {};
+		for (const item of entries) {
+			const key = this.normalizeLabel(item.label);
+			const value = this.parseNumber(item.value);
+			if (!key) continue;
+			numeric[key] = value;
+			text[key] = String(item.value || '').trim();
+		}
+		return { numeric, text };
 	}
 
 	private async getBrowser() {
@@ -112,29 +159,9 @@ export class FundamentusFallbackAdapter {
 						}
 					);
 
-					const entries = await page.$$eval('td', (nodes) => {
-						const out: Array<{ label: string; value: string }> = [];
-						for (let i = 0; i < nodes.length - 1; i++) {
-							const label = (nodes[i].textContent || '').trim();
-							const value = (nodes[i + 1].textContent || '').trim();
-							if (!label || !value) continue;
-							if (!/[:A-Za-zÀ-ÖØ-öø-ÿ]/.test(label)) continue;
-							out.push({ label, value });
-						}
-						return out;
-					});
+					const entries = await page.$$eval('td', extractTdPairs);
 
-					const numeric: FundamentusIndicatorMap = {};
-					const text: FundamentusTextMap = {};
-					for (const item of entries) {
-						const key = this.normalizeLabel(item.label);
-						const value = this.parseNumber(item.value);
-						if (!key) continue;
-						numeric[key] = value;
-						text[key] = String(item.value || '').trim();
-					}
-
-					const snapshot: FundamentusSnapshot = { numeric, text };
+					const snapshot = this.buildSnapshot(entries);
 					FundamentusFallbackAdapter.cache.set(normalizedSymbol, {
 						expiresAt: Date.now() + FundamentusFallbackAdapter.CACHE_TTL_MS,
 						data: snapshot,
@@ -176,5 +203,30 @@ export class FundamentusFallbackAdapter {
 	async getIndicators(symbol: string): Promise<FundamentusIndicatorMap> {
 		const snapshot = await this.loadSnapshot(symbol);
 		return snapshot.numeric;
+	}
+
+	private parseNullableNumber(value: unknown): number | null {
+		if (value === null || value === undefined) return null;
+		const raw = String(value).trim();
+		if (!raw || raw === '-' || raw.toLowerCase() === 'n/a') return null;
+		if (!/\d/.test(raw)) return null;
+
+		const normalized = raw
+			.replace(/\./g, '')
+			.replace('%', '')
+			.replace(',', '.')
+			.replace(/[^\d.-]/g, '');
+
+		const parsed = Number(normalized);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+
+	async getFields(symbol: string): Promise<Record<string, FundamentusField>> {
+		const snapshot = await this.loadSnapshot(symbol);
+		const fields: Record<string, FundamentusField> = {};
+		for (const [key, text] of Object.entries(snapshot.text)) {
+			fields[key] = { value: this.parseNullableNumber(text), text };
+		}
+		return fields;
 	}
 }
