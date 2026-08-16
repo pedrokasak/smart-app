@@ -272,4 +272,69 @@ describe('YahooFinanceAdapter', () => {
 			expect(rateLimitWarnings).toHaveLength(1);
 		});
 	});
+
+	describe('getPayoutInputs', () => {
+		function adapterWithSummary(summary: any) {
+			const adapter = new YahooFinanceAdapter();
+			jest
+				.spyOn(adapter as any, 'fetchQuoteSummary')
+				.mockResolvedValue(summary);
+			return adapter;
+		}
+
+		it('extrai payoutRatio, dividendos pagos e lucro do mesmo exercicio', async () => {
+			const adapter = adapterWithSummary({
+				summaryDetail: { payoutRatio: 0.6104 },
+				cashflowStatementHistory: {
+					cashflowStatements: [
+						{ dividendsPaid: -3817472000, endDate: new Date('2024-12-31') },
+					],
+				},
+				incomeStatementHistory: {
+					incomeStatementHistory: [
+						{ netIncome: 6254050000, endDate: new Date('2024-12-31') },
+					],
+				},
+			});
+
+			const inputs = await adapter.getPayoutInputs('WEGE3');
+			expect(inputs.payoutRatio).toBeCloseTo(0.6104, 4);
+			expect(inputs.dividendsPaid).toBe(-3817472000);
+			expect(inputs.netIncome).toBe(6254050000);
+			expect(inputs.fiscalPeriod).toBe('2024');
+		});
+
+		it('nao devolve periodo quando os exercicios divergem', async () => {
+			const adapter = adapterWithSummary({
+				summaryDetail: {},
+				cashflowStatementHistory: {
+					cashflowStatements: [
+						{ dividendsPaid: -500, endDate: new Date('2024-12-31') },
+					],
+				},
+				incomeStatementHistory: {
+					incomeStatementHistory: [
+						{ netIncome: 1000, endDate: new Date('2023-12-31') },
+					],
+				},
+			});
+
+			const inputs = await adapter.getPayoutInputs('X');
+			expect(inputs.fiscalPeriod).toBeNull();
+		});
+
+		it('devolve tudo nulo quando a consulta falha', async () => {
+			const adapter = new YahooFinanceAdapter();
+			jest
+				.spyOn(adapter as any, 'fetchQuoteSummary')
+				.mockRejectedValue(new Error('Too Many Requests'));
+
+			await expect(adapter.getPayoutInputs('X')).resolves.toEqual({
+				payoutRatio: null,
+				dividendsPaid: null,
+				netIncome: null,
+				fiscalPeriod: null,
+			});
+		});
+	});
 });

@@ -16,12 +16,21 @@ export interface YahooFundamentalsSnapshot {
 	marketCap: number | null;
 }
 
+export interface YahooPayoutInputs {
+	payoutRatio: number | null;
+	dividendsPaid: number | null;
+	netIncome: number | null;
+	fiscalPeriod: string | null;
+}
+
 const QUOTE_SUMMARY_MODULES = [
 	'price',
 	'summaryDetail',
 	'defaultKeyStatistics',
 	'financialData',
 	'summaryProfile',
+	'cashflowStatementHistory',
+	'incomeStatementHistory',
 ] as const;
 
 @Injectable()
@@ -106,21 +115,62 @@ export class YahooFinanceAdapter {
 		}
 	}
 
+	private async fetchQuoteSummary(yahooSymbol: string): Promise<any> {
+		return yahooFinance.quoteSummary(
+			yahooSymbol,
+			{
+				modules: [...QUOTE_SUMMARY_MODULES],
+			},
+			{
+				fetchOptions: {
+					signal: AbortSignal.timeout(YahooFinanceAdapter.FETCH_TIMEOUT_MS),
+				},
+			}
+		);
+	}
+
+	private fiscalYear(date: unknown): string | null {
+		if (!date) return null;
+		const parsed = date instanceof Date ? date : new Date(String(date));
+		return Number.isNaN(parsed.getTime())
+			? null
+			: String(parsed.getUTCFullYear());
+	}
+
+	async getPayoutInputs(symbol: string): Promise<YahooPayoutInputs> {
+		const empty: YahooPayoutInputs = {
+			payoutRatio: null,
+			dividendsPaid: null,
+			netIncome: null,
+			fiscalPeriod: null,
+		};
+
+		try {
+			const raw = await this.fetchQuoteSummary(symbol);
+			const cash = raw?.cashflowStatementHistory?.cashflowStatements?.[0];
+			const income = raw?.incomeStatementHistory?.incomeStatementHistory?.[0];
+
+			const cashYear = this.fiscalYear(cash?.endDate);
+			const incomeYear = this.fiscalYear(income?.endDate);
+			const samePeriod =
+				cashYear !== null && incomeYear !== null && cashYear === incomeYear;
+
+			return {
+				payoutRatio: this.toNullableNumber(raw?.summaryDetail?.payoutRatio),
+				dividendsPaid: this.toNullableNumber(cash?.dividendsPaid),
+				netIncome: this.toNullableNumber(income?.netIncome),
+				fiscalPeriod: samePeriod ? cashYear : null,
+			};
+		} catch {
+			return empty;
+		}
+	}
+
 	private async fetchSnapshot(
 		yahooSymbol: string
 	): Promise<YahooFundamentalsSnapshot | null> {
 		try {
-			const raw = await yahooFinance.quoteSummary(
-				yahooSymbol,
-				{
-					modules: [...QUOTE_SUMMARY_MODULES],
-				},
-				{
-					fetchOptions: {
-						signal: AbortSignal.timeout(YahooFinanceAdapter.FETCH_TIMEOUT_MS),
-					},
-				}
-			);
+			const raw = await this.fetchQuoteSummary(yahooSymbol);
 
 			const snapshot: YahooFundamentalsSnapshot = {
 				price: this.toNullableNumber(raw?.price?.regularMarketPrice),
