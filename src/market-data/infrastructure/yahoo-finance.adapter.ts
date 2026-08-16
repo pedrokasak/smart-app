@@ -137,6 +137,24 @@ export class YahooFinanceAdapter {
 			: String(parsed.getUTCFullYear());
 	}
 
+	private statementTime(date: unknown): number | null {
+		if (!date) return null;
+		const parsed = date instanceof Date ? date : new Date(String(date));
+		return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+	}
+
+	private triggerRateLimitCooldown(): void {
+		const now = Date.now();
+		const alreadyRateLimited = YahooFinanceAdapter.rateLimitedUntil > now;
+		YahooFinanceAdapter.rateLimitedUntil =
+			now + YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS;
+		if (!alreadyRateLimited) {
+			this.logger.warn(
+				`Yahoo Finance retornou rate limit (429). Pausando consultas por ${YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS / 1000}s.`
+			);
+		}
+	}
+
 	async getPayoutInputs(symbol: string): Promise<YahooPayoutInputs> {
 		const empty: YahooPayoutInputs = {
 			payoutRatio: null,
@@ -145,23 +163,30 @@ export class YahooFinanceAdapter {
 			fiscalPeriod: null,
 		};
 
+		if (YahooFinanceAdapter.rateLimitedUntil > Date.now()) {
+			return empty;
+		}
+
 		try {
 			const raw = await this.fetchQuoteSummary(symbol);
 			const cash = raw?.cashflowStatementHistory?.cashflowStatements?.[0];
 			const income = raw?.incomeStatementHistory?.incomeStatementHistory?.[0];
 
-			const cashYear = this.fiscalYear(cash?.endDate);
-			const incomeYear = this.fiscalYear(income?.endDate);
+			const cashTime = this.statementTime(cash?.endDate);
+			const incomeTime = this.statementTime(income?.endDate);
 			const samePeriod =
-				cashYear !== null && incomeYear !== null && cashYear === incomeYear;
+				cashTime !== null && incomeTime !== null && cashTime === incomeTime;
 
 			return {
 				payoutRatio: this.toNullableNumber(raw?.summaryDetail?.payoutRatio),
 				dividendsPaid: this.toNullableNumber(cash?.dividendsPaid),
 				netIncome: this.toNullableNumber(income?.netIncome),
-				fiscalPeriod: samePeriod ? cashYear : null,
+				fiscalPeriod: samePeriod ? this.fiscalYear(cash?.endDate) : null,
 			};
-		} catch {
+		} catch (error) {
+			if (this.isRateLimitError(error)) {
+				this.triggerRateLimitCooldown();
+			}
 			return empty;
 		}
 	}
@@ -202,15 +227,7 @@ export class YahooFinanceAdapter {
 			return snapshot;
 		} catch (error) {
 			if (this.isRateLimitError(error)) {
-				const now = Date.now();
-				const alreadyRateLimited = YahooFinanceAdapter.rateLimitedUntil > now;
-				YahooFinanceAdapter.rateLimitedUntil =
-					now + YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS;
-				if (!alreadyRateLimited) {
-					this.logger.warn(
-						`Yahoo Finance retornou rate limit (429). Pausando consultas por ${YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS / 1000}s.`
-					);
-				}
+				this.triggerRateLimitCooldown();
 				return null;
 			}
 

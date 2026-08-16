@@ -323,6 +323,25 @@ describe('YahooFinanceAdapter', () => {
 			expect(inputs.fiscalPeriod).toBeNull();
 		});
 
+		it('nao devolve periodo quando as datas divergem dentro do mesmo ano', async () => {
+			const adapter = adapterWithSummary({
+				summaryDetail: {},
+				cashflowStatementHistory: {
+					cashflowStatements: [
+						{ dividendsPaid: -500, endDate: new Date('2024-06-30') },
+					],
+				},
+				incomeStatementHistory: {
+					incomeStatementHistory: [
+						{ netIncome: 1000, endDate: new Date('2024-12-31') },
+					],
+				},
+			});
+
+			const inputs = await adapter.getPayoutInputs('X');
+			expect(inputs.fiscalPeriod).toBeNull();
+		});
+
 		it('devolve tudo nulo quando a consulta falha', async () => {
 			const adapter = new YahooFinanceAdapter();
 			jest
@@ -335,6 +354,46 @@ describe('YahooFinanceAdapter', () => {
 				netIncome: null,
 				fiscalPeriod: null,
 			});
+		});
+
+		it('nao chama a rede quando o cooldown de rate limit esta ativo', async () => {
+			const adapter = new YahooFinanceAdapter();
+			const fetchSpy = jest
+				.spyOn(adapter as any, 'fetchQuoteSummary')
+				.mockResolvedValue({});
+			(YahooFinanceAdapter as any).rateLimitedUntil = Date.now() + 60000;
+
+			const inputs = await adapter.getPayoutInputs('X');
+
+			expect(inputs).toEqual({
+				payoutRatio: null,
+				dividendsPaid: null,
+				netIncome: null,
+				fiscalPeriod: null,
+			});
+			expect(fetchSpy).not.toHaveBeenCalled();
+		});
+
+		it('ativa o cooldown compartilhado quando recebe 429, curto-circuitando um getSnapshot seguinte', async () => {
+			const adapter = new YahooFinanceAdapter();
+			const rateLimitError = Object.assign(new Error('boom'), {
+				response: { status: 429 },
+			});
+			jest
+				.spyOn(adapter as any, 'fetchQuoteSummary')
+				.mockRejectedValue(rateLimitError);
+
+			await adapter.getPayoutInputs('X');
+
+			expect((YahooFinanceAdapter as any).rateLimitedUntil).toBeGreaterThan(
+				Date.now()
+			);
+
+			mockedQuoteSummary.mockClear();
+			const result = await adapter.getSnapshot('Y', 'stock');
+
+			expect(result).toBeNull();
+			expect(mockedQuoteSummary).not.toHaveBeenCalled();
 		});
 	});
 });
