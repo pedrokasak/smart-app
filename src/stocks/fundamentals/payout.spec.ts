@@ -81,10 +81,16 @@ describe('computePayout', () => {
 		).toBeNull();
 	});
 
-	it('nao reproduz o resultado de DY x P/L', () => {
-		// DY 4,21% x P/L 31,97 = 134,6%. O payout publicado e 61,04%.
-		// Este teste existe para travar a via proibida: se alguem trocar a
-		// implementacao por DY x P/L, o resultado sai da faixa.
+	it('mantem o resultado abaixo de 100 para os numeros reais de WEGE3', () => {
+		// Sanidade sobre o caso real: 3,82 bi distribuidos sobre 6,25 bi de
+		// lucro dao 61%, nao os 134% que a via proibida (DY x P/L) produziria
+		// com os indicadores publicados.
+		//
+		// Isto NAO impede alguem de adotar a via proibida: PayoutInput nao
+		// recebe DY nem P/L, entao ela e impossivel de escrever aqui dentro. A
+		// fronteira real e a assinatura, e o risco fica no chamador — quem
+		// monta os insumos precisa passar totais, nao racios. Isso se prende na
+		// tarefa que liga o payout a cascata, nao neste arquivo.
 		const resultado = computePayout({
 			dividendsTotal: -3817472000,
 			netIncome: 6254050000,
@@ -92,5 +98,16 @@ describe('computePayout', () => {
 			netIncomePeriod: '2024',
 		});
 		expect(resultado).toBeLessThan(100);
+	});
+
+	it('devolve Infinity para lucro positivo mas insignificante', () => {
+		expect(
+			computePayout({
+				dividendsTotal: -500,
+				netIncome: Number.MIN_VALUE,
+				dividendsPeriod: '2024',
+				netIncomePeriod: '2024',
+			}),
+		).toBe(Infinity);
 	});
 });
