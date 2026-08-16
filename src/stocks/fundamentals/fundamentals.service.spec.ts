@@ -5,9 +5,7 @@ function makeService(overrides: {
 	payoutInputs?: any;
 }) {
 	const fundamentus = {
-		getFields: jest
-			.fn()
-			.mockResolvedValue(overrides.fundamentusFields ?? {}),
+		getFields: jest.fn().mockResolvedValue(overrides.fundamentusFields ?? {}),
 	};
 	const yahoo = {
 		getPayoutInputs: jest.fn().mockResolvedValue(
@@ -16,13 +14,10 @@ function makeService(overrides: {
 				dividendsPaid: null,
 				netIncome: null,
 				fiscalPeriod: null,
-			},
+			}
 		),
 	};
-	const service = new FundamentalsService(
-		fundamentus as any,
-		yahoo as any,
-	);
+	const service = new FundamentalsService(fundamentus as any, yahoo as any);
 	return { service, fundamentus, yahoo };
 }
 
@@ -190,9 +185,33 @@ describe('FundamentalsService', () => {
 		fundamentus.getFields.mockResolvedValue({});
 		await service.getFundamentals('WEGE3', {});
 
-		expect(warn).toHaveBeenCalledWith(
-			expect.stringContaining('fundamentus'),
-		);
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('fundamentus'));
+	});
+
+	it('acusa deriva quando a pagina responde mas nenhum rotulo desejado resolve', async () => {
+		// Este e o cenario que o detector existe para pegar e que ele nao pegava:
+		// o Fundamentus devolve ~60 chaves mesmo quando o layout dos rotulos
+		// muda, entao contar chaves declarava a fonte saudavel. Aqui a fonte
+		// responde com um mapa cheio, mas de rotulos que nao sao os nossos.
+		const { service, fundamentus } = makeService({
+			fundamentusFields: NAO_BANCO,
+		});
+		const warn = jest
+			.spyOn((service as any).logger, 'warn')
+			.mockImplementation(() => undefined);
+
+		await service.getFundamentals('WEGE3', {});
+		expect(warn).not.toHaveBeenCalled();
+
+		const layoutNovo: Record<string, { value: number | null; text: string }> =
+			{};
+		for (let i = 0; i < 60; i++) {
+			layoutNovo[`CAMPO ${i}`] = { value: i, text: String(i) };
+		}
+		fundamentus.getFields.mockResolvedValue(layoutNovo);
+		await service.getFundamentals('WEGE3', {});
+
+		expect(warn).toHaveBeenCalledWith(expect.stringContaining('fundamentus'));
 	});
 
 	it('nao marca mixed quando o grupo veio coerente e so o payout veio de outra fonte', async () => {
