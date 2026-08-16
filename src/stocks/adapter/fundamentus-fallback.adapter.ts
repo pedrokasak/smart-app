@@ -8,6 +8,8 @@ type FundamentusSnapshot = {
 	text: FundamentusTextMap;
 };
 
+export type FundamentusField = { value: number | null; text: string };
+
 @Injectable()
 export class FundamentusFallbackAdapter {
 	private readonly logger = new Logger(FundamentusFallbackAdapter.name);
@@ -176,5 +178,29 @@ export class FundamentusFallbackAdapter {
 	async getIndicators(symbol: string): Promise<FundamentusIndicatorMap> {
 		const snapshot = await this.loadSnapshot(symbol);
 		return snapshot.numeric;
+	}
+
+	private parseNullableNumber(value: unknown): number | null {
+		if (value === null || value === undefined) return null;
+		const raw = String(value).trim();
+		if (!raw || raw === '-' || raw.toLowerCase() === 'n/a') return null;
+
+		const normalized = raw
+			.replace(/\./g, '')
+			.replace('%', '')
+			.replace(',', '.')
+			.replace(/[^\d.-]/g, '');
+
+		const parsed = Number(normalized);
+		return Number.isFinite(parsed) ? parsed : null;
+	}
+
+	async getFields(symbol: string): Promise<Record<string, FundamentusField>> {
+		const snapshot = await this.loadSnapshot(symbol);
+		const fields: Record<string, FundamentusField> = {};
+		for (const [key, text] of Object.entries(snapshot.text)) {
+			fields[key] = { value: this.parseNullableNumber(text), text };
+		}
+		return fields;
 	}
 }
