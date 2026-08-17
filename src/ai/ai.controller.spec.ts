@@ -3,6 +3,8 @@ import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
+import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
+import { PortfolioService } from 'src/portfolio/portfolio.service';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -26,6 +28,14 @@ const mockTrackerrScoreService = {
 	getScoreForUser: jest.fn(),
 };
 
+const mockUnifiedIntelligenceFacade = {
+	simulateFuture: jest.fn(),
+};
+
+const mockPortfolioService = {
+	getUserPortfolios: jest.fn(),
+};
+
 describe('AiController', () => {
 	let controller: AiController;
 
@@ -41,6 +51,14 @@ describe('AiController', () => {
 				{
 					provide: TrackerrScoreService,
 					useValue: mockTrackerrScoreService,
+				},
+				{
+					provide: UnifiedIntelligenceFacade,
+					useValue: mockUnifiedIntelligenceFacade,
+				},
+				{
+					provide: PortfolioService,
+					useValue: mockPortfolioService,
 				},
 			],
 		}).compile();
@@ -382,5 +400,56 @@ describe('AiController', () => {
 		expect(response.message).toContain('Destaque positivo: ITUB4');
 		expect(response.message).toContain('Atenção: BEEF3');
 		expect(response.message).toContain('Prioridade da semana');
+	});
+
+	describe('POST /ai/future-simulator', () => {
+		it('builds positions from the user portfolio and forwards horizon/monthlyContribution to the facade', async () => {
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						{ symbol: 'PETR4', type: 'stock', quantity: 100, price: 30 },
+						{ symbol: '', type: 'stock', quantity: 10, price: 10 },
+					],
+				},
+			]);
+			const fakeOutput = {
+				modelVersion: 'future_simulator_v1',
+				horizon: '5y',
+				months: 60,
+				currentPortfolioValue: 3000,
+				monthlyContribution: 500,
+				scenarios: {},
+				assumptions: {},
+				dividendProjection: {},
+				limitations: [],
+				confidence: 'high',
+			};
+			mockUnifiedIntelligenceFacade.simulateFuture.mockReturnValue(fakeOutput);
+
+			const response = await controller.futureSimulator(
+				{ user: { userId: 'user-123' } },
+				{ horizon: '5y', monthlyContribution: 500 }
+			);
+
+			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
+				'user-123'
+			);
+			// O ativo sem symbol e descartado (mesma regra de
+			// ChatOrchestratorService.toPositions).
+			expect(mockUnifiedIntelligenceFacade.simulateFuture).toHaveBeenCalledWith({
+				positions: [
+					expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
+				],
+				horizon: '5y',
+				monthlyContribution: 500,
+			});
+			expect(response).toBe(fakeOutput);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.futureSimulator({ user: {} }, { horizon: '1y' })
+			).rejects.toThrow('User ID ausente no token');
+		});
 	});
 });

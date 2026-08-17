@@ -19,10 +19,15 @@ import {
 } from '@nestjs/swagger';
 import { AiAnalysisResponseDto } from './dto/ai-analysis-response.dto';
 import { AiAnalysisRequestDto } from './dto/ai-analysis-request.dto';
+import { FutureSimulatorRequestDto } from './dto/future-simulator-request.dto';
 import { IntelligentChatRequestDto } from './intelligence/dto/intelligent-chat-request.dto';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { ChatOrchestratorResponse } from './orchestration/chat-orchestrator.types';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
+import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
+import { FutureSimulatorOutput } from 'src/intelligence/application/unified-intelligence.types';
+import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
+import { PortfolioService } from 'src/portfolio/portfolio.service';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -33,7 +38,9 @@ export class AiController {
 	constructor(
 		private readonly aiService: AiService,
 		private readonly chatOrchestratorService: ChatOrchestratorService,
-		private readonly trackerrScoreService: TrackerrScoreService
+		private readonly trackerrScoreService: TrackerrScoreService,
+		private readonly unifiedIntelligenceFacade: UnifiedIntelligenceFacade,
+		private readonly portfolioService: PortfolioService
 	) {}
 
 	/**
@@ -71,6 +78,38 @@ export class AiController {
 	@HttpCode(HttpStatus.OK)
 	async simulate(@Body() body: any): Promise<any> {
 		return this.aiService.simulate(body);
+	}
+
+	/**
+	 * POST /ai/future-simulator
+	 * Expoe FutureSimulatorService.simulate() diretamente, sem passar pela
+	 * API Python legada nem pelo chat. Mesma logica de projecao (cenarios
+	 * pessimista/base/otimista + dividendos) que o Chat Inteligente ja usa
+	 * internamente para a intencao "future_scenario".
+	 */
+	@Post('future-simulator')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async futureSimulator(
+		@Request() req: any,
+		@Body() body: FutureSimulatorRequestDto
+	): Promise<FutureSimulatorOutput> {
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
+
+		const portfolios = await this.portfolioService.getUserPortfolios(userId);
+		const assets = portfolios.flatMap((portfolio: any) =>
+			Array.isArray(portfolio?.assets) ? portfolio.assets : []
+		);
+		const positions = this.toPositions(assets);
+
+		return this.unifiedIntelligenceFacade.simulateFuture({
+			positions,
+			horizon: body.horizon,
+			monthlyContribution: body.monthlyContribution,
+		});
 	}
 
 	@Post('chat')
@@ -322,5 +361,52 @@ export class AiController {
 		const percentage = Number(entry?.percentage);
 		if (Number.isFinite(percentage) && percentage > 0) return percentage;
 		return 0;
+	}
+
+	// Mesma conversao de ChatOrchestratorService.toPositions/normalizeTicker
+	// (src/ai/orchestration/chat-orchestrator.service.ts). Duplicada em vez de
+	// extraida para nao alterar aquele arquivo, ja fortemente coberto por
+	// testes, so para ganhar um endpoint novo.
+	private toPositions(assets: any[]): PortfolioIntelligencePosition[] {
+		return assets
+			.map((asset: any) => ({
+				symbol: this.normalizeTicker(
+					asset?.symbol || asset?.ticker || asset?.stock || asset?.code || ''
+				),
+				assetType: (asset?.type || 'other') as
+					| 'stock'
+					| 'fii'
+					| 'crypto'
+					| 'etf'
+					| 'fund'
+					| 'other',
+				quantity: Number(asset?.quantity || 0),
+				totalValue:
+					typeof asset?.total === 'number' && asset.total > 0
+						? asset.total
+						: undefined,
+				price: typeof asset?.price === 'number' ? asset.price : undefined,
+				currentPrice:
+					typeof asset?.currentPrice === 'number'
+						? asset.currentPrice
+						: undefined,
+				sector: typeof asset?.sector === 'string' ? asset.sector : null,
+				volatility:
+					typeof asset?.volatility === 'number' ? asset.volatility : undefined,
+				beta: typeof asset?.beta === 'number' ? asset.beta : undefined,
+			}))
+			.filter((position) => !!position.symbol);
+	}
+
+	private normalizeTicker(value: string): string {
+		const normalized = String(value || '')
+			.trim()
+			.toUpperCase()
+			.replace(/\s+/g, '');
+		if (!normalized) return '';
+		const withNoDollar = normalized.replace(/^\$/, '');
+		const brWithSuffix = withNoDollar.match(/^([A-Z]{4}\d{1,2})\.(SA|B3)$/);
+		if (brWithSuffix) return brWithSuffix[1];
+		return withNoDollar;
 	}
 }
