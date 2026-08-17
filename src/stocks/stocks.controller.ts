@@ -1,6 +1,7 @@
 import { Controller, Get, Logger, Query } from '@nestjs/common';
 import { StockService } from './stocks.service';
 import { FundamentalsService } from './fundamentals/fundamentals.service';
+import { BankCapitalService } from './bank-capital/bank-capital.service';
 import {
 	ApiBearerAuth,
 	ApiOkResponse,
@@ -28,7 +29,8 @@ export class StocksController {
 
 	constructor(
 		private readonly stockService: StockService,
-		private readonly fundamentalsService: FundamentalsService
+		private readonly fundamentalsService: FundamentalsService,
+		private readonly bankCapitalService: BankCapitalService
 	) {}
 
 	@Get('all/national')
@@ -107,7 +109,11 @@ export class StocksController {
 			if (!results) return quote;
 			return {
 				...quote,
-				results: results.map((item: any) => ({ ...item, fundamentals: null })),
+				results: results.map((item: any) => ({
+					...item,
+					fundamentals: null,
+					bankCapital: null,
+				})),
 			};
 		}
 
@@ -135,22 +141,38 @@ export class StocksController {
 			const batch = results.slice(start, start + FUNDAMENTALS_BATCH_SIZE);
 			const enrichedBatch = await Promise.all(
 				batch.map(async (item: any) => {
-					try {
-						const fundamentals = await this.fundamentalsService.getFundamentals(
-							String(item?.symbol || fallbackSymbol),
-							item
-						);
-						return { ...item, fundamentals };
-					} catch (error) {
-						this.logger.warn(
-							`Falha ao montar fundamentos de ${item?.symbol}: ${String(error)}`
-						);
-						return { ...item, fundamentals: null };
-					}
+					const itemSymbol = String(item?.symbol || fallbackSymbol);
+					const [fundamentals, bankCapital] = await Promise.all([
+						this.fetchFundamentals(item, itemSymbol),
+						this.fetchBankCapital(itemSymbol),
+					]);
+					return { ...item, fundamentals, bankCapital };
 				})
 			);
 			enriched.push(...enrichedBatch);
 		}
 		return enriched;
+	}
+
+	private async fetchFundamentals(item: any, symbol: string) {
+		try {
+			return await this.fundamentalsService.getFundamentals(symbol, item);
+		} catch (error) {
+			this.logger.warn(
+				`Falha ao montar fundamentos de ${symbol}: ${String(error)}`
+			);
+			return null;
+		}
+	}
+
+	private async fetchBankCapital(symbol: string) {
+		try {
+			return await this.bankCapitalService.getIndicators(symbol);
+		} catch (error) {
+			this.logger.warn(
+				`Falha ao montar indicadores bancarios de ${symbol}: ${String(error)}`
+			);
+			return null;
+		}
 	}
 }

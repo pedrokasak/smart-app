@@ -8,6 +8,7 @@ import { FundamentusFallbackAdapter } from './adapter/fundamentus-fallback.adapt
 import { CvmOpenDataAdapter } from './adapter/cvm-open-data.adapter';
 import { YahooFinanceAdapter } from 'src/market-data/infrastructure/yahoo-finance.adapter';
 import { FundamentalsService } from './fundamentals/fundamentals.service';
+import { BankCapitalService } from './bank-capital/bank-capital.service';
 
 @Module({
 	imports: [HttpModule],
@@ -20,7 +21,8 @@ import { FundamentalsService } from './fundamentals/fundamentals.service';
 		CvmOpenDataAdapter,
 		YahooFinanceAdapter,
 		FundamentalsService,
+		BankCapitalService,
 	],
-	exports: [StockService, FundamentalsService],
+	exports: [StockService, FundamentalsService, BankCapitalService],
 })
 export class StockModule {}
