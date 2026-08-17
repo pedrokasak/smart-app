@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { StocksController, FUNDAMENTALS_BATCH_SIZE } from './stocks.controller';
 import { StockService } from 'src/stocks/stocks.service';
 import { FundamentalsService } from 'src/stocks/fundamentals/fundamentals.service';
+import { BankCapitalService } from 'src/stocks/bank-capital/bank-capital.service';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -25,12 +26,17 @@ describe('StocksController', () => {
 		getFundamentals: jest.fn(),
 	};
 
+	const mockBankCapitalService = {
+		getIndicators: jest.fn(),
+	};
+
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
 			controllers: [StocksController],
 			providers: [
 				{ provide: StockService, useValue: mockStockService },
 				{ provide: FundamentalsService, useValue: mockFundamentalsService },
+				{ provide: BankCapitalService, useValue: mockBankCapitalService },
 			],
 		}).compile();
 
@@ -94,7 +100,9 @@ describe('StocksController', () => {
 				interval: undefined,
 			});
 			expect(result).toEqual({
-				results: [{ symbol: 'PETR4', price: 35, fundamentals: null }],
+				results: [
+					{ symbol: 'PETR4', price: 35, fundamentals: null, bankCapital: null },
+				],
 			});
 		});
 	});
@@ -193,31 +201,33 @@ describe('StocksController', () => {
 				}
 			);
 
+			// bankCapital resolve na hora, mas ainda passa por Promise.all +
+			// try/catch dentro de cada item, entao precisamos de flush suficiente
+			const flushMicrotasks = async () => {
+				for (let i = 0; i < 10; i++) {
+					await Promise.resolve();
+				}
+			};
+
 			const responsePromise = controller.getStockQuoteNational(
 				items[0].symbol,
 				'true'
 			);
 
 			// deixa as microtasks do primeiro lote encadearem antes de inspecionar
-			await Promise.resolve();
-			await Promise.resolve();
-			await Promise.resolve();
+			await flushMicrotasks();
 
 			expect(callOrder.length).toBe(FUNDAMENTALS_BATCH_SIZE);
 
 			// resolve o primeiro lote e libera o segundo
 			pendingResolvers.splice(0).forEach((resolve) => resolve());
-			await Promise.resolve();
-			await Promise.resolve();
-			await Promise.resolve();
+			await flushMicrotasks();
 
 			expect(callOrder.length).toBe(FUNDAMENTALS_BATCH_SIZE * 2);
 
 			// resolve o segundo lote e libera o restante
 			pendingResolvers.splice(0).forEach((resolve) => resolve());
-			await Promise.resolve();
-			await Promise.resolve();
-			await Promise.resolve();
+			await flushMicrotasks();
 
 			expect(callOrder.length).toBe(totalItems);
 
@@ -228,6 +238,118 @@ describe('StocksController', () => {
 			expect(
 				response.results.every((item: any) => item.fundamentals !== null)
 			).toBe(true);
+		});
+	});
+
+	describe('national/quote com bankCapital', () => {
+		it('anexa bankCapital ao lado de fundamentals, no mesmo item', async () => {
+			const bankCapital = {
+				symbol: 'BBAS3',
+				bankName: 'Banco do Brasil',
+				period: '2026-03',
+				basileia: 14.23,
+				imobilizacao: 20.5,
+			};
+			const service = {
+				getNationalQuote: jest.fn().mockResolvedValue({
+					results: [{ symbol: 'BBAS3', regularMarketPrice: 30 }],
+				}),
+			};
+			const fundamentalsService = {
+				getFundamentals: jest.fn().mockResolvedValue({
+					symbol: 'BBAS3',
+					sector: 'Intermediários Financeiros',
+					mixed: false,
+					values: {},
+				}),
+			};
+			const bankCapitalService = {
+				getIndicators: jest.fn().mockResolvedValue(bankCapital),
+			};
+			const controller = new StocksController(
+				service as any,
+				fundamentalsService as any,
+				bankCapitalService as any
+			);
+
+			const response = await controller.getStockQuoteNational('BBAS3', 'true');
+
+			expect(response.results[0].bankCapital).toEqual(bankCapital);
+			expect(response.results[0].fundamentals).toBeTruthy();
+			expect(bankCapitalService.getIndicators).toHaveBeenCalledWith('BBAS3');
+		});
+
+		it('devolve bankCapital null para ativo fora da lista fixa de bancos', async () => {
+			const service = {
+				getNationalQuote: jest.fn().mockResolvedValue({
+					results: [{ symbol: 'PETR4', regularMarketPrice: 30 }],
+				}),
+			};
+			const fundamentalsService = {
+				getFundamentals: jest.fn().mockResolvedValue(null),
+			};
+			const bankCapitalService = {
+				getIndicators: jest.fn().mockResolvedValue(null),
+			};
+			const controller = new StocksController(
+				service as any,
+				fundamentalsService as any,
+				bankCapitalService as any
+			);
+
+			const response = await controller.getStockQuoteNational('PETR4', 'true');
+
+			expect(response.results[0].bankCapital).toBeNull();
+		});
+
+		it('falha isolada de bankCapital nao derruba fundamentals nem a cotacao', async () => {
+			const service = {
+				getNationalQuote: jest.fn().mockResolvedValue({
+					results: [{ symbol: 'BBAS3', regularMarketPrice: 30 }],
+				}),
+			};
+			const fundamentalsService = {
+				getFundamentals: jest.fn().mockResolvedValue({
+					symbol: 'BBAS3',
+					sector: 'Intermediários Financeiros',
+					mixed: false,
+					values: {},
+				}),
+			};
+			const bankCapitalService = {
+				getIndicators: jest.fn().mockRejectedValue(new Error('bcb fora')),
+			};
+			const controller = new StocksController(
+				service as any,
+				fundamentalsService as any,
+				bankCapitalService as any
+			);
+
+			const response = await controller.getStockQuoteNational('BBAS3', 'true');
+
+			expect(response.results[0].regularMarketPrice).toBe(30);
+			expect(response.results[0].fundamentals).toBeTruthy();
+			expect(response.results[0].bankCapital).toBeNull();
+		});
+
+		it('quando fundamental nao e true, bankCapital vem null sem chamar o servico', async () => {
+			const service = {
+				getNationalQuote: jest.fn().mockResolvedValue({
+					results: [{ symbol: 'BBAS3', regularMarketPrice: 30 }],
+				}),
+			};
+			const fundamentalsService = { getFundamentals: jest.fn() };
+			const bankCapitalService = { getIndicators: jest.fn() };
+			const controller = new StocksController(
+				service as any,
+				fundamentalsService as any,
+				bankCapitalService as any
+			);
+
+			const response = await controller.getStockQuoteNational('BBAS3');
+
+			expect(response.results[0].bankCapital).toBeNull();
+			expect(bankCapitalService.getIndicators).not.toHaveBeenCalled();
 		});
 	});
 });
