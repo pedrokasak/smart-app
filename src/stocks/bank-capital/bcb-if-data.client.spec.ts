@@ -1,0 +1,68 @@
+import { fetchQuarterValues } from './bcb-if-data.client';
+
+function mockFetchOnce(body: unknown, ok = true, status = 200) {
+	(global as any).fetch = jest.fn().mockResolvedValue({
+		ok,
+		status,
+		json: async () => body,
+	});
+}
+
+describe('fetchQuarterValues', () => {
+	afterEach(() => {
+		jest.restoreAllMocks();
+	});
+
+	it('converte fracao para ponto percentual', async () => {
+		mockFetchOnce({
+			value: [
+				{ Conta: '79662', Saldo: 0.164727615151616 },
+				{ Conta: '79664', Saldo: 0.141387163462059 },
+			],
+		});
+		const result = await fetchQuarterValues('C0080329', '202503');
+		expect(result.imobilizacao).toBeCloseTo(16.4727615151616, 5);
+		expect(result.basileia).toBeCloseTo(14.1387163462059, 5);
+	});
+
+	it('desduplica linhas repetidas com o mesmo valor', async () => {
+		mockFetchOnce({
+			value: [
+				{ Conta: '79664', Saldo: 0.148063888146171 },
+				{ Conta: '79664', Saldo: 0.148063888146171 },
+				{ Conta: '79664', Saldo: 0.148063888146171 },
+			],
+		});
+		const result = await fetchQuarterValues('C0080329', '202509');
+		expect(result.basileia).toBeCloseTo(14.8063888146171, 5);
+	});
+
+	it('devolve null para a conta ausente na resposta, sem afetar a outra', async () => {
+		mockFetchOnce({
+			value: [{ Conta: '79664', Saldo: 0.1414 }],
+		});
+		const result = await fetchQuarterValues('C0080329', '202506');
+		expect(result.basileia).toBeCloseTo(14.14, 2);
+		expect(result.imobilizacao).toBeNull();
+	});
+
+	it('devolve os dois null quando value vem vazio', async () => {
+		mockFetchOnce({ value: [] });
+		const result = await fetchQuarterValues('C0080329', '202606');
+		expect(result).toEqual({ basileia: null, imobilizacao: null });
+	});
+
+	it('devolve os dois null em resposta HTTP de erro, sem lancar', async () => {
+		mockFetchOnce({}, false, 500);
+		await expect(
+			fetchQuarterValues('C0080329', '202606'),
+		).resolves.toEqual({ basileia: null, imobilizacao: null });
+	});
+
+	it('devolve os dois null quando o fetch rejeita, sem lancar', async () => {
+		(global as any).fetch = jest.fn().mockRejectedValue(new Error('timeout'));
+		await expect(
+			fetchQuarterValues('C0080329', '202606'),
+		).resolves.toEqual({ basileia: null, imobilizacao: null });
+	});
+});
