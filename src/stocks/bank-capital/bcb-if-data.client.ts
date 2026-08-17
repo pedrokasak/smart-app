@@ -1,6 +1,11 @@
 const BASILEIA_CONTA = '79664';
 const IMOBILIZACAO_CONTA = '79662';
-const FETCH_TIMEOUT_MS = 8000;
+/**
+ * Teto por fetch. Exportado porque a caminhada de trimestres em
+ * `BankCapitalService` faz aritmetica de orcamento em cima deste valor —
+ * duplicar a constante la deixaria as duas silenciosamente divergentes.
+ */
+export const FETCH_TIMEOUT_MS = 8000;
 
 export interface BcbQuarterValues {
 	/**
@@ -28,6 +33,7 @@ function buildUrl(prudentialCode: string, anoMes: string): string {
 export async function fetchQuarterValues(
 	prudentialCode: string,
 	anoMes: string,
+	timeoutMs: number = FETCH_TIMEOUT_MS,
 ): Promise<BcbQuarterValues> {
 	const failed: BcbQuarterValues = {
 		ok: false,
@@ -37,16 +43,16 @@ export async function fetchQuarterValues(
 
 	try {
 		const response = await fetch(buildUrl(prudentialCode, anoMes), {
-			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
+			signal: AbortSignal.timeout(timeoutMs),
 		});
 		if (!response.ok) return failed;
 
 		const body = await response.json();
-		const rows: Array<{ Conta?: string; Saldo?: number }> = Array.isArray(
-			body?.value,
-		)
-			? body.value
-			: [];
+		// Resposta OData sempre traz `value` como array (vazio quando o
+		// trimestre nao publicou). Qualquer outra forma e corpo ilegivel, nao
+		// ausencia de dado — tratar como transitorio para nao cachear 24h.
+		if (!Array.isArray(body?.value)) return failed;
+		const rows: Array<{ Conta?: string; Saldo?: number }> = body.value;
 
 		const seenContas = new Map<string, number | null>();
 		for (const row of rows) {

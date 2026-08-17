@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { getBankEntry } from './bank-map';
-import { fetchQuarterValues } from './bcb-if-data.client';
+import { FETCH_TIMEOUT_MS, fetchQuarterValues } from './bcb-if-data.client';
 import { BankCapitalResult } from './bank-capital.types';
 
 const MAX_QUARTER_ATTEMPTS = 4;
@@ -16,7 +16,13 @@ const TRANSIENT_CACHE_TTL_MS = 3 * 60 * 1000;
 // 32s por simbolo bancario se multiplicaria por lote. Com 10s, o pior caso da
 // descoberta fica na mesma ordem de grandeza de um unico fetch estourado.
 const DISCOVERY_BUDGET_MS = 10 * 1000;
-const FETCH_TIMEOUT_MS = 8000;
+// Piso de orcamento para valer a pena abrir mais um trimestre. O Olinda
+// IF.data responde abaixo de 1s no caminho feliz, entao 1s de sobra ainda da
+// chance real de a tentativa completar; abaixo disso o fetch quase certamente
+// seria abortado no meio e queimaria o resto do orcamento a troco de nada.
+// Nao usar FETCH_TIMEOUT_MS aqui: exigir os 8s cheios de folga transformaria o
+// teto de 10s em 2s uteis.
+const MIN_ATTEMPT_BUDGET_MS = 1000;
 
 function currentQuarterAnoMes(now: Date): string {
 	const year = now.getUTCFullYear();
@@ -91,19 +97,24 @@ export class BankCapitalService {
 		let transient = false;
 
 		for (let attempt = 0; attempt < MAX_QUARTER_ATTEMPTS; attempt++) {
-			// Orcamento de relogio sobre a caminhada inteira: so comeca mais um
-			// trimestre se ele ainda couber no teto no pior caso (timeout cheio).
-			if (
-				attempt > 0 &&
-				Date.now() - startedAt + FETCH_TIMEOUT_MS > DISCOVERY_BUDGET_MS
-			) {
+			// Orcamento de relogio sobre a caminhada inteira: o que sobra do teto
+			// e o que ainda pode ser gasto, e cada fetch recebe esse resto como
+			// timeout proprio. Assim a caminhada usa o orcamento inteiro em vez
+			// de reservar o pior caso de cada tentativa restante, e mesmo assim
+			// nunca ultrapassa DISCOVERY_BUDGET_MS.
+			const remaining = DISCOVERY_BUDGET_MS - (Date.now() - startedAt);
+			if (attempt > 0 && remaining < MIN_ATTEMPT_BUDGET_MS) {
 				this.logger.warn(
 					`Orcamento de ${DISCOVERY_BUDGET_MS}ms esgotado na descoberta do BCB para ${entry.symbol} apos ${attempt} trimestre(s); desistindo`
 				);
 				return { data: null, transient: true };
 			}
 
-			const values = await fetchQuarterValues(entry.prudentialCode, anoMes);
+			const values = await fetchQuarterValues(
+				entry.prudentialCode,
+				anoMes,
+				Math.min(FETCH_TIMEOUT_MS, Math.max(remaining, MIN_ATTEMPT_BUDGET_MS))
+			);
 			if (!values.ok) transient = true;
 			if (values.basileia !== null || values.imobilizacao !== null) {
 				return {

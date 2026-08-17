@@ -52,6 +52,15 @@ describe('fetchQuarterValues', () => {
 		expect(result).toEqual({ ok: true, basileia: null, imobilizacao: null });
 	});
 
+	it('marca ok=false quando o 200 vem sem o array value (forma OData inesperada)', async () => {
+		mockFetchOnce({ error: { message: 'unexpected' } });
+		await expect(fetchQuarterValues('C0080329', '202606')).resolves.toEqual({
+			ok: false,
+			basileia: null,
+			imobilizacao: null,
+		});
+	});
+
 	it('devolve os dois null em resposta HTTP de erro, sem lancar, marcando ok=false', async () => {
 		mockFetchOnce({}, false, 500);
 		await expect(fetchQuarterValues('C0080329', '202606')).resolves.toEqual({

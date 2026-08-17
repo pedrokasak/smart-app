@@ -35,11 +35,13 @@ describe('BankCapitalService', () => {
 			1,
 			'C0080329',
 			'202606',
+			8000,
 		);
 		expect(mockFetchQuarterValues).toHaveBeenNthCalledWith(
 			2,
 			'C0080329',
 			'202603',
+			8000,
 		);
 		expect(result).toEqual({
 			symbol: 'BBAS3',
@@ -149,17 +151,105 @@ describe('BankCapitalService', () => {
 	});
 
 	// I2: teto de relogio sobre a caminhada inteira, nao so por fetch.
-	it('desiste dentro do orcamento quando cada trimestre e lento sem estourar o timeout de 8s (I2)', async () => {
-		const startedAt = Date.now();
-		mockFetchQuarterValues.mockImplementation(async () => {
-			jest.setSystemTime(new Date(Date.now() + 4000)); // 4s por fetch
-			return { ok: true, basileia: null, imobilizacao: null };
+	describe('orcamento de relogio da caminhada (I2)', () => {
+		/**
+		 * Simula uma latencia fixa por trimestre. O fetch respeita o timeout que
+		 * recebeu: se o resto do orcamento for menor que a latencia, a chamada
+		 * aborta no timeout em vez de estourar o teto.
+		 */
+		function withLatency(latencyMs: number) {
+			mockFetchQuarterValues.mockImplementation(
+				async (_code: string, _anoMes: string, timeoutMs: number) => {
+					jest.setSystemTime(
+						new Date(Date.now() + Math.min(latencyMs, timeoutMs)),
+					);
+					return { ok: true, basileia: null, imobilizacao: null };
+				},
+			);
+		}
+
+		// Regressao do bug de aritmetica: somar FETCH_TIMEOUT_MS inteiro ao
+		// tempo decorrido antes de comparar com o teto encurtava o orcamento de
+		// 10s para 2s uteis, e a caminhada desistia no 2o/3o trimestre com
+		// qualquer latencia acima de ~660ms.
+		it.each([500, 700, 1000, 2000])(
+			'usa as 4 tentativas com %ims por trimestre — o orcamento de 10s vale 10s, nao 2s',
+			async (latency) => {
+				const startedAt = Date.now();
+				withLatency(latency);
+
+				const result = await service.getIndicators('BBAS3');
+
+				expect(result).toBeNull();
+				expect(mockFetchQuarterValues).toHaveBeenCalledTimes(4);
+				expect(Date.now() - startedAt).toBeLessThanOrEqual(10_000);
+			},
+		);
+
+		it('mantem o cache de 24h quando as 4 tentativas couberam no orcamento (nao vira transitorio)', async () => {
+			withLatency(2000);
+
+			expect(await service.getIndicators('BBAS3')).toBeNull();
+			expect(mockFetchQuarterValues).toHaveBeenCalledTimes(4);
+
+			mockFetchQuarterValues.mockClear();
+			jest.setSystemTime(new Date('2026-08-16T12:30:00Z')); // +30min
+			expect(await service.getIndicators('BBAS3')).toBeNull();
+			expect(mockFetchQuarterValues).not.toHaveBeenCalled();
 		});
 
-		const result = await service.getIndicators('BBAS3');
+		it('corta a caminhada quando o trimestre e lento demais, sem ultrapassar o teto', async () => {
+			const startedAt = Date.now();
+			withLatency(5000);
 
-		expect(result).toBeNull();
-		expect(mockFetchQuarterValues.mock.calls.length).toBeLessThan(4);
-		expect(Date.now() - startedAt).toBeLessThanOrEqual(10_000);
+			const result = await service.getIndicators('BBAS3');
+
+			expect(result).toBeNull();
+			expect(mockFetchQuarterValues.mock.calls.length).toBeLessThan(4);
+			expect(Date.now() - startedAt).toBeLessThanOrEqual(10_000);
+		});
+
+		it('nao ultrapassa o teto quando o trimestre estoura o timeout por fetch', async () => {
+			const startedAt = Date.now();
+			withLatency(9000); // acima do teto de 8s por fetch
+
+			await service.getIndicators('BBAS3');
+
+			// 8000 (1o fetch, cortado pelo teto por fetch) + 2000 (resto do
+			// orcamento). Sem o timeout por chamada, o 2o fetch levaria 8s e a
+			// caminhada terminaria em 16s, estourando o teto de 10s.
+			expect(Date.now() - startedAt).toBeLessThanOrEqual(10_000);
+		});
+
+		it('da ao ultimo fetch o resto do orcamento como timeout, em vez de recusar a tentativa', async () => {
+			withLatency(5000);
+
+			await service.getIndicators('BBAS3');
+
+			// 1a chamada: orcamento inteiro, limitado pelo teto por fetch.
+			expect(mockFetchQuarterValues.mock.calls[0][2]).toBe(8000);
+			// 2a: sobraram 5s do orcamento, entao o fetch recebe 5s, nao 8s.
+			expect(mockFetchQuarterValues.mock.calls[1][2]).toBe(5000);
+		});
+
+		// Interlock da rodada anterior: caminhada cortada pelo orcamento nao
+		// prova ausencia de dado, entao continua com o cache curto de 3min.
+		it('classifica a caminhada esgotada pelo orcamento como transitoria (cache curto, nao 24h)', async () => {
+			withLatency(5000);
+
+			expect(await service.getIndicators('BBAS3')).toBeNull();
+
+			mockFetchQuarterValues.mockReset();
+			mockFetchQuarterValues.mockResolvedValue({
+				ok: true,
+				basileia: 14.23,
+				imobilizacao: 20.5,
+			});
+			jest.setSystemTime(new Date('2026-08-16T12:30:00Z')); // +30min
+
+			const second = await service.getIndicators('BBAS3');
+			expect(mockFetchQuarterValues).toHaveBeenCalled();
+			expect(second?.basileia).toBe(14.23);
+		});
 	});
 });
