@@ -91,25 +91,46 @@ export class AiController {
 		if (!userId) {
 			throw new UnauthorizedException('User ID ausente no token');
 		}
-		const orchestration = await this.chatOrchestratorService.orchestrate(
-			userId,
-			body?.question || '',
-			{
-				investorProfile: body?.investorProfile,
-				copilotFlow: body?.copilotFlow,
-				decisionFlow: body?.decisionFlow,
-			}
-		);
-		return {
-			intent: orchestration.intent,
-			deterministic: orchestration.deterministic,
-			route: orchestration.route,
-			message: this.buildIntelligentMessage(orchestration),
-			data: orchestration.data,
-			unavailable: orchestration.unavailable,
-			warnings: orchestration.warnings,
-			assumptions: orchestration.assumptions,
-		};
+		try {
+			const orchestration = await this.chatOrchestratorService.orchestrate(
+				userId,
+				body?.question || '',
+				{
+					investorProfile: body?.investorProfile,
+					copilotFlow: body?.copilotFlow,
+					decisionFlow: body?.decisionFlow,
+				}
+			);
+			return {
+				intent: orchestration.intent,
+				deterministic: orchestration.deterministic,
+				route: orchestration.route,
+				message: this.buildIntelligentMessage(orchestration),
+				data: orchestration.data,
+				unavailable: orchestration.unavailable,
+				warnings: orchestration.warnings,
+				assumptions: orchestration.assumptions,
+			};
+		} catch (error: any) {
+			this.logger.error(
+				`intelligentChat orchestration failed: ${error?.message || 'unknown_error'}`
+			);
+			return {
+				intent: 'unknown',
+				deterministic: false,
+				route: {
+					type: 'synthesis_required',
+					llmEligible: true,
+					reason: 'insufficient_structured_data',
+				},
+				message:
+					'Não consegui consolidar todos os dados agora, mas posso continuar te ajudando. Tente reformular a pergunta ou repetir em instantes.',
+				data: {},
+				unavailable: [],
+				warnings: ['chat_orchestration_failed'],
+				assumptions: [],
+			};
+		}
 	}
 
 	@Post('trackerr-score')
@@ -159,8 +180,7 @@ export class AiController {
 				const topAsset = (data as any)?.portfolioRisk
 					?.concentrationByAsset?.[0];
 				const topConcentrationPct = Number(topAsset?.percentage ?? 0);
-				const rebalanceSuggestion = (data as any)?.portfolioRisk
-					?.rebalanceSuggestion;
+				const rebalanceSuggestion = (data as any)?.rebalanceSuggestion;
 
 				let msg = 'Avaliei a exposição e as concentrações do seu portfólio.';
 				if (typeof riskScore === 'number') {
