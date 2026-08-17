@@ -3,6 +3,16 @@ const IMOBILIZACAO_CONTA = '79662';
 const FETCH_TIMEOUT_MS = 8000;
 
 export interface BcbQuarterValues {
+	/**
+	 * `true` quando o BCB respondeu e a resposta foi lida com sucesso — mesmo
+	 * que o trimestre nao traga as contas procuradas (ausencia legitima de
+	 * publicacao). `false` apenas para falha transitoria (rede, timeout,
+	 * HTTP != 2xx, corpo ilegivel), em que os nulls NAO significam "sem dado".
+	 *
+	 * O contrato de "nunca lanca" continua valendo: o chamador fora deste
+	 * modulo nunca ve excecao, so este flag.
+	 */
+	ok: boolean;
 	basileia: number | null;
 	imobilizacao: number | null;
 }
@@ -19,13 +29,17 @@ export async function fetchQuarterValues(
 	prudentialCode: string,
 	anoMes: string,
 ): Promise<BcbQuarterValues> {
-	const empty: BcbQuarterValues = { basileia: null, imobilizacao: null };
+	const failed: BcbQuarterValues = {
+		ok: false,
+		basileia: null,
+		imobilizacao: null,
+	};
 
 	try {
 		const response = await fetch(buildUrl(prudentialCode, anoMes), {
 			signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
 		});
-		if (!response.ok) return empty;
+		if (!response.ok) return failed;
 
 		const body = await response.json();
 		const rows: Array<{ Conta?: string; Saldo?: number }> = Array.isArray(
@@ -46,10 +60,11 @@ export async function fetchQuarterValues(
 			value === null ? null : value * 100;
 
 		return {
+			ok: true,
 			basileia: toPercent(seenContas.get(BASILEIA_CONTA) ?? null),
 			imobilizacao: toPercent(seenContas.get(IMOBILIZACAO_CONTA) ?? null),
 		};
 	} catch {
-		return empty;
+		return failed;
 	}
 }

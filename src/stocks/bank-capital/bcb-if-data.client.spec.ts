@@ -46,23 +46,27 @@ describe('fetchQuarterValues', () => {
 		expect(result.imobilizacao).toBeNull();
 	});
 
-	it('devolve os dois null quando value vem vazio', async () => {
+	it('devolve os dois null quando value vem vazio, marcando ok=true', async () => {
 		mockFetchOnce({ value: [] });
 		const result = await fetchQuarterValues('C0080329', '202606');
-		expect(result).toEqual({ basileia: null, imobilizacao: null });
+		expect(result).toEqual({ ok: true, basileia: null, imobilizacao: null });
 	});
 
-	it('devolve os dois null em resposta HTTP de erro, sem lancar', async () => {
+	it('devolve os dois null em resposta HTTP de erro, sem lancar, marcando ok=false', async () => {
 		mockFetchOnce({}, false, 500);
-		await expect(
-			fetchQuarterValues('C0080329', '202606'),
-		).resolves.toEqual({ basileia: null, imobilizacao: null });
+		await expect(fetchQuarterValues('C0080329', '202606')).resolves.toEqual({
+			ok: false,
+			basileia: null,
+			imobilizacao: null,
+		});
 	});
 
-	it('devolve os dois null quando o fetch rejeita, sem lancar', async () => {
+	it('devolve os dois null quando o fetch rejeita, sem lancar, marcando ok=false', async () => {
 		(global as any).fetch = jest.fn().mockRejectedValue(new Error('timeout'));
-		await expect(
-			fetchQuarterValues('C0080329', '202606'),
-		).resolves.toEqual({ basileia: null, imobilizacao: null });
+		await expect(fetchQuarterValues('C0080329', '202606')).resolves.toEqual({
+			ok: false,
+			basileia: null,
+			imobilizacao: null,
+		});
 	});
 });
