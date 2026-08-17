@@ -25,16 +25,16 @@ describe('fetchQuarterValues', () => {
 		expect(result.basileia).toBeCloseTo(14.1387163462059, 5);
 	});
 
-	it('desduplica linhas repetidas com o mesmo valor', async () => {
+	it('desduplica linhas repetidas mantendo a primeira ocorrencia', async () => {
 		mockFetchOnce({
 			value: [
-				{ Conta: '79664', Saldo: 0.148063888146171 },
-				{ Conta: '79664', Saldo: 0.148063888146171 },
-				{ Conta: '79664', Saldo: 0.148063888146171 },
+				{ Conta: '79664', Saldo: 0.1 },
+				{ Conta: '79664', Saldo: 0.2 },
+				{ Conta: '79664', Saldo: 0.3 },
 			],
 		});
 		const result = await fetchQuarterValues('C0080329', '202509');
-		expect(result.basileia).toBeCloseTo(14.8063888146171, 5);
+		expect(result.basileia).toBeCloseTo(10, 5);
 	});
 
 	it('devolve null para a conta ausente na resposta, sem afetar a outra', async () => {
