@@ -49,7 +49,7 @@ export class FundamentusFallbackAdapter {
 		string,
 		Promise<FundamentusSnapshot>
 	>();
-	private static readonly CACHE_TTL_MS = 10 * 60 * 1000;
+	private static readonly CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 
 	private parseNumber(value: unknown): number {
 		if (value === null || value === undefined) return 0;
