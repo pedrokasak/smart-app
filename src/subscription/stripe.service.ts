@@ -197,7 +197,6 @@ export class StripeService {
 	): Promise<Stripe.Checkout.Session> {
 		try {
 			const user = await this.userModel.findById(userId);
-			console.log(user);
 			if (!user) {
 				throw new NotFoundException('Usuário não encontrado');
 			}
