@@ -6,6 +6,7 @@ import { TrackerrScoreService } from 'src/intelligence/application/trackerr-scor
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
 import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
+import { PortfolioErrorRadarService } from 'src/intelligence/application/portfolio-error-radar.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 
 jest.mock('../env.ts', () => ({
@@ -42,6 +43,10 @@ const mockAssetOpinionService = {
 	getOpinion: jest.fn(),
 };
 
+const mockPortfolioErrorRadarService = {
+	detect: jest.fn(),
+};
+
 const mockPortfolioService = {
 	getUserPortfolios: jest.fn(),
 };
@@ -73,6 +78,10 @@ describe('AiController', () => {
 				{
 					provide: AssetOpinionService,
 					useValue: mockAssetOpinionService,
+				},
+				{
+					provide: PortfolioErrorRadarService,
+					useValue: mockPortfolioErrorRadarService,
 				},
 				{
 					provide: PortfolioService,
@@ -543,6 +552,53 @@ describe('AiController', () => {
 			await expect(
 				controller.assetOpinion({ user: {} }, { symbol: 'PETR4' })
 			).rejects.toThrow('User ID ausente no token');
+		});
+	});
+
+	describe('GET /ai/error-radar', () => {
+		it('builds positions from the user portfolio and returns the service output', async () => {
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						{ symbol: 'PETR4', type: 'stock', quantity: 100, price: 30 },
+						{ symbol: '', type: 'stock', quantity: 10, price: 10 },
+					],
+				},
+			]);
+			const fakeOutput = {
+				modelVersion: 'portfolio_error_radar_v1',
+				status: 'ok',
+				riskLevel: 'high',
+				alerts: [
+					{
+						code: 'ASSET_CONCENTRATION_HIGH',
+						type: 'concentration',
+						severity: 'high',
+						message: 'PETR4 representa 100.0% da carteira.',
+						symbol: 'PETR4',
+					},
+				],
+				positionsCount: 1,
+			};
+			mockPortfolioErrorRadarService.detect.mockReturnValue(fakeOutput);
+
+			const response = await controller.errorRadar({
+				user: { userId: 'user-123' },
+			});
+
+			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
+				'user-123'
+			);
+			expect(mockPortfolioErrorRadarService.detect).toHaveBeenCalledWith([
+				expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
+			]);
+			expect(response).toBe(fakeOutput);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(controller.errorRadar({ user: {} })).rejects.toThrow(
+				'User ID ausente no token'
+			);
 		});
 	});
 });

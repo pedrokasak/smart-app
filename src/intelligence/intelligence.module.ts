@@ -6,6 +6,7 @@ import { InvestmentCommitteeBriefingService } from 'src/intelligence/application
 import { InvestorProfileInsightsService } from 'src/intelligence/application/investor-profile-insights.service';
 import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
 import { OpportunityRadarService } from 'src/intelligence/application/opportunity-radar.service';
+import { PortfolioErrorRadarService } from 'src/intelligence/application/portfolio-error-radar.service';
 import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
 import { PremiumInsightsService } from 'src/intelligence/application/premium-insights.service';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
@@ -25,6 +26,7 @@ import { PortfolioModule } from 'src/portfolio/portfolio.module';
 		UnifiedIntelligenceFacade,
 		OpportunityRadarService,
 		PortfolioScoreService,
+		PortfolioErrorRadarService,
 		AssetOpinionService,
 		FutureSimulatorService,
 		PremiumInsightsService,
@@ -36,6 +38,7 @@ import { PortfolioModule } from 'src/portfolio/portfolio.module';
 	exports: [
 		UnifiedIntelligenceFacade,
 		PortfolioScoreService,
+		PortfolioErrorRadarService,
 		AssetOpinionService,
 		TradeDecisionService,
 		TrackerrScoreService,
