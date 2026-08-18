@@ -29,6 +29,8 @@ import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.
 import { AssetOpinionOutput } from 'src/intelligence/application/asset-opinion.types';
 import { AssetOpinionRequestDto } from './dto/asset-opinion-request.dto';
 import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
+import { PortfolioErrorRadarService } from 'src/intelligence/application/portfolio-error-radar.service';
+import { PortfolioErrorRadarOutput } from 'src/intelligence/application/portfolio-error-radar.types';
 import { PortfolioScoreOutput } from 'src/intelligence/application/portfolio-score.types';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { FutureSimulatorOutput } from 'src/intelligence/application/unified-intelligence.types';
@@ -46,6 +48,7 @@ export class AiController {
 		private readonly chatOrchestratorService: ChatOrchestratorService,
 		private readonly trackerrScoreService: TrackerrScoreService,
 		private readonly portfolioScoreService: PortfolioScoreService,
+		private readonly portfolioErrorRadarService: PortfolioErrorRadarService,
 		private readonly assetOpinionService: AssetOpinionService,
 		private readonly unifiedIntelligenceFacade: UnifiedIntelligenceFacade,
 		private readonly portfolioService: PortfolioService
@@ -225,6 +228,30 @@ export class AiController {
 		}
 
 		return this.assetOpinionService.getOpinion(userId, body.symbol);
+	}
+
+	/**
+	 * GET /ai/error-radar
+	 * "Radar Anti-Erro": alertas preventivos deterministicos (concentracao de
+	 * ativo/classe/setor, diversificacao, volatilidade, beta) sobre a
+	 * carteira do usuario autenticado. Sem corpo. Ver PortfolioErrorRadarService
+	 * para o porque de nao incluir correlacao entre ativos ainda.
+	 */
+	@Get('error-radar')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async errorRadar(@Request() req: any): Promise<PortfolioErrorRadarOutput> {
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
+
+		const portfolios = await this.portfolioService.getUserPortfolios(userId);
+		const assets = portfolios.flatMap((portfolio: any) =>
+			Array.isArray(portfolio?.assets) ? portfolio.assets : []
+		);
+
+		return this.portfolioErrorRadarService.detect(this.toPositions(assets));
 	}
 
 	@Post('trackerr-score')
