@@ -5,6 +5,7 @@ import { ChatOrchestratorService } from './orchestration/chat-orchestrator.servi
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
+import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 
 jest.mock('../env.ts', () => ({
@@ -37,6 +38,10 @@ const mockPortfolioScoreService = {
 	compute: jest.fn(),
 };
 
+const mockAssetOpinionService = {
+	getOpinion: jest.fn(),
+};
+
 const mockPortfolioService = {
 	getUserPortfolios: jest.fn(),
 };
@@ -64,6 +69,10 @@ describe('AiController', () => {
 				{
 					provide: PortfolioScoreService,
 					useValue: mockPortfolioScoreService,
+				},
+				{
+					provide: AssetOpinionService,
+					useValue: mockAssetOpinionService,
 				},
 				{
 					provide: PortfolioService,
@@ -501,6 +510,38 @@ describe('AiController', () => {
 		it('throws Unauthorized when the JWT has no userId', async () => {
 			await expect(
 				controller.portfolioScore({ user: {} })
+			).rejects.toThrow('User ID ausente no token');
+		});
+	});
+
+	describe('POST /ai/asset-opinion', () => {
+		it('repassa userId do JWT e symbol do body para o service', async () => {
+			const fakeOutput = {
+				symbol: 'PETR4',
+				summary: 'x',
+				strength: 'y',
+				attention: 'z',
+				tags: ['score_72'],
+				scoreOverall: 72,
+				status: 'ok',
+			};
+			mockAssetOpinionService.getOpinion.mockResolvedValue(fakeOutput);
+
+			const response = await controller.assetOpinion(
+				{ user: { userId: 'user-123' } },
+				{ symbol: 'PETR4' }
+			);
+
+			expect(mockAssetOpinionService.getOpinion).toHaveBeenCalledWith(
+				'user-123',
+				'PETR4'
+			);
+			expect(response).toBe(fakeOutput);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.assetOpinion({ user: {} }, { symbol: 'PETR4' })
 			).rejects.toThrow('User ID ausente no token');
 		});
 	});
