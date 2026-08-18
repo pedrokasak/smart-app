@@ -25,6 +25,9 @@ import { IntelligentChatRequestDto } from './intelligence/dto/intelligent-chat-r
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { ChatOrchestratorResponse } from './orchestration/chat-orchestrator.types';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
+import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
+import { AssetOpinionOutput } from 'src/intelligence/application/asset-opinion.types';
+import { AssetOpinionRequestDto } from './dto/asset-opinion-request.dto';
 import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
 import { PortfolioScoreOutput } from 'src/intelligence/application/portfolio-score.types';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
@@ -43,6 +46,7 @@ export class AiController {
 		private readonly chatOrchestratorService: ChatOrchestratorService,
 		private readonly trackerrScoreService: TrackerrScoreService,
 		private readonly portfolioScoreService: PortfolioScoreService,
+		private readonly assetOpinionService: AssetOpinionService,
 		private readonly unifiedIntelligenceFacade: UnifiedIntelligenceFacade,
 		private readonly portfolioService: PortfolioService
 	) {}
@@ -199,6 +203,28 @@ export class AiController {
 		);
 
 		return this.portfolioScoreService.compute(this.toPositions(assets));
+	}
+
+	/**
+	 * POST /ai/asset-opinion
+	 * Resumo estruturado de um ativo (summary/strength/attention/tags),
+	 * substituindo o benchmark reimplementado no cliente e a chamada a
+	 * /ai/chat generico que web/src/services/ai/assetOpinion.ts fazia.
+	 * Determinístico, sem LLM — ver AssetOpinionService.
+	 */
+	@Post('asset-opinion')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async assetOpinion(
+		@Request() req: any,
+		@Body() body: AssetOpinionRequestDto
+	): Promise<AssetOpinionOutput> {
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
+
+		return this.assetOpinionService.getOpinion(userId, body.symbol);
 	}
 
 	@Post('trackerr-score')

@@ -4,6 +4,7 @@ import { TaxEngineModule } from 'src/fiscal/tax-engine/tax-engine.module';
 import { FutureSimulatorService } from 'src/intelligence/application/future-simulator.service';
 import { InvestmentCommitteeBriefingService } from 'src/intelligence/application/investment-committee-briefing.service';
 import { InvestorProfileInsightsService } from 'src/intelligence/application/investor-profile-insights.service';
+import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
 import { OpportunityRadarService } from 'src/intelligence/application/opportunity-radar.service';
 import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
 import { PremiumInsightsService } from 'src/intelligence/application/premium-insights.service';
@@ -24,6 +25,7 @@ import { PortfolioModule } from 'src/portfolio/portfolio.module';
 		UnifiedIntelligenceFacade,
 		OpportunityRadarService,
 		PortfolioScoreService,
+		AssetOpinionService,
 		FutureSimulatorService,
 		PremiumInsightsService,
 		TradeDecisionService,
@@ -34,6 +36,7 @@ import { PortfolioModule } from 'src/portfolio/portfolio.module';
 	exports: [
 		UnifiedIntelligenceFacade,
 		PortfolioScoreService,
+		AssetOpinionService,
 		TradeDecisionService,
 		TrackerrScoreService,
 		InvestorProfileInsightsService,
