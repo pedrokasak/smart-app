@@ -4,6 +4,7 @@ import { AiService } from './ai.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
+import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 
 jest.mock('../env.ts', () => ({
@@ -32,6 +33,10 @@ const mockUnifiedIntelligenceFacade = {
 	simulateFuture: jest.fn(),
 };
 
+const mockPortfolioScoreService = {
+	compute: jest.fn(),
+};
+
 const mockPortfolioService = {
 	getUserPortfolios: jest.fn(),
 };
@@ -55,6 +60,10 @@ describe('AiController', () => {
 				{
 					provide: UnifiedIntelligenceFacade,
 					useValue: mockUnifiedIntelligenceFacade,
+				},
+				{
+					provide: PortfolioScoreService,
+					useValue: mockPortfolioScoreService,
 				},
 				{
 					provide: PortfolioService,
@@ -449,6 +458,49 @@ describe('AiController', () => {
 		it('throws Unauthorized when the JWT has no userId', async () => {
 			await expect(
 				controller.futureSimulator({ user: {} }, { horizon: '1y' })
+			).rejects.toThrow('User ID ausente no token');
+		});
+	});
+
+	describe('GET /ai/portfolio-score', () => {
+		it('builds positions from the user portfolio and returns the service output', async () => {
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						{ symbol: 'PETR4', type: 'stock', quantity: 100, price: 30 },
+						{ symbol: '', type: 'stock', quantity: 10, price: 10 },
+					],
+				},
+			]);
+			const fakeOutput = {
+				modelVersion: 'portfolio_score_v1',
+				overall: 62.5,
+				status: 'ok',
+				dimensions: [],
+				diversificationStatus: 'moderate',
+				riskLevel: 'medium',
+				flags: [],
+				positionsCount: 1,
+			};
+			mockPortfolioScoreService.compute.mockReturnValue(fakeOutput);
+
+			const response = await controller.portfolioScore({
+				user: { userId: 'user-123' },
+			});
+
+			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
+				'user-123'
+			);
+			// Ativo sem symbol e descartado, mesma regra do toPositions.
+			expect(mockPortfolioScoreService.compute).toHaveBeenCalledWith([
+				expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
+			]);
+			expect(response).toBe(fakeOutput);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.portfolioScore({ user: {} })
 			).rejects.toThrow('User ID ausente no token');
 		});
 	});

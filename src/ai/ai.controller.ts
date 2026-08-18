@@ -1,5 +1,6 @@
 import {
 	Controller,
+	Get,
 	Post,
 	Body,
 	UseGuards,
@@ -24,6 +25,8 @@ import { IntelligentChatRequestDto } from './intelligence/dto/intelligent-chat-r
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { ChatOrchestratorResponse } from './orchestration/chat-orchestrator.types';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
+import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
+import { PortfolioScoreOutput } from 'src/intelligence/application/portfolio-score.types';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { FutureSimulatorOutput } from 'src/intelligence/application/unified-intelligence.types';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
@@ -39,6 +42,7 @@ export class AiController {
 		private readonly aiService: AiService,
 		private readonly chatOrchestratorService: ChatOrchestratorService,
 		private readonly trackerrScoreService: TrackerrScoreService,
+		private readonly portfolioScoreService: PortfolioScoreService,
 		private readonly unifiedIntelligenceFacade: UnifiedIntelligenceFacade,
 		private readonly portfolioService: PortfolioService
 	) {}
@@ -170,6 +174,31 @@ export class AiController {
 				assumptions: [],
 			};
 		}
+	}
+
+	/**
+	 * GET /ai/portfolio-score
+	 * Score deterministico da carteira, substituindo o `investment_score` que
+	 * vinha do LLM em /api/hybrid-analysis. Nao recebe corpo: opera sobre a
+	 * carteira do usuario autenticado.
+	 *
+	 * Nao confundir com POST /ai/trackerr-score, que pontua UM ativo.
+	 */
+	@Get('portfolio-score')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async portfolioScore(@Request() req: any): Promise<PortfolioScoreOutput> {
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
+
+		const portfolios = await this.portfolioService.getUserPortfolios(userId);
+		const assets = portfolios.flatMap((portfolio: any) =>
+			Array.isArray(portfolio?.assets) ? portfolio.assets : []
+		);
+
+		return this.portfolioScoreService.compute(this.toPositions(assets));
 	}
 
 	@Post('trackerr-score')
