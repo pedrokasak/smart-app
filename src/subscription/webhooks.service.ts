@@ -110,9 +110,7 @@ export class WebhooksService {
 			}
 
 			const stripeCustomerId = subscription.customer as string;
-			console.log('=== customer chegando no webhook:', stripeCustomerId);
 			const user = await this.userModel.findOne({ stripeCustomerId });
-			console.log('=== user encontrado:', user?._id);
 
 			if (!user) {
 				this.logger.error(
