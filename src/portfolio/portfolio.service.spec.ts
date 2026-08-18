@@ -24,6 +24,10 @@ describe('PortfolioService', () => {
 		create: jest.fn(),
 	};
 
+	const mockPortfolioHistoryModel = {
+		find: jest.fn(),
+	};
+
 	const mockPortfolioEnrichService = {
 		enrichAsset: jest.fn(),
 	};
@@ -38,7 +42,7 @@ describe('PortfolioService', () => {
 				},
 				{
 					provide: getModelToken('PortfolioHistory'),
-					useValue: {},
+					useValue: mockPortfolioHistoryModel,
 				},
 				{
 					provide: getModelToken('Asset'),
@@ -136,6 +140,58 @@ describe('PortfolioService', () => {
 			await expect(service.deletePortfolio('invalid_id')).rejects.toThrow(
 				NotFoundException
 			);
+		});
+	});
+
+	describe('getUserPortfolioHistory', () => {
+		function mockFindResult(rows: Array<{ date: string; totalValue: number }>) {
+			mockPortfolioHistoryModel.find.mockReturnValue({
+				sort: jest.fn().mockReturnValue({
+					exec: jest.fn().mockResolvedValue(rows),
+				}),
+			});
+		}
+
+		it('soma totalValue de portfólios diferentes no mesmo dia', async () => {
+			mockFindResult([
+				{ date: '2026-08-10', totalValue: 1000 },
+				{ date: '2026-08-10', totalValue: 500 },
+				{ date: '2026-08-11', totalValue: 1600 },
+			]);
+
+			const result = await service.getUserPortfolioHistory(
+				'user-1',
+				'2026-08-10',
+				'2026-08-11'
+			);
+
+			expect(result).toEqual([
+				{ date: '2026-08-10', totalValue: 1500 },
+				{ date: '2026-08-11', totalValue: 1600 },
+			]);
+		});
+
+		it('devolve array vazio quando não há snapshot no período', async () => {
+			mockFindResult([]);
+
+			const result = await service.getUserPortfolioHistory(
+				'user-1',
+				'2026-08-10',
+				'2026-08-11'
+			);
+
+			expect(result).toEqual([]);
+		});
+
+		it('filtra por userId e pela janela de datas via query', async () => {
+			mockFindResult([]);
+
+			await service.getUserPortfolioHistory('user-9', '2026-08-01', '2026-08-07');
+
+			expect(mockPortfolioHistoryModel.find).toHaveBeenCalledWith({
+				userId: 'user-9',
+				date: { $gte: '2026-08-01', $lte: '2026-08-07' },
+			});
 		});
 	});
 });

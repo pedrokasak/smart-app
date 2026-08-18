@@ -22,6 +22,13 @@ export interface User extends Document {
 	twoFactorSecret?: string;
 	twoFactorEnabled: boolean;
 	role: Role;
+	notificationPreferences?: {
+		portfolioDigest?: {
+			enabled: boolean;
+			lastDigestSentAt?: Date;
+			updatedAt?: Date;
+		};
+	};
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -120,6 +127,16 @@ const userSchema = new Schema<User>(
 
 		// Auditoria
 		lastLogin: Date,
+
+		// Preferências de notificação — separado do LGPD/cookie consent do
+		// web (ConsentContext), que é sobre tracking, não e-mail.
+		notificationPreferences: {
+			portfolioDigest: {
+				enabled: { type: Boolean, default: false },
+				lastDigestSentAt: { type: Date, default: null },
+				updatedAt: { type: Date, default: null },
+			},
+		},
 	},
 	{
 		timestamps: true,
