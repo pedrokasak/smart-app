@@ -20,6 +20,7 @@ const envSchema = z.object({
 	GOOGLE_CSE_API_KEY: z.string().optional(),
 	GOOGLE_CSE_ENGINE_ID: z.string().optional(),
 	BRAPI_SUPPORTED_RANGES: z.string().optional(),
+	DIGEST_TOKEN_SECRET: z.string(),
 });
 
 const isTestEnvironment = process.env.NODE_ENV === 'test';
@@ -38,6 +39,7 @@ const testDefaults: Record<string, string> = {
 	STRIPE_WEBHOOK_SECRET_PROD: 'test-key',
 	ASAAS_API_KEY: 'test-key',
 	ASAAS_URL_SANDBOX: 'https://example.com',
+	DIGEST_TOKEN_SECRET: 'test-digest-secret',
 };
 
 // Parse the environment variables
@@ -70,3 +72,4 @@ export const googleClientId: string | undefined = env.data.GOOGLE_CLIENT_ID;
 export const googleCseApiKey: string | undefined = env.data.GOOGLE_CSE_API_KEY;
 export const googleCseEngineId: string | undefined =
 	env.data.GOOGLE_CSE_ENGINE_ID;
+export const digestTokenSecret: string = env.data.DIGEST_TOKEN_SECRET;

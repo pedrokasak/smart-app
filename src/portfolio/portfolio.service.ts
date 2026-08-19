@@ -34,6 +34,32 @@ export class PortfolioService {
 			.exec();
 	}
 
+	/**
+	 * Histórico somado entre TODOS os portfólios do usuário, por dia —
+	 * diferente de getPortfolioHistory, que é escopado a um portfólio só.
+	 * Usuário com mais de um portfólio (raro, mas possível) tem os
+	 * totalValue do mesmo dia somados numa única série.
+	 */
+	async getUserPortfolioHistory(
+		userId: string,
+		fromDate: string,
+		toDate: string
+	): Promise<Array<{ date: string; totalValue: number }>> {
+		const rows = await this.portfolioHistoryModel
+			.find({ userId, date: { $gte: fromDate, $lte: toDate } })
+			.sort({ date: 1 })
+			.exec();
+
+		const byDate = new Map<string, number>();
+		for (const row of rows) {
+			byDate.set(row.date, (byDate.get(row.date) || 0) + row.totalValue);
+		}
+
+		return Array.from(byDate.entries())
+			.map(([date, totalValue]) => ({ date, totalValue }))
+			.sort((a, b) => a.date.localeCompare(b.date));
+	}
+
 	async recordHistorySnapshot(portfolioId: string, date?: string) {
 		const portfolio = await this.portfolioModel
 			.findById(portfolioId)
