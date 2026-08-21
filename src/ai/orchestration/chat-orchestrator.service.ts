@@ -28,6 +28,11 @@ import {
 } from 'src/ri-intelligence/application/ri-document-query.port';
 import { RiDocumentSummaryOutput } from 'src/ri-intelligence/application/ri-summary.types';
 import { StockService } from 'src/stocks/stocks.service';
+import {
+	USER_PLAN_RESOLVER,
+	UserPlanResolverPort,
+	UserPlanTier,
+} from 'src/subscription/application/user-plan.types';
 
 /**
  * Tudo que o preâmbulo de `orchestrate()` calcula uma vez e que todo ramo
@@ -69,6 +74,8 @@ export class ChatOrchestratorService {
 		private readonly costObserver: ChatCostObserverPort,
 		private readonly riDocumentSummaryService: RiDocumentSummaryService,
 		private readonly stockService: StockService,
+		@Inject(USER_PLAN_RESOLVER)
+		private readonly userPlanResolver: UserPlanResolverPort,
 		@Optional()
 		@Inject(RI_DOCUMENT_QUERY)
 		private readonly riDocumentQuery?: RiDocumentQueryPort
@@ -137,7 +144,8 @@ export class ChatOrchestratorService {
 		const externalSymbols = symbols.filter(
 			(symbol) => !bySymbol.has(this.normalizeTicker(symbol))
 		);
-		const userPlan = this.resolveUserPlan(portfolios);
+		// Plano vem da assinatura, nao da carteira (TRA-79 / CLAUDE.md 4.4).
+		const userPlan = await this.userPlanResolver.resolve(userId);
 		const portfolioHash = this.computePortfolioHash(positions);
 		const marketDataVersion = this.resolveMarketDataVersion({
 			intent,
@@ -1162,7 +1170,7 @@ export class ChatOrchestratorService {
 	private buildCacheKey(input: {
 		question: string;
 		portfolioHash: string;
-		userPlan: string;
+		userPlan: UserPlanTier;
 		marketDataVersion: string;
 		responseMode: 'deterministic_no_llm' | 'synthesis_required';
 	}): string {
@@ -1198,26 +1206,6 @@ export class ChatOrchestratorService {
 			.update(JSON.stringify(canonical))
 			.digest('hex')
 			.slice(0, 16);
-	}
-
-	private resolveUserPlan(portfolios: any[]): string {
-		const rank = (value: string) => {
-			switch ((value || '').toLowerCase()) {
-				case 'global_investor':
-					return 4;
-				case 'premium':
-					return 3;
-				case 'pro':
-					return 2;
-				default:
-					return 1;
-			}
-		};
-		const plans = portfolios
-			.map((item) => String(item?.plan || 'free').toLowerCase())
-			.filter(Boolean);
-		if (!plans.length) return 'free';
-		return plans.sort((a, b) => rank(b) - rank(a))[0];
 	}
 
 	private resolveMarketDataVersion(input: {

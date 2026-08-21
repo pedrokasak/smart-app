@@ -30,6 +30,7 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiDocumentQueryPort } from 'src/ri-intelligence/application/ri-document-query.port';
 import { StockService } from 'src/stocks/stocks.service';
+import { UserPlanResolverPort } from 'src/subscription/application/user-plan.types';
 
 interface RoutingCase {
 	question: string;
@@ -235,6 +236,10 @@ describe('Chat routing eval (TRA-75)', () => {
 		}),
 	} as unknown as StockService;
 
+	const mockUserPlanResolver = {
+		resolve: jest.fn().mockResolvedValue('free'),
+	} as unknown as UserPlanResolverPort;
+
 	const makeService = () =>
 		new ChatOrchestratorService(
 			mockPortfolioService,
@@ -244,6 +249,7 @@ describe('Chat routing eval (TRA-75)', () => {
 			mockCostObserver,
 			mockRiDocumentSummaryService,
 			mockStockService,
+			mockUserPlanResolver,
 			mockRiDocumentQuery
 		);
 
