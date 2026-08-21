@@ -13,6 +13,9 @@ describe('RiIntelligenceController', () => {
 	const mockSummaryService = {
 		summarize: jest.fn(),
 	};
+	const mockDocumentContent = {
+		fetchTextContent: jest.fn(),
+	};
 
 	let controller: RiIntelligenceController;
 
@@ -20,7 +23,8 @@ describe('RiIntelligenceController', () => {
 		jest.clearAllMocks();
 		controller = new RiIntelligenceController(
 			mockCatalogService as unknown as RiDocumentCatalogService,
-			mockSummaryService as unknown as RiDocumentSummaryService
+			mockSummaryService as unknown as RiDocumentSummaryService,
+			mockDocumentContent as never
 		);
 	});
 
@@ -230,5 +234,62 @@ describe('RiIntelligenceController', () => {
 		});
 
 		expect(mockSummaryService.summarize).toHaveBeenCalledTimes(1);
+	});
+
+	const DOC = {
+		id: 'PETR4:rel',
+		ticker: 'PETR4',
+		company: 'Petrobras',
+		title: 'Release de Resultados 4T25',
+		documentType: 'earnings_release',
+		period: '4T25',
+		publishedAt: '2026-02-06T00:00:00.000Z',
+		source: { type: 'url', value: 'https://ri.example.com/release.pdf' },
+		classification: { method: 'deterministic_rules', confidence: 'high' },
+		contentStatus: 'metadata_only',
+	} as never;
+
+	it('fetches the PDF content server-side when the client sends no content (TRA-85)', async () => {
+		// O bug: web nao consegue buscar o PDF (CORS externo), entao o content
+		// tem que ser extraido aqui. Sem isso todo resumo caia em metadados.
+		mockDocumentContent.fetchTextContent.mockResolvedValue({
+			text: 'A receita cresceu 12% no trimestre com lucro liquido recorde...',
+		});
+		mockSummaryService.summarize.mockResolvedValue({ summary: {} });
+
+		await controller.summarize({ document: DOC });
+
+		expect(mockDocumentContent.fetchTextContent).toHaveBeenCalledWith(
+			'https://ri.example.com/release.pdf'
+		);
+		const passed = mockSummaryService.summarize.mock.calls[0][0];
+		expect(passed.content).toContain('receita cresceu 12%');
+		expect(passed.document.contentStatus).toBe('extracted');
+	});
+
+	it('does NOT fetch when the client already provided content', async () => {
+		mockSummaryService.summarize.mockResolvedValue({ summary: {} });
+
+		await controller.summarize({
+			document: DOC,
+			content: 'conteudo ja fornecido pelo cliente',
+		});
+
+		expect(mockDocumentContent.fetchTextContent).not.toHaveBeenCalled();
+	});
+
+	it('keeps contentStatus metadata_only when extraction returns empty', async () => {
+		// PDF escaneado sem camada de texto, por exemplo. Nao mente que extraiu.
+		mockDocumentContent.fetchTextContent.mockResolvedValue({
+			text: null,
+			reason: 'empty_after_extract',
+		});
+		mockSummaryService.summarize.mockResolvedValue({ summary: {} });
+
+		await controller.summarize({ document: DOC });
+
+		const passed = mockSummaryService.summarize.mock.calls[0][0];
+		expect(passed.content).toBeNull();
+		expect(passed.document.contentStatus).toBe('metadata_only');
 	});
 });
