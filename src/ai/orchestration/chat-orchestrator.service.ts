@@ -29,6 +29,31 @@ import {
 import { RiDocumentSummaryOutput } from 'src/ri-intelligence/application/ri-summary.types';
 import { StockService } from 'src/stocks/stocks.service';
 
+/**
+ * Tudo que o preâmbulo de `orchestrate()` calcula uma vez e que todo ramo
+ * de intent precisa pra fechar a resposta (TRA-73). Existe pra `finish()`
+ * receber um objeto em vez de treze parâmetros posicionais.
+ *
+ * `unavailable`, `warnings` e `assumptions` são mutáveis de propósito: o
+ * preâmbulo pode empilhar avisos antes do handler rodar (cache indisponível,
+ * por exemplo), e o handler empilha os seus por cima.
+ */
+interface ChatResponseEnvelope {
+	intent: ChatOrchestratorIntent;
+	question: string;
+	symbols: string[];
+	ownedSymbols: string[];
+	externalSymbols: string[];
+	positionsCount: number;
+	unavailable: string[];
+	warnings: string[];
+	assumptions: string[];
+	canCache: boolean;
+	cacheKey: string;
+	cacheHit: boolean;
+	ttlSeconds: number;
+}
+
 @Injectable()
 export class ChatOrchestratorService {
 	private readonly logger = new Logger(ChatOrchestratorService.name);
@@ -165,6 +190,26 @@ export class ChatOrchestratorService {
 			}
 		}
 
+		// Envelope compartilhado por todo ramo de intent daqui pra baixo — ver
+		// `finish()`. Os arrays entram por referência de propósito: o handler
+		// empilha nos mesmos `unavailable`/`warnings`/`assumptions` que o
+		// preâmbulo já pode ter usado.
+		const env: ChatResponseEnvelope = {
+			intent,
+			question: normalizedQuestion,
+			symbols,
+			ownedSymbols,
+			externalSymbols,
+			positionsCount: positions.length,
+			unavailable,
+			warnings,
+			assumptions,
+			canCache,
+			cacheKey,
+			cacheHit,
+			ttlSeconds,
+		};
+
 		if (intent === 'portfolio_summary') {
 			const portfolioSummary =
 				this.unifiedIntelligenceFacade.getPortfolioSummary({
@@ -183,36 +228,16 @@ export class ChatOrchestratorService {
 					trackerrScore,
 				},
 			});
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: {
 					portfolioSummary,
 					portfolioAssets,
 					trackerrScore,
 					personalizedInsights,
 				},
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'portfolio_risk') {
@@ -254,15 +279,9 @@ export class ChatOrchestratorService {
 					trackerrScore,
 				},
 			});
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: {
 					portfolioRisk,
 					rebalanceSuggestion,
@@ -270,52 +289,18 @@ export class ChatOrchestratorService {
 					personalizedInsights,
 					...(rebalancePlan ? { rebalancePlan } : {}),
 				},
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'dividend_projection') {
 			const summary = this.unifiedIntelligenceFacade.getPortfolioSummary({
 				positions,
 			});
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: { dividendProjection: summary.dividendProjection },
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'benchmark_simple') {
@@ -323,36 +308,16 @@ export class ChatOrchestratorService {
 				positions,
 			});
 			warnings.push('benchmark_simple_uses_portfolio_baseline_only');
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: {
 					portfolioSummary: {
 						totalValue: summary.totalValue,
 						diversification: summary.diversification,
 					},
 				},
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'asset_comparison' && symbols.length >= 2) {
@@ -361,31 +326,11 @@ export class ChatOrchestratorService {
 				portfolioPositions: positions,
 			});
 			unavailable.push(...comparison.unavailableSymbols);
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: { comparison },
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'asset_comparison' && symbols.length === 1) {
@@ -401,31 +346,11 @@ export class ChatOrchestratorService {
 				if (requestedPortfolioComparison) {
 					warnings.push('portfolio_comparison_peer_unavailable');
 				}
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 
 			const comparisonSymbols = [primarySymbol, autoPeerSymbol];
@@ -444,31 +369,14 @@ export class ChatOrchestratorService {
 				(symbol) => !bySymbol.has(this.normalizeTicker(symbol))
 			);
 
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
 				symbols: comparisonSymbols,
 				ownedSymbols: comparisonOwnedSymbols,
 				externalSymbols: comparisonExternalSymbols,
-				positionsCount: positions.length,
 				data: { comparison },
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		const primarySymbol = symbols[0] || null;
@@ -480,31 +388,11 @@ export class ChatOrchestratorService {
 			) {
 				if (primarySymbol) unavailable.push(primarySymbol);
 				warnings.push('sell_simulation_requires_owned_asset');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 			const position = bySymbol.get(this.normalizeTicker(primarySymbol))!;
 			const parsed = this.parseSellInputs(normalizedQuestion);
@@ -523,31 +411,11 @@ export class ChatOrchestratorService {
 			if (sellPrice === null) {
 				unavailable.push(primarySymbol);
 				warnings.push('missing_sell_price_for_simulation');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: { externalAsset: snapshot || null },
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 
 			const quantityToSell =
@@ -605,15 +473,9 @@ export class ChatOrchestratorService {
 				},
 			});
 
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: {
 					sellSimulation,
 					externalAsset: snapshot || null,
@@ -621,51 +483,17 @@ export class ChatOrchestratorService {
 					tradePlaybook,
 					personalizedInsights,
 				},
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'tax_estimation') {
 			if (this.isLossCompensationQuestion(normalizedQuestion)) {
 				warnings.push('insufficient_history_for_loss_compensation');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 
 			if (
@@ -674,31 +502,11 @@ export class ChatOrchestratorService {
 			) {
 				if (primarySymbol) unavailable.push(primarySymbol);
 				warnings.push('tax_estimation_requires_owned_asset');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 			const position = bySymbol.get(this.normalizeTicker(primarySymbol))!;
 			const parsed = this.parseSellInputs(normalizedQuestion);
@@ -716,31 +524,11 @@ export class ChatOrchestratorService {
 			if (sellPrice === null) {
 				unavailable.push(primarySymbol);
 				warnings.push('missing_sell_price_for_tax_estimation');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: { externalAsset: snapshot || null },
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 			const currentTotalCost =
 				typeof position.totalValue === 'number' && position.totalValue > 0
@@ -790,15 +578,9 @@ export class ChatOrchestratorService {
 					tradePlaybook,
 				},
 			});
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: {
 					sellSimulation,
 					externalAsset: snapshot,
@@ -806,21 +588,7 @@ export class ChatOrchestratorService {
 					tradePlaybook,
 					personalizedInsights,
 				},
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'portfolio_fit_analysis' && primarySymbol) {
@@ -829,31 +597,11 @@ export class ChatOrchestratorService {
 			if (!snapshot) {
 				unavailable.push(primarySymbol);
 				warnings.push('external_asset_data_unavailable');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 			const normalizedSnapshotSymbol = this.normalizeTicker(
 				snapshot.symbol || primarySymbol
@@ -891,36 +639,16 @@ export class ChatOrchestratorService {
 					trackerrScore,
 				},
 			});
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: {
 					portfolioFit,
 					externalAsset: snapshot,
 					trackerrScore,
 					personalizedInsights,
 				},
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'external_asset_analysis' && primarySymbol) {
@@ -929,31 +657,11 @@ export class ChatOrchestratorService {
 			if (!snapshot) {
 				unavailable.push(primarySymbol);
 				warnings.push('external_asset_data_unavailable');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 			const normalizedSnapshotSymbol = this.normalizeTicker(
 				snapshot.symbol || primarySymbol
@@ -1007,36 +715,16 @@ export class ChatOrchestratorService {
 					trackerrScore,
 				},
 			});
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: {
 					externalAsset: snapshot,
 					portfolioFit,
 					trackerrScore,
 					personalizedInsights,
 				},
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'opportunity_radar') {
@@ -1047,31 +735,11 @@ export class ChatOrchestratorService {
 				});
 			unavailable.push(...opportunities.unavailableSymbols);
 			warnings.push(...opportunities.warnings);
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: { opportunities },
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'future_scenario') {
@@ -1092,34 +760,14 @@ export class ChatOrchestratorService {
 					`future_scenario_monthly_contribution:${monthlyContribution}`
 				);
 			}
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: {
 					futureSimulation,
 					dividendProjection: futureSimulation.dividendProjection,
 				},
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'investment_committee') {
@@ -1195,213 +843,73 @@ export class ChatOrchestratorService {
 				question: normalizedQuestion,
 				data: { investmentCommittee },
 			});
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: { investmentCommittee, personalizedInsights },
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'ri_summary' && primarySymbol) {
 			if (!this.riDocumentQuery) {
 				warnings.push('ri_document_provider_unavailable');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 			const latestDocument =
 				await this.riDocumentQuery.getLatestByTicker(primarySymbol);
 			if (!latestDocument) {
 				unavailable.push(primarySymbol);
 				warnings.push('ri_document_not_found');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 			const riSummary = await this.riDocumentSummaryService.summarize({
 				document: latestDocument.document,
 				content: latestDocument.content || '',
 			});
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: { riSummary },
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'ri_comparison' && primarySymbol) {
 			if (!this.riDocumentQuery) {
 				warnings.push('ri_document_provider_unavailable');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 			const latestDocument =
 				await this.riDocumentQuery.getLatestByTicker(primarySymbol);
 			if (!latestDocument) {
 				unavailable.push(primarySymbol);
 				warnings.push('ri_document_not_found');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 			const previousDocument =
 				await this.riDocumentQuery.getPreviousComparable(latestDocument);
 			if (!previousDocument) {
 				warnings.push('ri_previous_document_not_found');
-				const response = this.buildResponse({
-					intent,
+				return this.finish(env, {
 					routeType: 'deterministic_no_llm',
 					routeReason: 'insufficient_structured_data',
-					question: normalizedQuestion,
-					symbols,
-					ownedSymbols,
-					externalSymbols,
-					positionsCount: positions.length,
 					data: {},
-					unavailable,
-					warnings,
-					assumptions,
-					cacheKey: canCache ? cacheKey : null,
-					cacheHit,
-					cacheTtlSeconds: canCache ? ttlSeconds : null,
 				});
-				await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-				this.safeRecordCost({
-					routeType: response.route.type,
-					cacheHit,
-					llmEligible: response.route.llmEligible,
-					estimatedLlmCallsAvoided: 0,
-				});
-				return response;
 			}
 			const currentSummary = await this.riDocumentSummaryService.summarize({
 				document: latestDocument.document,
@@ -1416,34 +924,14 @@ export class ChatOrchestratorService {
 				previousSummary
 			);
 
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: {
 					riComparison,
 					riTimeline: (riComparison as any)?.timeline || null,
 				},
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		if (intent === 'narrative_synthesis') {
@@ -1459,31 +947,11 @@ export class ChatOrchestratorService {
 			const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
 				positions,
 			});
-			const response = this.buildResponse({
-				intent,
+			return this.finish(env, {
 				routeType: 'synthesis_required',
 				routeReason: 'narrative_requested',
-				question: normalizedQuestion,
-				symbols,
-				ownedSymbols,
-				externalSymbols,
-				positionsCount: positions.length,
 				data: { portfolioSummary, trackerrScore },
-				unavailable,
-				warnings,
-				assumptions,
-				cacheKey: canCache ? cacheKey : null,
-				cacheHit,
-				cacheTtlSeconds: canCache ? ttlSeconds : null,
 			});
-			await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
-			this.safeRecordCost({
-				routeType: response.route.type,
-				cacheHit,
-				llmEligible: response.route.llmEligible,
-				estimatedLlmCallsAvoided: 0,
-			});
-			return response;
 		}
 
 		// Pergunta ambígua: ainda assim injetamos o resumo da carteira para o
@@ -1497,27 +965,68 @@ export class ChatOrchestratorService {
 		const trackerrScore = this.unifiedIntelligenceFacade.getTrackerrScore({
 			positions,
 		});
-		const response = this.buildResponse({
+		return this.finish(env, {
 			intent: 'unknown',
 			routeType: 'synthesis_required',
 			routeReason: 'ambiguous_question',
-			question: normalizedQuestion,
-			symbols,
-			ownedSymbols,
-			externalSymbols,
-			positionsCount: positions.length,
 			data: { portfolioSummary, trackerrScore },
-			unavailable,
-			warnings,
-			assumptions,
-			cacheKey: canCache ? cacheKey : null,
-			cacheHit,
-			cacheTtlSeconds: canCache ? ttlSeconds : null,
 		});
-		await this.safeStoreCache(canCache, cacheKey, response, ttlSeconds);
+	}
+
+	/**
+	 * Fecha a resposta de uma intent: monta o payload, grava cache e registra
+	 * custo (TRA-73).
+	 *
+	 * Os 30 ramos de `orchestrate()` repetiam este mesmo epílogo palavra por
+	 * palavra — mesma lista de campos, mesmo `safeStoreCache`, mesmo
+	 * `safeRecordCost` com `estimatedLlmCallsAvoided: 0`. Duplicação nessa
+	 * escala não é só volume: significa que corrigir o epílogo exigia acertar
+	 * 30 lugares e torcer pra não esquecer um.
+	 *
+	 * Os campos de símbolo aceitam override porque o ramo de comparação com
+	 * peer automático responde sobre um conjunto de símbolos diferente do que
+	 * foi extraído da pergunta. `intent` também aceita override: o fallback
+	 * final responde como `unknown` mesmo quando a classificação devolveu
+	 * outra coisa, e isso é comportamento observável — está na resposta.
+	 */
+	private async finish(
+		env: ChatResponseEnvelope,
+		outcome: {
+			routeType: ChatRouteType;
+			routeReason: ChatOrchestratorResponse['route']['reason'];
+			data: ChatOrchestratorResponse['data'];
+			intent?: ChatOrchestratorIntent;
+			symbols?: string[];
+			ownedSymbols?: string[];
+			externalSymbols?: string[];
+		}
+	): Promise<ChatOrchestratorResponse> {
+		const response = this.buildResponse({
+			intent: outcome.intent ?? env.intent,
+			routeType: outcome.routeType,
+			routeReason: outcome.routeReason,
+			question: env.question,
+			symbols: outcome.symbols ?? env.symbols,
+			ownedSymbols: outcome.ownedSymbols ?? env.ownedSymbols,
+			externalSymbols: outcome.externalSymbols ?? env.externalSymbols,
+			positionsCount: env.positionsCount,
+			data: outcome.data,
+			unavailable: env.unavailable,
+			warnings: env.warnings,
+			assumptions: env.assumptions,
+			cacheKey: env.canCache ? env.cacheKey : null,
+			cacheHit: env.cacheHit,
+			cacheTtlSeconds: env.canCache ? env.ttlSeconds : null,
+		});
+		await this.safeStoreCache(
+			env.canCache,
+			env.cacheKey,
+			response,
+			env.ttlSeconds
+		);
 		this.safeRecordCost({
 			routeType: response.route.type,
-			cacheHit,
+			cacheHit: env.cacheHit,
 			llmEligible: response.route.llmEligible,
 			estimatedLlmCallsAvoided: 0,
 		});
