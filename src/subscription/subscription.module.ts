@@ -9,6 +9,8 @@ import { SubscriptionModel, UserSubscriptionModel } from './schema';
 import { UsersController } from 'src/users/users.controller';
 import { UsersModule } from 'src/users/users.module';
 import Stripe from 'stripe';
+import { USER_PLAN_RESOLVER } from 'src/subscription/application/user-plan.types';
+import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
 
 @Module({
 	imports: [
@@ -20,6 +22,11 @@ import Stripe from 'stripe';
 	],
 	controllers: [SubscriptionController, WebhooksController, UsersController],
 	providers: [
+		SubscriptionUserPlanResolver,
+		{
+			provide: USER_PLAN_RESOLVER,
+			useExisting: SubscriptionUserPlanResolver,
+		},
 		SubscriptionService,
 		StripeService,
 		WebhooksService,
@@ -31,6 +38,11 @@ import Stripe from 'stripe';
 				}),
 		},
 	],
-	exports: [SubscriptionService, StripeService, WebhooksService],
+	exports: [
+		SubscriptionService,
+		StripeService,
+		WebhooksService,
+		USER_PLAN_RESOLVER,
+	],
 })
 export class SubscriptionModule {}
