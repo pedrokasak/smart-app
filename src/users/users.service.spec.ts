@@ -5,6 +5,7 @@ import { UsersService } from './users.service';
 import { UserModel } from './schema/user.model';
 import { EmailService } from 'src/notifications/email/email.service';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
+import { RAG_ERASURE } from 'src/users/application/rag-erasure.port';
 
 jest.mock('./schema/user.model', () => {
 	const mockUserModel = jest.fn().mockImplementation(() => ({
@@ -31,6 +32,10 @@ describe('UsersService', () => {
 		hashPassword: jest.fn().mockResolvedValue('argon2-hash'),
 	};
 
+	const ragErasure = {
+		eraseUserData: jest.fn().mockResolvedValue({ erased: true }),
+	};
+
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
 			imports: [JwtModule.register({ secret: 'test-secret' })],
@@ -38,6 +43,7 @@ describe('UsersService', () => {
 				UsersService,
 				{ provide: EmailService, useValue: emailService },
 				{ provide: PasswordSecurityService, useValue: passwordSecurityService },
+				{ provide: RAG_ERASURE, useValue: ragErasure },
 			],
 		}).compile();
 
@@ -145,6 +151,44 @@ describe('UsersService', () => {
 
 			expect(result.message).toBe('User created successfully');
 			expect(result.accessToken).toBeDefined();
+		});
+	});
+
+	describe('delete (TRA-78 — LGPD)', () => {
+		beforeEach(() => {
+			ragErasure.eraseUserData.mockClear();
+		});
+
+		it('erases the user RAG data after deleting the account', async () => {
+			(UserModel as any).findByIdAndDelete.mockResolvedValue({ _id: 'user-1' });
+
+			await service.delete('user-1');
+
+			expect(ragErasure.eraseUserData).toHaveBeenCalledWith('user-1');
+		});
+
+		it('does not erase RAG data when no user was deleted', async () => {
+			// Sem isso, um id inexistente dispararia exclusao de dado de outro
+			// usuario se o id fosse reaproveitado — e gastaria chamada a toa.
+			(UserModel as any).findByIdAndDelete.mockResolvedValue(null);
+
+			await service.delete('nao-existe');
+
+			expect(ragErasure.eraseUserData).not.toHaveBeenCalled();
+		});
+
+		it('still completes the account deletion when RAG erasure fails', async () => {
+			// Recusar a exclusao da conta porque um servico secundario esta fora
+			// negaria ao usuario o direito que esta rotina existe pra atender.
+			(UserModel as any).findByIdAndDelete.mockResolvedValue({ _id: 'user-1' });
+			ragErasure.eraseUserData.mockResolvedValueOnce({
+				erased: false,
+				failureReason: 'ECONNREFUSED',
+			});
+
+			await expect(service.delete('user-1')).resolves.toEqual({
+				_id: 'user-1',
+			});
 		});
 	});
 });
