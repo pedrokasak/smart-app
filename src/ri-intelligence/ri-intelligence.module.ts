@@ -25,6 +25,8 @@ import { CvmRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastructur
 import { FiiRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastructure/fii-ri-document-discovery.adapter';
 import { PuppeteerRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastructure/puppeteer-ri-document-discovery.adapter';
 import { PuppeteerBrowserPool } from 'src/ri-intelligence/infrastructure/puppeteer-browser-pool.service';
+import { RI_DOCUMENT_CONTENT } from 'src/ri-intelligence/application/ri-document-content.port';
+import { HttpPdfRiDocumentContentAdapter } from 'src/ri-intelligence/infrastructure/http-pdf-ri-document-content.adapter';
 
 @Module({
 	imports: [StockModule, HttpModule],
@@ -38,6 +40,7 @@ import { PuppeteerBrowserPool } from 'src/ri-intelligence/infrastructure/puppete
 		InMemoryRiDocumentDiscoveryAdapter,
 		HttpRiDocumentDiscoveryAdapter,
 		HttpRiDocumentLinkResolverAdapter,
+		HttpPdfRiDocumentContentAdapter,
 		CatalogRiDocumentQueryAdapter,
 		GoogleCseRiOriginSearchAdapter,
 		{
@@ -91,6 +94,10 @@ import { PuppeteerBrowserPool } from 'src/ri-intelligence/infrastructure/puppete
 		{
 			provide: RI_DOCUMENT_QUERY,
 			useExisting: CatalogRiDocumentQueryAdapter,
+		},
+		{
+			provide: RI_DOCUMENT_CONTENT,
+			useExisting: HttpPdfRiDocumentContentAdapter,
 		},
 	],
 	exports: [
