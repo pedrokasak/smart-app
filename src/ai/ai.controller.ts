@@ -23,6 +23,7 @@ import { AiAnalysisRequestDto } from './dto/ai-analysis-request.dto';
 import { FutureSimulatorRequestDto } from './dto/future-simulator-request.dto';
 import { IntelligentChatRequestDto } from './intelligence/dto/intelligent-chat-request.dto';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
+import { RagColdStartService } from 'src/ai/rag-ingestion/application/rag-cold-start.service';
 import { ChatOrchestratorResponse } from './orchestration/chat-orchestrator.types';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
 import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
@@ -51,7 +52,8 @@ export class AiController {
 		private readonly portfolioErrorRadarService: PortfolioErrorRadarService,
 		private readonly assetOpinionService: AssetOpinionService,
 		private readonly unifiedIntelligenceFacade: UnifiedIntelligenceFacade,
-		private readonly portfolioService: PortfolioService
+		private readonly portfolioService: PortfolioService,
+		private readonly ragColdStart: RagColdStartService
 	) {}
 
 	/**
@@ -141,6 +143,11 @@ export class AiController {
 		if (!userId) {
 			throw new UnauthorizedException('User ID ausente no token');
 		}
+		// Cold-start (TRA-88): dispara a ingestão de RAG do usuário em
+		// background. Fire-and-forget — não bloqueia a resposta. Fecha a janela
+		// entre o usuário entrar e o cron diário rodar, em que o RAG dele
+		// estaria vazio. Só afeta Pro+ (gate no scheduler) e é barato por hash.
+		this.ragColdStart.trigger(userId);
 		try {
 			const orchestration = await this.chatOrchestratorService.orchestrate(
 				userId,
