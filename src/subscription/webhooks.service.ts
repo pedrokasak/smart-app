@@ -98,14 +98,18 @@ export class WebhooksService {
 				return;
 			}
 
+			// Resolve o plano tanto pelo preco MENSAL quanto pelo ANUAL: o
+			// checkout anual usa annualStripePriceId, entao um assinante anual
+			// chega aqui com um price.id que NAO esta em stripePriceId. Sem o
+			// $or, a assinatura anual nao encontrava o plano e o UserSubscription
+			// nunca era criado — usuario pagava e continuava 'free'.
+			const priceId = subscription.items.data[0].price.id;
 			const plan = await this.subscriptionModel.findOne({
-				stripePriceId: subscription.items.data[0].price.id,
+				$or: [{ stripePriceId: priceId }, { annualStripePriceId: priceId }],
 			});
 
 			if (!plan) {
-				this.logger.error(
-					`Plano não encontrado para price ID: ${subscription.items.data[0].price.id}`
-				);
+				this.logger.error(`Plano não encontrado para price ID: ${priceId}`);
 				return;
 			}
 
