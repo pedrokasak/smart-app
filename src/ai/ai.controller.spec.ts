@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
+import { RagColdStartService } from 'src/ai/rag-ingestion/application/rag-cold-start.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
@@ -86,6 +87,10 @@ describe('AiController', () => {
 				{
 					provide: PortfolioService,
 					useValue: mockPortfolioService,
+				},
+				{
+					provide: RagColdStartService,
+					useValue: { trigger: jest.fn() },
 				},
 			],
 		}).compile();
