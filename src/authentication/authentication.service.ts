@@ -248,7 +248,7 @@ export class AuthenticationService {
 			{ expiresIn: expireKeepAliveConectedRefreshToken }
 		);
 
-		user.refreshToken = refreshToken;
+		user.refreshToken = await this.passwordSecurityService.hashPassword(refreshToken);
 		await user.save();
 
 		return {
@@ -286,7 +286,14 @@ export class AuthenticationService {
 			}
 
 			const user = await UserModel.findById(payload.userId);
-			if (!user || user.refreshToken !== refreshToken) {
+			if (!user || !user.refreshToken) {
+				throw new Error('Invalid refresh token');
+			}
+			const tokenValid = await this.passwordSecurityService.verifyPassword(
+				refreshToken,
+				user.refreshToken
+			);
+			if (!tokenValid) {
 				throw new Error('Invalid refresh token');
 			}
 

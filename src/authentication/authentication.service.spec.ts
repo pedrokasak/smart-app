@@ -91,6 +91,7 @@ describe('AuthenticationService', () => {
 			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
 			mockPasswordSecurityService.needsRehash.mockReturnValue(false);
+			mockPasswordSecurityService.hashPassword.mockResolvedValue('hashed-refresh-token');
 			mockJwtService.sign.mockReturnValue('mocked-token');
 
 			const result = await service.signin({
@@ -234,6 +235,74 @@ describe('AuthenticationService', () => {
 			).rejects.toThrow();
 
 			expect(mockPasswordSecurityService.verifyPassword).toHaveBeenCalled();
+		});
+	});
+
+	describe('refreshAccessToken', () => {
+		it('should issue new access token with valid refresh token', async () => {
+			const save = jest.fn().mockResolvedValue(undefined);
+			const mockUser = {
+				id: 'u1',
+				refreshToken: 'hashed-refresh-token',
+				role: 'user',
+				save,
+			};
+
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockResolvedValue(mockUser);
+			mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
+			mockJwtService.sign.mockReturnValue('new-access-token');
+
+			const result = await service.refreshAccessToken('raw-refresh-token');
+
+			expect(mockPasswordSecurityService.verifyPassword).toHaveBeenCalledWith(
+				'raw-refresh-token',
+				'hashed-refresh-token'
+			);
+			expect(result.accessToken).toBe('new-access-token');
+		});
+
+		it('should throw when stored hash does not match', async () => {
+			const mockUser = { id: 'u1', refreshToken: 'hashed-refresh-token', role: 'user' };
+
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockResolvedValue(mockUser);
+			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
+
+			await expect(service.refreshAccessToken('wrong-token')).rejects.toThrow(
+				UnauthorizedException
+			);
+		});
+
+		it('should throw when user has no refresh token stored', async () => {
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockResolvedValue({
+				id: 'u1',
+				refreshToken: null,
+				role: 'user',
+			});
+
+			await expect(service.refreshAccessToken('any-token')).rejects.toThrow(
+				UnauthorizedException
+			);
+		});
+
+		it('should throw when JWT type is not refresh', async () => {
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'access' });
+
+			await expect(service.refreshAccessToken('access-token')).rejects.toThrow(
+				UnauthorizedException
+			);
+		});
+
+		it('should throw when JWT verification fails', async () => {
+			mockJwtService.verify.mockImplementation(() => {
+				throw new Error('jwt expired');
+			});
+
+			await expect(service.refreshAccessToken('expired-token')).rejects.toThrow(
+				UnauthorizedException
+			);
 		});
 	});
 
