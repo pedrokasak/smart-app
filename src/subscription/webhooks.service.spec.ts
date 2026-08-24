@@ -5,9 +5,15 @@ import { WebhooksService } from 'src/subscription/webhooks.service';
 describe('WebhooksService — resolução de plano no webhook', () => {
 	let subscriptionModel: { findOne: jest.Mock };
 	let userModel: { findOne: jest.Mock };
-	let savedDocs: any[];
 	let userSubscriptionModel: any;
 	let service: WebhooksService;
+
+	/** Documentos que o upsert atômico gravou de fato. */
+	function upsertedDocs(): any[] {
+		return userSubscriptionModel.updateOne.mock.calls
+			.filter((call: any[]) => call[2]?.upsert)
+			.map((call: any[]) => call[1].$setOnInsert);
+	}
 
 	function makeSubscriptionEvent(priceId: string) {
 		return {
@@ -34,18 +40,13 @@ describe('WebhooksService — resolução de plano no webhook', () => {
 	}
 
 	beforeEach(() => {
-		savedDocs = [];
 		subscriptionModel = { findOne: jest.fn() };
 		userModel = { findOne: jest.fn().mockResolvedValue({ _id: 'user_1' }) };
-		// Model usado como construtor: `new this.userSubscriptionModel(doc)`.
-		userSubscriptionModel = jest.fn().mockImplementation((doc: any) => ({
-			...doc,
-			save: jest.fn().mockImplementation(function (this: any) {
-				savedDocs.push(doc);
-				return Promise.resolve(doc);
-			}),
-		}));
-		userSubscriptionModel.findOne = jest.fn().mockResolvedValue(null);
+		userSubscriptionModel = {
+			findOne: jest.fn().mockResolvedValue(null),
+			// upsertedCount 1 = o documento foi criado por esta chamada.
+			updateOne: jest.fn().mockResolvedValue({ upsertedCount: 1 }),
+		};
 
 		service = new WebhooksService(
 			userModel as never,
@@ -59,8 +60,8 @@ describe('WebhooksService — resolução de plano no webhook', () => {
 
 		await service.handleWebhook(makeSubscriptionEvent('price_monthly_pro'));
 
-		expect(savedDocs).toHaveLength(1);
-		expect(savedDocs[0].plan).toBe('plan_pro');
+		expect(upsertedDocs()).toHaveLength(1);
+		expect(upsertedDocs()[0].plan).toBe('plan_pro');
 	});
 
 	it('creates a UserSubscription for an ANNUAL subscriber (annualStripePriceId match)', async () => {
@@ -78,8 +79,8 @@ describe('WebhooksService — resolução de plano no webhook', () => {
 				{ annualStripePriceId: 'price_annual_pro' },
 			])
 		);
-		expect(savedDocs).toHaveLength(1);
-		expect(savedDocs[0].plan).toBe('plan_pro');
+		expect(upsertedDocs()).toHaveLength(1);
+		expect(upsertedDocs()[0].plan).toBe('plan_pro');
 	});
 
 	it('does not create a subscription when no plan matches the price', async () => {
@@ -87,6 +88,29 @@ describe('WebhooksService — resolução de plano no webhook', () => {
 
 		await service.handleWebhook(makeSubscriptionEvent('price_desconhecido'));
 
-		expect(savedDocs).toHaveLength(0);
+		expect(userSubscriptionModel.updateOne).not.toHaveBeenCalled();
+	});
+
+	it('grava a assinatura por upsert, e não por leitura seguida de escrita', async () => {
+		// TRA-89: o Stripe reentrega e paraleliza eventos. Com `findOne` e
+		// depois `save`, duas entregas do mesmo evento criavam dois
+		// UserSubscription pro mesmo stripeSubscriptionId.
+		subscriptionModel.findOne.mockResolvedValue({ _id: 'plan_pro' });
+
+		await service.handleWebhook(makeSubscriptionEvent('price_monthly_pro'));
+
+		const [filter, , options] = userSubscriptionModel.updateOne.mock.calls[0];
+		expect(filter).toEqual({ stripeSubscriptionId: 'sub_123' });
+		expect(options.upsert).toBe(true);
+	});
+
+	it('não recria a assinatura quando o evento é reentregue', async () => {
+		subscriptionModel.findOne.mockResolvedValue({ _id: 'plan_pro' });
+		// upsertedCount 0 = outra entrega já criou o documento.
+		userSubscriptionModel.updateOne.mockResolvedValue({ upsertedCount: 0 });
+
+		await expect(
+			service.handleWebhook(makeSubscriptionEvent('price_monthly_pro'))
+		).resolves.toBeUndefined();
 	});
 });

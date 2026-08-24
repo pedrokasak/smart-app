@@ -246,11 +246,6 @@ export class AdminService implements OnModuleInit {
 		}
 
 		const now = new Date();
-		const currentSubscription = await this.userSubscriptionModel.findOne({
-			user: user._id,
-			status: { $in: ['active', 'trialing'] },
-		});
-
 		const nextStatus =
 			dto.grantType === ManualGrantType.Trial7Days ? 'trialing' : 'active';
 		const nextEndDate =
@@ -273,16 +268,15 @@ export class AdminService implements OnModuleInit {
 			quantity: 1,
 		};
 
-		let subscriptionRecord: UserSubscription;
-		if (currentSubscription) {
-			Object.assign(currentSubscription, payload);
-			subscriptionRecord = await currentSubscription.save();
-		} else {
-			subscriptionRecord = await this.userSubscriptionModel.create({
-				user: user._id,
-				...payload,
-			});
-		}
+		// Upsert atômico (TRA-89): antes era `findOne` e então `save`/`create`,
+		// e duas concessões simultâneas pro mesmo usuário — dois admins, ou um
+		// duplo clique — não achavam assinatura nenhuma e criavam duas ativas.
+		// Uma única operação condicional deixa o banco resolver a corrida.
+		const subscriptionRecord = await this.userSubscriptionModel.findOneAndUpdate(
+			{ user: user._id, status: { $in: ['active', 'trialing'] } },
+			{ $set: payload, $setOnInsert: { user: user._id } },
+			{ new: true, upsert: true, setDefaultsOnInsert: true }
+		);
 
 		await this.manualGrantAuditModel.create({
 			user: user._id,

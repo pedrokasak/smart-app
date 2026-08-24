@@ -89,15 +89,6 @@ export class WebhooksService {
 		subscription: Stripe.Subscription
 	): Promise<void> {
 		try {
-			const userSubscription = await this.userSubscriptionModel.findOne({
-				stripeSubscriptionId: subscription.id,
-			});
-
-			if (userSubscription) {
-				this.logger.log(`Assinatura já existe: ${subscription.id}`);
-				return;
-			}
-
 			// Resolve o plano tanto pelo preco MENSAL quanto pelo ANUAL: o
 			// checkout anual usa annualStripePriceId, entao um assinante anual
 			// chega aqui com um price.id que NAO esta em stripePriceId. Sem o
@@ -123,25 +114,46 @@ export class WebhooksService {
 				return;
 			}
 
-			const newUserSubscription = new this.userSubscriptionModel({
-				user: user._id,
-				plan: plan._id,
-				stripeSubscriptionId: subscription.id,
-				stripeCustomerId: subscription.customer as string,
-				status: subscription.status,
-				currentPeriodStart: this.resolvePeriod(subscription).start,
-				currentPeriodEnd: this.resolvePeriod(subscription).end,
-				cancelAtPeriodEnd: subscription.cancel_at_period_end,
-				trialStart: (subscription as any).trial_start
-					? new Date((subscription as any).trial_start * 1000)
-					: undefined,
-				trialEnd: (subscription as any).trial_end
-					? new Date((subscription as any).trial_end * 1000)
-					: undefined,
-				quantity: subscription.items.data[0].quantity || 1,
-			});
+			const period = this.resolvePeriod(subscription);
 
-			await newUserSubscription.save();
+			// Upsert atômico em vez de `findOne` seguido de `save` (TRA-89):
+			// o Stripe reentrega e paraleliza eventos, e a checagem de
+			// existência separada da escrita deixava duas entregas do mesmo
+			// evento criarem dois UserSubscription pro mesmo
+			// stripeSubscriptionId. `upsert` resolve isso no banco, sem trava
+			// aplicativa. `$setOnInsert` porque este handler descreve a
+			// CRIAÇÃO: se o documento já existe, quem manda no estado atual é
+			// o `customer.subscription.updated`, não uma reentrega tardia
+			// deste evento.
+			const result = await this.userSubscriptionModel.updateOne(
+				{ stripeSubscriptionId: subscription.id },
+				{
+					$setOnInsert: {
+						user: user._id,
+						plan: plan._id,
+						stripeSubscriptionId: subscription.id,
+						stripeCustomerId: subscription.customer as string,
+						status: subscription.status,
+						currentPeriodStart: period.start,
+						currentPeriodEnd: period.end,
+						cancelAtPeriodEnd: subscription.cancel_at_period_end,
+						trialStart: (subscription as any).trial_start
+							? new Date((subscription as any).trial_start * 1000)
+							: undefined,
+						trialEnd: (subscription as any).trial_end
+							? new Date((subscription as any).trial_end * 1000)
+							: undefined,
+						quantity: subscription.items.data[0].quantity || 1,
+					},
+				},
+				{ upsert: true }
+			);
+
+			if (result.upsertedCount === 0) {
+				this.logger.log(`Assinatura já existe: ${subscription.id}`);
+				return;
+			}
+
 			this.logger.log(`Assinatura criada: ${subscription.id}`);
 		} catch (error) {
 			this.logger.error('Erro ao processar assinatura criada:', error);
@@ -240,8 +252,24 @@ export class WebhooksService {
 				return;
 			}
 
-			// Atualiza as informações com base na fatura paga
-			userSubscription.status = 'active'; // Garante que está ativa
+			// Webhook do Stripe não tem ordem garantida: um
+			// `invoice.payment_succeeded` atrasado chegando depois do
+			// cancelamento ressuscitava uma assinatura encerrada e devolvia
+			// acesso pago a quem já tinha saído (TRA-89). Estado terminal não
+			// volta atrás por evento antigo — só o período é atualizado.
+			const isTerminal =
+				userSubscription.status === 'canceled' || !!userSubscription.endedAt;
+
+			if (isTerminal) {
+				this.logger.warn(
+					`Invoice ${invoice.id} paga para assinatura já encerrada ` +
+						`(${subscriptionId}, status ${userSubscription.status}). ` +
+						'Status preservado; apenas o período foi atualizado.'
+				);
+			} else {
+				userSubscription.status = 'active';
+			}
+
 			userSubscription.currentPeriodStart = new Date(
 				invoice.period_start * 1000
 			);

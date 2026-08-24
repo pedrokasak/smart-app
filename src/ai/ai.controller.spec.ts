@@ -200,9 +200,12 @@ describe('AiController', () => {
 		};
 		mockAiService.chat.mockResolvedValue(fakeChat);
 
+		// `profile_plan` saiu do contrato (TRA-89): era enviado pelo cliente e
+		// usado do outro lado pra decidir a profundidade da análise — bastava
+		// declarar-se premium. O ValidationPipe global rejeita a propriedade
+		// agora, então o DTO não a aceita nem aqui.
 		const result = await controller.chat({
 			question: 'Minha carteira está muito arriscada?',
-			profile_plan: 'pro',
 			context: { portfolioSummary: { totalValue: 10000 } },
 		});
 

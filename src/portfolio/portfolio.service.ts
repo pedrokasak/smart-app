@@ -211,16 +211,6 @@ export class PortfolioService {
 		createDto: CreatePortfolioDto,
 		userPlan: string = 'free'
 	) {
-		const existingPortfoliosCount = await this.portfolioModel.countDocuments({
-			userId,
-		});
-
-		if (userPlan === 'free' && existingPortfoliosCount >= 1) {
-			throw new ForbiddenException(
-				'Limite de portfólios atingido. Faça upgrade para o plano Premium para criar mais portfólios.'
-			);
-		}
-
 		const portfolio = await this.portfolioModel.create({
 			userId,
 			name: createDto.name,
@@ -230,6 +220,23 @@ export class PortfolioService {
 			assets: [],
 			plan: userPlan,
 		});
+
+		// Limite conferido DEPOIS de gravar, e desfeito se estourou (TRA-89).
+		//
+		// A ordem anterior era `countDocuments` e então `create`: duas
+		// requisições simultâneas contavam zero antes de qualquer uma gravar,
+		// e as duas passavam — plano free terminava com N carteiras. Contar
+		// depois da escrita faz a corrida ser observável: quem criou a
+		// segunda enxerga as duas e desfaz a própria.
+		if (userPlan === 'free') {
+			const count = await this.portfolioModel.countDocuments({ userId });
+			if (count > 1) {
+				await this.portfolioModel.deleteOne({ _id: portfolio._id });
+				throw new ForbiddenException(
+					'Limite de portfólios atingido. Faça upgrade para o plano Premium para criar mais portfólios.'
+				);
+			}
+		}
 
 		return portfolio;
 	}

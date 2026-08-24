@@ -19,6 +19,8 @@ import {
 	ApiTags,
 } from '@nestjs/swagger';
 import { AiAnalysisResponseDto } from './dto/ai-analysis-response.dto';
+import { AiChatRequestDto } from 'src/ai/dto/ai-chat-request.dto';
+import { AiSimulateRequestDto } from 'src/ai/dto/ai-simulate-request.dto';
 import { AiAnalysisRequestDto } from './dto/ai-analysis-request.dto';
 import { FutureSimulatorRequestDto } from './dto/future-simulator-request.dto';
 import { IntelligentChatRequestDto } from './intelligence/dto/intelligent-chat-request.dto';
@@ -89,7 +91,7 @@ export class AiController {
 	@Post('simulate')
 	@UseGuards(JwtAuthGuard)
 	@HttpCode(HttpStatus.OK)
-	async simulate(@Body() body: any): Promise<any> {
+	async simulate(@Body() body: AiSimulateRequestDto): Promise<any> {
 		return this.aiService.simulate(body);
 	}
 
@@ -128,7 +130,7 @@ export class AiController {
 	@Post('chat')
 	@UseGuards(JwtAuthGuard)
 	@HttpCode(HttpStatus.OK)
-	async chat(@Body() body: any): Promise<any> {
+	async chat(@Body() body: AiChatRequestDto): Promise<any> {
 		return this.aiService.chat(body);
 	}
 

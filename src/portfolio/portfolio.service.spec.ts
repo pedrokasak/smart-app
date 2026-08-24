@@ -18,6 +18,8 @@ describe('PortfolioService', () => {
 		findByIdAndUpdate: jest.fn(),
 		findByIdAndDelete: jest.fn(),
 		countDocuments: jest.fn(),
+		deleteOne: jest.fn(),
+		exists: jest.fn(),
 	};
 
 	const mockAssetModel = {
@@ -71,7 +73,9 @@ describe('PortfolioService', () => {
 		};
 
 		it('should create a portfolio if user is free and has 0 portfolios', async () => {
-			mockPortfolioModel.countDocuments.mockResolvedValue(0);
+			// A contagem acontece DEPOIS da escrita: com uma carteira só, é a
+			// que acabou de ser criada.
+			mockPortfolioModel.countDocuments.mockResolvedValue(1);
 			mockPortfolioModel.create.mockResolvedValue({ id: '1', ...createDto });
 
 			const result = await service.createPortfolio('user1', createDto, 'free');
@@ -80,11 +84,35 @@ describe('PortfolioService', () => {
 		});
 
 		it('should throw ForbiddenException if user is free and has 1 or more portfolios', async () => {
-			mockPortfolioModel.countDocuments.mockResolvedValue(1);
+			mockPortfolioModel.create.mockResolvedValue({
+				_id: 'nova',
+				...createDto,
+			});
+			// Já existia uma; com a recém-criada são duas.
+			mockPortfolioModel.countDocuments.mockResolvedValue(2);
 
 			await expect(
 				service.createPortfolio('user1', createDto, 'free')
 			).rejects.toThrow(ForbiddenException);
+		});
+
+		it('desfaz a carteira que estourou o limite numa corrida (TRA-89)', async () => {
+			// Duas requisições simultâneas contavam zero antes de qualquer uma
+			// gravar e as duas passavam. Contando depois da escrita, a segunda
+			// enxerga as duas e remove a própria.
+			mockPortfolioModel.create.mockResolvedValue({
+				_id: 'nova',
+				...createDto,
+			});
+			mockPortfolioModel.countDocuments.mockResolvedValue(2);
+
+			await expect(
+				service.createPortfolio('user1', createDto, 'free')
+			).rejects.toThrow(ForbiddenException);
+
+			expect(mockPortfolioModel.deleteOne).toHaveBeenCalledWith({
+				_id: 'nova',
+			});
 		});
 
 		it('should create a portfolio if user is premium and has multiple portfolios', async () => {
