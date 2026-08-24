@@ -4,7 +4,7 @@ import {
 	NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { CreateAssetDto } from 'src/assets/dto/create-asset.dto';
 import { Asset } from 'src/assets/schema/assets.model';
 import { CreatePortfolioDto } from 'src/portfolio/dto/create-portfolio.dto';
@@ -25,6 +25,60 @@ export class PortfolioService {
 
 	async findPortfolioById(portfolioId: string) {
 		return this.portfolioModel.findById(portfolioId).populate('assets');
+	}
+
+	/**
+	 * Carrega o portfólio garantindo que ele pertence ao usuário do token
+	 * (TRA-89).
+	 *
+	 * Antes disso `GET /portfolio/:id` só recebia o id: qualquer usuário
+	 * autenticado lia a carteira inteira de qualquer outro. Autorização é
+	 * decidida aqui e não no controller pra não depender de cada rota nova
+	 * lembrar de repetir a checagem.
+	 *
+	 * Portfólio inexistente e portfólio alheio devolvem o MESMO erro de
+	 * propósito: distinguir os dois transforma o endpoint num oráculo de
+	 * existência de ids.
+	 */
+	async findOwnedPortfolioById(userId: string, portfolioId: string) {
+		if (!userId) {
+			throw new ForbiddenException('Usuário não autenticado.');
+		}
+		if (!Types.ObjectId.isValid(portfolioId)) {
+			throw new NotFoundException('Carteira não encontrada.');
+		}
+
+		const portfolio = await this.portfolioModel
+			.findOne({ _id: portfolioId, userId })
+			.populate('assets');
+
+		if (!portfolio) {
+			throw new NotFoundException('Carteira não encontrada.');
+		}
+
+		return portfolio;
+	}
+
+	/** Igual a `findOwnedPortfolioById`, mas sem carregar os ativos. */
+	async assertPortfolioOwnership(
+		userId: string,
+		portfolioId: string
+	): Promise<void> {
+		if (!userId) {
+			throw new ForbiddenException('Usuário não autenticado.');
+		}
+		if (!Types.ObjectId.isValid(portfolioId)) {
+			throw new NotFoundException('Carteira não encontrada.');
+		}
+
+		const exists = await this.portfolioModel.exists({
+			_id: portfolioId,
+			userId,
+		});
+
+		if (!exists) {
+			throw new NotFoundException('Carteira não encontrada.');
+		}
 	}
 
 	async getPortfolioHistory(portfolioId: string) {
@@ -138,8 +192,13 @@ export class PortfolioService {
 	}
 
 	async findPortfolioByName(userId: string, name: string) {
+		// O nome é texto do usuário e ia cru para dentro de um RegExp: um nome
+		// como `(a+)+$` gera backtracking catastrófico (ReDoS) e metacaracteres
+		// mudam silenciosamente o que a busca casa. Escapar mantém a intenção
+		// original — comparação exata, sem diferenciar maiúsculas (TRA-89).
+		const escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 		return this.portfolioModel
-			.findOne({ userId, name: new RegExp(`^${name}$`, 'i') })
+			.findOne({ userId, name: new RegExp(`^${escaped}$`, 'i') })
 			.populate('assets');
 	}
 

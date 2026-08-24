@@ -1,4 +1,5 @@
 import {
+	BadRequestException,
 	Body,
 	Controller,
 	Get,
@@ -31,6 +32,21 @@ import { TradeModel } from 'src/fiscal/schema/trade.model';
 import { withDerivedAveragePrice } from 'src/portfolio/derive-average-price';
 import { Types } from 'mongoose';
 import * as xlsx from 'xlsx';
+import { validateUploadFile } from 'src/broker-sync/security/upload-file.validator';
+
+/**
+ * Planilha da B3 é pequena; o limite existe pra impedir que um upload
+ * arbitrariamente grande seja carregado inteiro em memória antes do parse.
+ * Mesmo teto do upload de nota de corretagem.
+ */
+const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024;
+
+/** O payload do JWT variou entre versões; aceita as formas já emitidas. */
+function resolveUserId(req: any): string {
+	return String(
+		req?.user?.userId ?? req?.user?.sub ?? req?.user?._id ?? req?.user?.id ?? ''
+	);
+}
 
 @Controller('portfolio')
 @ApiTags('Portfolio')
@@ -206,28 +222,54 @@ export class PortfolioController {
 	}
 
 	@Get(':id')
-	async findById(@Param('id') id: string): Promise<PortfolioWithAssetsDto> {
-		const portfolio = await this.portfolioService.findPortfolioById(id);
+	async findById(
+		@Param('id') id: string,
+		@Req() req: any
+	): Promise<PortfolioWithAssetsDto> {
+		const portfolio = await this.portfolioService.findOwnedPortfolioById(
+			resolveUserId(req),
+			id
+		);
 		// portfolio já vem com assets populados!
 		return PortfolioMapper.toResponseDtoWithAssets(portfolio, portfolio.assets);
 	}
 
 	@Get(':id/history')
-	async getHistory(@Param('id') id: string) {
+	async getHistory(@Param('id') id: string, @Req() req: any) {
+		await this.portfolioService.assertPortfolioOwnership(resolveUserId(req), id);
 		return this.portfolioService.getPortfolioHistory(id);
 	}
 
 	@Post(':id/import-b3')
-	@UseInterceptors(FileInterceptor('file'))
+	@UseInterceptors(
+		FileInterceptor('file', {
+			limits: { fileSize: MAX_IMPORT_FILE_BYTES },
+		})
+	)
 	async importB3Report(
 		@Param('id') id: string,
-		@UploadedFile() file: any
+		@UploadedFile() file: any,
+		@Req() req: any
 	): Promise<any> {
 		if (!file) {
-			throw new Error('Arquivo não enviado');
+			throw new BadRequestException('Arquivo não enviado');
 		}
 
-		const workbook = xlsx.read(file.buffer, { type: 'buffer' });
+		// Importação escreve na carteira: sem esta checagem qualquer usuário
+		// autenticado sobrescrevia os ativos da carteira de outro (TRA-89).
+		await this.portfolioService.assertPortfolioOwnership(resolveUserId(req), id);
+
+		const buffer = Buffer.from(file.buffer || '');
+		const validation = validateUploadFile({
+			buffer,
+			fileName: file.originalname || '',
+			mimeType: file.mimetype || '',
+		});
+		if (!validation.ok) {
+			throw new BadRequestException(validation.reason);
+		}
+
+		const workbook = xlsx.read(buffer, { type: 'buffer' });
 		const reportDate = resolveReportDate(file?.originalname);
 		const { assets: parsedAssets, dividendsBySymbol } = parseB3Workbook(
 			workbook,
@@ -325,25 +367,30 @@ export class PortfolioController {
 	}
 
 	@Post(':id/import-b3-transactions')
-	@UseInterceptors(FileInterceptor('file'))
+	@UseInterceptors(
+		FileInterceptor('file', {
+			limits: { fileSize: MAX_IMPORT_FILE_BYTES },
+		})
+	)
 	async importB3Transactions(
 		@Param('id') portfolioId: string,
 		@UploadedFile() file: any,
 		@Req() req: any
 	) {
 		if (!file) {
-			throw new Error('Arquivo não enviado');
+			throw new BadRequestException('Arquivo não enviado');
 		}
 
-		const userId =
-			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
-		const userPortfolios =
-			await this.portfolioService.getUserPortfolios(userId);
-		const selected = userPortfolios.find(
-			(portfolio: any) => String(portfolio._id || portfolio.id) === portfolioId
-		);
-		if (!selected) {
-			throw new Error('Carteira não encontrada para o usuário');
+		const userId = resolveUserId(req);
+		await this.portfolioService.assertPortfolioOwnership(userId, portfolioId);
+
+		const validation = validateUploadFile({
+			buffer: Buffer.from(file.buffer || ''),
+			fileName: file.originalname || '',
+			mimeType: file.mimetype || '',
+		});
+		if (!validation.ok) {
+			throw new BadRequestException(validation.reason);
 		}
 
 		const fileName = String(file.originalname || '').toLowerCase();
@@ -455,8 +502,13 @@ export class PortfolioController {
 	@Post(':portfolioId/asset')
 	async addAsset(
 		@Param('portfolioId') portfolioId: string,
-		@Body() createAssetDto: CreateAssetDto
+		@Body() createAssetDto: CreateAssetDto,
+		@Req() req: any
 	): Promise<AssetResponseDto> {
+		await this.portfolioService.assertPortfolioOwnership(
+			resolveUserId(req),
+			portfolioId
+		);
 		const asset = await this.portfolioService.addAssetToPortfolio(
 			portfolioId,
 			createAssetDto
@@ -467,8 +519,10 @@ export class PortfolioController {
 	@Put(':id')
 	async update(
 		@Param('id') id: string,
-		@Body() updatePortfolioDto: UpdatePortfolioDto
+		@Body() updatePortfolioDto: UpdatePortfolioDto,
+		@Req() req: any
 	): Promise<PortfolioResponseDto> {
+		await this.portfolioService.assertPortfolioOwnership(resolveUserId(req), id);
 		const portfolio = await this.portfolioService.updatePortfolio(
 			id,
 			updatePortfolioDto
@@ -477,7 +531,8 @@ export class PortfolioController {
 	}
 
 	@Delete(':id')
-	async delete(@Param('id') id: string): Promise<void> {
+	async delete(@Param('id') id: string, @Req() req: any): Promise<void> {
+		await this.portfolioService.assertPortfolioOwnership(resolveUserId(req), id);
 		await this.portfolioService.deletePortfolio(id);
 	}
 }

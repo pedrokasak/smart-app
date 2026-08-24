@@ -1,3 +1,4 @@
+import { NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PortfolioController } from './portfolio.controller';
 import { PortfolioService } from './portfolio.service';
@@ -17,10 +18,15 @@ describe('PortfolioController', () => {
 		createPortfolio: jest.fn(),
 		getUserPortfolios: jest.fn(),
 		findPortfolioById: jest.fn(),
+		findOwnedPortfolioById: jest.fn(),
+		assertPortfolioOwnership: jest.fn().mockResolvedValue(undefined),
 		updatePortfolio: jest.fn(),
 		deletePortfolio: jest.fn(),
 		addAssetToPortfolio: jest.fn(),
 	};
+
+	/** Request autenticado mínimo — as rotas por id agora exigem o dono. */
+	const reqFor = (userId = 'user1') => ({ user: { userId } }) as any;
 
 	const mockAssetsService = {};
 
@@ -102,7 +108,7 @@ describe('PortfolioController', () => {
 				updatedAt: new Date(),
 			});
 
-			const result = await controller.update('1', dto as any);
+			const result = await controller.update('1', dto as any, reqFor());
 			expect(result.id).toBe('1');
 			expect(result.name).toBe('New Name');
 			expect(mockPortfolioService.updatePortfolio).toHaveBeenCalledWith(
@@ -115,8 +121,23 @@ describe('PortfolioController', () => {
 	describe('delete', () => {
 		it('should delete a portfolio', async () => {
 			mockPortfolioService.deletePortfolio.mockResolvedValue({ id: '1' });
-			await controller.delete('1');
+			await controller.delete('1', reqFor());
 			expect(mockPortfolioService.deletePortfolio).toHaveBeenCalledWith('1');
+		});
+
+		it('não apaga a carteira quando ela não é do usuário do token', async () => {
+			// Este spec não limpa mocks entre testes; o delete acima já registrou
+			// uma chamada e o assert abaixo é sobre ESTA requisição.
+			mockPortfolioService.deletePortfolio.mockClear();
+			// assertPortfolioOwnership rejeita: o delete não pode nem ser chamado.
+			mockPortfolioService.assertPortfolioOwnership.mockRejectedValueOnce(
+				new NotFoundException('Carteira não encontrada.')
+			);
+
+			await expect(controller.delete('1', reqFor('outro'))).rejects.toThrow(
+				NotFoundException
+			);
+			expect(mockPortfolioService.deletePortfolio).not.toHaveBeenCalled();
 		});
 	});
 });

@@ -1,5 +1,6 @@
 import {
 	ConflictException,
+	ForbiddenException,
 	Injectable,
 	NotFoundException,
 } from '@nestjs/common';
@@ -55,6 +56,40 @@ export class ProfileService {
 		return profile;
 	}
 
+	/**
+	 * Confere que o perfil pertence ao usuário do token (TRA-89).
+	 *
+	 * Existe porque `update` e `remove` são endereçados pelo id do PERFIL,
+	 * não pelo id do usuário — o controller sozinho não consegue decidir
+	 * a posse sem carregar o documento.
+	 *
+	 * Perfil inexistente e perfil alheio devolvem o mesmo erro: separar os
+	 * dois entrega um oráculo de ids válidos.
+	 */
+	async assertProfileOwnership(
+		profileId: string,
+		requesterUserId: string,
+		requesterIsAdmin = false
+	): Promise<void> {
+		if (requesterIsAdmin) return;
+
+		if (!requesterUserId) {
+			throw new ForbiddenException('Usuário não autenticado.');
+		}
+		if (!Types.ObjectId.isValid(profileId)) {
+			throw new NotFoundException('Perfil não encontrado.');
+		}
+
+		const profile = await this.profileModel
+			.findById(profileId)
+			.select('user')
+			.lean();
+
+		if (!profile || String((profile as any).user) !== String(requesterUserId)) {
+			throw new NotFoundException('Perfil não encontrado.');
+		}
+	}
+
 	async update(id: string, updateProfileDto: UpdateProfileDto) {
 		if (!Types.ObjectId.isValid(id)) {
 			throw new NotFoundException(`Invalid profile ID format: ${id}`);
@@ -86,9 +121,6 @@ export class ProfileService {
 		return { message: `Profile deleted successfully`, id: profileId };
 	}
 
-	async removeAll(): Promise<void> {
-		await this.profileModel.deleteMany();
-	}
 	private isProfileComplete(profile: CreateProfileDto): boolean {
 		return !!(profile.phone && profile.address && profile.birthDate);
 	}
