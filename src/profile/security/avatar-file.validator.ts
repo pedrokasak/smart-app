@@ -34,7 +34,8 @@ function hasJpegMagic(buffer: Buffer): boolean {
 function hasPngMagic(buffer: Buffer): boolean {
 	const signature = [0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
 	return (
-		buffer.length >= 8 && signature.every((byte, index) => buffer[index] === byte)
+		buffer.length >= 8 &&
+		signature.every((byte, index) => buffer[index] === byte)
 	);
 }
 

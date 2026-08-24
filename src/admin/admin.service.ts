@@ -272,11 +272,12 @@ export class AdminService implements OnModuleInit {
 		// e duas concessões simultâneas pro mesmo usuário — dois admins, ou um
 		// duplo clique — não achavam assinatura nenhuma e criavam duas ativas.
 		// Uma única operação condicional deixa o banco resolver a corrida.
-		const subscriptionRecord = await this.userSubscriptionModel.findOneAndUpdate(
-			{ user: user._id, status: { $in: ['active', 'trialing'] } },
-			{ $set: payload, $setOnInsert: { user: user._id } },
-			{ new: true, upsert: true, setDefaultsOnInsert: true }
-		);
+		const subscriptionRecord =
+			await this.userSubscriptionModel.findOneAndUpdate(
+				{ user: user._id, status: { $in: ['active', 'trialing'] } },
+				{ $set: payload, $setOnInsert: { user: user._id } },
+				{ new: true, upsert: true, setDefaultsOnInsert: true }
+			);
 
 		await this.manualGrantAuditModel.create({
 			user: user._id,

@@ -471,13 +471,15 @@ describe('AiController', () => {
 			);
 			// O ativo sem symbol e descartado (mesma regra de
 			// ChatOrchestratorService.toPositions).
-			expect(mockUnifiedIntelligenceFacade.simulateFuture).toHaveBeenCalledWith({
-				positions: [
-					expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
-				],
-				horizon: '5y',
-				monthlyContribution: 500,
-			});
+			expect(mockUnifiedIntelligenceFacade.simulateFuture).toHaveBeenCalledWith(
+				{
+					positions: [
+						expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
+					],
+					horizon: '5y',
+					monthlyContribution: 500,
+				}
+			);
 			expect(response).toBe(fakeOutput);
 		});
 
@@ -525,9 +527,9 @@ describe('AiController', () => {
 		});
 
 		it('throws Unauthorized when the JWT has no userId', async () => {
-			await expect(
-				controller.portfolioScore({ user: {} })
-			).rejects.toThrow('User ID ausente no token');
+			await expect(controller.portfolioScore({ user: {} })).rejects.toThrow(
+				'User ID ausente no token'
+			);
 		});
 	});
 

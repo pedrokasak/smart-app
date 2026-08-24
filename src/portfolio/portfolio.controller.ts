@@ -1,5 +1,6 @@
 import {
 	BadRequestException,
+	NotFoundException,
 	Body,
 	Controller,
 	Get,
@@ -198,8 +199,24 @@ export class PortfolioController {
 	@Put('assets/:assetId')
 	async updateAsset(
 		@Param('assetId') assetId: string,
-		@Body() updateAssetDto: UpdateAssetDto
+		@Body() updateAssetDto: UpdateAssetDto,
+		@Req() req: any
 	): Promise<AssetResponseDto | null> {
+		// O ativo é endereçado direto pelo id, sem passar pela carteira: sem
+		// esta checagem qualquer usuário autenticado editava quantidade e
+		// preço médio do ativo de outro (TRA-89). Segue o mesmo caminho do
+		// `findAssetById` logo acima, que já resolvia pelo dono.
+		const userId = resolveUserId(req);
+		const portfolios = await this.portfolioService.getUserPortfolios(userId);
+		const owned = portfolios.some((portfolio: any) =>
+			((portfolio.assets as any) || []).some(
+				(asset: any) => String(asset._id) === String(assetId)
+			)
+		);
+		if (!owned) {
+			throw new NotFoundException('Ativo não encontrado.');
+		}
+
 		const updated = await this.assetService.update(assetId, updateAssetDto);
 		return updated ? AssetMapper.toResponseDto(updated as any) : null;
 	}
@@ -236,7 +253,10 @@ export class PortfolioController {
 
 	@Get(':id/history')
 	async getHistory(@Param('id') id: string, @Req() req: any) {
-		await this.portfolioService.assertPortfolioOwnership(resolveUserId(req), id);
+		await this.portfolioService.assertPortfolioOwnership(
+			resolveUserId(req),
+			id
+		);
 		return this.portfolioService.getPortfolioHistory(id);
 	}
 
@@ -257,7 +277,10 @@ export class PortfolioController {
 
 		// Importação escreve na carteira: sem esta checagem qualquer usuário
 		// autenticado sobrescrevia os ativos da carteira de outro (TRA-89).
-		await this.portfolioService.assertPortfolioOwnership(resolveUserId(req), id);
+		await this.portfolioService.assertPortfolioOwnership(
+			resolveUserId(req),
+			id
+		);
 
 		const buffer = Buffer.from(file.buffer || '');
 		const validation = validateUploadFile({
@@ -522,7 +545,10 @@ export class PortfolioController {
 		@Body() updatePortfolioDto: UpdatePortfolioDto,
 		@Req() req: any
 	): Promise<PortfolioResponseDto> {
-		await this.portfolioService.assertPortfolioOwnership(resolveUserId(req), id);
+		await this.portfolioService.assertPortfolioOwnership(
+			resolveUserId(req),
+			id
+		);
 		const portfolio = await this.portfolioService.updatePortfolio(
 			id,
 			updatePortfolioDto
@@ -532,7 +558,10 @@ export class PortfolioController {
 
 	@Delete(':id')
 	async delete(@Param('id') id: string, @Req() req: any): Promise<void> {
-		await this.portfolioService.assertPortfolioOwnership(resolveUserId(req), id);
+		await this.portfolioService.assertPortfolioOwnership(
+			resolveUserId(req),
+			id
+		);
 		await this.portfolioService.deletePortfolio(id);
 	}
 }

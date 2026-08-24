@@ -1,8 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import {
 	BadRequestException,
-	InternalServerErrorException,
-	NotFoundException,
 	UnauthorizedException,
 } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -133,7 +131,7 @@ describe('AuthenticationService', () => {
 					keepConnected: false,
 					token: '',
 				})
-			).rejects.toThrow('Invalid password');
+			).rejects.toThrow('E-mail ou senha inválidos');
 		});
 
 		it('should migrate legacy hash on successful login', async () => {
@@ -173,6 +171,9 @@ describe('AuthenticationService', () => {
 			expect(save).toHaveBeenCalledTimes(2);
 		});
 
+		// TRA-89: conta sem senha local (criada via Google) não pode se
+		// denunciar com um 500 enquanto senha errada devolve 401 — as duas
+		// respondem igual.
 		it('should throw when user has no password configured', async () => {
 			const mockUser = {
 				id: 'u3',
@@ -194,10 +195,12 @@ describe('AuthenticationService', () => {
 					keepConnected: false,
 					token: '',
 				})
-			).rejects.toThrow(InternalServerErrorException);
+			).rejects.toThrow(UnauthorizedException);
 		});
 
-		it('should throw user not found', async () => {
+		it('responde igual para e-mail inexistente e senha errada (TRA-89)', async () => {
+			// Antes: 404 com o e-mail na mensagem versus 401. Bastava olhar o
+			// status pra descobrir quem tem conta na plataforma.
 			(UserModel.findOne as jest.Mock).mockReturnValue({
 				select: jest.fn().mockReturnValue({
 					exec: jest.fn().mockResolvedValue(null),
@@ -211,7 +214,26 @@ describe('AuthenticationService', () => {
 					keepConnected: false,
 					token: '',
 				})
-			).rejects.toThrow(NotFoundException);
+			).rejects.toThrow('E-mail ou senha inválidos');
+		});
+
+		it('gasta o custo do hash mesmo sem usuário, pra não vazar pelo tempo', async () => {
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					exec: jest.fn().mockResolvedValue(null),
+				}),
+			});
+
+			await expect(
+				service.signin({
+					email: 'missing@example.com',
+					password: 'Password123@',
+					keepConnected: false,
+					token: '',
+				})
+			).rejects.toThrow();
+
+			expect(mockPasswordSecurityService.verifyPassword).toHaveBeenCalled();
 		});
 	});
 

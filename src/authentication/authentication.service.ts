@@ -55,14 +55,20 @@ export class AuthenticationService {
 			.select('+password')
 			.exec();
 
-		if (!verifyUser) {
-			AuthErrorService.handleUserNotFound(email);
-		}
-
-		if (!verifyUser.password) {
-			throw new InternalServerErrorException(
-				'Senha não configurada para este usuário'
+		// E-mail inexistente e senha errada respondem igual (TRA-89).
+		//
+		// Antes, `handleUserNotFound` devolvia 404 com o e-mail na mensagem e
+		// senha errada devolvia 401 — dava pra descobrir quem tem conta aqui
+		// só olhando o status. E o caminho do usuário inexistente retornava
+		// sem executar o Argon2, então mesmo com respostas iguais o tempo
+		// entregava a diferença. Por isso a verificação roda contra um hash
+		// descartável quando não há usuário: mesmo custo, mesma resposta.
+		if (!verifyUser?.password) {
+			await this.passwordSecurityService.verifyPassword(
+				password,
+				await this.dummyPasswordHash()
 			);
+			AuthErrorService.handleInvalidCredentials();
 		}
 
 		const isPasswordValid = await this.passwordSecurityService.verifyPassword(
@@ -71,7 +77,7 @@ export class AuthenticationService {
 		);
 
 		if (!isPasswordValid) {
-			AuthErrorService.handleInvalidPassword();
+			AuthErrorService.handleInvalidCredentials();
 		}
 
 		// Secure migration path: seamlessly rehash legacy bcrypt passwords using Argon2id.
@@ -91,6 +97,23 @@ export class AuthenticationService {
 		}
 
 		return this.issueSessionTokens(verifyUser as any);
+	}
+
+	/**
+	 * Hash descartável usado só para gastar o mesmo tempo de verificação
+	 * quando o e-mail não existe. Calculado uma vez e reaproveitado — gerar a
+	 * cada tentativa custaria mais que verificar, invertendo a diferença de
+	 * tempo que este método existe pra apagar.
+	 */
+	private dummyHashPromise: Promise<string> | null = null;
+
+	private dummyPasswordHash(): Promise<string> {
+		if (!this.dummyHashPromise) {
+			this.dummyHashPromise = this.passwordSecurityService.hashPassword(
+				crypto.randomBytes(32).toString('hex')
+			);
+		}
+		return this.dummyHashPromise;
 	}
 
 	async googleSignin(payload: GoogleSigninDto): Promise<AuthenticationEntity> {
@@ -310,6 +333,9 @@ export class AuthenticationService {
 		);
 
 		user.password = hashedPassword;
+		// Mesma razão do resetPassword: trocar a senha encerra as sessões
+		// anteriores (TRA-89).
+		user.refreshToken = null;
 		await user.save();
 
 		return { message: 'Password updated successfully' };
@@ -422,6 +448,10 @@ export class AuthenticationService {
 		user.password = hashedPassword;
 		user.resetPasswordToken = undefined;
 		user.resetPasswordExpires = undefined;
+		// Derruba a sessão existente (TRA-89). Quem redefine a senha
+		// normalmente o faz porque suspeita que alguém entrou na conta —
+		// manter o refresh token anterior válido deixava esse alguém dentro.
+		user.refreshToken = null;
 		await user.save();
 
 		return { message: 'Senha redefinida com sucesso' };

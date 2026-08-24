@@ -214,7 +214,11 @@ describe('PortfolioService', () => {
 		it('filtra por userId e pela janela de datas via query', async () => {
 			mockFindResult([]);
 
-			await service.getUserPortfolioHistory('user-9', '2026-08-01', '2026-08-07');
+			await service.getUserPortfolioHistory(
+				'user-9',
+				'2026-08-01',
+				'2026-08-07'
+			);
 
 			expect(mockPortfolioHistoryModel.find).toHaveBeenCalledWith({
 				userId: 'user-9',
