@@ -1,4 +1,5 @@
 import { HttpService } from '@nestjs/axios';
+import { trackerrIaHeaders } from 'src/ai/infrastructure/trackerr-ia-request';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -74,7 +75,7 @@ export class TrackerrIaRagSynthesizerAdapter implements ChatNarrativeSynthesizer
 					`${this.trackerIaUrl}/api/rag/query`,
 					{ user_id: input.userId, question: input.question },
 					{
-						headers: { 'Content-Type': 'application/json' },
+						headers: trackerrIaHeaders(),
 						timeout: 12000,
 					}
 				)

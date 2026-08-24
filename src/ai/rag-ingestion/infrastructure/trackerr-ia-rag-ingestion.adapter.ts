@@ -1,4 +1,5 @@
 import { HttpService } from '@nestjs/axios';
+import { trackerrIaHeaders } from 'src/ai/infrastructure/trackerr-ia-request';
 import { Injectable, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -50,7 +51,7 @@ export class TrackerrIaRagIngestionAdapter implements RagIngestionPort {
 						})),
 					},
 					{
-						headers: { 'Content-Type': 'application/json' },
+						headers: trackerrIaHeaders(),
 						timeout: 20000,
 					}
 				)

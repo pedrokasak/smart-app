@@ -2,6 +2,7 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { AiAnalysisResponseDto } from './dto/ai-analysis-response.dto';
+import { trackerrIaHeaders } from 'src/ai/infrastructure/trackerr-ia-request';
 
 @Injectable()
 export class AiService {
@@ -21,7 +22,7 @@ export class AiService {
 					`${this.trackerIaUrl}/api/hybrid-analysis`,
 					payload,
 					{
-						headers: { 'Content-Type': 'application/json' },
+						headers: trackerrIaHeaders(),
 						timeout: 60000, // 60s — análise pode ser lenta
 					}
 				)
@@ -43,7 +44,7 @@ export class AiService {
 					`${this.trackerIaUrl}/api/simulate`,
 					payload,
 					{
-						headers: { 'Content-Type': 'application/json' },
+						headers: trackerrIaHeaders(),
 					}
 				)
 			);
@@ -61,7 +62,7 @@ export class AiService {
 		try {
 			const response = await firstValueFrom(
 				this.httpService.post<any>(`${this.trackerIaUrl}/api/chat`, payload, {
-					headers: { 'Content-Type': 'application/json' },
+					headers: trackerrIaHeaders(),
 					timeout: 60000,
 				})
 			);

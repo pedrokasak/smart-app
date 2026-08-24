@@ -4,6 +4,7 @@ import { firstValueFrom } from 'rxjs';
 import { DigestNarratorPort } from 'src/notifications/portfolio-digest/application/digest-narrator.port';
 import { validateDigestNarrative } from 'src/notifications/portfolio-digest/application/digest-narrative-validator';
 import { PortfolioDigestFacts } from 'src/notifications/portfolio-digest/domain/portfolio-digest.types';
+import { trackerrIaHeaders } from 'src/ai/infrastructure/trackerr-ia-request';
 
 /**
  * Chama POST /api/portfolio-digest-narrate no trackerr-ia. Nunca lanca —
@@ -27,7 +28,7 @@ export class TrackerrIaDigestNarratorAdapter implements DigestNarratorPort {
 					`${this.trackerIaUrl}/api/portfolio-digest-narrate`,
 					this.toPayload(facts),
 					{
-						headers: { 'Content-Type': 'application/json' },
+						headers: trackerrIaHeaders(),
 						// Job semanal em background, nao bloqueia request de usuario —
 						// mas ainda precisa de teto pra nao travar o scheduler inteiro
 						// num unico usuario se o trackerr-ia estiver lento.

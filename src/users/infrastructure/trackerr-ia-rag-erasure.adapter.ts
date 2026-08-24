@@ -1,4 +1,5 @@
 import { HttpService } from '@nestjs/axios';
+import { trackerrIaHeaders } from 'src/ai/infrastructure/trackerr-ia-request';
 import { Injectable, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import {
@@ -56,7 +57,7 @@ export class TrackerrIaRagErasureAdapter implements RagErasurePort {
 						`${this.trackerIaUrl}/api/rag/erase`,
 						{ user_id: userId },
 						{
-							headers: { 'Content-Type': 'application/json' },
+							headers: trackerrIaHeaders(),
 							timeout: 8000,
 						}
 					)
