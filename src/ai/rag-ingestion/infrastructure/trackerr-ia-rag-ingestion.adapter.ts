@@ -16,6 +16,19 @@ import {
  * chamador loga e segue. A ingestão é idempotente por content_hash no
  * trackerr-ia (TRA-74), então repetir no próximo ciclo é seguro e barato.
  */
+/**
+ * Ingestao gera embedding de cada chunk da carteira, entao o tempo cresce
+ * com o tamanho do portfolio — nao e uma chamada interativa. Os 20s fixos
+ * anteriores estouravam em carteira grande e a ingestao falhava inteira,
+ * silenciosamente (o adapter so registra warn e segue).
+ *
+ * Configuravel porque o limite certo depende do provedor de embedding e do
+ * tamanho tipico das carteiras, que mudam sem tocar em codigo.
+ */
+const RAG_INGESTION_TIMEOUT_MS = Number(
+	process.env.RAG_INGESTION_TIMEOUT_MS || 120000
+);
+
 @Injectable()
 export class TrackerrIaRagIngestionAdapter implements RagIngestionPort {
 	private readonly logger = new Logger(TrackerrIaRagIngestionAdapter.name);
@@ -52,7 +65,7 @@ export class TrackerrIaRagIngestionAdapter implements RagIngestionPort {
 					},
 					{
 						headers: trackerrIaHeaders(),
-						timeout: 20000,
+						timeout: RAG_INGESTION_TIMEOUT_MS,
 					}
 				)
 			);

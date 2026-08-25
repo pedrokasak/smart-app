@@ -66,21 +66,18 @@ import { HttpPdfRiDocumentContentAdapter } from 'src/ri-intelligence/infrastruct
 		{
 			provide: RI_DOCUMENT_DISCOVERY,
 			useFactory: (
-				inMemoryAdapter: InMemoryRiDocumentDiscoveryAdapter,
 				httpAdapter: HttpRiDocumentDiscoveryAdapter,
 				cvmAdapter: CvmRiDocumentDiscoveryAdapter,
 				fiiAdapter: FiiRiDocumentDiscoveryAdapter,
 				puppeteerAdapter: PuppeteerRiDocumentDiscoveryAdapter
 			) =>
 				new ResilientRiDocumentDiscoveryAdapter(
-					inMemoryAdapter,
 					httpAdapter,
 					cvmAdapter,
 					fiiAdapter,
 					puppeteerAdapter
 				),
 			inject: [
-				InMemoryRiDocumentDiscoveryAdapter,
 				HttpRiDocumentDiscoveryAdapter,
 				CvmRiDocumentDiscoveryAdapter,
 				FiiRiDocumentDiscoveryAdapter,
