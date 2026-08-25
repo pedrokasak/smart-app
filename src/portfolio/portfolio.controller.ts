@@ -349,10 +349,16 @@ export class PortfolioController {
 					.map((event) => event.eventDate.getTime())
 					.filter((time) => Number.isFinite(time))
 			: [];
+		// A janela termina hoje, não no último evento do arquivo. O extrato
+		// acabou de ser baixado, então ele é o registro completo da B3 até
+		// agora — e é justamente o intervalo entre o último provento e hoje
+		// que guarda as entradas carimbadas com a data do upload pelo
+		// importador antigo. Fechar a janela no último evento deixaria essas
+		// entradas de fora e a reimportação não consertaria nada.
 		const dividendReplaceRange = dividendDates.length
 			? {
 					from: new Date(Math.min(...dividendDates)),
-					to: new Date(Math.max(...dividendDates)),
+					to: new Date(Math.max(Math.max(...dividendDates), Date.now())),
 				}
 			: undefined;
 		const dividendUpsertOptions = dividendReplaceRange
