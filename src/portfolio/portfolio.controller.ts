@@ -32,6 +32,7 @@ import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 import { withDerivedAveragePrice } from 'src/portfolio/derive-average-price';
 import { buildDataHealthReport } from 'src/portfolio/portfolio-data-health';
+import { buildHistoryFromTrades } from 'src/portfolio/history-from-trades';
 import { Types } from 'mongoose';
 import * as xlsx from 'xlsx';
 import { validateUploadFile } from 'src/broker-sync/security/upload-file.validator';
@@ -329,11 +330,47 @@ export class PortfolioController {
 
 	@Get(':id/history')
 	async getHistory(@Param('id') id: string, @Req() req: any) {
-		await this.portfolioService.assertPortfolioOwnership(
-			resolveUserId(req),
-			id
-		);
-		return this.portfolioService.getPortfolioHistory(id);
+		const userId = resolveUserId(req);
+		await this.portfolioService.assertPortfolioOwnership(userId, id);
+
+		const snapshots = await this.portfolioService.getPortfolioHistory(id);
+
+		// Os snapshots diários gravam `quantidade × preço`, e o preço fica
+		// parado enquanto não há fonte de cotação — então gravam o mesmo
+		// número todo dia e a curva sai reta em qualquer período.
+		//
+		// Quem importou o extrato de negociação tem dado para uma curva real:
+		// a posição em cada data, valorizada ao último preço efetivamente
+		// negociado. Não é marcação a mercado (entre duas negociações o preço
+		// não se move), mas é histórico verdadeiro em vez de linha reta, e
+		// faz 7D/1M/1A finalmente diferirem entre si.
+		const valores = snapshots
+			.map((row: any) => Number(row?.totalValue))
+			.filter((value: number) => Number.isFinite(value));
+		const snapshotsSemMovimento =
+			valores.length < 2 || Math.max(...valores) - Math.min(...valores) < 1e-9;
+
+		if (!snapshotsSemMovimento) return snapshots;
+
+		const trades = await TradeModel.find({ userId })
+			.select('symbol side quantity price date')
+			.lean();
+		const derived = buildHistoryFromTrades(trades as any);
+
+		// Só troca se a série derivada realmente tiver movimento; caso
+		// contrário devolve os snapshots e o frontend avisa que falta dado.
+		if (derived.length < 2) return snapshots;
+		const derivados = derived.map((point) => point.totalValue);
+		if (Math.max(...derivados) - Math.min(...derivados) < 1e-9) {
+			return snapshots;
+		}
+
+		return derived.map((point) => ({
+			date: point.date,
+			totalValue: point.totalValue,
+			investedValue: point.investedValue,
+			source: 'trades' as const,
+		}));
 	}
 
 	@Post(':id/import-b3')
