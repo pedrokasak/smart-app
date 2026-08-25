@@ -319,6 +319,7 @@ export class PortfolioController {
 		const importedAssets = [];
 		let assetsCreated = 0;
 		let assetsUpdated = 0;
+		const matchedDividendSymbols = new Set<string>();
 
 		for (const assetData of parsedAssets) {
 			const existingAsset =
@@ -332,11 +333,17 @@ export class PortfolioController {
 			if (existingAsset) {
 				// Para importação B3 de posição consolidada, a posição do relatório é a fonte da verdade.
 				// Portanto, atualizamos o ativo existente com quantidade/preço atuais, sem duplicar registros.
+				//
+				// `avgPrice` fica de fora de propósito: o relatório consolidado
+				// traz "Preço de Fechamento" (cotação de mercado), nunca o custo
+				// de aquisição. Gravá-lo como preço médio zerava o P&L por
+				// construção — custo igual ao valor de mercado — e ainda
+				// sobrescrevia um preço médio real vindo de nota de negociação
+				// ou digitado à mão. Sem custo, o P&L fica "—", que é a verdade.
 				asset =
 					(await this.assetService.update(existingAsset._id.toString(), {
 						quantity: assetData.quantity,
 						price: assetData.price,
-						avgPrice: assetData.price,
 						name: assetData.name,
 					})) || existingAsset;
 				assetsUpdated += 1;
@@ -357,8 +364,10 @@ export class PortfolioController {
 				assetsCreated += 1;
 			}
 
-			const dividendEvents = dividendsBySymbol.get(assetData.symbol) ?? [];
+			const dividendKey = assetData.symbol.toUpperCase();
+			const dividendEvents = dividendsBySymbol.get(dividendKey) ?? [];
 			if (asset && dividendEvents.length > 0 && assetData.quantity > 0) {
+				matchedDividendSymbols.add(dividendKey);
 				const newEntries = dividendEvents
 					.filter((event) => Number(event.totalValue || 0) > 0)
 					.map((event) => ({
@@ -374,6 +383,22 @@ export class PortfolioController {
 			}
 			importedAssets.push(AssetMapper.toResponseDto(asset));
 		}
+
+		// Proventos que o relatório pagou mas cujo papel não consta nas abas de
+		// posição — vendido durante o ano, vencido ou renomeado. Não viram
+		// posição (o usuário não tem mais o ativo), mas hoje somem do total de
+		// proventos sem nenhum aviso: num relatório real isso chegou a 43% do
+		// valor recebido no ano.
+		const unmatchedDividends: { symbol: string; totalValue: number }[] = [];
+		for (const [symbol, events] of dividendsBySymbol.entries()) {
+			if (matchedDividendSymbols.has(symbol)) continue;
+			const totalValue = events.reduce(
+				(sum, event) => sum + Number(event.totalValue || 0),
+				0
+			);
+			if (totalValue > 0) unmatchedDividends.push({ symbol, totalValue });
+		}
+		unmatchedDividends.sort((a, b) => b.totalValue - a.totalValue);
 
 		await this.portfolioService.recordHistorySnapshot(id);
 
@@ -395,10 +420,45 @@ export class PortfolioController {
 			);
 		}
 
+		const warnings: string[] = [];
+
+		// O relatório anual consolidado traz "Produto / Tipo de Evento / Valor
+		// líquido" — sem data de pagamento. Todo provento do ano acaba na data
+		// de referência do relatório, então o gráfico mensal mostra um pico
+		// único em dezembro em vez da distribuição real.
+		if (dividendsBySymbol.size > 0) {
+			warnings.push(
+				`O relatório consolidado não informa a data de pagamento dos proventos. ` +
+					`Todos foram registrados em ${reportDate.toISOString().slice(0, 10)} ` +
+					`(fim do período do relatório), então a distribuição mês a mês não reflete ` +
+					`quando cada provento caiu. Para isso, importe o extrato de movimentação da B3.`
+			);
+		}
+
+		if (unmatchedDividends.length > 0) {
+			const totalUnmatched = unmatchedDividends.reduce(
+				(sum, item) => sum + item.totalValue,
+				0
+			);
+			warnings.push(
+				`${unmatchedDividends.length} papel(is) receberam proventos mas não constam ` +
+					`na posição atual (vendidos, vencidos ou renomeados) e ficaram de fora do ` +
+					`total: ${unmatchedDividends
+						.map((item) => `${item.symbol} (${item.totalValue.toFixed(2)})`)
+						.join(', ')} — total R$ ${totalUnmatched.toFixed(2)}.`
+			);
+		}
+
 		return {
 			message: 'Relatório importado com sucesso',
 			fiscalWarning:
 				'Este importador da B3 consolida posições/dividendos e não importa notas de negociação para apuração fiscal.',
+			// O relatório consolidado traz "Preço de Fechamento" (cotação), não o
+			// custo de aquisição — por isso o P&L continua indisponível até que
+			// uma nota de negociação ou um preço médio manual entre.
+			costBasisAvailable: false,
+			warnings,
+			unmatchedDividends,
 			tradesImported: 0,
 			assetsImported: importedAssets.length,
 			assetsCreated,
@@ -1086,10 +1146,21 @@ const parseB3NegotiationWorkbook = (
 	return transactions;
 };
 
-const resolveReportDate = (fileName?: string): Date => {
+/**
+ * Data de referência do relatório, extraída do nome do arquivo
+ * ("relatorio-consolidado-anual-2025.xlsx" -> 31/12/2025).
+ *
+ * O padrão era `/(19|20)\\d{2}/` — dentro de um literal de regex, `\\d`
+ * casa uma barra invertida literal seguida da letra "d", não um dígito.
+ * Nenhum nome de arquivo real casava, então todo relatório caía no
+ * `new Date()` e os proventos do ano inteiro eram carimbados com o dia
+ * do upload: o relatório de 2025 importado em agosto de 2026 empilhava
+ * tudo em agosto/2026.
+ */
+export const resolveReportDate = (fileName?: string): Date => {
 	if (!fileName) return new Date();
 
-	const match = fileName.match(/(19|20)\\d{2}/);
+	const match = fileName.match(/(19|20)\d{2}/);
 	if (match) {
 		const year = Number(match[0]);
 		return new Date(Date.UTC(year, 11, 31));
