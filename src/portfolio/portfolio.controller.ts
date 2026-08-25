@@ -316,10 +316,7 @@ export class PortfolioController {
 			assets: parsedAssets,
 			dividendsBySymbol,
 			hasDatedDividends,
-		} = parseB3Workbook(
-			workbook,
-			reportDate
-		);
+		} = parseB3Workbook(workbook, reportDate);
 		const importedAssets = [];
 		let assetsCreated = 0;
 		let assetsUpdated = 0;
@@ -492,6 +489,14 @@ export class PortfolioController {
 			// custo de aquisição — por isso o P&L continua indisponível até que
 			// uma nota de negociação ou um preço médio manual entre.
 			costBasisAvailable: false,
+			// true quando os proventos vieram do extrato de movimentação, que
+			// traz a data real de cada pagamento. false no consolidado anual,
+			// onde a data não existe e tudo cai na data de referência.
+			dividendsHaveDates: hasDatedDividends,
+			// Papéis que já estavam na carteira e receberam proventos deste
+			// arquivo — é o caminho do extrato de movimentação, que não traz
+			// aba de posição e por isso não cria ativo nenhum.
+			dividendsAttachedToExistingAssets: dividendsAttachedToExisting,
 			warnings,
 			unmatchedDividends,
 			tradesImported: 0,

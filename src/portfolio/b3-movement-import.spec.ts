@@ -74,9 +74,36 @@ describe('importação do extrato de movimentação', () => {
 
 	it('distribui os proventos entre meses diferentes, em vez de empilhar num só', () => {
 		const workbook = buildMovementWorkbook([
-			['Credito', '15/01/2025', 'Dividendo', 'BBAS3 - BCO BRASIL', 'BTG', '10', '0.5', '5.00'],
-			['Credito', '15/06/2025', 'Dividendo', 'BBAS3 - BCO BRASIL', 'BTG', '10', '0.8', '8.00'],
-			['Credito', '15/11/2025', 'Dividendo', 'BBAS3 - BCO BRASIL', 'BTG', '10', '1.2', '12.00'],
+			[
+				'Credito',
+				'15/01/2025',
+				'Dividendo',
+				'BBAS3 - BCO BRASIL',
+				'BTG',
+				'10',
+				'0.5',
+				'5.00',
+			],
+			[
+				'Credito',
+				'15/06/2025',
+				'Dividendo',
+				'BBAS3 - BCO BRASIL',
+				'BTG',
+				'10',
+				'0.8',
+				'8.00',
+			],
+			[
+				'Credito',
+				'15/11/2025',
+				'Dividendo',
+				'BBAS3 - BCO BRASIL',
+				'BTG',
+				'10',
+				'1.2',
+				'12.00',
+			],
 		]);
 
 		const { dividendsBySymbol } = parseB3Workbook(workbook, REPORT_DATE);
@@ -90,10 +117,46 @@ describe('importação do extrato de movimentação', () => {
 
 	it('ignora movimentações que não são provento em dinheiro', () => {
 		const workbook = buildMovementWorkbook([
-			['Credito', '10/03/2025', 'Transferência - Liquidação', 'PETR4 - PETROLEO', 'BTG', '5', '30.00', '150.00'],
-			['Credito', '11/03/2025', 'Atualização', 'BEEF3 - MINERVA', 'BTG', '74', ' - ', ' - '],
-			['Debito', '12/03/2025', 'Compra', 'VALE3 - VALE', 'BTG', '2', '60.00', '120.00'],
-			['Credito', '13/03/2025', 'Dividendo', 'PETR4 - PETROLEO', 'BTG', '5', '0.4', '2.00'],
+			[
+				'Credito',
+				'10/03/2025',
+				'Transferência - Liquidação',
+				'PETR4 - PETROLEO',
+				'BTG',
+				'5',
+				'30.00',
+				'150.00',
+			],
+			[
+				'Credito',
+				'11/03/2025',
+				'Atualização',
+				'BEEF3 - MINERVA',
+				'BTG',
+				'74',
+				' - ',
+				' - ',
+			],
+			[
+				'Debito',
+				'12/03/2025',
+				'Compra',
+				'VALE3 - VALE',
+				'BTG',
+				'2',
+				'60.00',
+				'120.00',
+			],
+			[
+				'Credito',
+				'13/03/2025',
+				'Dividendo',
+				'PETR4 - PETROLEO',
+				'BTG',
+				'5',
+				'0.4',
+				'2.00',
+			],
 		]);
 
 		const { dividendsBySymbol } = parseB3Workbook(workbook, REPORT_DATE);
@@ -104,8 +167,26 @@ describe('importação do extrato de movimentação', () => {
 
 	it('descarta estorno de provento (débito) e mantém o crédito', () => {
 		const workbook = buildMovementWorkbook([
-			['Credito', '05/05/2025', 'Rendimento', 'IRIM11 - IRIDIUM', 'BTG', '11', '0.77', '8.47'],
-			['Debito', '06/05/2025', 'Rendimento', 'IRIM11 - IRIDIUM', 'BTG', '11', '0.77', '8.47'],
+			[
+				'Credito',
+				'05/05/2025',
+				'Rendimento',
+				'IRIM11 - IRIDIUM',
+				'BTG',
+				'11',
+				'0.77',
+				'8.47',
+			],
+			[
+				'Debito',
+				'06/05/2025',
+				'Rendimento',
+				'IRIM11 - IRIDIUM',
+				'BTG',
+				'11',
+				'0.77',
+				'8.47',
+			],
 		]);
 
 		const { dividendsBySymbol } = parseB3Workbook(workbook, REPORT_DATE);
@@ -117,8 +198,26 @@ describe('importação do extrato de movimentação', () => {
 
 	it('soma proventos do mesmo papel, tipo e dia num único evento', () => {
 		const workbook = buildMovementWorkbook([
-			['Credito', '20/09/2025', 'Dividendo', 'VBBR3 - VIBRA', 'BTG', '10', '1.00', '10.00'],
-			['Credito', '20/09/2025', 'Dividendo', 'VBBR3 - VIBRA', 'BTG', '5', '1.00', '5.00'],
+			[
+				'Credito',
+				'20/09/2025',
+				'Dividendo',
+				'VBBR3 - VIBRA',
+				'BTG',
+				'10',
+				'1.00',
+				'10.00',
+			],
+			[
+				'Credito',
+				'20/09/2025',
+				'Dividendo',
+				'VBBR3 - VIBRA',
+				'BTG',
+				'5',
+				'1.00',
+				'5.00',
+			],
 		]);
 
 		const { dividendsBySymbol } = parseB3Workbook(workbook, REPORT_DATE);
