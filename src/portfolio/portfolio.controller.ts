@@ -312,7 +312,11 @@ export class PortfolioController {
 
 		const workbook = xlsx.read(buffer, { type: 'buffer' });
 		const reportDate = resolveReportDate(file?.originalname);
-		const { assets: parsedAssets, dividendsBySymbol } = parseB3Workbook(
+		const {
+			assets: parsedAssets,
+			dividendsBySymbol,
+			hasDatedDividends,
+		} = parseB3Workbook(
 			workbook,
 			reportDate
 		);
@@ -320,6 +324,7 @@ export class PortfolioController {
 		let assetsCreated = 0;
 		let assetsUpdated = 0;
 		const matchedDividendSymbols = new Set<string>();
+		let dividendsAttachedToExisting = 0;
 
 		for (const assetData of parsedAssets) {
 			const existingAsset =
@@ -384,11 +389,41 @@ export class PortfolioController {
 			importedAssets.push(AssetMapper.toResponseDto(asset));
 		}
 
-		// Proventos que o relatório pagou mas cujo papel não consta nas abas de
-		// posição — vendido durante o ano, vencido ou renomeado. Não viram
-		// posição (o usuário não tem mais o ativo), mas hoje somem do total de
-		// proventos sem nenhum aviso: num relatório real isso chegou a 43% do
-		// valor recebido no ano.
+		// O extrato de movimentação não traz abas de posição — só os eventos.
+		// Sem este passo, subir só o extrato importaria zero proventos, porque
+		// o laço acima percorre apenas os ativos vindos do próprio arquivo.
+		// Aqui os proventos restantes procuram um ativo que já exista na
+		// carteira (de um consolidado ou de negociações importadas antes).
+		for (const [symbol, events] of dividendsBySymbol.entries()) {
+			if (matchedDividendSymbols.has(symbol)) continue;
+
+			const existingAsset =
+				await this.assetService.findAssetBySymbolAndPortfolio(id, symbol);
+			const quantity = Number((existingAsset as any)?.quantity || 0);
+			if (!existingAsset || quantity <= 0) continue;
+
+			const newEntries = events
+				.filter((event) => Number(event.totalValue || 0) > 0)
+				.map((event) => ({
+					date: event.eventDate || reportDate,
+					value: event.totalValue / quantity,
+					paymentType: event.paymentType,
+				}));
+			if (!newEntries.length) continue;
+
+			await this.assetService.upsertDividendHistoryEntries(
+				(existingAsset as any)._id.toString(),
+				newEntries
+			);
+			matchedDividendSymbols.add(symbol);
+			dividendsAttachedToExisting += 1;
+		}
+
+		// Proventos que o relatório pagou mas cujo papel não está na carteira —
+		// vendido durante o ano, vencido ou renomeado. Não viram posição (o
+		// usuário não tem mais o ativo), mas hoje somem do total de proventos
+		// sem nenhum aviso: num relatório real isso chegou a 43% do valor
+		// recebido no ano.
 		const unmatchedDividends: { symbol: string; totalValue: number }[] = [];
 		for (const [symbol, events] of dividendsBySymbol.entries()) {
 			if (matchedDividendSymbols.has(symbol)) continue;
@@ -426,7 +461,7 @@ export class PortfolioController {
 		// líquido" — sem data de pagamento. Todo provento do ano acaba na data
 		// de referência do relatório, então o gráfico mensal mostra um pico
 		// único em dezembro em vez da distribuição real.
-		if (dividendsBySymbol.size > 0) {
+		if (dividendsBySymbol.size > 0 && !hasDatedDividends) {
 			warnings.push(
 				`O relatório consolidado não informa a data de pagamento dos proventos. ` +
 					`Todos foram registrados em ${reportDate.toISOString().slice(0, 10)} ` +
@@ -661,7 +696,7 @@ type ParsedB3Transaction = {
 	date: Date;
 };
 
-type SheetKind = 'stock' | 'etf' | 'fii' | 'lca' | 'dividend';
+type SheetKind = 'stock' | 'etf' | 'fii' | 'lca' | 'dividend' | 'movement';
 type DividendPaymentType = 'JCP' | 'DIVIDEND' | 'RENDIMENTO' | 'OTHER';
 type ParsedDividendEvent = {
 	paymentType: DividendPaymentType;
@@ -682,6 +717,25 @@ const COLUMN_LCA_PRICE_MTM = 'Preço Atualizado MTM';
 const COLUMN_DIVIDEND_SYMBOL = 'Produto';
 const COLUMN_DIVIDEND_EVENT_TYPE = 'Tipo de Evento';
 const COLUMN_DIVIDEND_VALUE = 'Valor líquido';
+
+/**
+ * Extrato de movimentação da B3 — a única exportação que traz a data de
+ * pagamento de cada provento. O relatório consolidado anual só tem
+ * "Produto / Tipo de Evento / Valor líquido", sem data alguma, então
+ * proventos importados por ele empilham todos no fim do período.
+ */
+const COLUMN_MOVEMENT_DIRECTION = 'Entrada/Saída';
+const COLUMN_MOVEMENT_TYPE = 'Movimentação';
+const COLUMN_MOVEMENT_DATE = 'Data';
+const COLUMN_MOVEMENT_SYMBOL = 'Produto';
+const COLUMN_MOVEMENT_VALUE = 'Valor da Operação';
+
+/** Tipos de movimentação que representam provento em dinheiro. */
+const MOVEMENT_DIVIDEND_TYPES = new Set([
+	'dividendo',
+	'juros sobre capital proprio',
+	'rendimento',
+]);
 const DIVIDEND_DATE_COLUMNS = [
 	'Data de pagamento',
 	'Data pagamento',
@@ -793,6 +847,13 @@ const detectSheetKind = (headers: string[]): SheetKind | null => {
 	if (headerSet.has('Tipo de Evento') && headerSet.has('Valor líquido')) {
 		return 'dividend';
 	}
+	// Extrato de movimentação: traz a data real de cada provento.
+	if (
+		headerSet.has(COLUMN_MOVEMENT_TYPE) &&
+		headerSet.has(COLUMN_MOVEMENT_DIRECTION)
+	) {
+		return 'movement';
+	}
 	if (headerSet.has('Emissor') && headerSet.has('Indexador')) return 'lca';
 	if (headerSet.has('CNPJ da Empresa')) return 'stock';
 	if (headerSet.has('Administrador')) return 'fii';
@@ -800,12 +861,18 @@ const detectSheetKind = (headers: string[]): SheetKind | null => {
 	return null;
 };
 
-const parseB3Workbook = (
+export const parseB3Workbook = (
 	workbook: xlsx.WorkBook,
 	reportDate: Date
 ): {
 	assets: ParsedAsset[];
 	dividendsBySymbol: Map<string, ParsedDividendEvent[]>;
+	/**
+	 * true quando os proventos vieram do extrato de movimentação, que traz a
+	 * data real de cada pagamento. false quando vieram do consolidado anual,
+	 * onde a data não existe e todos caem na data de referência.
+	 */
+	hasDatedDividends: boolean;
 } => {
 	void reportDate;
 	const assetsByKey = new Map<
@@ -820,6 +887,7 @@ const parseB3Workbook = (
 	>();
 	const dividendsBySymbol = new Map<string, ParsedDividendEvent[]>();
 	const quantityBySymbol = new Map<string, number>();
+	let hasDatedDividends = false;
 
 	for (const sheetName of workbook.SheetNames) {
 		const sheet = workbook.Sheets[sheetName];
@@ -842,6 +910,54 @@ const parseB3Workbook = (
 
 		for (const row of rows) {
 			if (!row || isTotalRow(row)) continue;
+
+			// Extrato de movimentação: só as linhas de provento em dinheiro
+			// interessam aqui. Compra, venda, transferência e atualização são
+			// tratadas pelo importador de negociações, não por este.
+			if (kind === 'movement') {
+				const movementType = normalizeHeaderKey(
+					String(row[COLUMN_MOVEMENT_TYPE] ?? '')
+				);
+				if (!MOVEMENT_DIVIDEND_TYPES.has(movementType)) continue;
+
+				// "Debito" num provento é estorno; só crédito entra.
+				const direction = normalizeHeaderKey(
+					String(row[COLUMN_MOVEMENT_DIRECTION] ?? '')
+				);
+				if (direction && direction !== 'credito') continue;
+
+				const symbol = normalizeSymbol(row[COLUMN_MOVEMENT_SYMBOL]);
+				if (!symbol || symbol.toLowerCase() === 'total') continue;
+
+				const value = normalizeNumber(row[COLUMN_MOVEMENT_VALUE]);
+				if (!value || value <= 0) continue;
+
+				const eventDate = parseSpreadsheetDate(row[COLUMN_MOVEMENT_DATE]);
+				if (!eventDate) continue;
+				hasDatedDividends = true;
+
+				const paymentType = normalizeDividendPaymentType(
+					row[COLUMN_MOVEMENT_TYPE]
+				);
+				const eventDateKey = eventDate.toISOString().slice(0, 10);
+				const key = symbol.toUpperCase();
+				const current = dividendsBySymbol.get(key) ?? [];
+				const existingIndex = current.findIndex(
+					(item) =>
+						item.paymentType === paymentType &&
+						item.eventDate.toISOString().slice(0, 10) === eventDateKey
+				);
+				if (existingIndex >= 0) {
+					current[existingIndex] = {
+						...current[existingIndex],
+						totalValue: current[existingIndex].totalValue + value,
+					};
+				} else {
+					current.push({ paymentType, totalValue: value, eventDate });
+				}
+				dividendsBySymbol.set(key, current);
+				continue;
+			}
 
 			if (kind === 'dividend') {
 				const rawSymbol = row[COLUMN_DIVIDEND_SYMBOL];
@@ -953,12 +1069,14 @@ const parseB3Workbook = (
 		price: asset.total / asset.quantity,
 	}));
 
-	// Ajusta dividendos para ativos que existam no relatório
+	// Só descarta provento sem valor. O corte por "não tem posição neste
+	// arquivo" saiu daqui: ele apagava, antes do controller ver, tanto os
+	// proventos de papéis vendidos no ano (que precisam ser reportados) quanto
+	// TODOS os proventos do extrato de movimentação, que não traz aba de
+	// posição alguma — era por isso que o extrato importava zero. Quem decide
+	// o destino de um provento sem posição é o controller, que enxerga a
+	// carteira inteira e não apenas este arquivo.
 	for (const [symbol, events] of dividendsBySymbol.entries()) {
-		if (!quantityBySymbol.has(symbol)) {
-			dividendsBySymbol.delete(symbol);
-			continue;
-		}
 		const hasValidAmount = events.some(
 			(event) => Number(event.totalValue || 0) > 0
 		);
@@ -966,8 +1084,9 @@ const parseB3Workbook = (
 			dividendsBySymbol.delete(symbol);
 		}
 	}
+	void quantityBySymbol;
 
-	return { assets, dividendsBySymbol };
+	return { assets, dividendsBySymbol, hasDatedDividends };
 };
 
 const normalizeHeaderKey = (value: string) =>
