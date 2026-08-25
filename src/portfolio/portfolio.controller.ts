@@ -472,20 +472,31 @@ export class PortfolioController {
 
 		await this.portfolioService.recordHistorySnapshot(id);
 
-		// Backfill contínuo (forward-fill) entre a data do relatório e hoje,
-		// para o gráfico de período mostrar curva contínua a partir do upload.
-		// O totalValue é a soma das posições importadas (quantity * price do
-		// relatório, que é a "fonte da verdade" da consolidação B3). Snapshots
-		// de datas já existentes são preservados (upsert).
+		// O relatório afirma o valor da carteira numa data — grava só essa.
+		//
+		// Antes daqui saía um forward-fill que repetia o MESMO totalValue em
+		// todos os dias entre a data do relatório e hoje. Aquilo não era
+		// estimativa, era invenção: afirmava que a carteira valeu exatamente
+		// aquilo todo dia de um período em que preço e composição mudaram.
+		// E a série constante that produzia era o motivo de o gráfico mostrar
+		// 0,00% em qualquer janela e de 7D/1M/1A parecerem não fazer nada —
+		// todo recorte de uma constante é igual.
+		//
+		// Histórico real vem do snapshot diário que CleanupService já roda
+		// (`recordDailyPortfolioSnapshots`, 00:30). Enquanto ele não acumula
+		// pontos, o gráfico avisa que falta histórico — que é a verdade.
+		//
+		// Esses snapshots só variam quando a cotação varia; sem as APIs de
+		// mercado assinadas, `asset.price` fica parado e a curva fica plana
+		// por falta de dado, não por causa deste código.
 		const reportTotalValue = parsedAssets.reduce(
 			(acc, a) => acc + (a.quantity || 0) * (a.price || 0),
 			0
 		);
 		if (reportDate && reportTotalValue > 0) {
-			const reportDateStr = reportDate.toISOString().split('T')[0];
-			await this.portfolioService.backfillHistorySnapshots(
+			await this.portfolioService.recordHistorySnapshotWithValue(
 				id,
-				reportDateStr,
+				reportDate.toISOString().split('T')[0],
 				reportTotalValue
 			);
 		}
