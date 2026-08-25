@@ -15,9 +15,7 @@ describe('resolveReportDate', () => {
 
 	it('extrai o ano mesmo com sufixo de download duplicado', () => {
 		// Nome exato do arquivo que o usuário reportou.
-		const date = resolveReportDate(
-			'relatorio-consolidado-anual-2025 (1).xlsx'
-		);
+		const date = resolveReportDate('relatorio-consolidado-anual-2025 (1).xlsx');
 		expect(date.toISOString().slice(0, 10)).toBe('2025-12-31');
 	});
 
