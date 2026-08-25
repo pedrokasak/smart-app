@@ -274,15 +274,26 @@ export class PortfolioController {
 		const trades = await TradeModel.find({ userId })
 			.select('symbol side quantity price fees date')
 			.lean();
-		const assetsWithAverage = withDerivedAveragePrice(
-			portfolio.assets as any,
-			trades as any
+
+		// Deriva sobre o DTO já pronto, nunca sobre o documento do Mongoose.
+		//
+		// A ordem inversa quebrava a rota inteira: `withDerivedAveragePrice`
+		// devolve `{ ...asset }` quando recalcula, e espalhar um documento do
+		// Mongoose copia as propriedades internas (`$__`, `_doc`), não os
+		// campos — o mapper seguinte recebia objetos sem `_id` nem `symbol` e
+		// a carteira voltava zerada. Só acontecia quando alguma derivação de
+		// fato ocorria, que é justamente o caso de quem importou pelo
+		// relatório consolidado; por isso "todas as carteiras" (que já
+		// mapeava primeiro) mostrava os valores e a carteira específica não.
+		const dto = PortfolioMapper.toResponseDtoWithAssets(
+			portfolio,
+			portfolio.assets as any
 		);
 
-		return PortfolioMapper.toResponseDtoWithAssets(
-			portfolio,
-			assetsWithAverage
-		);
+		return {
+			...dto,
+			assets: withDerivedAveragePrice(dto.assets, trades as any),
+		};
 	}
 
 	/**
