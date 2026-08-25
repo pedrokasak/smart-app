@@ -243,12 +243,30 @@ export class PortfolioController {
 		@Param('id') id: string,
 		@Req() req: any
 	): Promise<PortfolioWithAssetsDto> {
+		const userId = resolveUserId(req);
 		const portfolio = await this.portfolioService.findOwnedPortfolioById(
-			resolveUserId(req),
+			userId,
 			id
 		);
-		// portfolio já vem com assets populados!
-		return PortfolioMapper.toResponseDtoWithAssets(portfolio, portfolio.assets);
+
+		// Mesma correção de GET /portfolio/assets (findAllAssets acima): o
+		// import de extrato B3 grava as negociações sem calcular avgPrice, e
+		// esta rota nunca recebeu a derivação — só a de "todas as carteiras".
+		// Quem tem uma única carteira (o caso comum) cai sempre aqui e nunca
+		// via a rota já corrigida, então P&L ficava "—" mesmo com meses de
+		// negociação importada.
+		const trades = await TradeModel.find({ userId })
+			.select('symbol side quantity price fees date')
+			.lean();
+		const assetsWithAverage = withDerivedAveragePrice(
+			portfolio.assets as any,
+			trades as any
+		);
+
+		return PortfolioMapper.toResponseDtoWithAssets(
+			portfolio,
+			assetsWithAverage
+		);
 	}
 
 	@Get(':id/history')

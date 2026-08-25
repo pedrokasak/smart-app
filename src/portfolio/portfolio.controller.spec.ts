@@ -4,9 +4,16 @@ import { PortfolioController } from './portfolio.controller';
 import { PortfolioService } from './portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
+import { TradeModel } from 'src/fiscal/schema/trade.model';
 
 jest.mock('src/authentication/jwt-auth.guard', () => ({
 	JwtAuthGuard: jest.fn().mockImplementation(() => true),
+}));
+
+jest.mock('src/fiscal/schema/trade.model', () => ({
+	TradeModel: {
+		find: jest.fn(),
+	},
 }));
 
 describe('PortfolioController', () => {
@@ -115,6 +122,107 @@ describe('PortfolioController', () => {
 				'1',
 				dto
 			);
+		});
+	});
+
+	describe('findById', () => {
+		it('deriva o preço médio a partir das negociações quando o ativo não tem avgPrice gravado', async () => {
+			// TRA-90: import de extrato B3 grava a negociação sem avgPrice, e
+			// GET /portfolio/:id (a rota que quem tem uma única carteira usa
+			// por padrão) nunca aplicava a mesma derivação de
+			// GET /portfolio/assets — P&L ficava "—" mesmo com meses de
+			// negociação importada.
+			mockPortfolioService.findOwnedPortfolioById.mockResolvedValue({
+				id: 'port1',
+				userId: 'user1',
+				cpf: null,
+				name: 'Minha carteira',
+				description: null,
+				ownerType: 'self',
+				ownerName: null,
+				totalValue: 1000,
+				plan: 'premium',
+				assets: [
+					{
+						_id: 'asset1',
+						portfolioId: 'port1',
+						symbol: 'PETR4',
+						type: 'stock',
+						quantity: 100,
+						price: 10,
+						total: 1000,
+						currentPrice: 10,
+						change24h: 0,
+						indicators: {},
+						source: 'b3-import',
+					},
+				],
+				syncedWithB3At: null,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			});
+
+			(TradeModel.find as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					lean: jest.fn().mockResolvedValue([
+						{
+							symbol: 'PETR4',
+							side: 'buy',
+							quantity: 100,
+							price: 8,
+							fees: 0,
+							date: new Date('2026-01-01'),
+						},
+					]),
+				}),
+			});
+
+			const result = await controller.findById('port1', reqFor());
+
+			expect(TradeModel.find).toHaveBeenCalledWith({ userId: 'user1' });
+			expect(result.assets[0].avgPrice).toBe(8);
+		});
+
+		it('mantém o avgPrice já gravado no ativo em vez de recalcular', async () => {
+			mockPortfolioService.findOwnedPortfolioById.mockResolvedValue({
+				id: 'port1',
+				userId: 'user1',
+				cpf: null,
+				name: 'Minha carteira',
+				description: null,
+				ownerType: 'self',
+				ownerName: null,
+				totalValue: 1000,
+				plan: 'premium',
+				assets: [
+					{
+						_id: 'asset1',
+						portfolioId: 'port1',
+						symbol: 'PETR4',
+						type: 'stock',
+						quantity: 100,
+						price: 10,
+						avgPrice: 9.5,
+						total: 1000,
+						currentPrice: 10,
+						change24h: 0,
+						indicators: {},
+						source: 'manual',
+					},
+				],
+				syncedWithB3At: null,
+				createdAt: new Date(),
+				updatedAt: new Date(),
+			});
+
+			(TradeModel.find as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					lean: jest.fn().mockResolvedValue([]),
+				}),
+			});
+
+			const result = await controller.findById('port1', reqFor());
+			expect(result.assets[0].avgPrice).toBe(9.5);
 		});
 	});
 
