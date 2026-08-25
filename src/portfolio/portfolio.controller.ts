@@ -191,7 +191,21 @@ export class PortfolioController {
 			const asset = ((p.assets as any) || []).find(
 				(a: any) => a._id?.toString() === assetId
 			);
-			if (asset) return AssetMapper.toResponseDto(asset);
+			if (!asset) continue;
+
+			// Esta rota é a da página de detalhe do ativo e era a única das
+			// três que devolvia o ativo cru: `/portfolio/assets` e
+			// `/portfolio/:id` já derivavam o preço médio das negociações,
+			// esta não. Por isso a tela de detalhe mostrava preço médio e
+			// P&L errados enquanto a listagem mostrava o valor certo.
+			const trades = await TradeModel.find({ userId })
+				.select('symbol side quantity price fees date')
+				.lean();
+			const [withAverage] = withDerivedAveragePrice(
+				[AssetMapper.toResponseDto(asset)],
+				trades as any
+			);
+			return withAverage;
 		}
 		return null;
 	}
@@ -323,6 +337,28 @@ export class PortfolioController {
 		const matchedDividendSymbols = new Set<string>();
 		let dividendsAttachedToExisting = 0;
 
+		// O extrato de movimentação é uma afirmação completa sobre o período
+		// que cobre, então os proventos dele substituem o que já existe
+		// naquela janela em vez de somar. É o que permite consertar um
+		// histórico com datas erradas: sem substituir, reimportar duplicaria
+		// os valores em vez de corrigi-los. O consolidado anual não entra
+		// aqui — sem data por evento, ele não delimita janela nenhuma.
+		const dividendDates = hasDatedDividends
+			? [...dividendsBySymbol.values()]
+					.flat()
+					.map((event) => event.eventDate.getTime())
+					.filter((time) => Number.isFinite(time))
+			: [];
+		const dividendReplaceRange = dividendDates.length
+			? {
+					from: new Date(Math.min(...dividendDates)),
+					to: new Date(Math.max(...dividendDates)),
+				}
+			: undefined;
+		const dividendUpsertOptions = dividendReplaceRange
+			? { replaceRange: dividendReplaceRange }
+			: undefined;
+
 		for (const assetData of parsedAssets) {
 			const existingAsset =
 				await this.assetService.findAssetBySymbolAndPortfolio(
@@ -380,7 +416,8 @@ export class PortfolioController {
 
 				await this.assetService.upsertDividendHistoryEntries(
 					asset._id.toString(),
-					newEntries
+					newEntries,
+					dividendUpsertOptions
 				);
 			}
 			importedAssets.push(AssetMapper.toResponseDto(asset));
@@ -410,7 +447,8 @@ export class PortfolioController {
 
 			await this.assetService.upsertDividendHistoryEntries(
 				(existingAsset as any)._id.toString(),
-				newEntries
+				newEntries,
+				dividendUpsertOptions
 			);
 			matchedDividendSymbols.add(symbol);
 			dividendsAttachedToExisting += 1;
