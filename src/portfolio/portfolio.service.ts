@@ -139,43 +139,31 @@ export class PortfolioService {
 	}
 
 	/**
-	 * Backfill contínuo dia-a-dia (forward-fill) do `fromDate` até hoje:
-	 * grava o MESMO `totalValue` do relatório importado em todos os dias
-	 * corridos do intervalo (upsert por portfolioId+date, preserva datas já
-	 * existentes). Valores intermediários são estimados (não mark-to-market
-	 * real) — serve para o gráfico de período mostrar uma linha contínua a
-	 * partir da data do relatório compartado com os snapshots diários futuros.
+	 * Grava um snapshot com um valor conhecido numa data específica — o caso
+	 * do relatório importado, que afirma quanto a carteira valia naquele dia.
+	 *
+	 * Substitui o antigo `backfillHistorySnapshots`, que repetia esse mesmo
+	 * valor em todos os dias até hoje. Aquilo não era estimativa: afirmava um
+	 * valor exato para dias em que ninguém sabe quanto a carteira valeu, e a
+	 * série constante resultante zerava qualquer variação percentual no
+	 * gráfico. Um ponto verdadeiro vale mais que uma curva inventada.
 	 */
-	async backfillHistorySnapshots(
+	async recordHistorySnapshotWithValue(
 		portfolioId: string,
-		fromDate: string,
+		date: string,
 		totalValue: number
 	) {
 		const portfolio = await this.portfolioModel.findById(portfolioId).lean();
 		if (!portfolio) return;
 
-		const start = new Date(fromDate);
-		if (Number.isNaN(start.getTime())) return;
-		start.setUTCHours(0, 0, 0, 0);
+		const parsed = new Date(date);
+		if (Number.isNaN(parsed.getTime())) return;
 
-		const today = new Date();
-		today.setUTCHours(0, 0, 0, 0);
-
-		for (
-			let cursor = new Date(start);
-			cursor <= today;
-			cursor.setUTCDate(cursor.getUTCDate() + 1)
-		) {
-			const dateStr = cursor.toISOString().split('T')[0];
-			await this.portfolioHistoryModel.findOneAndUpdate(
-				{ portfolioId, date: dateStr },
-				{
-					userId: portfolio.userId,
-					totalValue,
-				},
-				{ upsert: true, new: true }
-			);
-		}
+		await this.portfolioHistoryModel.findOneAndUpdate(
+			{ portfolioId, date },
+			{ userId: portfolio.userId, totalValue },
+			{ upsert: true, new: true }
+		);
 	}
 
 	async getAllPortfolioIds(): Promise<string[]> {

@@ -31,6 +31,8 @@ import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 import { withDerivedAveragePrice } from 'src/portfolio/derive-average-price';
+import { buildDataHealthReport } from 'src/portfolio/portfolio-data-health';
+import { buildHistoryFromTrades } from 'src/portfolio/history-from-trades';
 import { Types } from 'mongoose';
 import * as xlsx from 'xlsx';
 import { validateUploadFile } from 'src/broker-sync/security/upload-file.validator';
@@ -191,7 +193,21 @@ export class PortfolioController {
 			const asset = ((p.assets as any) || []).find(
 				(a: any) => a._id?.toString() === assetId
 			);
-			if (asset) return AssetMapper.toResponseDto(asset);
+			if (!asset) continue;
+
+			// Esta rota é a da página de detalhe do ativo e era a única das
+			// três que devolvia o ativo cru: `/portfolio/assets` e
+			// `/portfolio/:id` já derivavam o preço médio das negociações,
+			// esta não. Por isso a tela de detalhe mostrava preço médio e
+			// P&L errados enquanto a listagem mostrava o valor certo.
+			const trades = await TradeModel.find({ userId })
+				.select('symbol side quantity price fees date')
+				.lean();
+			const [withAverage] = withDerivedAveragePrice(
+				[AssetMapper.toResponseDto(asset)],
+				trades as any
+			);
+			return withAverage;
 		}
 		return null;
 	}
@@ -269,13 +285,92 @@ export class PortfolioController {
 		);
 	}
 
-	@Get(':id/history')
-	async getHistory(@Param('id') id: string, @Req() req: any) {
-		await this.portfolioService.assertPortfolioOwnership(
-			resolveUserId(req),
+	/**
+	 * Diagnóstico dos dados da carteira. Só leitura.
+	 *
+	 * As correções de importação pararam as escritas erradas mas não
+	 * reescrevem o que já foi gravado, e a única forma de conferir era abrir
+	 * a tela e julgar no olho — foi assim que os defeitos passaram
+	 * despercebidos por meses. Aqui cada achado vem com o motivo e o que
+	 * fazer para resolver.
+	 */
+	@Get(':id/data-health')
+	async getDataHealth(@Param('id') id: string, @Req() req: any) {
+		const userId = resolveUserId(req);
+		const portfolio = await this.portfolioService.findOwnedPortfolioById(
+			userId,
 			id
 		);
-		return this.portfolioService.getPortfolioHistory(id);
+
+		const trades = await TradeModel.find({ userId })
+			.select('symbol side quantity price fees date')
+			.lean();
+
+		// Avalia o que está gravado, não o que a leitura já corrige: é o
+		// estado real do banco que precisa ser diagnosticado.
+		const storedAssets = ((portfolio.assets as any) || []).map(
+			(asset: any) => ({
+				symbol: asset.symbol,
+				avgPrice: asset.avgPrice,
+				price: asset.price,
+				quantity: asset.quantity,
+				source: asset.source,
+				dividendHistory: asset.dividendHistory,
+			})
+		);
+
+		const history = await this.portfolioService.getPortfolioHistory(id);
+		const report = buildDataHealthReport(storedAssets, history as any);
+
+		return {
+			...report,
+			tradesOnRecord: trades.length,
+		};
+	}
+
+	@Get(':id/history')
+	async getHistory(@Param('id') id: string, @Req() req: any) {
+		const userId = resolveUserId(req);
+		await this.portfolioService.assertPortfolioOwnership(userId, id);
+
+		const snapshots = await this.portfolioService.getPortfolioHistory(id);
+
+		// Os snapshots diários gravam `quantidade × preço`, e o preço fica
+		// parado enquanto não há fonte de cotação — então gravam o mesmo
+		// número todo dia e a curva sai reta em qualquer período.
+		//
+		// Quem importou o extrato de negociação tem dado para uma curva real:
+		// a posição em cada data, valorizada ao último preço efetivamente
+		// negociado. Não é marcação a mercado (entre duas negociações o preço
+		// não se move), mas é histórico verdadeiro em vez de linha reta, e
+		// faz 7D/1M/1A finalmente diferirem entre si.
+		const valores = snapshots
+			.map((row: any) => Number(row?.totalValue))
+			.filter((value: number) => Number.isFinite(value));
+		const snapshotsSemMovimento =
+			valores.length < 2 || Math.max(...valores) - Math.min(...valores) < 1e-9;
+
+		if (!snapshotsSemMovimento) return snapshots;
+
+		const trades = await TradeModel.find({ userId })
+			.select('symbol side quantity price date')
+			.lean();
+		const derived = buildHistoryFromTrades(trades as any);
+
+		// Só troca se a série derivada realmente tiver movimento; caso
+		// contrário devolve os snapshots e o frontend avisa que falta dado.
+		if (derived.length < 2) return snapshots;
+		const derivados = derived.map((point) => point.totalValue);
+		if (Math.max(...derivados) - Math.min(...derivados) < 1e-9) {
+			return snapshots;
+		}
+
+		return derived.map((point) => ({
+			date: point.date,
+			totalValue: point.totalValue,
+			investedValue: point.investedValue,
+			source: 'trades' as const,
+		}));
 	}
 
 	@Post(':id/import-b3')
@@ -322,6 +417,34 @@ export class PortfolioController {
 		let assetsUpdated = 0;
 		const matchedDividendSymbols = new Set<string>();
 		let dividendsAttachedToExisting = 0;
+
+		// O extrato de movimentação é uma afirmação completa sobre o período
+		// que cobre, então os proventos dele substituem o que já existe
+		// naquela janela em vez de somar. É o que permite consertar um
+		// histórico com datas erradas: sem substituir, reimportar duplicaria
+		// os valores em vez de corrigi-los. O consolidado anual não entra
+		// aqui — sem data por evento, ele não delimita janela nenhuma.
+		const dividendDates = hasDatedDividends
+			? [...dividendsBySymbol.values()]
+					.flat()
+					.map((event) => event.eventDate.getTime())
+					.filter((time) => Number.isFinite(time))
+			: [];
+		// A janela termina hoje, não no último evento do arquivo. O extrato
+		// acabou de ser baixado, então ele é o registro completo da B3 até
+		// agora — e é justamente o intervalo entre o último provento e hoje
+		// que guarda as entradas carimbadas com a data do upload pelo
+		// importador antigo. Fechar a janela no último evento deixaria essas
+		// entradas de fora e a reimportação não consertaria nada.
+		const dividendReplaceRange = dividendDates.length
+			? {
+					from: new Date(Math.min(...dividendDates)),
+					to: new Date(Math.max(Math.max(...dividendDates), Date.now())),
+				}
+			: undefined;
+		const dividendUpsertOptions = dividendReplaceRange
+			? { replaceRange: dividendReplaceRange }
+			: undefined;
 
 		for (const assetData of parsedAssets) {
 			const existingAsset =
@@ -380,7 +503,8 @@ export class PortfolioController {
 
 				await this.assetService.upsertDividendHistoryEntries(
 					asset._id.toString(),
-					newEntries
+					newEntries,
+					dividendUpsertOptions
 				);
 			}
 			importedAssets.push(AssetMapper.toResponseDto(asset));
@@ -410,7 +534,8 @@ export class PortfolioController {
 
 			await this.assetService.upsertDividendHistoryEntries(
 				(existingAsset as any)._id.toString(),
-				newEntries
+				newEntries,
+				dividendUpsertOptions
 			);
 			matchedDividendSymbols.add(symbol);
 			dividendsAttachedToExisting += 1;
@@ -434,20 +559,31 @@ export class PortfolioController {
 
 		await this.portfolioService.recordHistorySnapshot(id);
 
-		// Backfill contínuo (forward-fill) entre a data do relatório e hoje,
-		// para o gráfico de período mostrar curva contínua a partir do upload.
-		// O totalValue é a soma das posições importadas (quantity * price do
-		// relatório, que é a "fonte da verdade" da consolidação B3). Snapshots
-		// de datas já existentes são preservados (upsert).
+		// O relatório afirma o valor da carteira numa data — grava só essa.
+		//
+		// Antes daqui saía um forward-fill que repetia o MESMO totalValue em
+		// todos os dias entre a data do relatório e hoje. Aquilo não era
+		// estimativa, era invenção: afirmava que a carteira valeu exatamente
+		// aquilo todo dia de um período em que preço e composição mudaram.
+		// E a série constante that produzia era o motivo de o gráfico mostrar
+		// 0,00% em qualquer janela e de 7D/1M/1A parecerem não fazer nada —
+		// todo recorte de uma constante é igual.
+		//
+		// Histórico real vem do snapshot diário que CleanupService já roda
+		// (`recordDailyPortfolioSnapshots`, 00:30). Enquanto ele não acumula
+		// pontos, o gráfico avisa que falta histórico — que é a verdade.
+		//
+		// Esses snapshots só variam quando a cotação varia; sem as APIs de
+		// mercado assinadas, `asset.price` fica parado e a curva fica plana
+		// por falta de dado, não por causa deste código.
 		const reportTotalValue = parsedAssets.reduce(
 			(acc, a) => acc + (a.quantity || 0) * (a.price || 0),
 			0
 		);
 		if (reportDate && reportTotalValue > 0) {
-			const reportDateStr = reportDate.toISOString().split('T')[0];
-			await this.portfolioService.backfillHistorySnapshots(
+			await this.portfolioService.recordHistorySnapshotWithValue(
 				id,
-				reportDateStr,
+				reportDate.toISOString().split('T')[0],
 				reportTotalValue
 			);
 		}
