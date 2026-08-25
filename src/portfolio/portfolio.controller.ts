@@ -31,6 +31,7 @@ import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 import { withDerivedAveragePrice } from 'src/portfolio/derive-average-price';
+import { buildDataHealthReport } from 'src/portfolio/portfolio-data-health';
 import { Types } from 'mongoose';
 import * as xlsx from 'xlsx';
 import { validateUploadFile } from 'src/broker-sync/security/upload-file.validator';
@@ -281,6 +282,49 @@ export class PortfolioController {
 			portfolio,
 			assetsWithAverage
 		);
+	}
+
+	/**
+	 * Diagnóstico dos dados da carteira. Só leitura.
+	 *
+	 * As correções de importação pararam as escritas erradas mas não
+	 * reescrevem o que já foi gravado, e a única forma de conferir era abrir
+	 * a tela e julgar no olho — foi assim que os defeitos passaram
+	 * despercebidos por meses. Aqui cada achado vem com o motivo e o que
+	 * fazer para resolver.
+	 */
+	@Get(':id/data-health')
+	async getDataHealth(@Param('id') id: string, @Req() req: any) {
+		const userId = resolveUserId(req);
+		const portfolio = await this.portfolioService.findOwnedPortfolioById(
+			userId,
+			id
+		);
+
+		const trades = await TradeModel.find({ userId })
+			.select('symbol side quantity price fees date')
+			.lean();
+
+		// Avalia o que está gravado, não o que a leitura já corrige: é o
+		// estado real do banco que precisa ser diagnosticado.
+		const storedAssets = ((portfolio.assets as any) || []).map(
+			(asset: any) => ({
+				symbol: asset.symbol,
+				avgPrice: asset.avgPrice,
+				price: asset.price,
+				quantity: asset.quantity,
+				source: asset.source,
+				dividendHistory: asset.dividendHistory,
+			})
+		);
+
+		const history = await this.portfolioService.getPortfolioHistory(id);
+		const report = buildDataHealthReport(storedAssets, history as any);
+
+		return {
+			...report,
+			tradesOnRecord: trades.length,
+		};
 	}
 
 	@Get(':id/history')
