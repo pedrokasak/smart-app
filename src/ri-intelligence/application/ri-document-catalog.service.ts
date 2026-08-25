@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
 	RI_ASSET_AUTOCOMPLETE,
 	RiAssetAutocompletePort,
@@ -96,6 +96,7 @@ export interface RetrieveRelevantRiDocumentOutput {
 
 @Injectable()
 export class RiDocumentCatalogService {
+	private readonly logger = new Logger(RiDocumentCatalogService.name);
 	private readonly maxTickerMatches = 8;
 	private readonly maxDocumentsPerTicker = 20;
 	private readonly recentWindowDays = 540;
@@ -630,7 +631,19 @@ export class RiDocumentCatalogService {
 			url: document.source.value,
 			origin: origin || undefined,
 		});
-		if (!resolved.isValid || !resolved.resolvedUrl) return null;
+		if (!resolved.isValid || !resolved.resolvedUrl) {
+			// Sem isto, "ri_no_valid_documents_found" era uma caixa-preta: o
+			// discovery achava N documentos e a validação rejeitava todos, sem
+			// nenhum log dizendo por quê (link morto? content-type errado?
+			// rota de erro do próprio provedor?). Ficava impossível diagnosticar
+			// à distância — só dava pra descobrir testando a URL na mão.
+			this.logger.warn(
+				`Documento rejeitado na validação — ticker=${document.ticker} ` +
+					`tipo=${document.documentType} motivo=${resolved.rejectionReason} ` +
+					`status=${resolved.statusCode ?? 'n/d'} url=${document.source.value}`
+			);
+			return null;
+		}
 
 		return {
 			...document,
