@@ -39,21 +39,29 @@ export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryP
 		// resultado, a resposta é vazia — que é honesto, e visivelmente
 		// diferente de um link que quebra ao clicar.
 
-		// Primário: para FIIs, o adapter específico de FII; para ações, o adapter
-		// HTTP (bate RI sites estáticos, mais rápido que Puppeteer). O CVM fica
-		// como segundo nível para não-FIIs (atualmente mock, mas mantido no
-		// encadeamento para uma futura implementação real da CVM/dados.cvm.gov).
+		// Primário: para FIIs, o adapter específico; para ações, o adapter HTTP
+		// (bate RI sites estáticos, mais rápido que Puppeteer).
+		//
+		// A CVM entra SEMPRE para ações, não só quando o HTTP volta vazio.
+		// Antes ela era segundo nível — e isso deixava a fonte mais confiável
+		// de fora justamente quando ela era mais necessária: para BBAS3 o
+		// Puppeteer devolve 20 links, todos páginas de evento em HTML que a
+		// validação descarta depois, então "descoberta encontrou algo" era
+		// verdade e "encontramos documento" não. A CVM nunca era consultada e
+		// o resultado final era zero.
+		//
+		// Descobrir e validar são etapas separadas: número de links achados não
+		// diz nada sobre quantos são arquivo de verdade. Quem decide é a
+		// validação, adiante — aqui o certo é oferecer todas as fontes.
 		let primaryDocs: RiDocumentRecord[] = [];
 		if (isFii) {
 			primaryDocs = await this.safeDiscoverWithTimeout(this.fiiAdapter, input);
 		} else {
-			primaryDocs = await this.safeDiscoverWithTimeout(this.httpAdapter, input);
-			if (primaryDocs.length === 0) {
-				primaryDocs = await this.safeDiscoverWithTimeout(
-					this.cvmAdapter,
-					input
-				);
-			}
+			const [httpDocs, cvmDocs] = await Promise.all([
+				this.safeDiscoverWithTimeout(this.httpAdapter, input),
+				this.safeDiscoverWithTimeout(this.cvmAdapter, input),
+			]);
+			primaryDocs = this.mergeWithoutDuplicates(httpDocs, cvmDocs);
 		}
 
 		const fallbackDocs = await this.safeDiscoverWithTimeout(

@@ -172,13 +172,21 @@ describe('ResilientRiDocumentDiscoveryAdapter', () => {
 });
 
 describe('ResilientRiDocumentDiscoveryAdapter — in-memory catalog', () => {
-	function buildAdapter(overrides: { httpDocs?: any[] }) {
+	function buildAdapter(overrides: {
+		httpDocs?: any[];
+		cvmDocs?: any[];
+		fallbackDocs?: any[];
+	}) {
 		const httpAdapter = {
 			discover: jest.fn().mockResolvedValue(overrides.httpDocs || []),
 		};
-		const cvmAdapter = { discover: jest.fn().mockResolvedValue([]) };
+		const cvmAdapter = {
+			discover: jest.fn().mockResolvedValue(overrides.cvmDocs || []),
+		};
 		const fiiAdapter = { discover: jest.fn().mockResolvedValue([]) };
-		const fallbackAdapter = { discover: jest.fn().mockResolvedValue([]) };
+		const fallbackAdapter = {
+			discover: jest.fn().mockResolvedValue(overrides.fallbackDocs || []),
+		};
 
 		const adapter = new ResilientRiDocumentDiscoveryAdapter(
 			httpAdapter,
@@ -215,6 +223,46 @@ describe('ResilientRiDocumentDiscoveryAdapter — in-memory catalog', () => {
 
 		expect(httpAdapter.discover).toHaveBeenCalled();
 		expect(result.map((d: any) => d.title)).toEqual(['Http doc']);
+	});
+
+	/**
+	 * BBAS3 em producao: o Puppeteer devolvia 20 links, todos paginas de
+	 * evento em HTML que a validacao descarta depois. Como o adapter HTTP
+	 * "encontrou algo", a CVM — unica fonte com o PDF de verdade — nunca era
+	 * consultada, e o resultado final era zero.
+	 */
+	it('consulta a CVM mesmo quando o adapter HTTP ja encontrou links', async () => {
+		const { adapter, httpAdapter, cvmAdapter } = buildAdapter({
+			httpDocs: [
+				{
+					ticker: 'BBAS3',
+					documentType: 'other_ri_document',
+					title: 'Pagina de evento',
+					source: { value: 'https://ri.bb.com.br/evento/x/' },
+				},
+			],
+			cvmDocs: [
+				{
+					ticker: 'BBAS3',
+					documentType: 'earnings_release',
+					title: 'Release CVM',
+					source: { value: 'https://www.rad.cvm.gov.br/ENET/doc.aspx?p=1' },
+				},
+			],
+		});
+
+		const result = await adapter.discover({
+			ticker: 'BBAS3',
+			company: 'Banco do Brasil',
+			origin: 'https://ri.bb.com.br',
+		});
+
+		expect(httpAdapter.discover).toHaveBeenCalled();
+		expect(cvmAdapter.discover).toHaveBeenCalled();
+		expect(result.map((d: any) => d.title).sort()).toEqual([
+			'Pagina de evento',
+			'Release CVM',
+		]);
 	});
 
 	it('devolve vazio quando nenhuma fonte real encontra documento', async () => {

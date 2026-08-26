@@ -152,22 +152,20 @@ export class FiscalController {
 			.sort((a: any, b: any) => b.taxSaved - a.taxSaved)
 			.slice(0, 5);
 
-		let aiExplanation: string | null = null;
-		try {
-			const aiResponse = await this.aiService.simulate({
-				type: 'fiscal_optimizer_explain',
-				year: yearNum,
-				accumulatedLoss: losses.total,
-				topOpportunity: opportunities[0] || null,
-			});
-			aiExplanation =
-				aiResponse?.summary ||
-				aiResponse?.message ||
-				aiResponse?.insight ||
-				null;
-		} catch {
-			aiExplanation = null;
-		}
+		// A explicação abaixo é determinística de propósito.
+		//
+		// Aqui havia uma chamada a `aiService.simulate()` com o payload
+		// `{ type: 'fiscal_optimizer_explain', ... }`, mas `/api/simulate` é o
+		// simulador de projeção de aportes — exige `monthly_investment`,
+		// `years` e `current_portfolio_value`. O trackerr-ia respondia 422 em
+		// toda chamada, e o `catch` vazio engolia o erro sem registrar nada, o
+		// que fazia parecer que a explicação vinha da IA quando na prática
+		// sempre veio do texto fixo.
+		//
+		// Explicar tax-loss harvesting não precisa de LLM: o conceito é
+		// estável e o texto abaixo já o cobre. Uma explicação personalizada
+		// exigiria um endpoint próprio, não reaproveitar o simulador.
+		const aiExplanation: string | null = null;
 
 		return {
 			year: yearNum,
