@@ -18,6 +18,7 @@ export type ChatOrchestratorIntent =
 	| 'investment_committee'
 	| 'narrative_synthesis'
 	| 'external_asset_question'
+	| 'market_screening'
 	| 'unknown';
 
 export type ChatRouteType = 'deterministic_no_llm' | 'synthesis_required';
@@ -32,7 +33,8 @@ export interface ChatOrchestratorResponse {
 			| 'rules_resolved'
 			| 'insufficient_structured_data'
 			| 'narrative_requested'
-			| 'ambiguous_question';
+			| 'ambiguous_question'
+			| 'capability_not_available';
 	};
 	cache: {
 		key: string | null;

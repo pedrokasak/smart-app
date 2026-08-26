@@ -119,6 +119,67 @@ describe('ChatOrchestratorService', () => {
 
 	afterEach(() => jest.clearAllMocks());
 
+	/**
+	 * Reportado em producao: "quais acoes com p/vp abaixo de 1.0?" devolvia
+	 * "Valor total: R$ 11.933,23" e o Trackerr Score. A pergunta nao casava
+	 * com nenhuma regra, caia em `unknown`, e o tratamento de ambiguidade
+	 * injeta carteira + score como contexto para o LLM. Quando o LLM falha,
+	 * a tela renderiza so esse contexto — e ele vira a "resposta".
+	 */
+	describe('screening de mercado por indicador', () => {
+		it('nao responde com resumo de carteira a uma pergunta de P/VP', async () => {
+			const service = makeService();
+			const response = await service.orchestrate(
+				'user-1',
+				'quais acoes com p/vp abaixo de 1.0?'
+			);
+
+			expect(response.intent).toBe('market_screening');
+			expect(response.route.reason).toBe('capability_not_available');
+			// O ponto do bug: nada de carteira/score aparecia como resposta.
+			expect(response.data).toEqual({});
+			expect(response.unavailable).toContain(
+				'market_wide_fundamental_screening'
+			);
+		});
+
+		it('classifica screening por dividend yield', async () => {
+			const service = makeService();
+			const response = await service.orchestrate(
+				'user-1',
+				'me mostra acoes com dividend yield acima de 8%'
+			);
+
+			expect(response.intent).toBe('market_screening');
+		});
+
+		it('nao trata como screening quando a pergunta e sobre a propria carteira', async () => {
+			(mockUnifiedFacade.getPortfolioSummary as jest.Mock).mockReturnValue({
+				totalValue: 100,
+				positionsCount: 1,
+			});
+
+			const service = makeService();
+			const response = await service.orchestrate(
+				'user-1',
+				'qual o p/vp medio acima de 1 na minha carteira?'
+			);
+
+			// Escopo restrito ao que o usuario tem — isso o produto responde.
+			expect(response.intent).not.toBe('market_screening');
+		});
+
+		it('nao trata como screening quando ha indicador sem comparador', async () => {
+			const service = makeService();
+			const response = await service.orchestrate(
+				'user-1',
+				'qual o p/vp de BBAS3?'
+			);
+
+			expect(response.intent).not.toBe('market_screening');
+		});
+	});
+
 	it('routes portfolio summary intent deterministically', async () => {
 		(mockUnifiedFacade.getPortfolioSummary as jest.Mock).mockReturnValue({
 			totalValue: 1500,

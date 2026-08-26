@@ -942,6 +942,24 @@ export class ChatOrchestratorService {
 			});
 		}
 
+		if (intent === 'market_screening') {
+			// Responder isto exigiria dados fundamentalistas de todo o mercado;
+			// o produto só tem indicadores dos ativos que o usuário possui.
+			//
+			// Dizer isso é melhor que injetar carteira + score como contexto e
+			// deixar o LLM improvisar: sem o universo de dados, qualquer lista
+			// de tickers que ele produzisse seria inventada — e apresentada com
+			// a mesma cara de um cálculo real.
+			unavailable.push('market_wide_fundamental_screening');
+			warnings.push('screening_requires_market_dataset');
+			return this.finish(env, {
+				intent: 'market_screening',
+				routeType: 'deterministic_no_llm',
+				routeReason: 'capability_not_available',
+				data: {},
+			});
+		}
+
 		if (intent === 'narrative_synthesis') {
 			// A síntese narrativa precisa do contexto da carteira para o LLM não
 			// responder de forma genérica. Populamos o data com o mesmo resumo
@@ -1048,7 +1066,8 @@ export class ChatOrchestratorService {
 			| 'rules_resolved'
 			| 'insufficient_structured_data'
 			| 'narrative_requested'
-			| 'ambiguous_question';
+			| 'ambiguous_question'
+			| 'capability_not_available';
 		question: string;
 		symbols: string[];
 		ownedSymbols: string[];
@@ -1341,6 +1360,19 @@ export class ChatOrchestratorService {
 		if (/\b(faz sentido|encaixe|fit|combina com minha carteira)\b/.test(text)) {
 			return 'portfolio_fit_analysis';
 		}
+		// Screening de mercado: "quais ações com P/VP abaixo de 1", "ações com
+		// dividend yield acima de 6%". É filtrar o mercado inteiro por um
+		// indicador — coisa que o produto não faz: os dados fundamentalistas
+		// existem só para o que o usuário já tem em carteira.
+		//
+		// Sem esta regra a pergunta caía em `unknown`, cujo tratamento injeta
+		// resumo da carteira e Trackerr Score como contexto pro LLM. Quando o
+		// LLM falha (ou não devolve texto), a tela renderiza só esse contexto
+		// — e o usuário vê "Valor total: R$ 11.933,23 / Score 53.75" como se
+		// fosse a resposta ao P/VP que ele perguntou.
+		if (this.looksLikeMarketScreening(text)) {
+			return 'market_screening';
+		}
 		if (
 			/\b(carteira|portfolio|portfólio|alocacao|alocação|aloc\w*|resumo|patrimonio|patrimônio|saldo|saldos|quanto tenho|quanto eu tenho|meu patrimônio|minha posição|minhas posições|composic\w*|minha composição)\b/.test(
 				text
@@ -1352,6 +1384,39 @@ export class ChatOrchestratorService {
 			return 'external_asset_analysis';
 		}
 		return 'unknown';
+	}
+
+	/**
+	 * Pergunta que pede uma LISTA de ativos do mercado filtrada por indicador
+	 * — exige um universo de dados fundamentalistas que o produto não tem.
+	 *
+	 * Exige duas partes juntas para não capturar pergunta sobre a carteira:
+	 * um indicador (P/VP, DY, ROE...) e um comparador ("abaixo de", "maior
+	 * que", "entre"). "Qual o P/VP de BBAS3" tem indicador mas não compara,
+	 * então segue para o caminho de ativo.
+	 */
+	private looksLikeMarketScreening(question: string): boolean {
+		const text = String(question || '').toLowerCase();
+
+		const hasIndicator =
+			/\b(p\/vp|pvp|p\/l|pl|preco\/lucro|preço\/lucro|dividend yield|dy|roe|roic|ev\/ebitda|margem liquida|margem líquida|payout|liquidez corrente|divida liquida|dívida líquida)\b/.test(
+				text
+			);
+		if (!hasIndicator) return false;
+
+		const hasComparator =
+			/\b(abaixo|acima|menor|maior|menores|maiores|inferior|superior|entre|ate|até|no maximo|no máximo|no minimo|no mínimo|melhores|top)\b/.test(
+				text
+			) || /[<>]=?/.test(text);
+		if (!hasComparator) return false;
+
+		// "na minha carteira" restringe ao que o usuário tem — isso o produto
+		// responde, e não é screening de mercado.
+		const scopedToPortfolio =
+			/\b(minha carteira|meu portfolio|meu portfólio|minhas posicoes|minhas posições|que eu tenho|dos meus|nos meus)\b/.test(
+				text
+			);
+		return !scopedToPortfolio;
 	}
 
 	private requestsPortfolioComparison(question: string): boolean {
