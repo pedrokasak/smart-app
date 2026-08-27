@@ -65,17 +65,43 @@ export class InvestorProfileService {
 	async setOverride(
 		userId: string,
 		override: {
-			sophistication?: SophisticationLevel;
-			riskTolerance?: RiskToleranceLevel;
+			sophistication?: SophisticationLevel | null;
+			riskTolerance?: RiskToleranceLevel | null;
 		}
 	): Promise<InvestorSophisticationProfile> {
+		let existing = await InvestorProfileModel.findOne({ userId });
+		if (!existing) {
+			// Sem documento persistido ainda (nenhum calculateAndPersist rodou
+			// para este usuario): estabelece uma linha de base inferida antes do
+			// override para nao deixar sophistication/riskTolerance/confidence
+			// ausentes (campos required, sem default, e o upsert abaixo so faz
+			// $set dos campos overridden*).
+			await this.calculateAndPersist(userId);
+			existing = await InvestorProfileModel.findOne({ userId });
+		}
+
 		const update: Record<string, unknown> = { userId };
-		if (override.sophistication) {
-			update.overriddenSophistication = override.sophistication;
+		// 'sophistication' in override distingue "campo nao enviado"
+		// (undefined, nao mexe) de "campo enviado como null" (reseta o
+		// override de volta ao valor inferido).
+		if ('sophistication' in override) {
+			update.overriddenSophistication = override.sophistication ?? null;
 		}
-		if (override.riskTolerance) {
-			update.overriddenRiskTolerance = override.riskTolerance;
+		if ('riskTolerance' in override) {
+			update.overriddenRiskTolerance = override.riskTolerance ?? null;
 		}
+
+		const finalSophistication =
+			'sophistication' in override
+				? override.sophistication ?? null
+				: (existing?.overriddenSophistication ?? null);
+		const finalRiskTolerance =
+			'riskTolerance' in override
+				? override.riskTolerance ?? null
+				: (existing?.overriddenRiskTolerance ?? null);
+		update.source =
+			finalSophistication || finalRiskTolerance ? 'user_override' : 'inferred';
+
 		const doc = await InvestorProfileModel.findOneAndUpdate(
 			{ userId },
 			{ $set: update },

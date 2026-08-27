@@ -35,9 +35,12 @@ export function computeSophistication(
 		input.distinctAssetCount,
 		input.tradesLast12Months
 	);
+	// distinctSectorCount nao gate mais 'experienced': Asset nao tem campo
+	// `sector` persistido hoje (ver PortfolioService.getUserPortfolios), entao
+	// esse sinal fica sempre em 0 em producao. distinctSectorCount continua
+	// calculado e armazenado em signals para fins informativos/auditoria.
 	const isExperienced =
-		input.distinctSectorCount >= 3 &&
-		(turnover >= HIGH_TURNOVER_THRESHOLD || input.hasAdvancedInstrument);
+		turnover >= HIGH_TURNOVER_THRESHOLD || input.hasAdvancedInstrument;
 	if (isExperienced) return 'experienced';
 
 	return 'intermediate';
@@ -46,9 +49,13 @@ export function computeSophistication(
 export function computeRiskTolerance(
 	variableIncomeAllocationPct: number
 ): RiskToleranceLevel {
-	if (variableIncomeAllocationPct > 80) return 'aggressive';
-	if (variableIncomeAllocationPct >= 40) return 'moderate';
-	return 'conservative';
+	// Nunca retorna 'aggressive': o schema de Asset ainda nao tem um tipo de
+	// renda fixa distinto (tudo que nao e 'fund' e tratado como renda
+	// variavel), entao quase toda carteira real bateria 100% de alocacao
+	// variavel. Ate existir um sinal real de renda fixa, o teto e 'moderate'
+	// para evitar um rotulo de confianca falsa.
+	if (variableIncomeAllocationPct < 40) return 'conservative';
+	return 'moderate';
 }
 
 export function computeConfidence(
@@ -58,6 +65,7 @@ export function computeConfidence(
 	if (input.tradesLast12Months < 5) confidence -= 0.3;
 	if (input.accountAgeDays < 30) confidence -= 0.3;
 	if (input.distinctAssetCount < 3) confidence -= 0.2;
+	if (input.accountAgeDays < 30) confidence = Math.min(confidence, 0.4);
 	return Math.max(CONFIDENCE_FLOOR, confidence);
 }
 

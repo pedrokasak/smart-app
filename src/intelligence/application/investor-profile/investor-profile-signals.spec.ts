@@ -47,16 +47,26 @@ describe('computeSophistication', () => {
 		hasAdvancedInstrument: false,
 	};
 
-	it('experienced: 3+ setores e turnover alto', () => {
+	it('experienced: turnover alto, independente do numero de setores', () => {
 		expect(computeSophistication(base)).toBe('experienced');
 	});
 
-	it('experienced: 3+ setores e instrumento avancado, mesmo com turnover baixo', () => {
+	it('experienced: instrumento avancado, mesmo com turnover baixo e poucos setores', () => {
 		expect(
 			computeSophistication({
 				...base,
+				distinctSectorCount: 0,
 				tradesLast12Months: 2,
 				hasAdvancedInstrument: true,
+			})
+		).toBe('experienced');
+	});
+
+	it('experienced: turnover alto mesmo com distinctSectorCount zerado (Asset sem campo sector)', () => {
+		expect(
+			computeSophistication({
+				...base,
+				distinctSectorCount: 0,
 			})
 		).toBe('experienced');
 	});
@@ -93,8 +103,9 @@ describe('computeSophistication', () => {
 });
 
 describe('computeRiskTolerance', () => {
-	it('aggressive acima de 80% em renda variavel', () => {
-		expect(computeRiskTolerance(85)).toBe('aggressive');
+	it('nunca retorna aggressive, mesmo com 100% em renda variavel (sem tipo de renda fixa no schema)', () => {
+		expect(computeRiskTolerance(100)).toBe('moderate');
+		expect(computeRiskTolerance(85)).toBe('moderate');
 	});
 
 	it('moderate entre 40 e 80', () => {
@@ -125,8 +136,8 @@ describe('computeConfidence', () => {
 		expect(computeConfidence({ ...base, tradesLast12Months: 2 })).toBeCloseTo(0.7);
 	});
 
-	it('reduz 0.3 por conta nova', () => {
-		expect(computeConfidence({ ...base, accountAgeDays: 5 })).toBeCloseTo(0.7);
+	it('reduz 0.3 por conta nova, mas o teto de conta nova (<=0.4) prevalece', () => {
+		expect(computeConfidence({ ...base, accountAgeDays: 5 })).toBeCloseTo(0.4);
 	});
 
 	it('reduz 0.2 por poucos ativos', () => {
@@ -172,7 +183,7 @@ describe('computeConfidence', () => {
 		).toBeCloseTo(0.5);
 	});
 
-	it('reduz por conta nova e poucos ativos (sem mexer em transacoes)', () => {
+	it('reduz por conta nova e poucos ativos (sem mexer em transacoes), mas o teto de conta nova (<=0.4) prevalece', () => {
 		expect(
 			computeConfidence({
 				distinctAssetCount: 1,
@@ -182,6 +193,19 @@ describe('computeConfidence', () => {
 				variableIncomeAllocationPct: 70,
 				hasAdvancedInstrument: false,
 			})
-		).toBeCloseTo(0.5);
+		).toBeCloseTo(0.4);
+	});
+
+	it('conta nova (< 30 dias) e limitada a 0.4 mesmo com sinais fortes', () => {
+		expect(
+			computeConfidence({
+				distinctAssetCount: 10,
+				distinctSectorCount: 4,
+				tradesLast12Months: 40,
+				accountAgeDays: 10,
+				variableIncomeAllocationPct: 70,
+				hasAdvancedInstrument: true,
+			})
+		).toBeLessThanOrEqual(0.4);
 	});
 });
