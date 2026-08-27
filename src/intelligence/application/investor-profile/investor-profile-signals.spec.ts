@@ -1,0 +1,148 @@
+import {
+	resolveTurnover,
+	isAdvancedInstrumentSymbol,
+	computeSophistication,
+	computeRiskTolerance,
+	computeConfidence,
+	InvestorProfileSignalsInput,
+} from './investor-profile-signals';
+
+describe('resolveTurnover', () => {
+	it('divide trades pelo numero de ativos distintos', () => {
+		expect(resolveTurnover(3, 12)).toBe(4);
+	});
+
+	it('retorna 0 quando nao ha ativos, sem lancar', () => {
+		expect(resolveTurnover(0, 5)).toBe(0);
+	});
+});
+
+describe('isAdvancedInstrumentSymbol', () => {
+	it('reconhece ETF pelo assetType', () => {
+		expect(isAdvancedInstrumentSymbol('BOVA11', 'etf')).toBe(true);
+	});
+
+	it('reconhece BDR pelo padrao de sufixo', () => {
+		expect(isAdvancedInstrumentSymbol('AAPL34', 'stock')).toBe(true);
+		expect(isAdvancedInstrumentSymbol('GOGL34', 'stock')).toBe(true);
+	});
+
+	it('nao reconhece acao comum da B3 como avancada', () => {
+		expect(isAdvancedInstrumentSymbol('PETR4', 'stock')).toBe(false);
+		expect(isAdvancedInstrumentSymbol('ITUB4', 'stock')).toBe(false);
+	});
+
+	it('nao reconhece fii como avancado', () => {
+		expect(isAdvancedInstrumentSymbol('XPLG11', 'fii')).toBe(false);
+	});
+});
+
+describe('computeSophistication', () => {
+	const base: InvestorProfileSignalsInput = {
+		distinctAssetCount: 10,
+		distinctSectorCount: 4,
+		tradesLast12Months: 40,
+		accountAgeDays: 365,
+		variableIncomeAllocationPct: 70,
+		hasAdvancedInstrument: false,
+	};
+
+	it('experienced: 3+ setores e turnover alto', () => {
+		expect(computeSophistication(base)).toBe('experienced');
+	});
+
+	it('experienced: 3+ setores e instrumento avancado, mesmo com turnover baixo', () => {
+		expect(
+			computeSophistication({
+				...base,
+				tradesLast12Months: 2,
+				hasAdvancedInstrument: true,
+			})
+		).toBe('experienced');
+	});
+
+	it('beginner: poucos ativos vence mesmo com muitos setores', () => {
+		expect(
+			computeSophistication({
+				...base,
+				distinctAssetCount: 2,
+				distinctSectorCount: 2,
+			})
+		).toBe('beginner');
+	});
+
+	it('beginner: conta nova vence mesmo com sinais de experiente', () => {
+		expect(
+			computeSophistication({
+				...base,
+				accountAgeDays: 10,
+			})
+		).toBe('beginner');
+	});
+
+	it('intermediate: nem experiente nem beginner', () => {
+		expect(
+			computeSophistication({
+				...base,
+				distinctSectorCount: 2,
+				tradesLast12Months: 3,
+				hasAdvancedInstrument: false,
+			})
+		).toBe('intermediate');
+	});
+});
+
+describe('computeRiskTolerance', () => {
+	it('aggressive acima de 80% em renda variavel', () => {
+		expect(computeRiskTolerance(85)).toBe('aggressive');
+	});
+
+	it('moderate entre 40 e 80', () => {
+		expect(computeRiskTolerance(60)).toBe('moderate');
+		expect(computeRiskTolerance(40)).toBe('moderate');
+	});
+
+	it('conservative abaixo de 40', () => {
+		expect(computeRiskTolerance(20)).toBe('conservative');
+	});
+});
+
+describe('computeConfidence', () => {
+	const base: InvestorProfileSignalsInput = {
+		distinctAssetCount: 10,
+		distinctSectorCount: 4,
+		tradesLast12Months: 40,
+		accountAgeDays: 365,
+		variableIncomeAllocationPct: 70,
+		hasAdvancedInstrument: false,
+	};
+
+	it('confidence maxima com sinais fortes', () => {
+		expect(computeConfidence(base)).toBe(1.0);
+	});
+
+	it('reduz 0.3 por poucas transacoes', () => {
+		expect(computeConfidence({ ...base, tradesLast12Months: 2 })).toBeCloseTo(0.7);
+	});
+
+	it('reduz 0.3 por conta nova', () => {
+		expect(computeConfidence({ ...base, accountAgeDays: 5 })).toBeCloseTo(0.7);
+	});
+
+	it('reduz 0.2 por poucos ativos', () => {
+		expect(computeConfidence({ ...base, distinctAssetCount: 1 })).toBeCloseTo(0.8);
+	});
+
+	it('nunca fica abaixo do piso 0.1, mesmo com todos os sinais fracos', () => {
+		expect(
+			computeConfidence({
+				distinctAssetCount: 0,
+				distinctSectorCount: 0,
+				tradesLast12Months: 0,
+				accountAgeDays: 1,
+				variableIncomeAllocationPct: 0,
+				hasAdvancedInstrument: false,
+			})
+		).toBe(0.1);
+	});
+});
