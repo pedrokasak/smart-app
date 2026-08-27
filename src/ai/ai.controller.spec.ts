@@ -53,7 +53,7 @@ const mockPortfolioService = {
 	getUserPortfolios: jest.fn(),
 };
 
-const investorProfileService = {
+const mockInvestorProfileService = {
 	getEffectiveProfile: jest.fn(),
 	setOverride: jest.fn(),
 };
@@ -100,7 +100,7 @@ describe('AiController', () => {
 				},
 				{
 					provide: InvestorProfileService,
-					useValue: investorProfileService,
+					useValue: mockInvestorProfileService,
 				},
 			],
 		}).compile();
@@ -625,7 +625,7 @@ describe('AiController', () => {
 	describe('GET /ai/investor-profile', () => {
 		it('devolve o perfil efetivo do usuario autenticado', async () => {
 			const req = { user: { userId: 'u1' } };
-			(investorProfileService.getEffectiveProfile as jest.Mock).mockResolvedValue({
+			(mockInvestorProfileService.getEffectiveProfile as jest.Mock).mockResolvedValue({
 				sophistication: 'experienced',
 				riskTolerance: 'aggressive',
 				confidence: 0.9,
@@ -635,7 +635,7 @@ describe('AiController', () => {
 
 			const result = await controller.investorProfile(req as any);
 
-			expect(investorProfileService.getEffectiveProfile).toHaveBeenCalledWith('u1');
+			expect(mockInvestorProfileService.getEffectiveProfile).toHaveBeenCalledWith('u1');
 			expect(result.sophistication).toBe('experienced');
 		});
 	});
@@ -643,7 +643,7 @@ describe('AiController', () => {
 	describe('PUT /ai/investor-profile', () => {
 		it('grava override e devolve o perfil atualizado', async () => {
 			const req = { user: { userId: 'u1' } };
-			(investorProfileService.setOverride as jest.Mock).mockResolvedValue({
+			(mockInvestorProfileService.setOverride as jest.Mock).mockResolvedValue({
 				sophistication: 'experienced',
 				riskTolerance: 'moderate',
 				confidence: 0.7,
@@ -655,7 +655,7 @@ describe('AiController', () => {
 				sophistication: 'experienced',
 			});
 
-			expect(investorProfileService.setOverride).toHaveBeenCalledWith('u1', {
+			expect(mockInvestorProfileService.setOverride).toHaveBeenCalledWith('u1', {
 				sophistication: 'experienced',
 			});
 			expect(result.source).toBe('user_override');

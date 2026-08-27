@@ -1,4 +1,6 @@
 import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { UserModel } from 'src/users/schema/user.model';
 import { ComparisonModule } from 'src/comparison/comparison.module';
 import { TaxEngineModule } from 'src/fiscal/tax-engine/tax-engine.module';
 import { FutureSimulatorService } from 'src/intelligence/application/future-simulator.service';
@@ -23,6 +25,7 @@ import { PortfolioModule } from 'src/portfolio/portfolio.module';
 		TaxEngineModule,
 		ComparisonModule,
 		MarketDataModule,
+		MongooseModule.forFeature([{ name: 'User', schema: UserModel.schema }]),
 	],
 	providers: [
 		UnifiedIntelligenceFacade,
