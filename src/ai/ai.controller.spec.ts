@@ -9,6 +9,7 @@ import { PortfolioScoreService } from 'src/intelligence/application/portfolio-sc
 import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
 import { PortfolioErrorRadarService } from 'src/intelligence/application/portfolio-error-radar.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -52,6 +53,11 @@ const mockPortfolioService = {
 	getUserPortfolios: jest.fn(),
 };
 
+const mockInvestorProfileService = {
+	getEffectiveProfile: jest.fn(),
+	setOverride: jest.fn(),
+};
+
 describe('AiController', () => {
 	let controller: AiController;
 
@@ -91,6 +97,10 @@ describe('AiController', () => {
 				{
 					provide: RagColdStartService,
 					useValue: { trigger: jest.fn() },
+				},
+				{
+					provide: InvestorProfileService,
+					useValue: mockInvestorProfileService,
 				},
 			],
 		}).compile();
@@ -609,6 +619,58 @@ describe('AiController', () => {
 			await expect(controller.errorRadar({ user: {} })).rejects.toThrow(
 				'User ID ausente no token'
 			);
+		});
+	});
+
+	describe('GET /ai/investor-profile', () => {
+		it('devolve o perfil efetivo do usuario autenticado', async () => {
+			const req = { user: { userId: 'u1' } };
+			(mockInvestorProfileService.getEffectiveProfile as jest.Mock).mockResolvedValue({
+				sophistication: 'experienced',
+				riskTolerance: 'aggressive',
+				confidence: 0.9,
+				signals: {},
+				source: 'inferred',
+			});
+
+			const result = await controller.investorProfile(req as any);
+
+			expect(mockInvestorProfileService.getEffectiveProfile).toHaveBeenCalledWith('u1');
+			expect(result.sophistication).toBe('experienced');
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(controller.investorProfile({ user: {} })).rejects.toThrow(
+				'User ID ausente no token'
+			);
+		});
+	});
+
+	describe('PUT /ai/investor-profile', () => {
+		it('grava override e devolve o perfil atualizado', async () => {
+			const req = { user: { userId: 'u1' } };
+			(mockInvestorProfileService.setOverride as jest.Mock).mockResolvedValue({
+				sophistication: 'experienced',
+				riskTolerance: 'moderate',
+				confidence: 0.7,
+				signals: {},
+				source: 'user_override',
+			});
+
+			const result = await controller.updateInvestorProfile(req as any, {
+				sophistication: 'experienced',
+			});
+
+			expect(mockInvestorProfileService.setOverride).toHaveBeenCalledWith('u1', {
+				sophistication: 'experienced',
+			});
+			expect(result.source).toBe('user_override');
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.updateInvestorProfile({ user: {} }, { sophistication: 'experienced' })
+			).rejects.toThrow('User ID ausente no token');
 		});
 	});
 });
