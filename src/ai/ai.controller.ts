@@ -2,6 +2,7 @@ import {
 	Controller,
 	Get,
 	Post,
+	Put,
 	Body,
 	UseGuards,
 	Request,
@@ -39,6 +40,12 @@ import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-
 import { FutureSimulatorOutput } from 'src/intelligence/application/unified-intelligence.types';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
+import {
+	InvestorSophisticationProfile,
+	RiskToleranceLevel,
+	SophisticationLevel,
+} from 'src/intelligence/application/investor-profile/investor-profile.types';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -55,7 +62,8 @@ export class AiController {
 		private readonly assetOpinionService: AssetOpinionService,
 		private readonly unifiedIntelligenceFacade: UnifiedIntelligenceFacade,
 		private readonly portfolioService: PortfolioService,
-		private readonly ragColdStart: RagColdStartService
+		private readonly ragColdStart: RagColdStartService,
+		private readonly investorProfileService: InvestorProfileService
 	) {}
 
 	/**
@@ -261,6 +269,49 @@ export class AiController {
 		);
 
 		return this.portfolioErrorRadarService.detect(this.toPositions(assets));
+	}
+
+	/**
+	 * GET /ai/investor-profile
+	 * Perfil de sofisticacao/tolerancia a risco do investidor autenticado,
+	 * calculado deterministicamente a partir de sinais da carteira (spec
+	 * 2026-08-27-ai-insights-adaptive-profile-redesign-design.md). Sem LLM.
+	 */
+	@Get('investor-profile')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async investorProfile(
+		@Request() req: any
+	): Promise<InvestorSophisticationProfile> {
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
+		return this.investorProfileService.getEffectiveProfile(userId);
+	}
+
+	/**
+	 * PUT /ai/investor-profile
+	 * Override manual do usuario sobre o perfil inferido. Persiste ate o
+	 * usuario resetar; o job diario continua recalculando o valor inferido
+	 * em paralelo, sem sobrescrever o override.
+	 */
+	@Put('investor-profile')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async updateInvestorProfile(
+		@Request() req: any,
+		@Body()
+		body: {
+			sophistication?: SophisticationLevel;
+			riskTolerance?: RiskToleranceLevel;
+		}
+	): Promise<InvestorSophisticationProfile> {
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
+		return this.investorProfileService.setOverride(userId, body || {});
 	}
 
 	@Post('trackerr-score')

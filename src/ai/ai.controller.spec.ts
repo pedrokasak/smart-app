@@ -9,6 +9,7 @@ import { PortfolioScoreService } from 'src/intelligence/application/portfolio-sc
 import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
 import { PortfolioErrorRadarService } from 'src/intelligence/application/portfolio-error-radar.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -52,6 +53,11 @@ const mockPortfolioService = {
 	getUserPortfolios: jest.fn(),
 };
 
+const investorProfileService = {
+	getEffectiveProfile: jest.fn(),
+	setOverride: jest.fn(),
+};
+
 describe('AiController', () => {
 	let controller: AiController;
 
@@ -91,6 +97,10 @@ describe('AiController', () => {
 				{
 					provide: RagColdStartService,
 					useValue: { trigger: jest.fn() },
+				},
+				{
+					provide: InvestorProfileService,
+					useValue: investorProfileService,
 				},
 			],
 		}).compile();
@@ -609,6 +619,46 @@ describe('AiController', () => {
 			await expect(controller.errorRadar({ user: {} })).rejects.toThrow(
 				'User ID ausente no token'
 			);
+		});
+	});
+
+	describe('GET /ai/investor-profile', () => {
+		it('devolve o perfil efetivo do usuario autenticado', async () => {
+			const req = { user: { userId: 'u1' } };
+			(investorProfileService.getEffectiveProfile as jest.Mock).mockResolvedValue({
+				sophistication: 'experienced',
+				riskTolerance: 'aggressive',
+				confidence: 0.9,
+				signals: {},
+				source: 'inferred',
+			});
+
+			const result = await controller.investorProfile(req as any);
+
+			expect(investorProfileService.getEffectiveProfile).toHaveBeenCalledWith('u1');
+			expect(result.sophistication).toBe('experienced');
+		});
+	});
+
+	describe('PUT /ai/investor-profile', () => {
+		it('grava override e devolve o perfil atualizado', async () => {
+			const req = { user: { userId: 'u1' } };
+			(investorProfileService.setOverride as jest.Mock).mockResolvedValue({
+				sophistication: 'experienced',
+				riskTolerance: 'moderate',
+				confidence: 0.7,
+				signals: {},
+				source: 'user_override',
+			});
+
+			const result = await controller.updateInvestorProfile(req as any, {
+				sophistication: 'experienced',
+			});
+
+			expect(investorProfileService.setOverride).toHaveBeenCalledWith('u1', {
+				sophistication: 'experienced',
+			});
+			expect(result.source).toBe('user_override');
 		});
 	});
 });
