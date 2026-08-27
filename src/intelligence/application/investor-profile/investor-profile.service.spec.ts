@@ -53,10 +53,12 @@ describe('InvestorProfileService', () => {
 		expect(result.riskTolerance).toBe('aggressive');
 		expect(InvestorProfileModel.findOneAndUpdate).toHaveBeenCalledWith(
 			{ userId: 'u1' },
-			expect.objectContaining({
-				sophistication: 'experienced',
-				riskTolerance: 'aggressive',
-			}),
+			{
+				$set: expect.objectContaining({
+					sophistication: 'experienced',
+					riskTolerance: 'aggressive',
+				}),
+			},
 			expect.objectContaining({ upsert: true })
 		);
 	});
@@ -98,7 +100,9 @@ describe('InvestorProfileService', () => {
 
 		expect(InvestorProfileModel.findOneAndUpdate).toHaveBeenCalledWith(
 			{ userId: 'u1' },
-			expect.objectContaining({ overriddenSophistication: 'experienced' }),
+			{
+				$set: expect.objectContaining({ overriddenSophistication: 'experienced' }),
+			},
 			expect.objectContaining({ upsert: true })
 		);
 		expect(result.sophistication).toBe('experienced');

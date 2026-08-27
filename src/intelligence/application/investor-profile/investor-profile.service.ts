@@ -39,12 +39,14 @@ export class InvestorProfileService {
 		const doc = await InvestorProfileModel.findOneAndUpdate(
 			{ userId },
 			{
-				userId,
-				sophistication,
-				riskTolerance,
-				confidence,
-				signals,
-				source: 'inferred',
+				$set: {
+					userId,
+					sophistication,
+					riskTolerance,
+					confidence,
+					signals,
+					source: 'inferred',
+				},
 			},
 			{ upsert: true, new: true }
 		);
@@ -76,7 +78,7 @@ export class InvestorProfileService {
 		}
 		const doc = await InvestorProfileModel.findOneAndUpdate(
 			{ userId },
-			update,
+			{ $set: update },
 			{ upsert: true, new: true }
 		);
 		return this.toEffectiveProfile(doc);
