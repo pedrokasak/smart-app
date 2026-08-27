@@ -133,7 +133,7 @@ describe('computeConfidence', () => {
 		expect(computeConfidence({ ...base, distinctAssetCount: 1 })).toBeCloseTo(0.8);
 	});
 
-	it('nunca fica abaixo do piso 0.1, mesmo com todos os sinais fracos', () => {
+	it('com todos os sinais fracos, reduz por todas as tres condicoes (0.3 + 0.3 + 0.2)', () => {
 		expect(
 			computeConfidence({
 				distinctAssetCount: 0,
@@ -143,6 +143,45 @@ describe('computeConfidence', () => {
 				variableIncomeAllocationPct: 0,
 				hasAdvancedInstrument: false,
 			})
-		).toBe(0.1);
+		).toBeCloseTo(0.2);
+	});
+
+	it('reduz por poucas transacoes e conta nova (sem mexer em ativos)', () => {
+		expect(
+			computeConfidence({
+				distinctAssetCount: 10,
+				distinctSectorCount: 4,
+				tradesLast12Months: 0,
+				accountAgeDays: 1,
+				variableIncomeAllocationPct: 70,
+				hasAdvancedInstrument: false,
+			})
+		).toBeCloseTo(0.4);
+	});
+
+	it('reduz por poucas transacoes e poucos ativos (sem mexer em idade da conta)', () => {
+		expect(
+			computeConfidence({
+				distinctAssetCount: 1,
+				distinctSectorCount: 4,
+				tradesLast12Months: 0,
+				accountAgeDays: 365,
+				variableIncomeAllocationPct: 70,
+				hasAdvancedInstrument: false,
+			})
+		).toBeCloseTo(0.5);
+	});
+
+	it('reduz por conta nova e poucos ativos (sem mexer em transacoes)', () => {
+		expect(
+			computeConfidence({
+				distinctAssetCount: 1,
+				distinctSectorCount: 4,
+				tradesLast12Months: 40,
+				accountAgeDays: 1,
+				variableIncomeAllocationPct: 70,
+				hasAdvancedInstrument: false,
+			})
+		).toBeCloseTo(0.5);
 	});
 });

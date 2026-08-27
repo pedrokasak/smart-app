@@ -58,8 +58,6 @@ export function computeConfidence(
 	if (input.tradesLast12Months < 5) confidence -= 0.3;
 	if (input.accountAgeDays < 30) confidence -= 0.3;
 	if (input.distinctAssetCount < 3) confidence -= 0.2;
-	// Quantize to 1 decimal place to handle floating-point precision and apply floor
-	confidence = Math.floor(confidence * 10) / 10;
 	return Math.max(CONFIDENCE_FLOOR, confidence);
 }
 
