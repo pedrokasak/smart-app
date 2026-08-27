@@ -40,10 +40,14 @@ export class InvestorProfileScheduler {
 		);
 
 		const failures = results.filter((r) => r.status === 'rejected').length;
+		const processed = results.length - failures;
 		if (failures > 0) {
 			this.logger.warn(
 				`Recalculo de perfil de investidor: ${failures} falha(s) isolada(s).`
 			);
 		}
+		this.logger.log(
+			`Recalculo de perfil de investidor concluido: ${processed} processado(s), ${failures} falha(s).`
+		);
 	}
 }

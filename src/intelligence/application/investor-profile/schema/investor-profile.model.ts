@@ -25,7 +25,6 @@ export const investorProfileSchema = new Schema<InvestorProfileDocument>(
 			ref: 'User',
 			required: true,
 			unique: true,
-			index: true,
 		},
 		sophistication: {
 			type: String,
