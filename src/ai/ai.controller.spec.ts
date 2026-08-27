@@ -638,6 +638,12 @@ describe('AiController', () => {
 			expect(mockInvestorProfileService.getEffectiveProfile).toHaveBeenCalledWith('u1');
 			expect(result.sophistication).toBe('experienced');
 		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(controller.investorProfile({ user: {} })).rejects.toThrow(
+				'User ID ausente no token'
+			);
+		});
 	});
 
 	describe('PUT /ai/investor-profile', () => {
@@ -659,6 +665,12 @@ describe('AiController', () => {
 				sophistication: 'experienced',
 			});
 			expect(result.source).toBe('user_override');
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.updateInvestorProfile({ user: {} }, { sophistication: 'experienced' })
+			).rejects.toThrow('User ID ausente no token');
 		});
 	});
 });

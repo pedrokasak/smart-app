@@ -41,11 +41,8 @@ import { FutureSimulatorOutput } from 'src/intelligence/application/unified-inte
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
-import {
-	InvestorSophisticationProfile,
-	RiskToleranceLevel,
-	SophisticationLevel,
-} from 'src/intelligence/application/investor-profile/investor-profile.types';
+import { InvestorSophisticationProfile } from 'src/intelligence/application/investor-profile/investor-profile.types';
+import { InvestorProfileOverrideDto } from './dto/investor-profile-override.dto';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -302,10 +299,7 @@ export class AiController {
 	async updateInvestorProfile(
 		@Request() req: any,
 		@Body()
-		body: {
-			sophistication?: SophisticationLevel;
-			riskTolerance?: RiskToleranceLevel;
-		}
+		body: InvestorProfileOverrideDto
 	): Promise<InvestorSophisticationProfile> {
 		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
 		if (!userId) {
