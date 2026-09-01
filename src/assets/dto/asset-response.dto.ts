@@ -25,7 +25,9 @@ export class AssetResponseDto {
 		priceToBook?: number;
 		currentYield?: number;
 		pvpRatio?: number;
+		beta?: number;
 	};
+	signal?: string;
 	source: 'manual' | 'b3' | 'webscrape';
 	lastEnrichedAt?: Date;
 	createdAt: Date;
