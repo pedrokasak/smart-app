@@ -25,6 +25,7 @@ import { TwoFactorModule } from './two-factor/two-factor.module';
 import { BrokerSyncModule } from './broker-sync/broker-sync.module';
 import { FiscalModule } from './fiscal/fiscal.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
+import { TargetAllocationModule } from './portfolio/target-allocation/target-allocation.module';
 import { EndpointRateLimitMiddleware } from 'src/security/rate-limit/endpoint-rate-limit.middleware';
 import { AdminModule } from './admin/admin.module';
 import { LeadsModule } from './leads/leads.module';
@@ -47,6 +48,7 @@ import { PortfolioDigestModule } from './notifications/portfolio-digest/portfoli
 		TwoFactorModule,
 		BrokerSyncModule,
 		PortfolioModule,
+		TargetAllocationModule,
 		FiscalModule,
 		AdminModule,
 		LeadsModule,
