@@ -13,7 +13,9 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Types } from 'mongoose';
-import { PDFParse } from 'pdf-parse/node';
+// Polyfill de DOM DEVE vir antes de 'pdf-parse' (pdfjs) — ver o módulo.
+import 'src/common/pdf/pdf-node-polyfill';
+import { PDFParse } from 'pdf-parse';
 import * as xlsx from 'xlsx';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { BrokerSyncService } from './broker-sync.service';
