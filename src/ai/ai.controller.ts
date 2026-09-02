@@ -43,6 +43,9 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 import { InvestorSophisticationProfile } from 'src/intelligence/application/investor-profile/investor-profile.types';
 import { InvestorProfileOverrideDto } from './dto/investor-profile-override.dto';
+import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
+import { AppendChatMessageRequestDto } from 'src/ai/chat-history/dto/append-chat-message-request.dto';
+import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -60,7 +63,8 @@ export class AiController {
 		private readonly unifiedIntelligenceFacade: UnifiedIntelligenceFacade,
 		private readonly portfolioService: PortfolioService,
 		private readonly ragColdStart: RagColdStartService,
-		private readonly investorProfileService: InvestorProfileService
+		private readonly investorProfileService: InvestorProfileService,
+		private readonly chatHistoryService: ChatHistoryService
 	) {}
 
 	/**
@@ -195,6 +199,43 @@ export class AiController {
 				assumptions: [],
 			};
 		}
+	}
+
+	/**
+	 * GET /ai/chat/history
+	 * Histórico persistido do Chat Inteligente (TRA-66) do usuário
+	 * autenticado, em ordem cronológica. Sem gate de plano no backend —
+	 * mesmo padrão de POST /ai/chat/intelligent, o gate PRO+ é feito no
+	 * frontend.
+	 */
+	@Get('chat/history')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async getChatHistory(@Request() req: any): Promise<ChatMessage[]> {
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
+		return this.chatHistoryService.listByUser(userId);
+	}
+
+	/**
+	 * POST /ai/chat/history
+	 * Persiste uma mensagem (user ou assistant) do Chat Inteligente
+	 * associada ao usuário autenticado.
+	 */
+	@Post('chat/history')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.CREATED)
+	async appendChatHistory(
+		@Request() req: any,
+		@Body() body: AppendChatMessageRequestDto
+	): Promise<ChatMessage> {
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
+		return this.chatHistoryService.append(userId, body);
 	}
 
 	/**

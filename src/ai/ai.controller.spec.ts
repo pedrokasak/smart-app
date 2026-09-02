@@ -10,6 +10,7 @@ import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.
 import { PortfolioErrorRadarService } from 'src/intelligence/application/portfolio-error-radar.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
+import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -58,6 +59,11 @@ const mockInvestorProfileService = {
 	setOverride: jest.fn(),
 };
 
+const mockChatHistoryService = {
+	listByUser: jest.fn(),
+	append: jest.fn(),
+};
+
 describe('AiController', () => {
 	let controller: AiController;
 
@@ -101,6 +107,10 @@ describe('AiController', () => {
 				{
 					provide: InvestorProfileService,
 					useValue: mockInvestorProfileService,
+				},
+				{
+					provide: ChatHistoryService,
+					useValue: mockChatHistoryService,
 				},
 			],
 		}).compile();
@@ -619,6 +629,62 @@ describe('AiController', () => {
 			await expect(controller.errorRadar({ user: {} })).rejects.toThrow(
 				'User ID ausente no token'
 			);
+		});
+	});
+
+	describe('GET /ai/chat/history', () => {
+		it('devolve o historico do usuario autenticado', async () => {
+			const fakeMessages = [
+				{ userId: 'user-123', clientId: 'u-1', role: 'user', text: 'oi' },
+			];
+			mockChatHistoryService.listByUser.mockResolvedValue(fakeMessages);
+
+			const response = await controller.getChatHistory({
+				user: { userId: 'user-123' },
+			});
+
+			expect(mockChatHistoryService.listByUser).toHaveBeenCalledWith(
+				'user-123'
+			);
+			expect(response).toBe(fakeMessages);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(controller.getChatHistory({ user: {} })).rejects.toThrow(
+				'User ID ausente no token'
+			);
+		});
+	});
+
+	describe('POST /ai/chat/history', () => {
+		it('persiste a mensagem associada ao usuario autenticado', async () => {
+			const body = {
+				clientId: 'u-1',
+				role: 'user' as const,
+				text: 'Minha carteira está concentrada?',
+			};
+			const fakeCreated = { ...body, userId: 'user-123' };
+			mockChatHistoryService.append.mockResolvedValue(fakeCreated);
+
+			const response = await controller.appendChatHistory(
+				{ user: { userId: 'user-123' } },
+				body
+			);
+
+			expect(mockChatHistoryService.append).toHaveBeenCalledWith(
+				'user-123',
+				body
+			);
+			expect(response).toBe(fakeCreated);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.appendChatHistory(
+					{ user: {} },
+					{ clientId: 'u-1', role: 'user', text: 'oi' }
+				)
+			).rejects.toThrow('User ID ausente no token');
 		});
 	});
 
