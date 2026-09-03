@@ -16,6 +16,8 @@ describe('AdminController', () => {
 		deactivatePlan: jest.fn(),
 		updateUserRoleByEmail: jest.fn(),
 		grantSubscriptionByEmail: jest.fn(),
+		getWebhookStatus: jest.fn(),
+		listWebhookEvents: jest.fn(),
 	};
 
 	beforeEach(async () => {
@@ -121,5 +123,27 @@ describe('AdminController', () => {
 			'admin-1',
 			body
 		);
+	});
+
+	it('returns the webhook status', async () => {
+		service.getWebhookStatus.mockReturnValue({ configured: true });
+
+		expect(controller.getWebhookStatus()).toEqual({ configured: true });
+		expect(service.getWebhookStatus).toHaveBeenCalled();
+	});
+
+	it('lists recent webhook events with a parsed limit', async () => {
+		const events = [{ id: 'evt_1', type: 'invoice.paid' }];
+		service.listWebhookEvents.mockResolvedValue(events);
+
+		await expect(controller.listWebhookEvents('10')).resolves.toEqual(events);
+		expect(service.listWebhookEvents).toHaveBeenCalledWith(10);
+	});
+
+	it('lists recent webhook events with default limit when not provided', async () => {
+		service.listWebhookEvents.mockResolvedValue([]);
+
+		await expect(controller.listWebhookEvents()).resolves.toEqual([]);
+		expect(service.listWebhookEvents).toHaveBeenCalledWith(undefined);
 	});
 });

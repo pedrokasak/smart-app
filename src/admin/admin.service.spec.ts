@@ -177,7 +177,9 @@ describe('AdminService — updatePlan', () => {
 		});
 		mockSubscriptionModel.findById.mockResolvedValue(plan);
 
-		await service.updatePlan('plan_1', { description: 'nova descrição' } as any);
+		await service.updatePlan('plan_1', {
+			description: 'nova descrição',
+		} as any);
 
 		expect(plan.isFeatured).toBe(true);
 		expect(plan.isComingSoon).toBe(false);
