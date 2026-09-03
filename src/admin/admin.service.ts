@@ -23,6 +23,10 @@ import {
 	AdminOverviewResponse,
 	PlanUsageMetric,
 } from './dto/admin-overview.dto';
+import {
+	ListManualGrantsQueryDto,
+	ListManualGrantsResponse,
+} from './dto/list-manual-grants.dto';
 
 @Injectable()
 export class AdminService implements OnModuleInit {
@@ -276,13 +280,18 @@ export class AdminService implements OnModuleInit {
 			throw new NotFoundException('Plano não encontrado ou inativo');
 		}
 
+		const isTrial = dto.grantType === ManualGrantType.Trial;
+		if (isTrial && !dto.trialDurationDays) {
+			throw new BadRequestException(
+				'trialDurationDays é obrigatório para concessões do tipo TRIAL'
+			);
+		}
+
 		const now = new Date();
-		const nextStatus =
-			dto.grantType === ManualGrantType.Trial7Days ? 'trialing' : 'active';
-		const nextEndDate =
-			dto.grantType === ManualGrantType.Trial7Days
-				? new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000)
-				: new Date('2099-12-31T23:59:59.999Z');
+		const nextStatus = isTrial ? 'trialing' : 'active';
+		const nextEndDate = isTrial
+			? new Date(now.getTime() + dto.trialDurationDays * 24 * 60 * 60 * 1000)
+			: new Date('2099-12-31T23:59:59.999Z');
 
 		const payload = {
 			plan: new Types.ObjectId(dto.planId),
@@ -290,10 +299,8 @@ export class AdminService implements OnModuleInit {
 			currentPeriodStart: now,
 			currentPeriodEnd: nextEndDate,
 			cancelAtPeriodEnd: false,
-			trialStart:
-				dto.grantType === ManualGrantType.Trial7Days ? now : undefined,
-			trialEnd:
-				dto.grantType === ManualGrantType.Trial7Days ? nextEndDate : undefined,
+			trialStart: isTrial ? now : undefined,
+			trialEnd: isTrial ? nextEndDate : undefined,
 			endedAt: undefined,
 			canceledAt: undefined,
 			quantity: 1,
@@ -315,6 +322,8 @@ export class AdminService implements OnModuleInit {
 			userEmail: user.email,
 			plan: plan._id,
 			grantType: dto.grantType,
+			trialDurationDays: isTrial ? dto.trialDurationDays : undefined,
+			discountPercent: dto.discountPercent,
 			performedBy: adminUser._id,
 			performedByEmail: adminUser.email,
 			notes: dto.notes?.trim() || undefined,
@@ -332,6 +341,40 @@ export class AdminService implements OnModuleInit {
 			},
 			subscription: subscriptionRecord,
 		};
+	}
+
+	async listManualGrants(
+		query: ListManualGrantsQueryDto
+	): Promise<ListManualGrantsResponse> {
+		const page = query.page && query.page > 0 ? query.page : 1;
+		const limit = query.limit && query.limit > 0 ? query.limit : 20;
+		const skip = (page - 1) * limit;
+
+		const [records, total] = await Promise.all([
+			this.manualGrantAuditModel
+				.find()
+				.sort({ createdAt: -1 })
+				.skip(skip)
+				.limit(limit)
+				.populate('plan', 'name')
+				.lean(),
+			this.manualGrantAuditModel.countDocuments(),
+		]);
+
+		const items = records.map((record: any) => ({
+			id: String(record._id),
+			userEmail: record.userEmail,
+			planId: String(record.plan?._id ?? record.plan),
+			planName: record.plan?.name ?? 'Plano removido',
+			grantType: record.grantType,
+			trialDurationDays: record.trialDurationDays,
+			discountPercent: record.discountPercent,
+			notes: record.notes,
+			performedByEmail: record.performedByEmail,
+			createdAt: record.createdAt,
+		}));
+
+		return { items, page, limit, total };
 	}
 
 	async getOverview(): Promise<AdminOverviewResponse> {
