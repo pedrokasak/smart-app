@@ -9,6 +9,8 @@ import {
 	HttpCode,
 	HttpStatus,
 	UnauthorizedException,
+	ForbiddenException,
+	Inject,
 	Logger,
 } from '@nestjs/common';
 import { AiService } from './ai.service';
@@ -37,7 +39,10 @@ import { PortfolioErrorRadarService } from 'src/intelligence/application/portfol
 import { PortfolioErrorRadarOutput } from 'src/intelligence/application/portfolio-error-radar.types';
 import { PortfolioScoreOutput } from 'src/intelligence/application/portfolio-score.types';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
-import { FutureSimulatorOutput } from 'src/intelligence/application/unified-intelligence.types';
+import {
+	FutureSimulatorOutput,
+	OpportunityRadarOutput,
+} from 'src/intelligence/application/unified-intelligence.types';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
@@ -46,6 +51,12 @@ import { InvestorProfileOverrideDto } from './dto/investor-profile-override.dto'
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
 import { AppendChatMessageRequestDto } from 'src/ai/chat-history/dto/append-chat-message-request.dto';
 import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
+import { OpportunityRadarRequestDto } from './dto/opportunity-radar-request.dto';
+import {
+	planAtLeast,
+	USER_PLAN_RESOLVER,
+	UserPlanResolverPort,
+} from 'src/subscription/application/user-plan.types';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -64,7 +75,9 @@ export class AiController {
 		private readonly portfolioService: PortfolioService,
 		private readonly ragColdStart: RagColdStartService,
 		private readonly investorProfileService: InvestorProfileService,
-		private readonly chatHistoryService: ChatHistoryService
+		private readonly chatHistoryService: ChatHistoryService,
+		@Inject(USER_PLAN_RESOLVER)
+		private readonly userPlanResolver: UserPlanResolverPort
 	) {}
 
 	/**
@@ -307,6 +320,50 @@ export class AiController {
 		);
 
 		return this.portfolioErrorRadarService.detect(this.toPositions(assets));
+	}
+
+	/**
+	 * POST /ai/opportunity-radar
+	 * Expoe OpportunityRadarService.detect() diretamente (TRA-8), sem passar
+	 * pelo Chat Inteligente. Antes so era alcancavel via POST
+	 * /ai/chat/intelligent para intents especificos ("opportunity_radar"),
+	 * o que forcava qualquer consumidor a simular uma pergunta de chat so
+	 * pra ler o radar. Feature premium por definicao: mesmo gate de plano
+	 * (USER_PLAN_RESOLVER / planAtLeast) usado pelo RAG do chat (TRA-79),
+	 * aqui aplicado como 403 explicito em vez de fallback silencioso, ja
+	 * que este e um endpoint dedicado consumido diretamente.
+	 */
+	@Post('opportunity-radar')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async opportunityRadar(
+		@Request() req: any,
+		@Body() body: OpportunityRadarRequestDto
+	): Promise<OpportunityRadarOutput> {
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
+
+		const plan = await this.userPlanResolver.resolve(userId);
+		if (!planAtLeast(plan, 'premium')) {
+			throw new ForbiddenException('FEATURE_PREMIUM_REQUERIDA');
+		}
+
+		const portfolios = await this.portfolioService.getUserPortfolios(userId);
+		const assets = portfolios.flatMap((portfolio: any) =>
+			Array.isArray(portfolio?.assets) ? portfolio.assets : []
+		);
+		const positions = this.toPositions(assets);
+
+		return this.unifiedIntelligenceFacade.detectOpportunities({
+			portfolioPositions: positions,
+			candidateSymbols: body?.candidateSymbols,
+			watchlistSymbols: body?.watchlistSymbols,
+			sectorTargetAllocation: body?.sectorTargetAllocation,
+			rules: body?.rules,
+			fiscalContext: body?.fiscalContext,
+		});
 	}
 
 	/**
