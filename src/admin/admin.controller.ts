@@ -6,6 +6,7 @@ import {
 	Param,
 	Patch,
 	Post,
+	Query,
 	Req,
 	UseGuards,
 } from '@nestjs/common';
@@ -59,6 +60,23 @@ export class AdminController {
 	@ApiOperation({ summary: 'Desativa plano no painel admin' })
 	deactivatePlan(@Param('id') id: string) {
 		return this.adminService.deactivatePlan(id);
+	}
+
+	@Get('webhook/status')
+	@Roles(Role.Admin, Role.Editor)
+	@ApiOperation({ summary: 'Status de configuração do webhook Stripe' })
+	getWebhookStatus() {
+		return this.adminService.getWebhookStatus();
+	}
+
+	@Get('webhook/events')
+	@Roles(Role.Admin, Role.Editor)
+	@ApiOperation({
+		summary: 'Lista eventos recentes do webhook via Stripe Events API',
+	})
+	listWebhookEvents(@Query('limit') limit?: string) {
+		const parsedLimit = limit ? Number(limit) : undefined;
+		return this.adminService.listWebhookEvents(parsedLimit);
 	}
 
 	@Post('users/role')
