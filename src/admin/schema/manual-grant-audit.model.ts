@@ -6,6 +6,8 @@ export interface ManualGrantAudit extends Document {
 	userEmail: string;
 	plan: Types.ObjectId;
 	grantType: ManualGrantType;
+	trialDurationDays?: number;
+	discountPercent?: number;
 	performedBy: Types.ObjectId;
 	performedByEmail: string;
 	notes?: string;
@@ -19,10 +21,13 @@ const manualGrantAuditSchema = new Schema<ManualGrantAudit>(
 		userEmail: { type: String, required: true, lowercase: true, trim: true },
 		plan: { type: Schema.Types.ObjectId, ref: 'Subscription', required: true },
 		grantType: {
+			// Não usa enum estrito no schema para preservar leitura de registros
+			// legados persistidos com o valor 'TRIAL_7_DAYS' (pré TRA-116).
 			type: String,
-			enum: Object.values(ManualGrantType),
 			required: true,
 		},
+		trialDurationDays: { type: Number },
+		discountPercent: { type: Number, min: 0, max: 100 },
 		performedBy: { type: Schema.Types.ObjectId, ref: 'User', required: true },
 		performedByEmail: {
 			type: String,

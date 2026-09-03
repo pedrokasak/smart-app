@@ -6,6 +6,7 @@ import {
 	Param,
 	Patch,
 	Post,
+	Query,
 	Req,
 	UseGuards,
 } from '@nestjs/common';
@@ -17,6 +18,7 @@ import { CreateSubscriptionDto } from 'src/subscription/dto/create-subscription.
 import { UpdateSubscriptionDto } from 'src/subscription/dto/update-subscription.dto';
 import { AdminService } from './admin.service';
 import { ManualGrantDto } from './dto/manual-grant.dto';
+import { ListManualGrantsQueryDto } from './dto/list-manual-grants.dto';
 import { UpdateUserRoleByEmailDto } from './dto/update-user-role-by-email.dto';
 
 @Controller('admin')
@@ -73,5 +75,12 @@ export class AdminController {
 	@ApiOperation({ summary: 'Concede assinatura manual via email' })
 	grantSubscription(@Req() req: any, @Body() body: ManualGrantDto) {
 		return this.adminService.grantSubscriptionByEmail(req.user.userId, body);
+	}
+
+	@Get('grants')
+	@Roles(Role.Admin, Role.Editor)
+	@ApiOperation({ summary: 'Lista histórico de concessões manuais' })
+	listGrants(@Query() query: ListManualGrantsQueryDto) {
+		return this.adminService.listManualGrants(query);
 	}
 }
