@@ -63,6 +63,23 @@ export class AdminController {
 		return this.adminService.deactivatePlan(id);
 	}
 
+	@Get('webhook/status')
+	@Roles(Role.Admin, Role.Editor)
+	@ApiOperation({ summary: 'Status de configuração do webhook Stripe' })
+	getWebhookStatus() {
+		return this.adminService.getWebhookStatus();
+	}
+
+	@Get('webhook/events')
+	@Roles(Role.Admin, Role.Editor)
+	@ApiOperation({
+		summary: 'Lista eventos recentes do webhook via Stripe Events API',
+	})
+	listWebhookEvents(@Query('limit') limit?: string) {
+		const parsedLimit = limit ? Number(limit) : undefined;
+		return this.adminService.listWebhookEvents(parsedLimit);
+	}
+
 	@Post('users/role')
 	@Roles(Role.Admin)
 	@ApiOperation({ summary: 'Promove usuário para admin/editor via email' })

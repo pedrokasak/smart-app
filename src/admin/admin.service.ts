@@ -92,7 +92,38 @@ export class AdminService implements OnModuleInit {
 	}
 
 	async listPlans() {
-		return this.subscriptionModel.find().sort({ createdAt: -1 });
+		const plans = await this.subscriptionModel.find().sort({ createdAt: -1 });
+
+		const counts = await this.userSubscriptionModel.aggregate([
+			{ $match: { status: { $in: ['active', 'trialing'] } } },
+			{ $group: { _id: '$plan', count: { $sum: 1 } } },
+		]);
+		const countsByPlanId = new Map(
+			counts.map((item) => [String(item._id), Number(item.count)])
+		);
+
+		return plans.map((plan) => ({
+			...plan.toObject(),
+			activeSubscriberCount: countsByPlanId.get(String(plan._id)) || 0,
+		}));
+	}
+
+	// Status básico do webhook Stripe: apenas confirma via env se o secret
+	// está configurado no server (TRA-115). Não faz handshake real com o Stripe.
+	getWebhookStatus() {
+		return this.stripeService.getWebhookStatus();
+	}
+
+	// Eventos recentes vindos direto da Stripe Events API — sem persistência
+	// local (TRA-115).
+	async listWebhookEvents(limit?: number) {
+		const events = await this.stripeService.listRecentEvents(limit);
+		return events.map((event) => ({
+			id: event.id,
+			type: event.type,
+			created: new Date(event.created * 1000),
+			livemode: event.livemode,
+		}));
 	}
 
 	async updatePlan(id: string, dto: UpdateSubscriptionDto) {

@@ -265,4 +265,25 @@ export class StripeService {
 			return false;
 		}
 	}
+
+	// Status básico do webhook: apenas confirma se o secret está configurado
+	// no ambiente do server. Não faz handshake real com o Stripe (TRA-115).
+	getWebhookStatus(): { configured: boolean } {
+		return {
+			configured: Boolean(process.env.STRIPE_WEBHOOK_SECRET),
+		};
+	}
+
+	// Eventos recentes direto da API de Events do Stripe — o Stripe já é a
+	// fonte de verdade para histórico de eventos, então não duplicamos isso
+	// em uma tabela local (TRA-115).
+	async listRecentEvents(limit: number = 20): Promise<Stripe.Event[]> {
+		try {
+			const events = await this.stripe.events.list({ limit });
+			return events.data;
+		} catch (error) {
+			this.logger.error('Erro ao listar eventos do Stripe:', error);
+			throw error;
+		}
+	}
 }

@@ -30,6 +30,7 @@ import { EndpointRateLimitMiddleware } from 'src/security/rate-limit/endpoint-ra
 import { AdminModule } from './admin/admin.module';
 import { LeadsModule } from './leads/leads.module';
 import { PortfolioDigestModule } from './notifications/portfolio-digest/portfolio-digest.module';
+import { PrivacyModule } from './privacy/privacy.module';
 
 @Module({
 	imports: [
@@ -53,6 +54,7 @@ import { PortfolioDigestModule } from './notifications/portfolio-digest/portfoli
 		AdminModule,
 		LeadsModule,
 		PortfolioDigestModule,
+		PrivacyModule,
 	],
 	controllers: [AppController],
 	providers: [
