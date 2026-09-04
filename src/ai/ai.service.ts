@@ -2,6 +2,7 @@ import { HttpService } from '@nestjs/axios';
 import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { AiAnalysisResponseDto } from './dto/ai-analysis-response.dto';
+import { InsightsResponseDto } from './dto/insight.dto';
 import { trackerrIaHeaders } from 'src/ai/infrastructure/trackerr-ia-request';
 
 @Injectable()
@@ -54,6 +55,45 @@ export class AiService {
 				error?.response?.data?.detail ||
 				error?.message ||
 				'Erro ao conectar ao serviço de simulação';
+			throw new InternalServerErrorException(msg);
+		}
+	}
+
+	/**
+	 * Chama o novo endpoint `/api/insights` do trackerr-ia (TRA-56/133).
+	 *
+	 * O contrato de resposta agora carrega, alem do `title`/`body` legados,
+	 * `evidence[]`, `confidence`, `action`, `rationale` e `sources[]` — o
+	 * server apenas repassa. Legado continua sendo um subconjunto valido.
+	 *
+	 * Usa `TRAKKER_IA_URL` (mesma env ja consumida por hybrid-analysis /
+	 * chat / simulate) e o header compartilhado `x-service-token` montado
+	 * em `trackerrIaHeaders()`.
+	 */
+	async getInsights(
+		userProfile: Record<string, unknown>,
+		dataFreshnessDays?: number
+	): Promise<InsightsResponseDto> {
+		try {
+			const response = await firstValueFrom(
+				this.httpService.post<InsightsResponseDto>(
+					`${this.trackerIaUrl}/api/insights`,
+					{
+						user_profile: userProfile,
+						data_freshness_days: dataFreshnessDays,
+					},
+					{
+						headers: trackerrIaHeaders(),
+						timeout: 30000,
+					}
+				)
+			);
+			return response.data;
+		} catch (error) {
+			const msg =
+				error?.response?.data?.detail ||
+				error?.message ||
+				'Erro ao conectar ao serviço de insights';
 			throw new InternalServerErrorException(msg);
 		}
 	}
