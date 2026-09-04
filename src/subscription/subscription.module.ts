@@ -11,6 +11,7 @@ import { UsersModule } from 'src/users/users.module';
 import Stripe from 'stripe';
 import { USER_PLAN_RESOLVER } from 'src/subscription/application/user-plan.types';
 import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
+import { PlanSyncService } from 'src/subscription/plan-sync/plan-sync.service';
 
 @Module({
 	imports: [
@@ -30,6 +31,7 @@ import { SubscriptionUserPlanResolver } from 'src/subscription/application/subsc
 		SubscriptionService,
 		StripeService,
 		WebhooksService,
+		PlanSyncService,
 		{
 			provide: Stripe,
 			useFactory: () =>
@@ -42,6 +44,7 @@ import { SubscriptionUserPlanResolver } from 'src/subscription/application/subsc
 		SubscriptionService,
 		StripeService,
 		WebhooksService,
+		PlanSyncService,
 		USER_PLAN_RESOLVER,
 	],
 })
