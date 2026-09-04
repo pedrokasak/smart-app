@@ -23,6 +23,10 @@ import {
 } from '@nestjs/swagger';
 import { AiAnalysisResponseDto } from './dto/ai-analysis-response.dto';
 import { AiChatRequestDto } from 'src/ai/dto/ai-chat-request.dto';
+import {
+	InsightsRequestDto,
+	InsightsResponseDto,
+} from './dto/insight.dto';
 import { AiSimulateRequestDto } from 'src/ai/dto/ai-simulate-request.dto';
 import { AiAnalysisRequestDto } from './dto/ai-analysis-request.dto';
 import { FutureSimulatorRequestDto } from './dto/future-simulator-request.dto';
@@ -147,6 +151,32 @@ export class AiController {
 			horizon: body.horizon,
 			monthlyContribution: body.monthlyContribution,
 		});
+	}
+
+	/**
+	 * POST /ai/insights
+	 * Espelha o novo `/api/insights` do trackerr-ia (TRA-56/133). Repassa o
+	 * `user_profile` recebido e devolve o payload de insights com evidencia,
+	 * confianca, acao e fontes. Nao inventa dado — o server so encaminha.
+	 * O `user_id` do JWT sobrescreve qualquer `user_id` do corpo, para
+	 * evitar que o cliente consulte insight de outro usuario.
+	 */
+	@Post('insights')
+	@UseGuards(JwtAuthGuard)
+	@HttpCode(HttpStatus.OK)
+	async insights(
+		@Request() req: any,
+		@Body() body: InsightsRequestDto
+	): Promise<InsightsResponseDto> {
+		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
+		if (!userId) {
+			throw new UnauthorizedException('User ID ausente no token');
+		}
+		const userProfile = {
+			...(body?.user_profile || {}),
+			user_id: userId,
+		};
+		return this.aiService.getInsights(userProfile, body?.data_freshness_days);
 	}
 
 	@Post('chat')
