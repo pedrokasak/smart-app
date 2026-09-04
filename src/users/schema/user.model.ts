@@ -28,6 +28,20 @@ export interface User extends Document {
 			lastDigestSentAt?: Date;
 			updatedAt?: Date;
 		};
+		email?: {
+			dividendReceived?: boolean;
+			allocationBreached?: boolean;
+			aiInsightHigh?: boolean;
+			quoteStale?: boolean;
+			subscriptionExpiring?: boolean;
+		};
+		push?: {
+			dividendReceived?: boolean;
+			allocationBreached?: boolean;
+			aiInsightHigh?: boolean;
+			quoteStale?: boolean;
+			subscriptionExpiring?: boolean;
+		};
 	};
 	createdAt?: Date;
 	updatedAt?: Date;
@@ -135,6 +149,24 @@ const userSchema = new Schema<User>(
 				enabled: { type: Boolean, default: false },
 				lastDigestSentAt: { type: Date, default: null },
 				updatedAt: { type: Date, default: null },
+			},
+			// Preferencias por evento (TRA-38). Defaults conservadores estao em
+			// src/notifications/events/domain/notification.types.ts — o service
+			// aplica esses defaults quando o campo esta ausente aqui, entao o
+			// schema nao precisa repeti-los (evita drift entre codigo e schema).
+			email: {
+				dividendReceived: { type: Boolean, default: undefined },
+				allocationBreached: { type: Boolean, default: undefined },
+				aiInsightHigh: { type: Boolean, default: undefined },
+				quoteStale: { type: Boolean, default: undefined },
+				subscriptionExpiring: { type: Boolean, default: undefined },
+			},
+			push: {
+				dividendReceived: { type: Boolean, default: undefined },
+				allocationBreached: { type: Boolean, default: undefined },
+				aiInsightHigh: { type: Boolean, default: undefined },
+				quoteStale: { type: Boolean, default: undefined },
+				subscriptionExpiring: { type: Boolean, default: undefined },
 			},
 		},
 	},
