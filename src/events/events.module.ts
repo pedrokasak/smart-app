@@ -14,6 +14,8 @@ import {
 import { BullmqEventQueueAdapter } from 'src/events/infrastructure/bullmq/bullmq-event-queue.adapter';
 import { DisabledEventQueueAdapter } from 'src/events/infrastructure/bullmq/disabled-event-queue.adapter';
 import { EventQueueWorker } from 'src/events/infrastructure/bullmq/event-queue.worker';
+import { BullBoardService } from 'src/events/admin/bull-board.service';
+import { BullBoardController } from 'src/events/admin/bull-board.controller';
 
 /**
  * Barramento de eventos de dominio + fila duravel (TRA-136, fases 1 e 2).
@@ -54,6 +56,7 @@ import { EventQueueWorker } from 'src/events/infrastructure/bullmq/event-queue.w
 			ignoreErrors: false,
 		}),
 	],
+	controllers: [BullBoardController],
 	providers: [
 		// --- contrato / barramento (fase 1) ---
 		InProcessEventBus,
@@ -100,6 +103,7 @@ import { EventQueueWorker } from 'src/events/infrastructure/bullmq/event-queue.w
 		},
 		EventQueueDispatcher,
 		EventQueueWorker,
+		BullBoardService,
 	],
 	exports: [EVENT_PUBLISHER, EVENT_SUBSCRIBER, EVENT_QUEUE],
 })
