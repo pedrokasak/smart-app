@@ -11,6 +11,9 @@ import { NOTIFICATION_CHANNELS } from './channels/notification-channel.port';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
 import { PushNotificationChannel } from './channels/push-notification.channel';
 import { NotificationsAdminController } from './admin/notifications-admin.controller';
+import { InAppNotificationsController } from './in-app-notifications.controller';
+import { InAppNotificationsService } from './application/in-app-notifications.service';
+import { InAppNotificationsRepository } from './infrastructure/in-app-notifications.repository';
 
 /**
  * Modulo agnostico de canal. Adicionar um canal:
@@ -36,9 +39,13 @@ import { NotificationsAdminController } from './admin/notifications-admin.contro
 		EmailModule,
 		UsersModule,
 	],
-	controllers: [NotificationsAdminController],
+	controllers: [NotificationsAdminController, InAppNotificationsController],
 	providers: [
 		NotificationsService,
+		// Leitura do centro in-app (TRA-136, fase 4). Separado do
+		// NotificationsService, que e o lado de escrita/disparo.
+		InAppNotificationsService,
+		InAppNotificationsRepository,
 		EmailNotificationChannel,
 		PushNotificationChannel,
 		SubscriptionExpiringScheduler,
@@ -55,6 +62,6 @@ import { NotificationsAdminController } from './admin/notifications-admin.contro
 			inject: [EmailNotificationChannel, PushNotificationChannel],
 		},
 	],
-	exports: [NotificationsService],
+	exports: [NotificationsService, InAppNotificationsService],
 })
 export class NotificationsModule {}
