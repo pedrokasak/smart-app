@@ -27,6 +27,12 @@ export interface Notification extends Document {
 	payload: Record<string, unknown>;
 	dedupeKey?: string;
 	deliveries: NotificationDeliveryRecord[];
+	/**
+	 * Marcada quando o usuario le a notificacao no centro in-app (TRA-136).
+	 * Ausente/null = nao lida. Campo aditivo: docs antigos continuam validos
+	 * e sao tratados como nao lidos.
+	 */
+	readAt?: Date | null;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -75,12 +81,24 @@ const notificationSchema = new Schema<Notification>(
 			type: [deliverySchema],
 			default: [],
 		},
+		readAt: {
+			type: Date,
+			default: null,
+		},
 	},
 	{ timestamps: true }
 );
 
 notificationSchema.index({ user: 1, createdAt: -1 });
 notificationSchema.index({ user: 1, type: 1, dedupeKey: 1, createdAt: -1 });
+/**
+ * Serve as duas consultas do centro in-app (TRA-136) com um indice so:
+ *   - contagem de nao lidas: prefixo (user, readAt) por igualdade
+ *   - listagem com unreadOnly: mesmo prefixo + createdAt para range do
+ *     cursor e ordenacao ja na ordem do indice
+ * A listagem sem filtro continua usando { user: 1, createdAt: -1 }.
+ */
+notificationSchema.index({ user: 1, readAt: 1, createdAt: -1 });
 
 export const NotificationModel = model<Notification>(
 	'Notification',
