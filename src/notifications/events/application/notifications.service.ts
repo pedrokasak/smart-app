@@ -118,9 +118,11 @@ export class NotificationsService {
 				const result = await channel.send(user, input.payload);
 				deliveries.push({
 					channel: channel.name(),
-					status: result.success
-						? NotificationDeliveryStatus.Sent
-						: NotificationDeliveryStatus.Failed,
+					status: !result.success
+						? NotificationDeliveryStatus.Failed
+						: result.deferred
+							? NotificationDeliveryStatus.Deferred
+							: NotificationDeliveryStatus.Sent,
 					error: result.error,
 				});
 			} catch (err) {

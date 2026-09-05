@@ -41,6 +41,16 @@ export interface Notification extends Document {
 	 * exibido exatamente como antes.
 	 */
 	aiSummary?: string | null;
+	/**
+	 * Marcada quando esta notificacao ja foi contabilizada em um resumo push
+	 * diario (TRA-136, fase 6). Aditiva e opcional: ausente/null significa
+	 * "ainda nao entrou em nenhum resumo".
+	 *
+	 * E o que torna o cron diario idempotente. Rodar duas vezes no mesmo dia
+	 * — retry, deploy no meio da execucao, duas instancias — nao reenvia o
+	 * mesmo resumo, porque a segunda passada nao encontra mais candidatos.
+	 */
+	pushDigestedAt?: Date | null;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -97,6 +107,10 @@ const notificationSchema = new Schema<Notification>(
 			type: String,
 			default: null,
 		},
+		pushDigestedAt: {
+			type: Date,
+			default: null,
+		},
 	},
 	{ timestamps: true }
 );
@@ -111,6 +125,15 @@ notificationSchema.index({ user: 1, type: 1, dedupeKey: 1, createdAt: -1 });
  * A listagem sem filtro continua usando { user: 1, createdAt: -1 }.
  */
 notificationSchema.index({ user: 1, readAt: 1, createdAt: -1 });
+
+/**
+ * Consulta do agregador push diario (TRA-136, fase 6): "o que ainda nao
+ * entrou em resumo, desde ontem". `pushDigestedAt` vem primeiro por ser
+ * igualdade (null), `createdAt` depois para o range — e, como o cron marca
+ * tudo que processa, a parte util do indice fica pequena mesmo com a
+ * colecao crescendo.
+ */
+notificationSchema.index({ pushDigestedAt: 1, createdAt: 1 });
 
 export const NotificationModel = model<Notification>(
 	'Notification',

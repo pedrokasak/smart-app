@@ -26,6 +26,16 @@ export enum NotificationDeliveryStatus {
 	Sent = 'sent',
 	Failed = 'failed',
 	Skipped = 'skipped',
+	/**
+	 * O canal aceitou a notificacao mas nao entrega agora (TRA-136, fase 6).
+	 *
+	 * Existe por causa do push, que e DIARIO e AGREGADO: no instante do
+	 * evento o que se decide e "esta notificacao entra no resumo de hoje?",
+	 * nao "mandar agora". Reaproveitar `Sent` ali seria mentir no doc
+	 * auditavel; reaproveitar `Skipped` apagaria a diferenca entre "o
+	 * usuario desligou este aviso" e "vai sair no resumo".
+	 */
+	Deferred = 'deferred',
 }
 
 /**
