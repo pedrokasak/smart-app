@@ -24,7 +24,9 @@ export const ALLOCATION_BUCKETS: readonly AllocationBucket[] = [
  * balde proprio na meta, entao caem em `other` — que e como a tela ja os
  * trata.
  */
-export function toAllocationBucket(assetType?: string | null): AllocationBucket {
+export function toAllocationBucket(
+	assetType?: string | null
+): AllocationBucket {
 	switch (String(assetType || '').toLowerCase()) {
 		case 'stock':
 			return 'stocks';

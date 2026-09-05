@@ -1,9 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { matchesEventPattern } from 'src/events/domain/event-pattern';
-import {
-	EVENT_CONSUMERS,
-	EventConsumer,
-} from './ports/event-consumer.port';
+import { EVENT_CONSUMERS, EventConsumer } from './ports/event-consumer.port';
 
 /**
  * Registro de consumidores da fila (TRA-136, fase 3).

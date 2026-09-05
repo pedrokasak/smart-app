@@ -94,9 +94,7 @@ describe('DividendReceivedProducer', () => {
 	it('nao publica quando a carteira nao tem dono', async () => {
 		portfolioModel.findById = jest.fn(() => chain({}));
 
-		await criar().publishForAsset('asset-1', [
-			{ date: new Date(), value: 1 },
-		]);
+		await criar().publishForAsset('asset-1', [{ date: new Date(), value: 1 }]);
 
 		expect(publisher.publish).not.toHaveBeenCalled();
 	});
