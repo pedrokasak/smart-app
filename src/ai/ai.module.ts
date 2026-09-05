@@ -20,6 +20,7 @@ import { CHAT_NARRATIVE_SYNTHESIZER } from './orchestration/chat-narrative-synth
 import { ChatNarrativeSynthesisService } from './orchestration/chat-narrative-synthesis.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { AiService } from './ai.service';
+import { AiInsightProducer } from './events/ai-insight.producer';
 
 @Module({
 	imports: [
@@ -37,6 +38,7 @@ import { AiService } from './ai.service';
 	controllers: [AiController],
 	providers: [
 		AiService,
+		AiInsightProducer,
 		IntelligentChatService,
 		ChatOrchestratorService,
 		InMemoryChatResponseCacheAdapter,
