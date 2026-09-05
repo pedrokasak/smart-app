@@ -6,6 +6,7 @@ import { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import { Asset } from 'src/assets/schema/assets.model';
 import { CreateAssetDto } from 'src/assets/dto/create-asset.dto';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { DividendReceivedProducer } from 'src/assets/events/dividend-received.producer';
 
 @Injectable()
 export class AssetsService {
@@ -16,7 +17,8 @@ export class AssetsService {
 	constructor(
 		@InjectModel('Asset') private readonly assetModel: Model<Asset>,
 		@Inject(forwardRef(() => PortfolioService))
-		private readonly portfolioModel: Model<Portfolio>
+		private readonly portfolioModel: Model<Portfolio>,
+		private readonly dividendProducer: DividendReceivedProducer
 	) {}
 
 	// Buscar todos os assets
@@ -171,13 +173,36 @@ export class AssetsService {
 			return aDate - bDate;
 		});
 
-		return this.assetModel.findByIdAndUpdate(
+		// Provento "novo" e o que ainda nao estava no historico — a mesma
+		// impressao digital que evita a duplicata no merge decide aqui quem
+		// vira evento. Reimportar o mesmo extrato nao publica nada.
+		const existingFingerprints = new Set(
+			existingHistory.map((entry: any) => toFingerprint(entry))
+		);
+		const addedEntries = Array.from(
+			new Map(
+				newEntries
+					.filter((entry) => !existingFingerprints.has(toFingerprint(entry)))
+					.map((entry) => [toFingerprint(entry), entry] as const)
+			).values()
+		);
+
+		const updated = await this.assetModel.findByIdAndUpdate(
 			assetId,
 			{
 				$set: { dividendHistory: deduped },
 			},
 			{ new: true }
 		);
+
+		// Depois da persistencia e sem `await` no caminho de erro: o produtor
+		// nunca lanca, entao a importacao responde 200 mesmo com o
+		// barramento/Redis fora do ar (TRA-136).
+		if (addedEntries.length > 0) {
+			await this.dividendProducer.publishForAsset(assetId, addedEntries);
+		}
+
+		return updated;
 	}
 
 	// Deletar asset

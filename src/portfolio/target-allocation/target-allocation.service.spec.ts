@@ -3,11 +3,16 @@ import { getModelToken } from '@nestjs/mongoose';
 import { BadRequestException } from '@nestjs/common';
 import { Types } from 'mongoose';
 import { TargetAllocationService } from './target-allocation.service';
+import { AllocationBreachProducer } from './application/allocation-breach.producer';
 
 const mockTargetAllocationModel = {
 	findOne: jest.fn(),
 	findOneAndUpdate: jest.fn(),
 };
+
+// TRA-136: salvar a meta passou a disparar a avaliacao de rompimento. O
+// dublê prova que a rota nao depende do resultado dela.
+const mockBreachProducer = { evaluateForUser: jest.fn() };
 
 describe('TargetAllocationService', () => {
 	let service: TargetAllocationService;
@@ -20,6 +25,10 @@ describe('TargetAllocationService', () => {
 				{
 					provide: getModelToken('PortfolioTargetAllocation'),
 					useValue: mockTargetAllocationModel,
+				},
+				{
+					provide: AllocationBreachProducer,
+					useValue: mockBreachProducer,
 				},
 			],
 		}).compile();

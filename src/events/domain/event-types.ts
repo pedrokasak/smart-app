@@ -70,6 +70,30 @@ export interface AiInsightHighPriorityPayload {
 	insightId?: string;
 }
 
+/**
+ * TODO(TRA-136): SEM PRODUTOR. Nao existe, hoje, sinal confiavel de
+ * "cotacao parada" no servidor.
+ *
+ * O que foi verificado na fase 3:
+ *   - `MarketDataProviderPort`/`TrackerrMarketDataFacade` buscam cotacao sob
+ *     demanda e nao guardam o instante da ultima leitura;
+ *   - `Asset.lastEnrichedAt` e o unico carimbo de tempo de mercado
+ *     persistido, e so e escrito por `PortfolioEnrichService.enrichAsset`,
+ *     que hoje roda quando o ativo entra na carteira — nao ha job periodico
+ *     de refresh de cotacao;
+ *   - a guarda de frescor entregue na TRA-92 vive no front.
+ *
+ * Usar `lastEnrichedAt` como se fosse "ultima cotacao" dispararia o alerta
+ * para todo ativo um dia depois de cadastrado, o que e falso: o dado nao
+ * esta velho, e que nunca houve segunda leitura. Inventar o sinal seria
+ * pior que nao ter o evento.
+ *
+ * Para ligar o produtor e preciso, antes, uma das duas coisas: um job de
+ * refresh de cotacao que grave o instante da leitura por simbolo, ou o
+ * provider expondo `asOf` no snapshot. Qualquer uma das duas fecha o
+ * buraco e o produtor vira poucas linhas — o contrato abaixo ja esta
+ * pronto, e o consumidor de notificacao ja trata este tipo.
+ */
 export interface QuoteStalePayload {
 	symbol: string;
 	minutesSinceLastQuote: number;

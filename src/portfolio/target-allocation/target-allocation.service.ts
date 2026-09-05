@@ -7,6 +7,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { PortfolioTargetAllocation } from './schema/portfolio-target-allocation.model';
 import { UpsertTargetAllocationDto } from './dto/upsert-target-allocation.dto';
+import { AllocationBreachProducer } from './application/allocation-breach.producer';
 
 /**
  * Forma "achatada" (pós `.lean()`) do documento. O tipo `Document` do
@@ -25,7 +26,8 @@ export type TargetAllocationData = {
 export class TargetAllocationService {
 	constructor(
 		@InjectModel('PortfolioTargetAllocation')
-		private readonly targetAllocationModel: Model<PortfolioTargetAllocation>
+		private readonly targetAllocationModel: Model<PortfolioTargetAllocation>,
+		private readonly breachProducer: AllocationBreachProducer
 	) {}
 
 	/**
@@ -78,6 +80,11 @@ export class TargetAllocationService {
 		if (!updated) {
 			throw new NotFoundException('Falha ao salvar meta de alocação.');
 		}
+
+		// TRA-136: salvar a meta é o único momento em que o servidor conhece
+		// meta e composição juntas. O produtor nunca lança, então a rota
+		// responde 200 mesmo com o barramento fora do ar.
+		await this.breachProducer.evaluateForUser(userId, updated);
 
 		return updated;
 	}

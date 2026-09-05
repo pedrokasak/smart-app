@@ -13,7 +13,16 @@ export class PortfolioEnrichService {
 		@InjectModel('Portfolio') private portfolioModel: Model<Portfolio>
 	) {}
 
-	// Enriquece um asset com web scraping
+	/**
+	 * Enriquece um asset com web scraping.
+	 *
+	 * TODO(TRA-136): `lastEnrichedAt`, gravado aqui, e o carimbo de tempo de
+	 * mercado mais proximo que existe hoje — mas ele marca o enriquecimento
+	 * do ativo, nao a ultima cotacao, e nao ha job periodico que o renove.
+	 * Enquanto nao houver um refresh agendado (ou um `asOf` vindo do
+	 * provider), o evento `market.quote.stale` fica sem produtor. Ver a nota
+	 * em `src/events/domain/event-types.ts`.
+	 */
 	async enrichAsset(asset: any) {
 		try {
 			if (asset.type === 'other') return asset;

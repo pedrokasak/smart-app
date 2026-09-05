@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AiService } from './ai.service';
+import { AiInsightProducer } from './events/ai-insight.producer';
 import { HttpService } from '@nestjs/axios';
 import { InternalServerErrorException } from '@nestjs/common';
 import { of, throwError } from 'rxjs';
@@ -17,6 +18,11 @@ describe('AiService', () => {
 			providers: [
 				AiService,
 				{ provide: HttpService, useValue: mockHttpService },
+				// TRA-136: produtor de ai.insight.high_priority.
+				{
+					provide: AiInsightProducer,
+					useValue: { publishHighPriority: jest.fn() },
+				},
 			],
 		}).compile();
 
