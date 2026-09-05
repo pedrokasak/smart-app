@@ -6,6 +6,18 @@ import { InsightsResponseDto } from './dto/insight.dto';
 import { trackerrIaHeaders } from 'src/ai/infrastructure/trackerr-ia-request';
 import { AiInsightProducer } from 'src/ai/events/ai-insight.producer';
 
+/**
+ * Opcoes da chamada a `/api/insights` (TRA-136, fase 5). Aditivo: quem nao
+ * passa nada mantem exatamente o comportamento anterior — publica evento e
+ * usa o timeout de 30s.
+ */
+export type GetInsightsOptions = {
+	/** `false` evita o laco evento -> resumo -> evento. Default: `true`. */
+	publishInsightEvents?: boolean;
+	/** Teto de espera em ms. Default: 30000. */
+	timeoutMs?: number;
+};
+
 @Injectable()
 export class AiService {
 	private readonly trackerIaUrl =
@@ -76,7 +88,8 @@ export class AiService {
 	 */
 	async getInsights(
 		userProfile: Record<string, unknown>,
-		dataFreshnessDays?: number
+		dataFreshnessDays?: number,
+		options?: GetInsightsOptions
 	): Promise<InsightsResponseDto> {
 		try {
 			const response = await firstValueFrom(
@@ -88,17 +101,24 @@ export class AiService {
 					},
 					{
 						headers: trackerrIaHeaders(),
-						timeout: 30000,
+						timeout: options?.timeoutMs ?? 30000,
 					}
 				)
 			);
 			// TRA-136: o insight de alta confianca vira evento de dominio. O
 			// produtor nunca lanca, entao a rota responde normalmente mesmo
 			// com o barramento fora do ar.
-			await this.insightProducer.publishHighPriority(
-				String(userProfile?.user_id ?? ''),
-				response.data?.insights
-			);
+			//
+			// Fase 5 desliga isto ao enriquecer notificacao: a chamada nasce
+			// DENTRO do worker que ja esta tratando um evento, e publicar
+			// `ai.insight.high_priority` dali criaria um laco (evento ->
+			// resumo -> evento). Ver `TrackerrIaNotificationSummaryAdapter`.
+			if (options?.publishInsightEvents !== false) {
+				await this.insightProducer.publishHighPriority(
+					String(userProfile?.user_id ?? ''),
+					response.data?.insights
+				);
+			}
 
 			return response.data;
 		} catch (error) {

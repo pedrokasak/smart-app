@@ -5,6 +5,7 @@ import {
 	DOMAIN_EVENT_TO_NOTIFICATION_TYPE,
 	DOMAIN_EVENT_TYPES,
 	DividendReceivedPayload,
+	PortfolioScoreEvaluatedPayload,
 	QuoteStalePayload,
 	SubscriptionExpiringPayload,
 	isDomainEventType,
@@ -18,6 +19,12 @@ import { NotificationPayload } from '../domain/notification.types';
  * vocabulario do barramento e o das preferencias do usuario ja mora em
  * `DOMAIN_EVENT_TO_NOTIFICATION_TYPE`; aqui so se traduz o corpo.
  *
+ * `metrics` vem do motor de limiares (TRA-136, fase 4) e carrega os
+ * numeros que a DECISAO produziu e o evento cru nao tem — o caso e a queda
+ * de score, em que `previousScore` e `dropPoints` so existem depois de
+ * comparar com a leitura anterior. Continua opcional: os tipos discretos
+ * ignoram o parametro.
+ *
  * Defensiva de proposito. O payload chega de um job serializado no Redis,
  * que pode ter sido gravado por uma versao anterior do produtor. Campo
  * faltando devolve `null` — o consumidor loga e ignora. Lancar mandaria o
@@ -25,7 +32,8 @@ import { NotificationPayload } from '../domain/notification.types';
  * resultado cinco vezes.
  */
 export function toNotificationPayload(
-	event: DomainEvent
+	event: DomainEvent,
+	metrics: Record<string, number> = {}
 ): NotificationPayload | null {
 	if (!isDomainEventType(event.type)) return null;
 
@@ -57,6 +65,28 @@ export function toNotificationPayload(
 				bucket: p.bucket,
 				targetPct: p.targetPct,
 				actualPct: p.actualPct,
+			} as NotificationPayload;
+		}
+
+		case DOMAIN_EVENT_TYPES.PortfolioScoreEvaluated: {
+			const p = payload as unknown as PortfolioScoreEvaluatedPayload;
+			if (!isFiniteNumber(p.score) || !isFiniteNumber(p.maxScore)) return null;
+			// Sem os numeros da decisao nao ha o que contar: "seu score e 62"
+			// nao e noticia; "caiu 14 pontos" e. Falta de `metrics` significa
+			// que o evento chegou aqui sem passar pelo motor, e ai o certo e
+			// nao notificar.
+			if (
+				!isFiniteNumber(metrics.previousScore) ||
+				!isFiniteNumber(metrics.dropPoints)
+			) {
+				return null;
+			}
+			return {
+				type,
+				score: metrics.score ?? p.score,
+				previousScore: metrics.previousScore,
+				dropPoints: metrics.dropPoints,
+				maxScore: p.maxScore,
 			} as NotificationPayload;
 		}
 

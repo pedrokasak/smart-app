@@ -14,6 +14,13 @@ import { buildTemplate } from '../channels/notification-templates';
  *   title  <- template.title
  *   body   <- template.description
  *   action <- { label: template.ctaLabel, route: template.ctaPath }
+ *
+ * TRA-136 fase 5: o resumo da IA entra como um CAMPO A MAIS (`aiSummary`),
+ * nao substituindo `title`/`body`. Sobrescrever o corpo determinista com
+ * texto de LLM trocaria a unica copy auditavel por uma gerada — e o corpo
+ * e onde estao os numeros exatos. O resumo e persistido (nao regeravel a
+ * cada leitura, ao contrario do template) porque a chamada e cara e o
+ * texto precisa ser estavel entre duas aberturas da mesma lista.
  */
 export function toInAppNotificationItem(
 	doc: Notification
@@ -31,6 +38,12 @@ export function toInAppNotificationItem(
 		createdAt: createdAt.toISOString(),
 		readAt: doc.readAt ? new Date(doc.readAt).toISOString() : null,
 	};
+
+	const aiSummary =
+		typeof doc.aiSummary === 'string' ? doc.aiSummary.trim() : '';
+	if (aiSummary) {
+		item.aiSummary = aiSummary;
+	}
 
 	if (template?.ctaLabel && template?.ctaPath) {
 		item.action = { label: template.ctaLabel, route: template.ctaPath };

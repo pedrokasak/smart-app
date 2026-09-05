@@ -31,6 +31,7 @@ import { AdminModule } from './admin/admin.module';
 import { LeadsModule } from './leads/leads.module';
 import { PortfolioDigestModule } from './notifications/portfolio-digest/portfolio-digest.module';
 import { NotificationsModule } from './notifications/events/notifications.module';
+import { PortfolioEvaluationModule } from './portfolio/evaluation/portfolio-evaluation.module';
 import { PrivacyModule } from './privacy/privacy.module';
 import { EventsModule } from './events/events.module';
 
@@ -53,6 +54,7 @@ import { EventsModule } from './events/events.module';
 		BrokerSyncModule,
 		PortfolioModule,
 		TargetAllocationModule,
+		PortfolioEvaluationModule,
 		FiscalModule,
 		AdminModule,
 		LeadsModule,

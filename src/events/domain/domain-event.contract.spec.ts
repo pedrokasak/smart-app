@@ -140,12 +140,14 @@ describe('contrato do envelope DomainEvent', () => {
 });
 
 describe('registro de tipos de evento', () => {
-	it('cobre os cinco eventos de dominio da TRA-136', () => {
-		expect(DOMAIN_EVENT_TYPE_LIST).toHaveLength(5);
+	it('cobre os eventos de dominio da TRA-136', () => {
+		expect(DOMAIN_EVENT_TYPE_LIST).toHaveLength(6);
 		expect(DOMAIN_EVENT_TYPE_LIST).toEqual(
 			expect.arrayContaining([
 				'portfolio.dividend.received',
 				'portfolio.allocation.breached',
+				// Fase 4: leitura crua do score, materia-prima da regra de queda.
+				'portfolio.score.evaluated',
 				'ai.insight.high_priority',
 				'market.quote.stale',
 				'subscription.expiring',

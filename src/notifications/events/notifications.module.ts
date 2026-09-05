@@ -14,6 +14,10 @@ import { NotificationsAdminController } from './admin/notifications-admin.contro
 import { InAppNotificationsController } from './in-app-notifications.controller';
 import { InAppNotificationsService } from './application/in-app-notifications.service';
 import { InAppNotificationsRepository } from './infrastructure/in-app-notifications.repository';
+import { AiModule } from 'src/ai/ai.module';
+import { ThresholdsModule } from 'src/thresholds/thresholds.module';
+import { NOTIFICATION_SUMMARY_PROVIDER } from './application/ports/notification-summary.port';
+import { TrackerrIaNotificationSummaryAdapter } from './infrastructure/trackerr-ia-notification-summary.adapter';
 
 /**
  * Modulo agnostico de canal. Adicionar um canal:
@@ -38,6 +42,13 @@ import { InAppNotificationsRepository } from './infrastructure/in-app-notificati
 		]),
 		EmailModule,
 		UsersModule,
+		// Motor de limiares (TRA-136, fase 4): decide, antes do disparo, se
+		// o evento merece virar notificacao.
+		ThresholdsModule,
+		// Cliente do trackerr-ia ja existente (TRA-133). Importado para
+		// REUSAR `AiService.getInsights` no enriquecimento da fase 5 — este
+		// modulo nao abre um segundo cliente HTTP.
+		AiModule,
 	],
 	controllers: [NotificationsAdminController, InAppNotificationsController],
 	providers: [
@@ -53,6 +64,11 @@ import { InAppNotificationsRepository } from './infrastructure/in-app-notificati
 		// EventConsumerRegistry no bootstrap — o EventsModule (@Global) nao
 		// precisa conhecer este modulo.
 		NotificationEventConsumer,
+		TrackerrIaNotificationSummaryAdapter,
+		{
+			provide: NOTIFICATION_SUMMARY_PROVIDER,
+			useExisting: TrackerrIaNotificationSummaryAdapter,
+		},
 		{
 			provide: NOTIFICATION_CHANNELS,
 			useFactory: (

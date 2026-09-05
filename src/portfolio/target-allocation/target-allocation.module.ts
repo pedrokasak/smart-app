@@ -24,6 +24,6 @@ import { AllocationBreachProducer } from './application/allocation-breach.produc
 	],
 	providers: [TargetAllocationService, AllocationBreachProducer],
 	controllers: [TargetAllocationController],
-	exports: [TargetAllocationService],
+	exports: [TargetAllocationService, AllocationBreachProducer],
 })
 export class TargetAllocationModule {}

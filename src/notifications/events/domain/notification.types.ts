@@ -10,6 +10,7 @@
 export enum NotificationType {
 	DividendReceived = 'dividendReceived',
 	AllocationBreached = 'allocationBreached',
+	PortfolioScoreDropped = 'portfolioScoreDropped',
 	AiInsightHigh = 'aiInsightHigh',
 	QuoteStale = 'quoteStale',
 	SubscriptionExpiring = 'subscriptionExpiring',
@@ -46,6 +47,13 @@ export type NotificationPayload =
 			actualPct: number;
 	  }
 	| {
+			type: NotificationType.PortfolioScoreDropped;
+			score: number;
+			previousScore: number;
+			dropPoints: number;
+			maxScore: number;
+	  }
+	| {
 			type: NotificationType.AiInsightHigh;
 			title: string;
 			summary: string;
@@ -67,10 +75,18 @@ export type NotificationPayload =
  * Defaults por tipo. Criticos (assinatura expirando, insight IA de alta
  * prioridade) vem ligados; ruidosos vem desligados — o usuario pode virar
  * a chave nas preferencias.
+ *
+ * TRA-136 fase 4: `allocationBreached` e `portfolioScoreDropped` passam a
+ * ser moderados pelo motor de limiares (banda, borda e cooldown), que era
+ * exatamente o motivo de estarem desligados. Ligar por padrao ja e seguro,
+ * mas e uma mudanca de comportamento para a base inteira de usuarios e nao
+ * cabe nesta entrega — fica como virada de uma linha, deliberadamente fora
+ * deste PR.
  */
 export const DEFAULT_EMAIL_PREFS: Record<NotificationType, boolean> = {
 	[NotificationType.DividendReceived]: false,
 	[NotificationType.AllocationBreached]: false,
+	[NotificationType.PortfolioScoreDropped]: false,
 	[NotificationType.AiInsightHigh]: true,
 	[NotificationType.QuoteStale]: false,
 	[NotificationType.SubscriptionExpiring]: true,
@@ -79,6 +95,7 @@ export const DEFAULT_EMAIL_PREFS: Record<NotificationType, boolean> = {
 export const DEFAULT_PUSH_PREFS: Record<NotificationType, boolean> = {
 	[NotificationType.DividendReceived]: false,
 	[NotificationType.AllocationBreached]: false,
+	[NotificationType.PortfolioScoreDropped]: false,
 	[NotificationType.AiInsightHigh]: true,
 	[NotificationType.QuoteStale]: false,
 	[NotificationType.SubscriptionExpiring]: true,
