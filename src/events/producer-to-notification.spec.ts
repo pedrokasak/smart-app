@@ -110,7 +110,20 @@ describe('produtor -> barramento -> fila -> notificacao (TRA-136)', () => {
 
 		new NotificationEventConsumer(
 			notifications as unknown as NotificationsService,
-			registry
+			registry,
+			{
+				decide: jest.fn().mockResolvedValue({
+					ruleId: null,
+					scope: '',
+					outcome: 'pass_through',
+					reason: 'evento discreto',
+					shouldNotify: true,
+					nextState: null,
+					evidence: [],
+					metrics: {},
+				}),
+			} as any,
+			{ summarize: jest.fn().mockResolvedValue(null) }
 		).onApplicationBootstrap();
 
 		producer = new DividendReceivedProducer(
