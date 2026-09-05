@@ -4,6 +4,7 @@ import { EventQueueWorker } from './event-queue.worker';
 import { EventQueueConfig, loadEventQueueConfig } from './queue.config';
 import { BullmqEventQueueAdapter } from './bullmq-event-queue.adapter';
 import { EventConsumer } from 'src/events/application/ports/event-consumer.port';
+import { EventConsumerRegistry } from 'src/events/application/event-consumer.registry';
 import { createDomainEvent } from 'src/events/domain/domain-event.factory';
 import { DOMAIN_EVENT_TYPES } from 'src/events/domain/event-types';
 import { DomainEvent } from 'src/events/domain/domain-event';
@@ -37,7 +38,7 @@ describe('EventQueueWorker', () => {
 		new EventQueueWorker(
 			config(),
 			{ sendToDeadLetter: jest.fn() } as unknown as BullmqEventQueueAdapter,
-			consumidores
+			new EventConsumerRegistry(consumidores)
 		);
 
 	beforeEach(() => {
@@ -78,7 +79,7 @@ describe('EventQueueWorker', () => {
 		).resolves.toBeUndefined();
 	});
 
-	it('sem nenhum consumidor registrado (estado da fase 2) o job passa', async () => {
+	it('sem nenhum consumidor registrado o job passa', async () => {
 		const worker = criar();
 		const event = dividendo();
 
