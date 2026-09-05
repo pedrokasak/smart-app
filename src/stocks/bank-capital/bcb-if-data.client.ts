@@ -33,7 +33,7 @@ function buildUrl(prudentialCode: string, anoMes: string): string {
 export async function fetchQuarterValues(
 	prudentialCode: string,
 	anoMes: string,
-	timeoutMs: number = FETCH_TIMEOUT_MS,
+	timeoutMs: number = FETCH_TIMEOUT_MS
 ): Promise<BcbQuarterValues> {
 	const failed: BcbQuarterValues = {
 		ok: false,

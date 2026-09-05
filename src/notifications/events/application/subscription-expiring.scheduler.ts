@@ -50,7 +50,9 @@ export class SubscriptionExpiringScheduler {
 	 */
 	async dispatch(now: Date): Promise<number> {
 		const maxWindow = Math.max(...ALERT_WINDOWS_DAYS);
-		const upperBound = new Date(now.getTime() + maxWindow * 24 * 60 * 60 * 1000);
+		const upperBound = new Date(
+			now.getTime() + maxWindow * 24 * 60 * 60 * 1000
+		);
 
 		const candidates = await this.userSubscriptionModel
 			.find({
@@ -64,7 +66,11 @@ export class SubscriptionExpiringScheduler {
 		let dispatched = 0;
 		for (const sub of candidates) {
 			const days = daysUntil(now, new Date(sub.currentPeriodEnd));
-			if (!ALERT_WINDOWS_DAYS.includes(days as (typeof ALERT_WINDOWS_DAYS)[number])) {
+			if (
+				!ALERT_WINDOWS_DAYS.includes(
+					days as (typeof ALERT_WINDOWS_DAYS)[number]
+				)
+			) {
 				continue;
 			}
 

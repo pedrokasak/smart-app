@@ -27,8 +27,7 @@ export function isAdvancedInstrumentSymbol(
 export function computeSophistication(
 	input: InvestorProfileSignalsInput
 ): SophisticationLevel {
-	const isBeginner =
-		input.distinctAssetCount <= 2 || input.accountAgeDays < 30;
+	const isBeginner = input.distinctAssetCount <= 2 || input.accountAgeDays < 30;
 	if (isBeginner) return 'beginner';
 
 	const turnover = resolveTurnover(
@@ -58,9 +57,7 @@ export function computeRiskTolerance(
 	return 'moderate';
 }
 
-export function computeConfidence(
-	input: InvestorProfileSignalsInput
-): number {
+export function computeConfidence(input: InvestorProfileSignalsInput): number {
 	let confidence = 1.0;
 	if (input.tradesLast12Months < 5) confidence -= 0.3;
 	if (input.accountAgeDays < 30) confidence -= 0.3;

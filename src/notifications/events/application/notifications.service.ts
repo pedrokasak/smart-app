@@ -98,9 +98,7 @@ export class NotificationsService {
 			}
 		}
 
-		const allowedChannels = input.channels
-			? new Set(input.channels)
-			: null;
+		const allowedChannels = input.channels ? new Set(input.channels) : null;
 
 		const deliveries: NotifyResult['deliveries'] = [];
 		for (const channel of this.channels) {
@@ -127,9 +125,7 @@ export class NotificationsService {
 				});
 			} catch (err) {
 				const message = err instanceof Error ? err.message : String(err);
-				this.logger.error(
-					`Canal ${channel.name()} lancou excecao: ${message}`
-				);
+				this.logger.error(`Canal ${channel.name()} lancou excecao: ${message}`);
 				deliveries.push({
 					channel: channel.name(),
 					status: NotificationDeliveryStatus.Failed,
@@ -162,8 +158,7 @@ export class NotificationsService {
 		userId: string | Types.ObjectId,
 		limit = 50
 	): Promise<Notification[]> {
-		const id =
-			typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
+		const id = typeof userId === 'string' ? new Types.ObjectId(userId) : userId;
 		return this.notificationModel
 			.find({ user: id })
 			.sort({ createdAt: -1 })

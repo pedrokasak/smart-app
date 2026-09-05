@@ -19,14 +19,11 @@ describe('EmailNotificationChannel', () => {
 	});
 
 	it('envia email com subject construido do template', async () => {
-		const result = await channel.send(
-			{ email: 'x@y.com' } as any,
-			{
-				type: NotificationType.DividendReceived,
-				symbol: 'PETR4',
-				amount: 100,
-			}
-		);
+		const result = await channel.send({ email: 'x@y.com' } as any, {
+			type: NotificationType.DividendReceived,
+			symbol: 'PETR4',
+			amount: 100,
+		});
 		expect(result.success).toBe(true);
 		expect(sender.send).toHaveBeenCalledWith(
 			expect.objectContaining({

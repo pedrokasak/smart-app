@@ -69,11 +69,10 @@ describe('PortfolioScoreService', () => {
 				position({ symbol: 'VALE3', sector: 'Mineracao', totalValue: 1000 }),
 			]);
 
-			const expected =
-				result.dimensions.reduce(
-					(sum, dimension) => sum + dimension.score * dimension.weight,
-					0
-				);
+			const expected = result.dimensions.reduce(
+				(sum, dimension) => sum + dimension.score * dimension.weight,
+				0
+			);
 
 			expect(result.overall).toBeCloseTo(Number(expected.toFixed(2)), 2);
 			expect(result.status).toBe('ok');
@@ -108,7 +107,11 @@ describe('PortfolioScoreService', () => {
 				position({ symbol: 'PETR4', sector: 'Petroleo', totalValue: 2500 }),
 				position({ symbol: 'ITUB4', sector: 'Bancos', totalValue: 2500 }),
 				position({ symbol: 'VALE3', sector: 'Mineracao', totalValue: 2500 }),
-				position({ symbol: 'WEGE3', sector: 'Bens Industriais', totalValue: 2500 }),
+				position({
+					symbol: 'WEGE3',
+					sector: 'Bens Industriais',
+					totalValue: 2500,
+				}),
 			]);
 
 			expect(diversified.overall).toBeGreaterThan(concentrated.overall!);

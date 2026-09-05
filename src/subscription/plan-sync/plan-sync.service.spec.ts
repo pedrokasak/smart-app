@@ -41,9 +41,7 @@ describe('PlanSyncService', () => {
 				return created;
 			}),
 			updateOne: jest.fn(async (filter, update) => {
-				const target = plans.find(
-					(p) => String(p._id) === String(filter._id)
-				);
+				const target = plans.find((p) => String(p._id) === String(filter._id));
 				if (target) Object.assign(target, update.$set);
 				return { acknowledged: true };
 			}),
@@ -180,9 +178,7 @@ describe('PlanSyncService', () => {
 		userSubs.push({ _id: 'legacy_with_users', count: 3 });
 
 		const report = await service.syncCanonicalPlans({ env });
-		const legacy = report.legacy.find(
-			(l) => l.planId === 'legacy_with_users'
-		);
+		const legacy = report.legacy.find((l) => l.planId === 'legacy_with_users');
 		expect(legacy?.action).toBe('kept-active');
 		expect(legacy?.activeSubscribers).toBe(3);
 		expect(plans.find((p) => p._id === 'legacy_with_users').isActive).toBe(

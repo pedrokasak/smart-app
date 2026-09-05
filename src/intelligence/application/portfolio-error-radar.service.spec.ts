@@ -41,9 +41,7 @@ describe('PortfolioErrorRadarService', () => {
 
 		it('trata null/undefined como carteira vazia', () => {
 			expect(service.detect(null as any).status).toBe('insufficient_data');
-			expect(service.detect(undefined as any).status).toBe(
-				'insufficient_data'
-			);
+			expect(service.detect(undefined as any).status).toBe('insufficient_data');
 		});
 	});
 
@@ -82,7 +80,9 @@ describe('PortfolioErrorRadarService', () => {
 			]);
 
 			expect(
-				result.alerts.some((item) => item.code.startsWith('ASSET_CONCENTRATION'))
+				result.alerts.some((item) =>
+					item.code.startsWith('ASSET_CONCENTRATION')
+				)
 			).toBe(false);
 		});
 	});

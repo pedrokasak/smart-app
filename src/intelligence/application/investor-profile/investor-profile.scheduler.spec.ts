@@ -19,7 +19,11 @@ describe('InvestorProfileScheduler', () => {
 		await scheduler.recalculateDaily();
 
 		expect(investorProfileService.calculateAndPersist).toHaveBeenCalledTimes(2);
-		expect(investorProfileService.calculateAndPersist).toHaveBeenCalledWith('u1');
-		expect(investorProfileService.calculateAndPersist).toHaveBeenCalledWith('u2');
+		expect(investorProfileService.calculateAndPersist).toHaveBeenCalledWith(
+			'u1'
+		);
+		expect(investorProfileService.calculateAndPersist).toHaveBeenCalledWith(
+			'u2'
+		);
 	});
 });

@@ -33,7 +33,10 @@ export type BillingInterval = 'month' | 'year' | 'week' | 'day';
  *   - `free`: plano gratuito, não precisa de product/price no Stripe.
  *   - `contact_sales`: plano custom, tratado fora do checkout self-service.
  */
-export type CanonicalPlanKind = 'stripe_subscription' | 'free' | 'contact_sales';
+export type CanonicalPlanKind =
+	| 'stripe_subscription'
+	| 'free'
+	| 'contact_sales';
 
 export interface CanonicalPlan {
 	/** Chave interna estável. Nunca renomear sem migração explícita. */

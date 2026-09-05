@@ -16,7 +16,7 @@ describe('getBankEntry', () => {
 
 	it('BPAN4 e BPAC11 compartilham codigo prudencial, e isso e esperado', () => {
 		expect(getBankEntry('BPAN4')?.prudentialCode).toBe(
-			getBankEntry('BPAC11')?.prudentialCode,
+			getBankEntry('BPAC11')?.prudentialCode
 		);
 		expect(getBankEntry('BPAN4')?.bankName).toBe('Banco Pan');
 		expect(getBankEntry('BPAC11')?.bankName).toBe('BTG Pactual');

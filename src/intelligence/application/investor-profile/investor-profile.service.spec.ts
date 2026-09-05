@@ -109,7 +109,9 @@ describe('InvestorProfileService', () => {
 		});
 
 		const service = makeService();
-		const result = await service.setOverride('u1', { sophistication: 'experienced' });
+		const result = await service.setOverride('u1', {
+			sophistication: 'experienced',
+		});
 
 		expect(InvestorProfileModel.findOneAndUpdate).toHaveBeenCalledWith(
 			{ userId: 'u1' },
@@ -166,7 +168,9 @@ describe('InvestorProfileService', () => {
 			}); // resultado do setOverride em si
 
 		const service = makeService();
-		const result = await service.setOverride('u1', { sophistication: 'experienced' });
+		const result = await service.setOverride('u1', {
+			sophistication: 'experienced',
+		});
 
 		// calculateAndPersist rodou para estabelecer a linha de base antes do override.
 		expect(InvestorProfileModel.findOneAndUpdate).toHaveBeenCalledTimes(2);
