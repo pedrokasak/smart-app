@@ -23,6 +23,10 @@ const TRANSPORTES_PROIBIDOS = [
 	'@nestjs/event-emitter',
 	'@bull-board/api',
 	'@bull-board/express',
+	// TRA-136, fase 6: o Web Push e mais um transporte. Se `application/`
+	// puder importar `web-push`, trocar o provedor de push deixa de ser
+	// escrever um adaptador e volta a ser refactor de caso de uso.
+	'web-push',
 ];
 
 /** Camadas que devem depender so de portas. */
