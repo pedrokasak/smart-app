@@ -110,7 +110,8 @@ describe('contrato do envelope DomainEvent', () => {
 		});
 
 		it('exige payload presente', () => {
-			const { payload: _descartado, ...semPayload } = valid();
+			const semPayload: Record<string, unknown> = { ...valid() };
+			delete semPayload.payload;
 			expect(validateDomainEvent(semPayload)).toContain(
 				'payload e obrigatorio'
 			);
