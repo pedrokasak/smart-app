@@ -21,6 +21,14 @@ const envSchema = z.object({
 	GOOGLE_CSE_ENGINE_ID: z.string().optional(),
 	BRAPI_SUPPORTED_RANGES: z.string().optional(),
 	DIGEST_TOKEN_SECRET: z.string(),
+	/**
+	 * Web Push / VAPID (TRA-136, fase 6). Opcionais de proposito: sem elas o
+	 * modulo sobe com o push desligado (null object) em vez de derrubar o
+	 * boot. Gerar o par com `npx web-push generate-vapid-keys`.
+	 */
+	VAPID_PUBLIC_KEY: z.string().optional(),
+	VAPID_PRIVATE_KEY: z.string().optional(),
+	VAPID_SUBJECT: z.string().optional(),
 });
 
 const isTestEnvironment = process.env.NODE_ENV === 'test';
@@ -73,3 +81,6 @@ export const googleCseApiKey: string | undefined = env.data.GOOGLE_CSE_API_KEY;
 export const googleCseEngineId: string | undefined =
 	env.data.GOOGLE_CSE_ENGINE_ID;
 export const digestTokenSecret: string = env.data.DIGEST_TOKEN_SECRET;
+export const vapidPublicKey: string | undefined = env.data.VAPID_PUBLIC_KEY;
+export const vapidPrivateKey: string | undefined = env.data.VAPID_PRIVATE_KEY;
+export const vapidSubject: string | undefined = env.data.VAPID_SUBJECT;
