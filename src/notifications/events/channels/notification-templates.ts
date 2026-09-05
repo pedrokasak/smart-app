@@ -72,6 +72,28 @@ export function buildTemplate(
 					1
 				)}% (meta ${payload.targetPct.toFixed(1)}%).`,
 			};
+		case NotificationType.PortfolioScoreDropped:
+			return {
+				subject: `Seu score de diversificacao caiu ${payload.dropPoints.toFixed(0)} pontos`,
+				title: 'Queda no score de diversificacao',
+				hero: 'Sua carteira ficou menos diversificada',
+				description: `O score de diversificacao da sua carteira caiu de ${payload.previousScore.toFixed(
+					0
+				)} para ${payload.score.toFixed(0)} (de ${payload.maxScore.toFixed(
+					0
+				)}), uma queda de ${payload.dropPoints.toFixed(
+					0
+				)} pontos. Vale conferir se a concentracao aumentou em algum ativo ou setor.`,
+				ctaLabel: 'Ver carteira',
+				ctaPath: '/dashboard/carteira',
+				footerNote:
+					'Voce recebe este e-mail porque ativou alertas de queda de score da carteira.',
+				textFallback: `Score de diversificacao: ${payload.score.toFixed(
+					0
+				)} (era ${payload.previousScore.toFixed(
+					0
+				)}), queda de ${payload.dropPoints.toFixed(0)} pontos.`,
+			};
 		case NotificationType.AiInsightHigh:
 			return {
 				subject: `Insight IA: ${payload.title}`,

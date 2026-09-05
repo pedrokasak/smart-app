@@ -31,6 +31,7 @@ export interface User extends Document {
 		email?: {
 			dividendReceived?: boolean;
 			allocationBreached?: boolean;
+			portfolioScoreDropped?: boolean;
 			aiInsightHigh?: boolean;
 			quoteStale?: boolean;
 			subscriptionExpiring?: boolean;
@@ -38,10 +39,21 @@ export interface User extends Document {
 		push?: {
 			dividendReceived?: boolean;
 			allocationBreached?: boolean;
+			portfolioScoreDropped?: boolean;
 			aiInsightHigh?: boolean;
 			quoteStale?: boolean;
 			subscriptionExpiring?: boolean;
 		};
+	};
+	/**
+	 * Politica de limiares por usuario (TRA-136, fase 4). Aditivo e todo
+	 * opcional: quem nunca configurou nada cai nos defaults do sistema
+	 * (`SYSTEM_THRESHOLD_POLICY`), resolvidos em `resolveThresholdPolicy`.
+	 */
+	thresholdPolicy?: {
+		allocationDriftBandPp?: number;
+		scoreDropPoints?: number;
+		cooldownHours?: number;
 	};
 	createdAt?: Date;
 	updatedAt?: Date;
@@ -157,6 +169,7 @@ const userSchema = new Schema<User>(
 			email: {
 				dividendReceived: { type: Boolean, default: undefined },
 				allocationBreached: { type: Boolean, default: undefined },
+				portfolioScoreDropped: { type: Boolean, default: undefined },
 				aiInsightHigh: { type: Boolean, default: undefined },
 				quoteStale: { type: Boolean, default: undefined },
 				subscriptionExpiring: { type: Boolean, default: undefined },
@@ -164,10 +177,20 @@ const userSchema = new Schema<User>(
 			push: {
 				dividendReceived: { type: Boolean, default: undefined },
 				allocationBreached: { type: Boolean, default: undefined },
+				portfolioScoreDropped: { type: Boolean, default: undefined },
 				aiInsightHigh: { type: Boolean, default: undefined },
 				quoteStale: { type: Boolean, default: undefined },
 				subscriptionExpiring: { type: Boolean, default: undefined },
 			},
+		},
+
+		// Override por usuario da politica de limiares (TRA-136, fase 4).
+		// Sem default: ausencia significa "usa o default do sistema", e um
+		// default no schema congelaria o valor no doc do usuario.
+		thresholdPolicy: {
+			allocationDriftBandPp: { type: Number, default: undefined },
+			scoreDropPoints: { type: Number, default: undefined },
+			cooldownHours: { type: Number, default: undefined },
 		},
 	},
 	{

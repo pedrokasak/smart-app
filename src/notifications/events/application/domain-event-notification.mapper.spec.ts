@@ -27,6 +27,7 @@ describe('toNotificationPayload', () => {
 			targetPct: 10,
 			actualPct: 22.5,
 		},
+		[DOMAIN_EVENT_TYPES.PortfolioScoreEvaluated]: { score: 66, maxScore: 100 },
 		[DOMAIN_EVENT_TYPES.AiInsightHighPriority]: {
 			title: 'Concentracao alta',
 			summary: 'Cripto passou de 20% da carteira.',
@@ -47,9 +48,26 @@ describe('toNotificationPayload', () => {
 	 * novo passar sem tradutor. Se alguem adicionar um evento em
 	 * `event-types.ts` e esquecer deste arquivo, este teste quebra.
 	 */
-	it('traduz os cinco tipos declarados no registro de eventos', () => {
+	/**
+	 * `metrics` so existe para os tipos continuos: sao os numeros que a
+	 * decisao do motor de limiares produz (TRA-136, fase 4) e que o evento
+	 * cru nao carrega.
+	 */
+	const metricas: Record<string, Record<string, number>> = {
+		[DOMAIN_EVENT_TYPES.PortfolioScoreEvaluated]: {
+			score: 66,
+			previousScore: 80,
+			dropPoints: 14,
+			maxScore: 100,
+		},
+	};
+
+	it('traduz todos os tipos declarados no registro de eventos', () => {
 		for (const type of DOMAIN_EVENT_TYPE_LIST) {
-			const payload = toNotificationPayload(envelope(type, validos[type]));
+			const payload = toNotificationPayload(
+				envelope(type, validos[type]),
+				metricas[type]
+			);
 			expect(payload).not.toBeNull();
 			expect(payload?.type).toBe(DOMAIN_EVENT_TO_NOTIFICATION_TYPE[type]);
 		}

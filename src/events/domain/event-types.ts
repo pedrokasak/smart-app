@@ -13,6 +13,7 @@ import { NotificationType } from 'src/notifications/events/domain/notification.t
 export const DOMAIN_EVENT_TYPES = {
 	DividendReceived: 'portfolio.dividend.received',
 	AllocationBreached: 'portfolio.allocation.breached',
+	PortfolioScoreEvaluated: 'portfolio.score.evaluated',
 	AiInsightHighPriority: 'ai.insight.high_priority',
 	QuoteStale: 'market.quote.stale',
 	SubscriptionExpiring: 'subscription.expiring',
@@ -40,6 +41,8 @@ export const DOMAIN_EVENT_TO_NOTIFICATION_TYPE: Record<
 > = {
 	[DOMAIN_EVENT_TYPES.DividendReceived]: NotificationType.DividendReceived,
 	[DOMAIN_EVENT_TYPES.AllocationBreached]: NotificationType.AllocationBreached,
+	[DOMAIN_EVENT_TYPES.PortfolioScoreEvaluated]:
+		NotificationType.PortfolioScoreDropped,
 	[DOMAIN_EVENT_TYPES.AiInsightHighPriority]: NotificationType.AiInsightHigh,
 	[DOMAIN_EVENT_TYPES.QuoteStale]: NotificationType.QuoteStale,
 	[DOMAIN_EVENT_TYPES.SubscriptionExpiring]:
@@ -62,6 +65,17 @@ export interface AllocationBreachedPayload {
 	bucket: 'stocks' | 'crypto' | 'fiis' | 'other';
 	targetPct: number;
 	actualPct: number;
+}
+
+/**
+ * Leitura CRUA do score de diversificacao (TRA-136, fase 4). O nome e
+ * `evaluated`, nao `dropped`, de proposito: o produtor publica a medicao,
+ * nao o julgamento. Quem decide se a queda merece aviso e o motor de
+ * limiares — e so ele conhece a leitura anterior.
+ */
+export interface PortfolioScoreEvaluatedPayload {
+	score: number;
+	maxScore: number;
 }
 
 export interface AiInsightHighPriorityPayload {
@@ -108,6 +122,7 @@ export interface SubscriptionExpiringPayload {
 export interface DomainEventPayloadMap {
 	[DOMAIN_EVENT_TYPES.DividendReceived]: DividendReceivedPayload;
 	[DOMAIN_EVENT_TYPES.AllocationBreached]: AllocationBreachedPayload;
+	[DOMAIN_EVENT_TYPES.PortfolioScoreEvaluated]: PortfolioScoreEvaluatedPayload;
 	[DOMAIN_EVENT_TYPES.AiInsightHighPriority]: AiInsightHighPriorityPayload;
 	[DOMAIN_EVENT_TYPES.QuoteStale]: QuoteStalePayload;
 	[DOMAIN_EVENT_TYPES.SubscriptionExpiring]: SubscriptionExpiringPayload;
@@ -117,6 +132,7 @@ export interface DomainEventPayloadMap {
 export const DOMAIN_EVENT_VERSIONS: Record<DomainEventType, number> = {
 	[DOMAIN_EVENT_TYPES.DividendReceived]: 1,
 	[DOMAIN_EVENT_TYPES.AllocationBreached]: 1,
+	[DOMAIN_EVENT_TYPES.PortfolioScoreEvaluated]: 1,
 	[DOMAIN_EVENT_TYPES.AiInsightHighPriority]: 1,
 	[DOMAIN_EVENT_TYPES.QuoteStale]: 1,
 	[DOMAIN_EVENT_TYPES.SubscriptionExpiring]: 1,
