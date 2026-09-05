@@ -4,6 +4,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { AssetsService } from 'src/assets/assets.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { DividendReceivedProducer } from 'src/assets/events/dividend-received.producer';
 import { parseB3Workbook } from './portfolio.controller';
 
 /**
@@ -51,6 +52,12 @@ describeWithRealFile('reimportação do extrato real da B3', () => {
 				AssetsService,
 				{ provide: getModelToken('Asset'), useValue: mockAssetModel },
 				{ provide: PortfolioService, useValue: {} },
+				// TRA-136: publicação de evento é efeito colateral do upsert e
+				// não pode influenciar o merge que este teste prova.
+				{
+					provide: DividendReceivedProducer,
+					useValue: { publishForAsset: jest.fn() },
+				},
 			],
 		}).compile();
 

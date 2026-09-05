@@ -4,13 +4,17 @@ import { firstValueFrom } from 'rxjs';
 import { AiAnalysisResponseDto } from './dto/ai-analysis-response.dto';
 import { InsightsResponseDto } from './dto/insight.dto';
 import { trackerrIaHeaders } from 'src/ai/infrastructure/trackerr-ia-request';
+import { AiInsightProducer } from 'src/ai/events/ai-insight.producer';
 
 @Injectable()
 export class AiService {
 	private readonly trackerIaUrl =
 		process.env.TRAKKER_IA_URL || 'http://localhost:8000';
 
-	constructor(private readonly httpService: HttpService) {}
+	constructor(
+		private readonly httpService: HttpService,
+		private readonly insightProducer: AiInsightProducer
+	) {}
 
 	/**
 	 * Realiza análise híbrida de portfólio enviando os dados para o trakker-ia (FastAPI).
@@ -88,6 +92,14 @@ export class AiService {
 					}
 				)
 			);
+			// TRA-136: o insight de alta confianca vira evento de dominio. O
+			// produtor nunca lanca, entao a rota responde normalmente mesmo
+			// com o barramento fora do ar.
+			await this.insightProducer.publishHighPriority(
+				String(userProfile?.user_id ?? ''),
+				response.data?.insights
+			);
+
 			return response.data;
 		} catch (error) {
 			const msg =

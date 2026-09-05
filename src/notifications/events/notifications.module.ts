@@ -6,6 +6,7 @@ import { UserSubscriptionModel } from 'src/subscription/schema';
 import { NotificationModel } from './schema/notification.model';
 import { NotificationsService } from './application/notifications.service';
 import { SubscriptionExpiringScheduler } from './application/subscription-expiring.scheduler';
+import { NotificationEventConsumer } from './application/notification-event.consumer';
 import { NOTIFICATION_CHANNELS } from './channels/notification-channel.port';
 import { EmailNotificationChannel } from './channels/email-notification.channel';
 import { PushNotificationChannel } from './channels/push-notification.channel';
@@ -41,6 +42,10 @@ import { NotificationsAdminController } from './admin/notifications-admin.contro
 		EmailNotificationChannel,
 		PushNotificationChannel,
 		SubscriptionExpiringScheduler,
+		// Consumidor da fila de eventos (TRA-136, fase 3). Ele se registra no
+		// EventConsumerRegistry no bootstrap — o EventsModule (@Global) nao
+		// precisa conhecer este modulo.
+		NotificationEventConsumer,
 		{
 			provide: NOTIFICATION_CHANNELS,
 			useFactory: (

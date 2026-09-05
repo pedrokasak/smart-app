@@ -4,7 +4,6 @@ import {
 	Logger,
 	OnApplicationBootstrap,
 	OnModuleDestroy,
-	Optional,
 } from '@nestjs/common';
 import { Job, UnrecoverableError, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
@@ -13,11 +12,7 @@ import {
 	assertDomainEvent,
 	InvalidDomainEventError,
 } from 'src/events/domain/domain-event.contract';
-import { matchesEventPattern } from 'src/events/domain/event-pattern';
-import {
-	EVENT_CONSUMERS,
-	EventConsumer,
-} from 'src/events/application/ports/event-consumer.port';
+import { EventConsumerRegistry } from 'src/events/application/event-consumer.registry';
 import {
 	EVENT_QUEUE_CONFIG,
 	EventQueueConfig,
@@ -28,10 +23,10 @@ import { BullmqEventQueueAdapter } from 'src/events/infrastructure/bullmq/bullmq
  * Worker da fila duravel (TRA-136, fase 2).
  *
  * Aqui e onde o trabalho pesado acontece — fora do caminho do request.
- * Resolve os consumidores pelo padrao do evento e executa cada um. O
- * roteamento usa `matchesEventPattern`, do dominio, e nao o do
- * EventEmitter2: a semantica de "quem escuta o que" nao pode mudar quando
- * o transporte mudar.
+ * Resolve os consumidores pelo padrao do evento (via EventConsumerRegistry,
+ * que usa `matchesEventPattern` do dominio) e executa cada um. O roteamento
+ * nao e o do EventEmitter2: a semantica de "quem escuta o que" nao pode
+ * mudar quando o transporte mudar.
  *
  * Politica de falha:
  *   - envelope invalido -> UnrecoverableError (nao adianta repetir), vai
@@ -39,8 +34,8 @@ import { BullmqEventQueueAdapter } from 'src/events/infrastructure/bullmq/bullmq
  *   - consumidor que lanca -> retry com backoff exponencial;
  *   - tentativas esgotadas -> dead-letter, com motivo e contagem.
  *
- * Nenhum consumidor esta registrado ainda: os produtores dos cinco eventos
- * de dominio chegam na fase 3. A maquinaria e provada por teste.
+ * Os consumidores chegam pelo registro, preenchido no bootstrap pelos
+ * modulos de dominio (fase 3). O worker nunca os importa.
  */
 @Injectable()
 export class EventQueueWorker
@@ -53,9 +48,7 @@ export class EventQueueWorker
 	constructor(
 		@Inject(EVENT_QUEUE_CONFIG) private readonly config: EventQueueConfig,
 		private readonly queueAdapter: BullmqEventQueueAdapter,
-		@Optional()
-		@Inject(EVENT_CONSUMERS)
-		private readonly consumers: EventConsumer[] = []
+		private readonly consumers: EventConsumerRegistry
 	) {}
 
 	onApplicationBootstrap(): void {
@@ -98,7 +91,7 @@ export class EventQueueWorker
 			`Worker de eventos ativo em '${this.config.queueName}' ` +
 				`(concorrencia=${this.config.concurrency}, ` +
 				`tentativas=${this.config.attempts}, ` +
-				`consumidores=${this.consumers.length})`
+				`consumidores=${this.consumers.size})`
 		);
 	}
 
@@ -108,9 +101,10 @@ export class EventQueueWorker
 	 */
 	async process(job: Pick<Job, 'id' | 'data'>): Promise<void> {
 		const event = this.parse(job);
-		const alvos = this.consumers.filter((c) =>
-			matchesEventPattern(c.pattern, event.type)
-		);
+		// Consulta no momento do job, nunca no construtor: consumidores de
+		// outros modulos se registram no bootstrap, que pode acontecer depois
+		// deste worker subir.
+		const alvos = this.consumers.forEventType(event.type);
 
 		if (alvos.length === 0) {
 			this.logger.debug(

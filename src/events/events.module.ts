@@ -5,6 +5,7 @@ import { EVENT_SUBSCRIBER } from 'src/events/application/ports/event-subscriber.
 import { EVENT_QUEUE } from 'src/events/application/ports/event-queue.port';
 import { EVENT_CONSUMERS } from 'src/events/application/ports/event-consumer.port';
 import { EventQueueDispatcher } from 'src/events/application/event-queue.dispatcher';
+import { EventConsumerRegistry } from 'src/events/application/event-consumer.registry';
 import { InProcessEventBus } from 'src/events/infrastructure/in-process-event-bus';
 import {
 	EVENT_QUEUE_CONFIG,
@@ -96,15 +97,22 @@ import { BullBoardController } from 'src/events/admin/bull-board.controller';
 			],
 		},
 		{
-			// Consumidores chegam na fase 3 (produtores dos cinco eventos).
-			// A lista vazia deixa a maquinaria completa e testavel desde ja.
+			// Semente vazia: os consumidores da fase 3 moram nos modulos de
+			// dominio (ex.: notificacao) e se registram no bootstrap via
+			// EventConsumerRegistry. O EventsModule nao importa dominio.
 			provide: EVENT_CONSUMERS,
 			useValue: [],
 		},
+		EventConsumerRegistry,
 		EventQueueDispatcher,
 		EventQueueWorker,
 		BullBoardService,
 	],
-	exports: [EVENT_PUBLISHER, EVENT_SUBSCRIBER, EVENT_QUEUE],
+	exports: [
+		EVENT_PUBLISHER,
+		EVENT_SUBSCRIBER,
+		EVENT_QUEUE,
+		EventConsumerRegistry,
+	],
 })
 export class EventsModule {}
