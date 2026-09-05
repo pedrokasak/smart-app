@@ -154,6 +154,54 @@ export class NotificationsService {
 		};
 	}
 
+	/**
+	 * Anexa o resumo do trackerr-ia a uma notificacao JA persistida (TRA-136,
+	 * fase 5).
+	 *
+	 * Metodo separado, e nao um campo em `NotifyInput`, porque o resumo chega
+	 * DEPOIS do disparo: a notificacao determinista sai primeiro e o
+	 * enriquecimento e opcional. Amarrar os dois no mesmo `notify()` faria a
+	 * lentidao da IA atrasar o e-mail.
+	 *
+	 * Nunca lanca e nunca sobrescreve com vazio.
+	 */
+	async attachAiSummary(
+		notificationId: string,
+		summary: string
+	): Promise<void> {
+		const text = summary?.trim();
+		if (!notificationId || !text) return;
+		if (!Types.ObjectId.isValid(notificationId)) return;
+
+		try {
+			await this.notificationModel.updateOne(
+				{ _id: new Types.ObjectId(notificationId) },
+				{ $set: { aiSummary: text } }
+			);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.logger.error(
+				`Falha ao anexar resumo IA na notificacao ${notificationId}: ${message}`
+			);
+		}
+	}
+
+	/**
+	 * Resumo ja gravado, se houver. Usado pelo consumidor para nao repetir a
+	 * chamada cara ao trackerr-ia quando a fila reentrega o mesmo evento.
+	 */
+	async getAiSummary(notificationId: string): Promise<string | null> {
+		if (!notificationId || !Types.ObjectId.isValid(notificationId)) {
+			return null;
+		}
+		const doc = await this.notificationModel
+			.findById(notificationId)
+			.select('aiSummary')
+			.lean<{ aiSummary?: string | null } | null>();
+		const text = doc?.aiSummary?.trim();
+		return text ? text : null;
+	}
+
 	async listForUser(
 		userId: string | Types.ObjectId,
 		limit = 50

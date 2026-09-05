@@ -18,6 +18,14 @@ export type InAppNotificationItem = {
 	createdAt: string;
 	readAt: string | null;
 	action?: InAppNotificationAction;
+	/**
+	 * Resumo do trackerr-ia (TRA-136, fase 5). Campo NOVO e opcional, ao
+	 * lado de `title`/`body` — nunca no lugar deles. O texto determinista
+	 * continua contando o que aconteceu, com os numeros exatos; este e uma
+	 * camada a mais que o front pode renderizar ou ignorar. Ausente quando a
+	 * IA nao respondeu, e ausente do JSON em vez de virar `null`.
+	 */
+	aiSummary?: string;
 };
 
 export type InAppNotificationPage = {

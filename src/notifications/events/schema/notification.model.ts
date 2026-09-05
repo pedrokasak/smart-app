@@ -33,6 +33,14 @@ export interface Notification extends Document {
 	 * e sao tratados como nao lidos.
 	 */
 	readAt?: Date | null;
+	/**
+	 * Resumo em linguagem natural produzido pelo trackerr-ia (TRA-136, fase
+	 * 5). Aditivo e sempre opcional: a copy deterministica de
+	 * `buildTemplate` continua sendo a fonte de `title`/`body`, e um doc sem
+	 * este campo (legado, IA fora do ar, ou tipo que nao enriquece) e
+	 * exibido exatamente como antes.
+	 */
+	aiSummary?: string | null;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -83,6 +91,10 @@ const notificationSchema = new Schema<Notification>(
 		},
 		readAt: {
 			type: Date,
+			default: null,
+		},
+		aiSummary: {
+			type: String,
 			default: null,
 		},
 	},
