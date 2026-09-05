@@ -12,6 +12,7 @@ services:
       - uploads_data:/app/uploads
     depends_on:
       - mongo
+      - redis
 
   mongo:
     image: mongo:latest
@@ -25,6 +26,39 @@ services:
     ports:
       - "27017:27017"
 
+  # Fila duravel de eventos (TRA-136). Sidecar no proprio VPS do Coolify:
+  # aqui o custo e RAM, nao assinatura de servico gerenciado.
+  #
+  # `appendonly yes` porque a fila guarda trabalho ainda nao executado — um
+  # restart do container nao pode apagar notificacao pendente. `everysec`
+  # troca ate 1s de fsync por vazao, aceitavel: o pior caso e reprocessar,
+  # e todo consumidor e idempotente por contrato.
+  #
+  # `maxmemory-policy noeviction` e deliberado: com `allkeys-lru` o Redis
+  # descartaria job silenciosamente sob pressao de memoria. Preferimos que a
+  # escrita falhe alto — o adaptador degrada para 'unavailable' e loga.
+  #
+  # Sem `ports:` de proposito — o Redis so precisa ser alcancavel pela rede
+  # interna do compose. Publicar 6379 no host expoe a fila a internet.
+  redis:
+    image: redis:7-alpine
+    container_name: trakker-redis
+    restart: always
+    command: >
+      redis-server
+      --appendonly yes
+      --appendfsync everysec
+      --maxmemory-policy noeviction
+      --requirepass ${REDIS_PASSWORD}
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "-a", "${REDIS_PASSWORD}", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
 volumes:
   mongodb_data:
   uploads_data:
+  redis_data:
