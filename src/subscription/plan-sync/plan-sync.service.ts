@@ -238,10 +238,7 @@ export class PlanSyncService {
 
 		if (!ctx.dryRun) {
 			$set.updatedAt = new Date();
-			await this.subscriptionModel.updateOne(
-				{ _id: existing._id },
-				{ $set }
-			);
+			await this.subscriptionModel.updateOne({ _id: existing._id }, { $set });
 		}
 
 		return {
@@ -269,14 +266,21 @@ export class PlanSyncService {
 		}
 		const canonicalName = canonical.name.toLowerCase().trim();
 		const byName = existingPlans.find(
-			(p) => String(p.name || '').toLowerCase().trim() === canonicalName
+			(p) =>
+				String(p.name || '')
+					.toLowerCase()
+					.trim() === canonicalName
 		);
 		if (byName) return { plan: byName, reason: 'slug' };
 
 		const aliasSet = new Set(canonical.aliases.map((a) => a.toLowerCase()));
 		aliasSet.add(canonical.slug.toLowerCase());
 		const byAlias = existingPlans.find((p) =>
-			aliasSet.has(String(p.name || '').toLowerCase().trim())
+			aliasSet.has(
+				String(p.name || '')
+					.toLowerCase()
+					.trim()
+			)
 		);
 		if (byAlias) return { plan: byAlias, reason: 'alias' };
 		return undefined;
@@ -331,7 +335,8 @@ export class PlanSyncService {
 				name: plan.name,
 				activeSubscribers: 0,
 				action: 'deactivated',
-				reason: 'Não corresponde a nenhum slug canônico e não tem assinantes ativos.',
+				reason:
+					'Não corresponde a nenhum slug canônico e não tem assinantes ativos.',
 			});
 		}
 		return reports;
@@ -350,9 +355,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 		const ak = Object.keys(a as object);
 		const bk = Object.keys(b as object);
 		if (ak.length !== bk.length) return false;
-		return ak.every((k) =>
-			deepEqual((a as any)[k], (b as any)[k])
-		);
+		return ak.every((k) => deepEqual((a as any)[k], (b as any)[k]));
 	}
 	return false;
 }

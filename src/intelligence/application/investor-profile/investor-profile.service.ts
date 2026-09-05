@@ -28,7 +28,9 @@ export class InvestorProfileService {
 		private readonly portfolioService: PortfolioService
 	) {}
 
-	async calculateAndPersist(userId: string): Promise<InvestorSophisticationProfile> {
+	async calculateAndPersist(
+		userId: string
+	): Promise<InvestorSophisticationProfile> {
 		const signals = await this.collectSignals(userId);
 		const sophistication = computeSophistication(signals);
 		const riskTolerance = computeRiskTolerance(
@@ -54,7 +56,9 @@ export class InvestorProfileService {
 		return this.toEffectiveProfile(doc);
 	}
 
-	async getEffectiveProfile(userId: string): Promise<InvestorSophisticationProfile> {
+	async getEffectiveProfile(
+		userId: string
+	): Promise<InvestorSophisticationProfile> {
 		const doc = await InvestorProfileModel.findOne({ userId });
 		if (!doc) {
 			return this.calculateAndPersist(userId);
@@ -93,11 +97,11 @@ export class InvestorProfileService {
 
 		const finalSophistication =
 			'sophistication' in override
-				? override.sophistication ?? null
+				? (override.sophistication ?? null)
 				: (existing?.overriddenSophistication ?? null);
 		const finalRiskTolerance =
 			'riskTolerance' in override
-				? override.riskTolerance ?? null
+				? (override.riskTolerance ?? null)
 				: (existing?.overriddenRiskTolerance ?? null);
 		update.source =
 			finalSophistication || finalRiskTolerance ? 'user_override' : 'inferred';
@@ -166,7 +170,9 @@ export class InvestorProfileService {
 		}
 
 		const accountAgeDays = user?.createdAt
-			? Math.floor((Date.now() - new Date(user.createdAt).getTime()) / MS_PER_DAY)
+			? Math.floor(
+					(Date.now() - new Date(user.createdAt).getTime()) / MS_PER_DAY
+				)
 			: 0;
 
 		return {

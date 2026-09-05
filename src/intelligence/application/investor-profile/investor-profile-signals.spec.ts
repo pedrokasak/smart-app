@@ -133,7 +133,9 @@ describe('computeConfidence', () => {
 	});
 
 	it('reduz 0.3 por poucas transacoes', () => {
-		expect(computeConfidence({ ...base, tradesLast12Months: 2 })).toBeCloseTo(0.7);
+		expect(computeConfidence({ ...base, tradesLast12Months: 2 })).toBeCloseTo(
+			0.7
+		);
 	});
 
 	it('reduz 0.3 por conta nova, mas o teto de conta nova (<=0.4) prevalece', () => {
@@ -141,7 +143,9 @@ describe('computeConfidence', () => {
 	});
 
 	it('reduz 0.2 por poucos ativos', () => {
-		expect(computeConfidence({ ...base, distinctAssetCount: 1 })).toBeCloseTo(0.8);
+		expect(computeConfidence({ ...base, distinctAssetCount: 1 })).toBeCloseTo(
+			0.8
+		);
 	});
 
 	it('com todos os sinais fracos, reduz por todas as tres condicoes (0.3 + 0.3 + 0.2)', () => {

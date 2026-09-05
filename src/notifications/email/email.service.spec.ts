@@ -73,7 +73,9 @@ describe('EmailService', () => {
 			});
 
 			const call = (sender.send as jest.Mock).mock.calls[0][0];
-			expect(call.html).not.toContain('gerado com o auxílio de inteligência artificial');
+			expect(call.html).not.toContain(
+				'gerado com o auxílio de inteligência artificial'
+			);
 		});
 
 		it('com narrativa: inclui o texto e o aviso de conteúdo gerado por IA', async () => {
@@ -86,8 +88,12 @@ describe('EmailService', () => {
 			});
 
 			const call = (sender.send as jest.Mock).mock.calls[0][0];
-			expect(call.html).toContain('Sua carteira subiu essa semana, puxada por PETR4.');
-			expect(call.html).toContain('gerado com o auxílio de inteligência artificial');
+			expect(call.html).toContain(
+				'Sua carteira subiu essa semana, puxada por PETR4.'
+			);
+			expect(call.html).toContain(
+				'gerado com o auxílio de inteligência artificial'
+			);
 		});
 
 		it('mostra em dash para portfolioValue null, nunca R$ 0,00', async () => {

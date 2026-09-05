@@ -45,12 +45,10 @@ describe('NotificationsService', () => {
 
 	beforeEach(async () => {
 		jest.clearAllMocks();
-		emailSend = jest
-			.fn()
-			.mockResolvedValue({
-				channel: NotificationChannelName.Email,
-				success: true,
-			});
+		emailSend = jest.fn().mockResolvedValue({
+			channel: NotificationChannelName.Email,
+			success: true,
+		});
 		pushSend = jest.fn().mockResolvedValue({
 			channel: NotificationChannelName.Push,
 			success: true,

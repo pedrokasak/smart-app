@@ -96,7 +96,11 @@ describe('produtor -> barramento -> fila -> notificacao (TRA-136)', () => {
 		notifications = {
 			notify: jest.fn(async (input: any) => {
 				const chave = `${String(input.userId)}|${input.dedupeKey}`;
-				if (notificados.some((n) => `${String(n.userId)}|${n.dedupeKey}` === chave)) {
+				if (
+					notificados.some(
+						(n) => `${String(n.userId)}|${n.dedupeKey}` === chave
+					)
+				) {
 					return { dedupedFrom: 'doc-anterior', deliveries: [] };
 				}
 				notificados.push(input);
@@ -111,7 +115,9 @@ describe('produtor -> barramento -> fila -> notificacao (TRA-136)', () => {
 
 		producer = new DividendReceivedProducer(
 			bus,
-			{ findById: jest.fn(() => chain({ symbol: 'PETR4', portfolioId })) } as any,
+			{
+				findById: jest.fn(() => chain({ symbol: 'PETR4', portfolioId })),
+			} as any,
 			{ findById: jest.fn(() => chain({ userId })) } as any
 		);
 	});

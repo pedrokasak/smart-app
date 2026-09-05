@@ -12,7 +12,11 @@ const BANK_ENTRIES: readonly BankEntry[] = [
 	{ symbol: 'BBDC4', bankName: 'Bradesco', prudentialCode: 'C0080075' },
 	{ symbol: 'SANB3', bankName: 'Santander Brasil', prudentialCode: 'C0080185' },
 	{ symbol: 'SANB4', bankName: 'Santander Brasil', prudentialCode: 'C0080185' },
-	{ symbol: 'SANB11', bankName: 'Santander Brasil', prudentialCode: 'C0080185' },
+	{
+		symbol: 'SANB11',
+		bankName: 'Santander Brasil',
+		prudentialCode: 'C0080185',
+	},
 	{ symbol: 'BPAC11', bankName: 'BTG Pactual', prudentialCode: 'C0080336' },
 	{ symbol: 'ABCB4', bankName: 'Banco ABC Brasil', prudentialCode: 'C0080312' },
 	{ symbol: 'BMGB4', bankName: 'Banco BMG', prudentialCode: 'C0080178' },
@@ -21,17 +25,23 @@ const BANK_ENTRIES: readonly BankEntry[] = [
 	{ symbol: 'BRSR5', bankName: 'Banrisul', prudentialCode: 'C0080154' },
 	{ symbol: 'BRSR6', bankName: 'Banrisul', prudentialCode: 'C0080154' },
 	{ symbol: 'PINE4', bankName: 'Banco Pine', prudentialCode: 'C0080374' },
-	{ symbol: 'BAZA3', bankName: 'Banco da Amazônia', prudentialCode: 'C0081249' },
+	{
+		symbol: 'BAZA3',
+		bankName: 'Banco da Amazônia',
+		prudentialCode: 'C0081249',
+	},
 	{ symbol: 'BEES3', bankName: 'Banestes', prudentialCode: 'C0080147' },
 	{ symbol: 'BEES4', bankName: 'Banestes', prudentialCode: 'C0080147' },
 ];
 
 const BANK_MAP = new Map<string, BankEntry>(
-	BANK_ENTRIES.map((entry) => [entry.symbol, entry]),
+	BANK_ENTRIES.map((entry) => [entry.symbol, entry])
 );
 
 export function getBankEntry(symbol: string): BankEntry | null {
-	const normalized = String(symbol || '').trim().toUpperCase();
+	const normalized = String(symbol || '')
+		.trim()
+		.toUpperCase();
 	if (!normalized) return null;
 	return BANK_MAP.get(normalized) ?? null;
 }

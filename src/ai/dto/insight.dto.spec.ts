@@ -1,9 +1,6 @@
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
-import {
-	InsightDto,
-	InsightsResponseDto,
-} from './insight.dto';
+import { InsightDto, InsightsResponseDto } from './insight.dto';
 
 /**
  * Contract test do espelho do `/api/insights` do trackerr-ia (TRA-133).

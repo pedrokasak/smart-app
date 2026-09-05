@@ -1,8 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import {
-	BadRequestException,
-	UnauthorizedException,
-} from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { AuthenticationService } from './authentication.service';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
@@ -91,7 +88,9 @@ describe('AuthenticationService', () => {
 			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
 			mockPasswordSecurityService.needsRehash.mockReturnValue(false);
-			mockPasswordSecurityService.hashPassword.mockResolvedValue('hashed-refresh-token');
+			mockPasswordSecurityService.hashPassword.mockResolvedValue(
+				'hashed-refresh-token'
+			);
 			mockJwtService.sign.mockReturnValue('mocked-token');
 
 			const result = await service.signin({
@@ -263,7 +262,11 @@ describe('AuthenticationService', () => {
 		});
 
 		it('should throw when stored hash does not match', async () => {
-			const mockUser = { id: 'u1', refreshToken: 'hashed-refresh-token', role: 'user' };
+			const mockUser = {
+				id: 'u1',
+				refreshToken: 'hashed-refresh-token',
+				role: 'user',
+			};
 
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
 			(UserModel.findById as jest.Mock).mockResolvedValue(mockUser);

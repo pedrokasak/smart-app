@@ -35,13 +35,13 @@ describe('BankCapitalService', () => {
 			1,
 			'C0080329',
 			'202606',
-			8000,
+			8000
 		);
 		expect(mockFetchQuarterValues).toHaveBeenNthCalledWith(
 			2,
 			'C0080329',
 			'202603',
-			8000,
+			8000
 		);
 		expect(result).toEqual({
 			symbol: 'BBAS3',
@@ -161,10 +161,10 @@ describe('BankCapitalService', () => {
 			mockFetchQuarterValues.mockImplementation(
 				async (_code: string, _anoMes: string, timeoutMs: number) => {
 					jest.setSystemTime(
-						new Date(Date.now() + Math.min(latencyMs, timeoutMs)),
+						new Date(Date.now() + Math.min(latencyMs, timeoutMs))
 					);
 					return { ok: true, basileia: null, imobilizacao: null };
-				},
+				}
 			);
 		}
 
@@ -183,7 +183,7 @@ describe('BankCapitalService', () => {
 				expect(result).toBeNull();
 				expect(mockFetchQuarterValues).toHaveBeenCalledTimes(4);
 				expect(Date.now() - startedAt).toBeLessThanOrEqual(10_000);
-			},
+			}
 		);
 
 		it('mantem o cache de 24h quando as 4 tentativas couberam no orcamento (nao vira transitorio)', async () => {

@@ -52,7 +52,9 @@ export class PortfolioErrorRadarService {
 		private readonly portfolioIntelligenceService: PortfolioIntelligenceService
 	) {}
 
-	detect(positions: PortfolioIntelligencePosition[]): PortfolioErrorRadarOutput {
+	detect(
+		positions: PortfolioIntelligencePosition[]
+	): PortfolioErrorRadarOutput {
 		const safePositions = positions || [];
 
 		if (safePositions.length === 0) {

@@ -248,7 +248,8 @@ export class AuthenticationService {
 			{ expiresIn: expireKeepAliveConectedRefreshToken }
 		);
 
-		user.refreshToken = await this.passwordSecurityService.hashPassword(refreshToken);
+		user.refreshToken =
+			await this.passwordSecurityService.hashPassword(refreshToken);
 		await user.save();
 
 		return {

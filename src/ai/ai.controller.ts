@@ -23,10 +23,7 @@ import {
 } from '@nestjs/swagger';
 import { AiAnalysisResponseDto } from './dto/ai-analysis-response.dto';
 import { AiChatRequestDto } from 'src/ai/dto/ai-chat-request.dto';
-import {
-	InsightsRequestDto,
-	InsightsResponseDto,
-} from './dto/insight.dto';
+import { InsightsRequestDto, InsightsResponseDto } from './dto/insight.dto';
 import { AiSimulateRequestDto } from 'src/ai/dto/ai-simulate-request.dto';
 import { AiAnalysisRequestDto } from './dto/ai-analysis-request.dto';
 import { FutureSimulatorRequestDto } from './dto/future-simulator-request.dto';

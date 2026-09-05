@@ -12,11 +12,7 @@ describe('parseSupportedRanges', () => {
 	});
 
 	it('parses a comma separated list, trimming and lowercasing', () => {
-		expect(parseSupportedRanges(' 1D , 5d ,1mo ')).toEqual([
-			'1d',
-			'5d',
-			'1mo',
-		]);
+		expect(parseSupportedRanges(' 1D , 5d ,1mo ')).toEqual(['1d', '5d', '1mo']);
 	});
 
 	it('drops empty entries from a sloppy list', () => {

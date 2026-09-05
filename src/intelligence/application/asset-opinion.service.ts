@@ -27,7 +27,10 @@ const PILLAR_LABEL: Record<TrackerrScorePillar, string> = {
 export class AssetOpinionService {
 	constructor(private readonly trackerrScoreService: TrackerrScoreService) {}
 
-	async getOpinion(userId: string, symbol: string): Promise<AssetOpinionOutput> {
+	async getOpinion(
+		userId: string,
+		symbol: string
+	): Promise<AssetOpinionOutput> {
 		const score = await this.trackerrScoreService.getScoreForUser(
 			userId,
 			symbol

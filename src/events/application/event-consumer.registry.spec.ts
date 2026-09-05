@@ -40,10 +40,9 @@ describe('EventConsumerRegistry', () => {
 
 		const alvos = registry.forEventType(DOMAIN_EVENT_TYPES.DividendReceived);
 
-		expect(alvos.map((c) => c.name).sort()).toEqual([
-			'portfolio.**',
-			DOMAIN_EVENT_TYPES.DividendReceived,
-		].sort());
+		expect(alvos.map((c) => c.name).sort()).toEqual(
+			['portfolio.**', DOMAIN_EVENT_TYPES.DividendReceived].sort()
+		);
 	});
 
 	/**
