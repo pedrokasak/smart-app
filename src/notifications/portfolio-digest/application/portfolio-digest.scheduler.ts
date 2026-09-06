@@ -7,6 +7,7 @@ import { SubscriptionService } from 'src/subscription/subscription.service';
 import { EmailService } from 'src/notifications/email/email.service';
 import { PortfolioDigestBuilderService } from 'src/notifications/portfolio-digest/application/portfolio-digest-builder.service';
 import { DigestUnsubscribeTokenService } from 'src/notifications/portfolio-digest/application/digest-unsubscribe-token.service';
+import { DigestNotificationsService } from 'src/notifications/portfolio-digest/application/digest-notifications.service';
 import {
 	DIGEST_NARRATOR,
 	DigestNarratorPort,
@@ -35,7 +36,8 @@ export class PortfolioDigestScheduler {
 		@Inject(DIGEST_NARRATOR) private readonly narrator: DigestNarratorPort,
 		private readonly emailService: EmailService,
 		private readonly tokenService: DigestUnsubscribeTokenService,
-		private readonly subscriptionService: SubscriptionService
+		private readonly subscriptionService: SubscriptionService,
+		private readonly digestNotifications: DigestNotificationsService
 	) {}
 
 	@Cron('0 9 * * 1', { timeZone: 'America/Sao_Paulo' })
@@ -76,7 +78,19 @@ export class PortfolioDigestScheduler {
 			}
 
 			const isPaidUser = await this.isPaidUser(userId);
+			/**
+			 * O narrador recebe SO `facts` — os avisos da semana nao entram na
+			 * chamada (TRA-136, fase 7). Sao lidos depois, de proposito: o que
+			 * a IA nao ve, ela nao pode citar errado, e `validateDigestNarrative`
+			 * continua conferindo a narrativa contra exatamente o mesmo
+			 * conjunto de fatos que foi enviado.
+			 */
 			const narrative = isPaidUser ? await this.narrator.narrate(facts) : null;
+
+			const weekNotifications = await this.digestNotifications.collect(
+				userId,
+				facts
+			);
 
 			const unsubscribeToken = this.tokenService.sign(userId);
 			const unsubscribeUrl = `${this.resolveApiBaseUrl()}/notifications/digest/unsubscribe?token=${encodeURIComponent(unsubscribeToken)}`;
@@ -84,6 +98,7 @@ export class PortfolioDigestScheduler {
 			await this.emailService.sendPortfolioDigestEmail(user.email, {
 				facts,
 				narrative,
+				weekNotifications,
 				unsubscribeUrl,
 				firstName: user.firstName,
 			});

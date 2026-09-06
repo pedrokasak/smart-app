@@ -88,4 +88,22 @@ describe('validateDigestNarrative', () => {
 
 		expect(result.valid).toBe(true);
 	});
+
+	/**
+	 * TRA-136 fase 7. A seção "O que avisamos nesta semana" trouxe para o
+	 * e-mail texto que cita tickers — mas NUNCA para o narrador: o
+	 * scheduler chama `narrate(facts)` e os avisos são lidos depois. Este
+	 * teste fixa a consequência: o universo de tickers aceitos continua
+	 * sendo só o de `PortfolioDigestFacts`. Se alguém um dia alimentar o
+	 * narrador com as notificações da semana sem estender os fatos, a
+	 * narrativa é descartada — e não passa como conteúdo não verificado.
+	 */
+	it('rejeita ticker que só apareceria numa notificação da semana', () => {
+		const result = validateDigestNarrative(
+			'Avisamos você sobre BBAS3 durante a semana.',
+			facts()
+		);
+
+		expect(result).toEqual({ valid: false, reason: 'unknown_ticker' });
+	});
 });

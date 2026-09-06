@@ -122,5 +122,111 @@ describe('EmailService', () => {
 			const call = (sender.send as jest.Mock).mock.calls[0][0];
 			expect(call.html).not.toContain('Pontos de atenção');
 		});
+
+		describe('seção "O que avisamos nesta semana" (TRA-136 fase 7)', () => {
+			it('renderiza os avisos da semana no HTML e no texto', async () => {
+				const { service, sender } = buildService();
+
+				await service.sendPortfolioDigestEmail('investidor@example.com', {
+					facts: digestFacts(),
+					narrative: null,
+					weekNotifications: {
+						items: [
+							{
+								type: 'allocation_breached',
+								title: 'Alocacao acima da meta em FIIs',
+								body: 'Sua exposicao em FIIs esta em 40.0%.',
+								occurredAt: '2026-08-12T12:00:00.000Z',
+							},
+						],
+						omitted: 0,
+					},
+					unsubscribeUrl: 'https://trakker.com/unsubscribe?token=abc',
+				});
+
+				const call = (sender.send as jest.Mock).mock.calls[0][0];
+				expect(call.html).toContain('O que avisamos nesta semana');
+				expect(call.html).toContain('Alocacao acima da meta em FIIs');
+				expect(call.text).toContain('O que avisamos nesta semana:');
+				expect(call.text).toContain('- Alocacao acima da meta em FIIs');
+			});
+
+			it('semana vazia: nem título órfão nem lista vazia', async () => {
+				const { service, sender } = buildService();
+
+				await service.sendPortfolioDigestEmail('investidor@example.com', {
+					facts: digestFacts(),
+					narrative: null,
+					weekNotifications: { items: [], omitted: 0 },
+					unsubscribeUrl: 'https://trakker.com/unsubscribe?token=abc',
+				});
+
+				const call = (sender.send as jest.Mock).mock.calls[0][0];
+				expect(call.html).not.toContain('O que avisamos nesta semana');
+				expect(call.text).not.toContain('O que avisamos nesta semana');
+			});
+
+			it('sem o campo, o digest sai exatamente como antes', async () => {
+				const { service, sender } = buildService();
+
+				await service.sendPortfolioDigestEmail('investidor@example.com', {
+					facts: digestFacts(),
+					narrative: null,
+					unsubscribeUrl: 'https://trakker.com/unsubscribe?token=abc',
+				});
+
+				const call = (sender.send as jest.Mock).mock.calls[0][0];
+				expect(call.html).not.toContain('O que avisamos nesta semana');
+			});
+
+			it('diz quantas ficaram de fora quando o teto corta a lista', async () => {
+				const { service, sender } = buildService();
+
+				await service.sendPortfolioDigestEmail('investidor@example.com', {
+					facts: digestFacts(),
+					narrative: null,
+					weekNotifications: {
+						items: [
+							{
+								type: 'dividend_received',
+								title: 'Novo dividendo de PETR4',
+								body: 'Foi creditado R$ 10,00.',
+								occurredAt: '2026-08-12T12:00:00.000Z',
+							},
+						],
+						omitted: 39,
+					},
+					unsubscribeUrl: 'https://trakker.com/unsubscribe?token=abc',
+				});
+
+				const call = (sender.send as jest.Mock).mock.calls[0][0];
+				expect(call.html).toContain('E mais 39 avisos no período');
+			});
+
+			it('escapa HTML vindo de texto livre (payload de insight / aiSummary)', async () => {
+				const { service, sender } = buildService();
+
+				await service.sendPortfolioDigestEmail('investidor@example.com', {
+					facts: digestFacts(),
+					narrative: null,
+					weekNotifications: {
+						items: [
+							{
+								type: 'ai_insight_high',
+								title: '<script>alert(1)</script>',
+								body: 'ok',
+								occurredAt: '2026-08-12T12:00:00.000Z',
+							},
+						],
+						omitted: 0,
+					},
+					unsubscribeUrl: 'https://trakker.com/unsubscribe?token=abc',
+				});
+
+				const call = (sender.send as jest.Mock).mock.calls[0][0];
+				expect(call.html).not.toContain('<script>');
+				expect(call.html).toContain('&lt;script&gt;');
+			});
+		});
 	});
 });
