@@ -26,12 +26,23 @@ import { ResolvedThresholdPolicy } from './threshold.types';
  * 72h tambem cobre o fim de semana: uma condicao que aparece na sexta nao
  * repete no sabado e no domingo, quando o usuario nao tem como agir.
  *
+ * COTACAO PARADA — 1440 minutos (24h). O carimbo de frescor marca a ultima
+ * LEITURA bem-sucedida, nao o ultimo pregao, e a varredura le de 6 em 6
+ * horas — inclusive fim de semana e feriado, quando a fonte devolve o
+ * fechamento anterior e a leitura mesmo assim da certo. Entao a idade so
+ * cresce quando as leituras FALHAM, e 24h significa quatro varreduras
+ * seguidas sem resposta para aquele papel: instabilidade pontual da fonte
+ * nao chega la, fonte que parou de cobrir o simbolo chega. Cortar mais
+ * baixo (6h) transformaria uma janela de manutencao numa notificacao que o
+ * usuario nao tem como acionar.
+ *
  * Tudo ajustavel por env (default do sistema) e por usuario (override).
  */
 export const SYSTEM_THRESHOLD_POLICY: ResolvedThresholdPolicy = {
 	allocationDriftBandPp: 2,
 	scoreDropPoints: 10,
 	cooldownHours: 72,
+	quoteStaleAfterMinutes: 1440,
 };
 
 /** Override parcial do usuario. Campo ausente = usa o default do sistema. */
@@ -47,6 +58,9 @@ const BOUNDS: Record<keyof ResolvedThresholdPolicy, [number, number]> = {
 	// 0 e valido e significa "sem re-arme por cooldown": so a borda de
 	// descida rearma. Teto de 90 dias evita estado preso por engano.
 	cooldownHours: [0, 24 * 90],
+	// Piso de 1h: a varredura le de 6 em 6 horas, entao um corte abaixo
+	// disso marcaria como parado todo simbolo saudavel. Teto de 30 dias.
+	quoteStaleAfterMinutes: [60, 60 * 24 * 30],
 };
 
 /**
@@ -73,6 +87,11 @@ export function resolveThresholdPolicy(
 			override?.cooldownHours,
 			systemDefaults.cooldownHours,
 			'cooldownHours'
+		),
+		quoteStaleAfterMinutes: pick(
+			override?.quoteStaleAfterMinutes,
+			systemDefaults.quoteStaleAfterMinutes,
+			'quoteStaleAfterMinutes'
 		),
 	};
 }

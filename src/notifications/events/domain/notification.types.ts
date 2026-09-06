@@ -73,6 +73,8 @@ export type NotificationPayload =
 			type: NotificationType.QuoteStale;
 			symbol: string;
 			minutesSinceLastQuote: number;
+			/** ISO da ultima leitura bem-sucedida. O template mostra a data. */
+			lastQuoteAt: string;
 	  }
 	| {
 			type: NotificationType.SubscriptionExpiring;

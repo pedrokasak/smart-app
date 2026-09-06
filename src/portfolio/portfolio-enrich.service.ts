@@ -16,12 +16,12 @@ export class PortfolioEnrichService {
 	/**
 	 * Enriquece um asset com web scraping.
 	 *
-	 * TODO(TRA-136): `lastEnrichedAt`, gravado aqui, e o carimbo de tempo de
-	 * mercado mais proximo que existe hoje — mas ele marca o enriquecimento
-	 * do ativo, nao a ultima cotacao, e nao ha job periodico que o renove.
-	 * Enquanto nao houver um refresh agendado (ou um `asOf` vindo do
-	 * provider), o evento `market.quote.stale` fica sem produtor. Ver a nota
-	 * em `src/events/domain/event-types.ts`.
+	 * `lastEnrichedAt`, gravado aqui, marca o ENRIQUECIMENTO do ativo, nao a
+	 * ultima cotacao — e continua assim de proposito. O sinal de frescor de
+	 * cotacao que o `market.quote.stale` usa (TRA-136, fase 7) e outro,
+	 * mora em `src/market-data/quote-staleness/` e e por SIMBOLO, nao por
+	 * posicao: dez usuarios com PETR4 compartilham a mesma leitura. Nao
+	 * confunda os dois carimbos ao ler este metodo.
 	 */
 	async enrichAsset(asset: any) {
 		try {

@@ -54,6 +54,7 @@ export interface User extends Document {
 		allocationDriftBandPp?: number;
 		scoreDropPoints?: number;
 		cooldownHours?: number;
+		quoteStaleAfterMinutes?: number;
 	};
 	createdAt?: Date;
 	updatedAt?: Date;
@@ -191,6 +192,7 @@ const userSchema = new Schema<User>(
 			allocationDriftBandPp: { type: Number, default: undefined },
 			scoreDropPoints: { type: Number, default: undefined },
 			cooldownHours: { type: Number, default: undefined },
+			quoteStaleAfterMinutes: { type: Number, default: undefined },
 		},
 	},
 	{

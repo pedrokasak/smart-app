@@ -36,6 +36,7 @@ describe('resolveThresholdPolicy (TRA-136 fase 4)', () => {
 			allocationDriftBandPp: 2,
 			scoreDropPoints: 10,
 			cooldownHours: 72,
+			quoteStaleAfterMinutes: 1440,
 		});
 	});
 });
