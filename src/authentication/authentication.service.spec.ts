@@ -1,3 +1,4 @@
+import * as crypto from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
@@ -651,6 +652,156 @@ describe('AuthenticationService', () => {
 					confirmPassword: 'Password321@',
 				})
 			).rejects.toThrow(new BadRequestException('As senhas não correspondem'));
+		});
+	});
+
+	// TRA-143: o refresh token deixou de ser hasheado com Argon2 e passou a usar
+	// SHA-256. Os testes abaixo cobrem o novo formato, o caminho de leitura dupla
+	// para sessões legadas e a revogação.
+	describe('refresh token hashing (SHA-256)', () => {
+		const sha256 = (value: string) =>
+			crypto.createHash('sha256').update(value, 'utf8').digest('hex');
+
+		it('stores the SHA-256 digest of the refresh token on signin, without Argon2', async () => {
+			const save = jest.fn().mockResolvedValue(undefined);
+			const mockUser = {
+				id: 'u1',
+				email: 'test@example.com',
+				password: 'stored-hash',
+				role: 'user',
+				twoFactorEnabled: false,
+				refreshToken: null as string | null,
+				save,
+			};
+
+			(UserModel.findOne as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					exec: jest.fn().mockResolvedValue(mockUser),
+				}),
+			});
+			mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
+			mockPasswordSecurityService.needsRehash.mockReturnValue(false);
+			mockJwtService.sign.mockReturnValue('signed.jwt.token');
+
+			const result = await service.signin({
+				email: 'test@example.com',
+				password: 'Password123@',
+				keepConnected: false,
+				token: '',
+			});
+
+			expect(mockUser.refreshToken).toBe(sha256(result.refreshToken));
+			expect(mockUser.refreshToken).toMatch(/^[0-9a-f]{64}$/);
+			// Uma única operação Argon2 por login: a verificação da senha.
+			expect(mockPasswordSecurityService.hashPassword).not.toHaveBeenCalled();
+			expect(save).toHaveBeenCalled();
+		});
+
+		it('refreshes with a token whose digest matches the stored one', async () => {
+			const rawToken = 'valid.refresh.token';
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockResolvedValue({
+				id: 'u1',
+				role: 'user',
+				refreshToken: sha256(rawToken),
+			});
+			mockJwtService.sign.mockReturnValue('new-access-token');
+
+			const result = await service.refreshAccessToken(rawToken);
+
+			expect(result.accessToken).toBe('new-access-token');
+			// Nenhum Argon2 no caminho do refresh quando o formato já é o novo.
+			expect(mockPasswordSecurityService.verifyPassword).not.toHaveBeenCalled();
+		});
+
+		it('rejects a valid JWT that is not the stored token', async () => {
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockResolvedValue({
+				id: 'u1',
+				role: 'user',
+				refreshToken: sha256('the.issued.token'),
+			});
+
+			await expect(
+				service.refreshAccessToken('another.valid.jwt')
+			).rejects.toThrow(UnauthorizedException);
+		});
+
+		it('rejects after signoutAll clears the stored token', async () => {
+			const save = jest.fn().mockResolvedValue(undefined);
+			const rawToken = 'valid.refresh.token';
+			const storedUser = {
+				id: 'u1',
+				role: 'user',
+				refreshToken: sha256(rawToken) as string | null,
+				save,
+			};
+			(UserModel.findById as jest.Mock).mockResolvedValue(storedUser);
+
+			await service.signoutAll('u1');
+
+			expect(storedUser.refreshToken).toBeNull();
+			expect(save).toHaveBeenCalled();
+
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+
+			await expect(service.refreshAccessToken(rawToken)).rejects.toThrow(
+				UnauthorizedException
+			);
+		});
+
+		it('verifies a legacy Argon2 hash through the dual-read path', async () => {
+			const rawToken = 'legacy.refresh.token';
+			const legacyHash =
+				'$argon2id$v=19$m=65536,t=3,p=1$c29tZXNhbHQ$aGFzaGVkdmFsdWVoZXJl';
+
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockResolvedValue({
+				id: 'u1',
+				role: 'user',
+				refreshToken: legacyHash,
+			});
+			mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
+			mockJwtService.sign.mockReturnValue('new-access-token');
+
+			const result = await service.refreshAccessToken(rawToken);
+
+			expect(result.accessToken).toBe('new-access-token');
+			expect(mockPasswordSecurityService.verifyPassword).toHaveBeenCalledWith(
+				rawToken,
+				legacyHash
+			);
+		});
+
+		it('rejects a legacy Argon2 hash that does not match', async () => {
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockResolvedValue({
+				id: 'u1',
+				role: 'user',
+				refreshToken: '$argon2id$v=19$m=65536,t=3,p=1$c29tZXNhbHQ$b3V0cm8',
+			});
+			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
+
+			await expect(service.refreshAccessToken('wrong.token')).rejects.toThrow(
+				UnauthorizedException
+			);
+		});
+
+		it('returns 401 instead of throwing when the stored digest has a different length', async () => {
+			// `crypto.timingSafeEqual` lança com buffers de tamanhos diferentes.
+			// Um valor truncado no banco tem que virar 401, não 500.
+			const rawToken = 'valid.refresh.token';
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockResolvedValue({
+				id: 'u1',
+				role: 'user',
+				refreshToken: sha256(rawToken).slice(0, 32),
+			});
+			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
+
+			await expect(service.refreshAccessToken(rawToken)).rejects.toThrow(
+				UnauthorizedException
+			);
 		});
 	});
 });

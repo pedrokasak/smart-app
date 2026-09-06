@@ -23,6 +23,11 @@ import * as crypto from 'crypto';
 import { EmailService } from 'src/notifications/email/email.service';
 import { authenticator } from 'otplib';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
+import {
+	hashRefreshToken,
+	isRefreshTokenDigest,
+	matchesRefreshTokenDigest,
+} from 'src/authentication/security/refresh-token-hash';
 import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
 import { INITIAL_ADMIN_EMAIL } from 'src/admin/constants/admin.constants';
 import { Role } from 'src/auth/enums/role.enum';
@@ -248,8 +253,11 @@ export class AuthenticationService {
 			{ expiresIn: expireKeepAliveConectedRefreshToken }
 		);
 
-		user.refreshToken =
-			await this.passwordSecurityService.hashPassword(refreshToken);
+		// SHA-256, não Argon2 (TRA-143). Ver `refresh-token-hash.ts`: o token é
+		// um JWT assinado e já validado por `jwtService.verify` antes desta
+		// comparação; o hash serve para revogação/binding, não para resistir a
+		// dicionário. Argon2 aqui custava 64 MiB por login sem ganho.
+		user.refreshToken = hashRefreshToken(refreshToken);
 		await user.save();
 
 		return {
@@ -264,6 +272,31 @@ export class AuthenticationService {
 				role: user.role ?? Role.User,
 			},
 		};
+	}
+
+	/**
+	 * Confere o refresh token recebido contra o valor gravado, aceitando os dois
+	 * formatos durante a transição (TRA-143).
+	 *
+	 * Formato novo: digest SHA-256 hex, comparado em tempo constante.
+	 * Formato legado: hash Argon2/bcrypt de sessões emitidas antes desta
+	 * mudança, verificado pelo caminho antigo. Sessões legadas migram sozinhas
+	 * para SHA-256 no próximo `issueSessionTokens` (todo login regrava o campo),
+	 * então nenhuma sessão em curso é derrubada e nenhuma escrita extra entra no
+	 * caminho quente do refresh.
+	 */
+	private async verifyStoredRefreshToken(
+		refreshToken: string,
+		storedValue: string
+	): Promise<boolean> {
+		if (isRefreshTokenDigest(storedValue)) {
+			return matchesRefreshTokenDigest(refreshToken, storedValue);
+		}
+
+		return this.passwordSecurityService.verifyPassword(
+			refreshToken,
+			storedValue
+		);
 	}
 
 	async signoutAll(userId: string) {
@@ -290,7 +323,7 @@ export class AuthenticationService {
 			if (!user || !user.refreshToken) {
 				throw new Error('Invalid refresh token');
 			}
-			const tokenValid = await this.passwordSecurityService.verifyPassword(
+			const tokenValid = await this.verifyStoredRefreshToken(
 				refreshToken,
 				user.refreshToken
 			);
