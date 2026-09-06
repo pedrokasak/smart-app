@@ -35,6 +35,7 @@ describe('toNotificationPayload', () => {
 		[DOMAIN_EVENT_TYPES.QuoteStale]: {
 			symbol: 'BBAS3',
 			minutesSinceLastQuote: 90,
+			lastQuoteAt: '2026-09-05T10:30:00.000Z',
 		},
 		[DOMAIN_EVENT_TYPES.SubscriptionExpiring]: {
 			planName: 'Pro',
@@ -87,6 +88,42 @@ describe('toNotificationPayload', () => {
 		expect(payload).toMatchObject({
 			type: NotificationType.DividendReceived,
 			receivedAt: '2026-08-01T00:00:00.000Z',
+		});
+	});
+
+	/**
+	 * `lastQuoteAt` entrou no contrato junto com o produtor (fase 7). Um
+	 * envelope antigo, sem o campo, nao pode ser descartado: a idade foi
+	 * medida na publicacao, entao `occurredAt` menos a idade recompoe o
+	 * mesmo carimbo — e o template continua concreto.
+	 */
+	it('deriva lastQuoteAt do envelope quando o payload nao traz', () => {
+		const payload = toNotificationPayload(
+			envelope(DOMAIN_EVENT_TYPES.QuoteStale, {
+				symbol: 'BBAS3',
+				minutesSinceLastQuote: 120,
+			})
+		);
+
+		expect(payload).toMatchObject({
+			type: NotificationType.QuoteStale,
+			symbol: 'BBAS3',
+			minutesSinceLastQuote: 120,
+			lastQuoteAt: '2026-09-05T10:00:00.000Z',
+		});
+	});
+
+	it('lastQuoteAt ilegivel tambem cai na derivacao', () => {
+		const payload = toNotificationPayload(
+			envelope(DOMAIN_EVENT_TYPES.QuoteStale, {
+				symbol: 'BBAS3',
+				minutesSinceLastQuote: 60,
+				lastQuoteAt: 'ontem de manha',
+			})
+		);
+
+		expect(payload).toMatchObject({
+			lastQuoteAt: '2026-09-05T11:00:00.000Z',
 		});
 	});
 

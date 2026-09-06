@@ -236,4 +236,106 @@ describe('NotificationsService', () => {
 		expect(result.deliveries).toHaveLength(0);
 		expect(NotificationModelMock.create).not.toHaveBeenCalled();
 	});
+
+	/**
+	 * TRA-136, fase 7: `allocationBreached` e `portfolioScoreDropped`
+	 * passaram a vir LIGADOS por padrao (o motor de limiares removeu o risco
+	 * de spam que os mantinha desligados).
+	 *
+	 * O que estes testes provam nao e a virada em si — e que ela nao passa
+	 * por cima de ninguem. Campo AUSENTE cai no default novo; `false`
+	 * GRAVADO pelo usuario continua valendo. Os dois casos precisam ser
+	 * distinguiveis, e sao: o schema usa `default: undefined` por evento,
+	 * entao um doc sem a preferencia nao ganha `false` no banco, e
+	 * `userAllows` so consulta o default quando `typeof value !== 'boolean'`.
+	 */
+	describe('virada dos defaults ligados (TRA-136, fase 7)', () => {
+		const LIGADOS_POR_PADRAO = [
+			NotificationType.AllocationBreached,
+			NotificationType.PortfolioScoreDropped,
+		];
+
+		it.each(LIGADOS_POR_PADRAO)(
+			'%s com preferencia AUSENTE usa o default novo (ligado)',
+			(type) => {
+				const user = fakeUser({ notificationPreferences: {} }) as never;
+
+				expect(
+					service.userAllows(user, type, NotificationChannelName.Email)
+				).toBe(true);
+				expect(
+					service.userAllows(user, type, NotificationChannelName.Push)
+				).toBe(true);
+			}
+		);
+
+		it.each(LIGADOS_POR_PADRAO)(
+			'%s com `false` explicito continua desligado apesar do default novo',
+			(type) => {
+				const user = fakeUser({
+					notificationPreferences: {
+						email: { [type]: false },
+						push: { [type]: false },
+					},
+				}) as never;
+
+				expect(
+					service.userAllows(user, type, NotificationChannelName.Email)
+				).toBe(false);
+				expect(
+					service.userAllows(user, type, NotificationChannelName.Push)
+				).toBe(false);
+			}
+		);
+
+		it('o opt-out explicito impede o envio de ponta a ponta', async () => {
+			const user = fakeUser({
+				notificationPreferences: {
+					email: { allocationBreached: false },
+					push: { allocationBreached: false },
+				},
+			});
+			UserModelMock.findById.mockReturnValue({
+				lean: () => Promise.resolve(user),
+			});
+
+			const result = await service.notify({
+				userId: user._id,
+				payload: {
+					type: NotificationType.AllocationBreached,
+					bucket: 'crypto',
+					targetPct: 10,
+					actualPct: 21,
+				},
+			});
+
+			expect(emailSend).not.toHaveBeenCalled();
+			expect(pushSend).not.toHaveBeenCalled();
+			expect(
+				result.deliveries.every(
+					(d) => d.status === NotificationDeliveryStatus.Skipped
+				)
+			).toBe(true);
+		});
+
+		it('quem nunca tocou nas preferencias passa a receber', async () => {
+			const user = fakeUser();
+			UserModelMock.findById.mockReturnValue({
+				lean: () => Promise.resolve(user),
+			});
+
+			await service.notify({
+				userId: user._id,
+				payload: {
+					type: NotificationType.AllocationBreached,
+					bucket: 'crypto',
+					targetPct: 10,
+					actualPct: 21,
+				},
+			});
+
+			expect(emailSend).toHaveBeenCalledTimes(1);
+			expect(pushSend).toHaveBeenCalledTimes(1);
+		});
+	});
 });

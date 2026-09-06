@@ -85,32 +85,28 @@ export interface AiInsightHighPriorityPayload {
 }
 
 /**
- * TODO(TRA-136): SEM PRODUTOR. Nao existe, hoje, sinal confiavel de
- * "cotacao parada" no servidor.
+ * Cotacao parada (TRA-136, fase 7). O TODO que morava aqui dizia que o tipo
+ * nao tinha produtor porque nao havia sinal de frescor confiavel: o provider
+ * buscava sob demanda sem guardar o instante da leitura, e o unico carimbo
+ * persistido (`Asset.lastEnrichedAt`) marca o cadastro do ativo, nao a
+ * cotacao — usa-lo alertaria todo ativo um dia depois de criado.
  *
- * O que foi verificado na fase 3:
- *   - `MarketDataProviderPort`/`TrackerrMarketDataFacade` buscam cotacao sob
- *     demanda e nao guardam o instante da ultima leitura;
- *   - `Asset.lastEnrichedAt` e o unico carimbo de tempo de mercado
- *     persistido, e so e escrito por `PortfolioEnrichService.enrichAsset`,
- *     que hoje roda quando o ativo entra na carteira — nao ha job periodico
- *     de refresh de cotacao;
- *   - a guarda de frescor entregue na TRA-92 vive no front.
+ * Dos dois desbloqueios listados la, foi feito o primeiro (e, de brinde, uma
+ * parte do segundo): existe agora uma varredura periodica que le a cotacao
+ * de todo simbolo em carteira e grava, POR SIMBOLO, o instante da leitura
+ * bem-sucedida — e so dela. Ver `src/market-data/quote-staleness/`.
  *
- * Usar `lastEnrichedAt` como se fosse "ultima cotacao" dispararia o alerta
- * para todo ativo um dia depois de cadastrado, o que e falso: o dado nao
- * esta velho, e que nunca houve segunda leitura. Inventar o sinal seria
- * pior que nao ter o evento.
- *
- * Para ligar o produtor e preciso, antes, uma das duas coisas: um job de
- * refresh de cotacao que grave o instante da leitura por simbolo, ou o
- * provider expondo `asOf` no snapshot. Qualquer uma das duas fecha o
- * buraco e o produtor vira poucas linhas — o contrato abaixo ja esta
- * pronto, e o consumidor de notificacao ja trata este tipo.
+ * `lastQuoteAt` faz parte do contrato porque sem ele nem o motor de limiares
+ * nem o template conseguem ser concretos: e o carimbo que identifica o
+ * episodio de silencio (dois eventos com o mesmo `lastQuoteAt` sao o mesmo
+ * silencio seguindo em frente) e e o que o e-mail mostra ao usuario. Versao
+ * segue 1: nunca houve produtor, entao nao existe payload v1 no mundo.
  */
 export interface QuoteStalePayload {
 	symbol: string;
 	minutesSinceLastQuote: number;
+	/** ISO-8601 da ultima leitura de cotacao bem-sucedida deste simbolo. */
+	lastQuoteAt: string;
 }
 
 export interface SubscriptionExpiringPayload {

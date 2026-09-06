@@ -103,6 +103,7 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 							fallbackSources: Array.from(
 								new Set([...(b3Snapshot.metadata.fallbackSources || []), 'b3'])
 							),
+							asOf: b3Snapshot.metadata.asOf ?? new Date().toISOString(),
 						},
 					};
 				}
@@ -157,6 +158,7 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 					fallbackUsed: true,
 					partial: true,
 					fallbackSources: ['fundamentus'],
+					asOf: new Date().toISOString(),
 				},
 			};
 		} catch (error) {
@@ -198,6 +200,9 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 				fallbackUsed: fallbackSources.length > 0,
 				partial,
 				fallbackSources,
+				// Carimbo da leitura, nao do pregao: e o instante em que a fonte
+				// respondeu. Ver a nota em `market-data-provider.port.ts`.
+				asOf: new Date().toISOString(),
 			},
 		};
 	}

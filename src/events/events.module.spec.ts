@@ -84,7 +84,11 @@ describe('EventsModule (fiacao)', () => {
 			type: DOMAIN_EVENT_TYPES.QuoteStale,
 			subject: 'user-1',
 			producer: 'server.market-data',
-			payload: { symbol: 'VALE3', minutesSinceLastQuote: 90 },
+			payload: {
+				symbol: 'VALE3',
+				minutesSinceLastQuote: 90,
+				lastQuoteAt: '2026-01-02T01:34:05.000Z',
+			},
 		});
 		await publisher.publish(event);
 

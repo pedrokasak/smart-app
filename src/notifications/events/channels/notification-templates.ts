@@ -30,6 +30,15 @@ const fmtDate = (iso: string) => {
 	}).format(d);
 };
 
+/** Duracao legivel a partir de minutos. Sempre a maior unidade cheia. */
+const humanDuration = (minutes: number) => {
+	const total = Math.max(0, Math.round(minutes));
+	if (total < 60) return `${total} minuto(s)`;
+	const hours = Math.floor(total / 60);
+	if (hours < 48) return `${hours} hora(s)`;
+	return `${Math.floor(hours / 24)} dia(s)`;
+};
+
 /**
  * Registro de templates por tipo. Puro: recebe o payload tipado, devolve
  * o template pronto pra qualquer canal. Sem HTML aqui — cada canal decide
@@ -108,18 +117,24 @@ export function buildTemplate(
 					'Voce recebe este e-mail porque ativou avisos de insights IA de alta prioridade.',
 				textFallback: `${payload.title}\n\n${payload.summary}`,
 			};
-		case NotificationType.QuoteStale:
+		case NotificationType.QuoteStale: {
+			// Em minutos, um silencio de tres dias vira "4320 minutos", que
+			// ninguem le. A duracao vai humanizada e acompanhada da data da
+			// ultima leitura — sem ela o aviso nao diz desde quando.
+			const desde = fmtDate(payload.lastQuoteAt);
+			const ha = humanDuration(payload.minutesSinceLastQuote);
 			return {
 				subject: `Cotacao sem atualizacao: ${payload.symbol}`,
-				title: `Cotacao de ${payload.symbol} sumiu`,
+				title: `Cotacao de ${payload.symbol} parou de atualizar`,
 				hero: 'Detectamos atraso na cotacao',
-				description: `A cotacao de ${payload.symbol} nao atualiza ha ${payload.minutesSinceLastQuote} minutos. Isso pode ser instabilidade da fonte de dados.`,
+				description: `A cotacao de ${payload.symbol} nao atualiza ha ${ha} — a ultima leitura bem-sucedida foi em ${desde}. Costuma ser instabilidade da fonte de dados; ate normalizar, o valor deste ativo na carteira pode estar defasado.`,
 				ctaLabel: 'Ver carteira',
 				ctaPath: '/dashboard/carteira',
 				footerNote:
 					'Voce recebe este e-mail porque ativou alertas de cotacao ausente.',
-				textFallback: `Cotacao ${payload.symbol} sem atualizacao ha ${payload.minutesSinceLastQuote} min.`,
+				textFallback: `Cotacao ${payload.symbol} sem atualizacao ha ${ha} (ultima leitura em ${desde}).`,
 			};
+		}
 		case NotificationType.SubscriptionExpiring:
 			return {
 				subject: `Sua assinatura ${payload.planName} expira em ${payload.daysUntilExpiration} dia(s)`,

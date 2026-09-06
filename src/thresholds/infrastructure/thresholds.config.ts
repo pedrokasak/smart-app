@@ -17,6 +17,7 @@ const schema = z.object({
 	THRESHOLDS_ALLOCATION_BAND_PP: z.coerce.number().positive().optional(),
 	THRESHOLDS_SCORE_DROP_POINTS: z.coerce.number().positive().optional(),
 	THRESHOLDS_COOLDOWN_HOURS: z.coerce.number().min(0).optional(),
+	THRESHOLDS_QUOTE_STALE_AFTER_MINUTES: z.coerce.number().positive().optional(),
 });
 
 export function loadSystemThresholdPolicy(
@@ -29,6 +30,7 @@ export function loadSystemThresholdPolicy(
 		allocationDriftBandPp: values.THRESHOLDS_ALLOCATION_BAND_PP,
 		scoreDropPoints: values.THRESHOLDS_SCORE_DROP_POINTS,
 		cooldownHours: values.THRESHOLDS_COOLDOWN_HOURS,
+		quoteStaleAfterMinutes: values.THRESHOLDS_QUOTE_STALE_AFTER_MINUTES,
 	};
 
 	return {
@@ -39,5 +41,8 @@ export function loadSystemThresholdPolicy(
 			override.scoreDropPoints ?? SYSTEM_THRESHOLD_POLICY.scoreDropPoints,
 		cooldownHours:
 			override.cooldownHours ?? SYSTEM_THRESHOLD_POLICY.cooldownHours,
+		quoteStaleAfterMinutes:
+			override.quoteStaleAfterMinutes ??
+			SYSTEM_THRESHOLD_POLICY.quoteStaleAfterMinutes,
 	};
 }

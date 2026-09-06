@@ -18,6 +18,7 @@
 export const THRESHOLD_RULE_IDS = {
 	AllocationDrift: 'allocation.drift',
 	PortfolioScoreDrop: 'portfolio.score.drop',
+	QuoteStale: 'quote.stale',
 } as const;
 
 export type ThresholdRuleId =
@@ -112,6 +113,11 @@ export interface ResolvedThresholdPolicy {
 	scoreDropPoints: number;
 	/** Re-arme por tempo para condicao que fica de pe, em horas. */
 	cooldownHours: number;
+	/**
+	 * Idade da ultima leitura de cotacao, em minutos, a partir da qual o
+	 * simbolo conta como parado.
+	 */
+	quoteStaleAfterMinutes: number;
 }
 
 /**

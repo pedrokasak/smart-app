@@ -159,10 +159,6 @@ describe('ThresholdEngineService (TRA-136 fase 4)', () => {
 			DOMAIN_EVENT_TYPES.SubscriptionExpiring,
 			{ planName: 'Pro', expiresAt: T0.toISOString(), daysUntilExpiration: 3 },
 		],
-		[
-			DOMAIN_EVENT_TYPES.QuoteStale,
-			{ symbol: 'PETR4', minutesSinceLastQuote: 90 },
-		],
 		[DOMAIN_EVENT_TYPES.AiInsightHighPriority, { title: 'x', summary: 'y' }],
 	])('%s e discreto e passa direto, sem estado', async (type, payload) => {
 		const d = await engine.decide(

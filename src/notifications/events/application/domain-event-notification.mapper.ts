@@ -111,10 +111,22 @@ export function toNotificationPayload(
 			) {
 				return null;
 			}
+			// `lastQuoteAt` entrou no contrato junto com o produtor (fase 7).
+			// Ausente ou ilegivel, deriva-se do proprio envelope: a idade foi
+			// medida no instante da publicacao, entao `occurredAt` menos a
+			// idade e o mesmo carimbo. Isso mantem o template concreto em vez
+			// de descartar a notificacao por um campo derivavel.
+			const lastQuoteAt = isValidIso(p.lastQuoteAt)
+				? p.lastQuoteAt
+				: new Date(
+						new Date(event.occurredAt).getTime() -
+							p.minutesSinceLastQuote * 60_000
+					).toISOString();
 			return {
 				type,
 				symbol: p.symbol,
 				minutesSinceLastQuote: p.minutesSinceLastQuote,
+				lastQuoteAt,
 			} as NotificationPayload;
 		}
 
@@ -142,6 +154,11 @@ export function toNotificationPayload(
 
 function isNonEmptyString(value: unknown): value is string {
 	return typeof value === 'string' && value.trim().length > 0;
+}
+
+function isValidIso(value: unknown): value is string {
+	if (!isNonEmptyString(value)) return false;
+	return Number.isFinite(new Date(value).getTime());
 }
 
 function isFiniteNumber(value: unknown): value is number {

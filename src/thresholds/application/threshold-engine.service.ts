@@ -3,10 +3,12 @@ import { DomainEvent } from 'src/events/domain/domain-event';
 import {
 	AllocationBreachedPayload,
 	PortfolioScoreEvaluatedPayload,
+	QuoteStalePayload,
 	isDomainEventType,
 } from 'src/events/domain/event-types';
 import { AllocationDriftRule } from 'src/thresholds/domain/rules/allocation-drift.rule';
 import { PortfolioScoreDropRule } from 'src/thresholds/domain/rules/portfolio-score-drop.rule';
+import { QuoteStaleRule } from 'src/thresholds/domain/rules/quote-stale.rule';
 import { resolveThresholdPolicy } from 'src/thresholds/domain/threshold-policy';
 import { THRESHOLD_ROUTING } from 'src/thresholds/domain/threshold-routing';
 import {
@@ -45,6 +47,7 @@ export class ThresholdEngineService {
 
 	private readonly allocationRule = new AllocationDriftRule();
 	private readonly scoreRule = new PortfolioScoreDropRule();
+	private readonly quoteStaleRule = new QuoteStaleRule();
 
 	constructor(
 		@Inject(THRESHOLD_STATE_STORE)
@@ -122,6 +125,19 @@ export class ThresholdEngineService {
 				key(userId, ruleId, this.allocationRule.scopeOf(input))
 			);
 			return this.allocationRule.evaluate(input, previous, policy, now);
+		}
+
+		if (ruleId === THRESHOLD_RULE_IDS.QuoteStale) {
+			const payload = (event.payload ?? {}) as QuoteStalePayload;
+			const input = {
+				symbol: String(payload.symbol ?? ''),
+				minutesSinceLastQuote: Number(payload.minutesSinceLastQuote),
+				lastQuoteAtMs: new Date(payload.lastQuoteAt ?? '').getTime(),
+			};
+			const previous = await this.stateStore.load(
+				key(userId, ruleId, this.quoteStaleRule.scopeOf(input))
+			);
+			return this.quoteStaleRule.evaluate(input, previous, policy, now);
 		}
 
 		const payload = (event.payload ?? {}) as PortfolioScoreEvaluatedPayload;

@@ -28,6 +28,23 @@ export interface MarketAssetSnapshot {
 		fallbackUsed: boolean;
 		partial: boolean;
 		fallbackSources: string[];
+		/**
+		 * ISO-8601 do instante em que ESTA leitura foi obtida com sucesso
+		 * (TRA-136, fase 7).
+		 *
+		 * Existe porque o provider busca sob demanda e nao guardava nenhum
+		 * carimbo: quem recebia um snapshot nao tinha como saber se ele veio
+		 * agora ou de um cache de horas atras. Sem isso, o unico timestamp de
+		 * mercado persistido no sistema era `Asset.lastEnrichedAt`, que marca
+		 * o cadastro do ativo e nao a cotacao — usa-lo como "ultima cotacao"
+		 * alertaria todo ativo um dia depois de criado.
+		 *
+		 * Opcional no tipo, e nao obrigatorio, para nao quebrar as
+		 * construcoes de snapshot que ja existem (comparacao, radar de
+		 * oportunidade). O facade preenche em todo caminho de retorno; quem
+		 * consome como sinal de frescor trata a ausencia como "sem leitura".
+		 */
+		asOf?: string;
 	};
 }
 

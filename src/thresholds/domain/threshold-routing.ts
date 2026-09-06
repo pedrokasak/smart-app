@@ -14,9 +14,8 @@ import { THRESHOLD_RULE_IDS, ThresholdRuleId } from './threshold.types';
  * typecheck ate alguem escrever se ele e continuo (tem regra) ou discreto
  * (passa direto).
  *
- * DISCRETOS. Provento recebido, assinatura expirando, cotacao parada e
- * insight de alta prioridade sao FATOS PONTUAIS, nao condicoes que ficam de
- * pe. Nao existe "borda de subida" de um dividendo: ele aconteceu uma vez.
+ * DISCRETOS. Provento recebido, assinatura expirando e insight de alta
+ * prioridade sao FATOS PONTUAIS, nao condicoes que ficam de pe. Nao existe "borda de subida" de um dividendo: ele aconteceu uma vez.
  * Aplicar banda ou cooldown neles seria engolir notificacao legitima — dois
  * proventos do mesmo papel no mesmo mes sao dois avisos. A protecao contra
  * repeticao deles ja existe e e outra: o `event.id` deterministico do
@@ -43,9 +42,15 @@ export const THRESHOLD_ROUTING: Record<DomainEventType, ThresholdRouting> = {
 		kind: 'discrete',
 		why: 'o cron ja emite so nas janelas de 7/3/1 dia, com id deterministico',
 	},
+	// TRA-136, fase 7: SAIU de discreto. Estava aqui como "sem produtor
+	// hoje; quando existir, a janela e do proprio produtor" — e, com o
+	// produtor escrito, a segunda metade da frase se mostrou errada. Cotacao
+	// parada nao e fato pontual: e condicao que fica de pe, e a fonte que
+	// parou hoje continua parada amanha. Discreta, uma semana de
+	// instabilidade viraria sete e-mails identicos. Ver `quote-stale.rule.ts`.
 	[DOMAIN_EVENT_TYPES.QuoteStale]: {
-		kind: 'discrete',
-		why: 'sem produtor hoje; quando existir, a janela e do proprio produtor',
+		kind: 'rule',
+		ruleId: THRESHOLD_RULE_IDS.QuoteStale,
 	},
 	[DOMAIN_EVENT_TYPES.AiInsightHighPriority]: {
 		kind: 'discrete',

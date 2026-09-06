@@ -57,7 +57,11 @@ describe('contrato do envelope DomainEvent', () => {
 			type: DOMAIN_EVENT_TYPES.QuoteStale,
 			subject: 'u1',
 			producer: 'server.market-data',
-			payload: { symbol: 'VALE3', minutesSinceLastQuote: 90 },
+			payload: {
+				symbol: 'VALE3',
+				minutesSinceLastQuote: 90,
+				lastQuoteAt: '2026-01-02T01:34:05.000Z',
+			},
 			occurredAt: ocorrido,
 		});
 		expect(event.occurredAt).toBe('2026-01-02T03:04:05.000Z');

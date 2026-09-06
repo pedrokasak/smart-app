@@ -8,7 +8,7 @@ import { UserThresholdPolicyOverride } from 'src/thresholds/domain/threshold-pol
 /**
  * Le o override de politica do proprio documento do usuario
  * (`User.thresholdPolicy`, campo aditivo). Uma colecao separada so para
- * tres numeros opcionais nao se paga: a politica e lida uma vez por
+ * um punhado de numeros opcionais nao se paga: a politica e lida uma vez por
  * avaliacao e o doc do usuario ja esta indexado por `_id`.
  *
  * `null` quando nao ha override — a resolucao aplica os defaults do
@@ -37,6 +37,7 @@ export class MongoThresholdPolicyRepository implements ThresholdPolicyStore {
 			allocationDriftBandPp: numberOrUndefined(policy.allocationDriftBandPp),
 			scoreDropPoints: numberOrUndefined(policy.scoreDropPoints),
 			cooldownHours: numberOrUndefined(policy.cooldownHours),
+			quoteStaleAfterMinutes: numberOrUndefined(policy.quoteStaleAfterMinutes),
 		};
 	}
 }
