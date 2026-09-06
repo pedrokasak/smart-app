@@ -86,17 +86,26 @@ export type NotificationPayload =
  * prioridade) vem ligados; ruidosos vem desligados — o usuario pode virar
  * a chave nas preferencias.
  *
- * TRA-136 fase 4: `allocationBreached` e `portfolioScoreDropped` passam a
- * ser moderados pelo motor de limiares (banda, borda e cooldown), que era
- * exatamente o motivo de estarem desligados. Ligar por padrao ja e seguro,
- * mas e uma mudanca de comportamento para a base inteira de usuarios e nao
- * cabe nesta entrega — fica como virada de uma linha, deliberadamente fora
- * deste PR.
+ * TRA-136 fase 7: `allocationBreached` e `portfolioScoreDropped` VIRAM
+ * para `true`. Estavam desligados porque, sem motor de limiares, uma
+ * carteira 0,4pp fora da meta viraria e-mail — e viraria de novo todo dia,
+ * porque a condicao continua verdadeira. O motor entregue na fase 4 (banda
+ * de tolerancia, borda de subida, histerese e cooldown de 72h) removeu
+ * exatamente esse risco: uma condicao de pe rende, no maximo, um aviso a
+ * cada 72h.
+ *
+ * A virada NAO reativa quem optou por sair. Estes valores so sao
+ * consultados quando o campo esta AUSENTE no doc do usuario: o schema usa
+ * `default: undefined` por evento (ver `user.model.ts`) e
+ * `NotificationsService.userAllows` testa `typeof value === 'boolean'`
+ * antes de cair aqui. Um `false` gravado pelo usuario e um valor presente,
+ * e continua ganhando do default. Coberto por teste em
+ * `notifications.service.spec.ts`.
  */
 export const DEFAULT_EMAIL_PREFS: Record<NotificationType, boolean> = {
 	[NotificationType.DividendReceived]: false,
-	[NotificationType.AllocationBreached]: false,
-	[NotificationType.PortfolioScoreDropped]: false,
+	[NotificationType.AllocationBreached]: true,
+	[NotificationType.PortfolioScoreDropped]: true,
 	[NotificationType.AiInsightHigh]: true,
 	[NotificationType.QuoteStale]: false,
 	[NotificationType.SubscriptionExpiring]: true,
@@ -104,8 +113,8 @@ export const DEFAULT_EMAIL_PREFS: Record<NotificationType, boolean> = {
 
 export const DEFAULT_PUSH_PREFS: Record<NotificationType, boolean> = {
 	[NotificationType.DividendReceived]: false,
-	[NotificationType.AllocationBreached]: false,
-	[NotificationType.PortfolioScoreDropped]: false,
+	[NotificationType.AllocationBreached]: true,
+	[NotificationType.PortfolioScoreDropped]: true,
 	[NotificationType.AiInsightHigh]: true,
 	[NotificationType.QuoteStale]: false,
 	[NotificationType.SubscriptionExpiring]: true,
