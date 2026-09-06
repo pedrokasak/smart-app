@@ -20,6 +20,8 @@
 		"test:debug": "node --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/.bin/jest --runInBand",
 		"test:e2e": "jest --config ./test/jest-e2e.json",
 		"type-check": "tsc --noEmit",
+		"load:seed": "node test/load/seed/seed-load-users.mjs",
+		"load:queue-burst": "node test/load/queue/burst.mjs",
 		"sync:plans": "tsx src/scripts/sync-plans.ts",
 		"sync:plans:dry": "tsx src/scripts/sync-plans.ts --dry-run"
 	},
