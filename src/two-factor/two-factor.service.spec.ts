@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { authenticator } from 'otplib';
 import { TwoFactorService } from './two-factor.service';
 import { AuthenticationService } from 'src/authentication/authentication.service';
+import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { EmailService } from 'src/notifications/email/email.service';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
@@ -76,6 +77,15 @@ describe('TwoFactorService', () => {
 				{
 					provide: PasswordSecurityService,
 					useValue: mockPasswordSecurityService,
+				},
+				// O AuthenticationService real e usado aqui de proposito, entao
+				// suas dependencias precisam existir. A politica de senha vazada
+				// nao participa de nenhum caminho de 2FA — o dublê so satisfaz a
+				// injecao; o comportamento dela vive em
+				// `breached-password.policy.spec.ts`.
+				{
+					provide: BreachedPasswordPolicy,
+					useValue: { assertNotBreached: jest.fn() },
 				},
 			],
 		}).compile();
