@@ -3,10 +3,10 @@ import {
 	Injectable,
 	NotFoundException,
 	Logger,
+	ServiceUnavailableException,
 } from '@nestjs/common';
 import { BrokerConnectionModel } from './schema/broker-connection.model';
 import { BrokerConnectDto } from './dto/broker-connect.dto';
-import * as crypto from 'crypto';
 import { Types } from 'mongoose';
 import * as ccxt from 'ccxt';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
@@ -14,10 +14,12 @@ import { AssetsService } from 'src/assets/assets.service';
 import { UserModel } from 'src/users/schema/user.model';
 import { ProviderRegistry } from 'src/broker-sync/providers/provider-registry';
 import { SubscriptionService } from 'src/subscription/subscription.service';
-
-const ENCRYPTION_KEY =
-	process.env.BROKER_ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef'; // 32 bytes
-const IV_LENGTH = 16;
+import { createBrokerCredentialCipher } from 'src/broker-sync/security/credential-cipher.factory';
+import {
+	BrokerCipherUnavailableError,
+	BrokerCredentialCipher,
+	BrokerCredentialDecryptionError,
+} from 'src/broker-sync/security/broker-credential-cipher';
 
 @Injectable()
 export class BrokerSyncService {
@@ -30,6 +32,16 @@ export class BrokerSyncService {
 	private readonly logger = new Logger(BrokerSyncService.name);
 
 	private readonly providerRegistry = new ProviderRegistry();
+
+	/**
+	 * Campo, e nao dependencia de construtor, pelo mesmo motivo do
+	 * `providerRegistry` acima: a cifra nao tem dependencia de container e
+	 * injeta-la exigiria mudar todos os call sites de teste do servico.
+	 * A unidade em si (`AesGcmCredentialCipher`) recebe as chaves por
+	 * construtor e e testada isolada, sem `process.env`.
+	 */
+	private readonly cipher: BrokerCredentialCipher =
+		createBrokerCredentialCipher();
 	private readonly fiatSymbols = new Set([
 		'BRL',
 		'USD',
@@ -86,29 +98,41 @@ export class BrokerSyncService {
 		return out;
 	}
 
+	/**
+	 * Adaptador fino sobre a porta de cifragem: traduz os erros de dominio da
+	 * cifra em excecoes HTTP. Nenhuma logica de criptografia mora aqui.
+	 *
+	 * Falta de configuracao vira 503 (problema do servidor, e o operador tem a
+	 * mensagem exata), nunca gravacao sob chave conhecida.
+	 */
 	private encrypt(text: string): string {
-		const iv = crypto.randomBytes(IV_LENGTH);
-		const cipher = crypto.createCipheriv(
-			'aes-256-cbc',
-			Buffer.from(ENCRYPTION_KEY),
-			iv
-		);
-		let encrypted = cipher.update(text, 'utf8', 'hex');
-		encrypted += cipher.final('hex');
-		return iv.toString('hex') + ':' + encrypted;
+		try {
+			return this.cipher.encrypt(text);
+		} catch (error) {
+			if (error instanceof BrokerCipherUnavailableError) {
+				throw new ServiceUnavailableException(error.message);
+			}
+			throw error;
+		}
 	}
 
+	/**
+	 * Adulteracao, chave trocada ou valor legado sem chave antiga viram 400 com
+	 * instrucao de reconectar — o usuario consegue agir. Nenhuma mensagem
+	 * carrega o valor cifrado nem o valor em claro.
+	 */
 	private decrypt(text: string): string {
-		const [ivHex, encrypted] = text.split(':');
-		const iv = Buffer.from(ivHex, 'hex');
-		const decipher = crypto.createDecipheriv(
-			'aes-256-cbc',
-			Buffer.from(ENCRYPTION_KEY),
-			iv
-		);
-		let decrypted = decipher.update(encrypted, 'hex', 'utf8');
-		decrypted += decipher.final('utf8');
-		return decrypted;
+		try {
+			return this.cipher.decrypt(text);
+		} catch (error) {
+			if (error instanceof BrokerCipherUnavailableError) {
+				throw new ServiceUnavailableException(error.message);
+			}
+			if (error instanceof BrokerCredentialDecryptionError) {
+				throw new BadRequestException(error.message);
+			}
+			throw error;
+		}
 	}
 
 	async getConnections(userId: string) {
