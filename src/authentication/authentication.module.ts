@@ -30,6 +30,11 @@ import { PasswordSecurityService } from 'src/authentication/security/password-se
 		JwtAuthGuard,
 		PasswordSecurityService,
 	],
-	exports: [JwtAuthGuard, TokenBlacklistModule, PasswordSecurityService],
+	exports: [
+		AuthenticationService,
+		JwtAuthGuard,
+		TokenBlacklistModule,
+		PasswordSecurityService,
+	],
 })
 export class AuthenticationModule {}

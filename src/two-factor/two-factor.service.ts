@@ -7,15 +7,19 @@ import { authenticator } from 'otplib';
 import * as QRCode from 'qrcode';
 import { UserModel } from 'src/users/schema/user.model';
 import { JwtService } from '@nestjs/jwt';
+import { jwtSecret } from 'src/env';
 import {
-	jwtSecret,
-	expireKeepAliveConected,
-	expireKeepAliveConectedRefreshToken,
-} from 'src/env';
+	AuthenticationService,
+	SessionTokens,
+	SessionUser,
+} from 'src/authentication/authentication.service';
 
 @Injectable()
 export class TwoFactorService {
-	constructor(private jwtService: JwtService) {}
+	constructor(
+		private jwtService: JwtService,
+		private readonly authenticationService: AuthenticationService
+	) {}
 
 	/**
 	 * Gera um segredo TOTP para o usuário e retorna a URL do QR Code em base64.
@@ -95,12 +99,19 @@ export class TwoFactorService {
 
 	/**
 	 * Autentica o código TOTP pós-login (quando 2FA está habilitado).
-	 * Recebe o tempToken + código e emite o JWT final.
+	 * Recebe o tempToken + código e emite a sessão final.
+	 *
+	 * A emissão é delegada a `AuthenticationService.issueSessionTokens`
+	 * (TRA-140): é o mesmo caminho do login sem 2FA, então o refresh token sai
+	 * daqui hasheado em SHA-256 como qualquer outro e o access token carrega o
+	 * `role`. Antes este método assinava e gravava os tokens sozinho, e a cópia
+	 * gravava `user.refreshToken` em texto puro — um bearer legível no banco
+	 * que, ainda por cima, nunca casava com o verificador de `refreshAccessToken`.
 	 */
 	async authenticateWithTwoFactor(
 		tempToken: string,
 		code: string
-	): Promise<{ accessToken: string; refreshToken: string; expiresIn: string }> {
+	): Promise<SessionTokens> {
 		let payload: { userId: string; type: string };
 		try {
 			payload = this.jwtService.verify(tempToken, { secret: jwtSecret }) as any;
@@ -128,19 +139,9 @@ export class TwoFactorService {
 			throw new UnauthorizedException('Código 2FA inválido ou expirado.');
 		}
 
-		const accessToken = this.jwtService.sign(
-			{ userId: user.id, type: 'access' },
-			{ secret: jwtSecret, expiresIn: expireKeepAliveConected }
+		return this.authenticationService.issueSessionTokens(
+			user as unknown as SessionUser
 		);
-		const refreshToken = this.jwtService.sign(
-			{ userId: user.id, type: 'refresh' },
-			{ secret: jwtSecret, expiresIn: expireKeepAliveConectedRefreshToken }
-		);
-
-		user.refreshToken = refreshToken;
-		await user.save();
-
-		return { accessToken, refreshToken, expiresIn: expireKeepAliveConected };
 	}
 
 	/**
