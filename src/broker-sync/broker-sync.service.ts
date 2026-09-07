@@ -20,6 +20,14 @@ import {
 	BrokerCredentialCipher,
 	BrokerCredentialDecryptionError,
 } from 'src/broker-sync/security/broker-credential-cipher';
+import {
+	brokerSyncErrorMessage,
+	isBrokerSyncErrorCategory,
+} from 'src/broker-sync/domain/broker-sync-error';
+import {
+	brokerErrorLogLabel,
+	classifyBrokerError,
+} from 'src/broker-sync/providers/ccxt-error-classifier';
 
 @Injectable()
 export class BrokerSyncService {
@@ -140,14 +148,33 @@ export class BrokerSyncService {
 			{ userId: new Types.ObjectId(userId) },
 			{ apiKeyEncrypted: 0, apiSecretEncrypted: 0 }
 		);
-		return connections.map((c) => ({
-			id: c._id,
-			provider: c.provider,
-			status: c.status,
-			lastSync: c.lastSync,
-			hasCpf: !!c.cpf,
-			lastError: c.lastError || null,
-		}));
+		return connections.map((c) => {
+			// Linha gravada ANTES da TRK-011 tem `lastError` com o texto cru da
+			// corretora e nenhum `lastErrorCode`. Devolver esse texto é
+			// exatamente o vazamento que esta issue fecha, então a ausência do
+			// código é tratada como "não classificado" e a mensagem genérica
+			// entra no lugar. Isso apaga a exposição das linhas antigas sem
+			// precisar de migração — a próxima sincronização reescreve o par
+			// com a categoria certa.
+			const category = isBrokerSyncErrorCategory(c.lastErrorCode)
+				? c.lastErrorCode
+				: null;
+			const hadError = !!category || !!c.lastError;
+
+			return {
+				id: c._id,
+				provider: c.provider,
+				status: c.status,
+				lastSync: c.lastSync,
+				hasCpf: !!c.cpf,
+				// Contrato mantido: o `web` já lê `lastError` como string ou null.
+				lastError: hadError
+					? brokerSyncErrorMessage(category ?? 'unknown')
+					: null,
+				lastErrorCode: category,
+				lastErrorStatus: c.lastErrorStatus ?? null,
+			};
+		});
 	}
 
 	async connect(userId: string, dto: BrokerConnectDto) {
@@ -161,6 +188,8 @@ export class BrokerSyncService {
 			provider: dto.provider,
 			status: 'connected',
 			lastError: null,
+			lastErrorCode: null,
+			lastErrorStatus: null,
 		};
 
 		if (dto.apiKey) payload.apiKeyEncrypted = this.encrypt(dto.apiKey.trim());
@@ -225,9 +254,15 @@ export class BrokerSyncService {
 		try {
 			exchange = providerImpl.createClient({ apiKey, secret, password });
 		} catch (error) {
-			throw new BadRequestException(
-				`Erro ao instanciar corretora: ${error.message}`
+			// Mesma regra do catch da sincronização (TRK-011): é aqui que a
+			// Private Key da Coinbase fora do PEM costuma estourar, e a
+			// mensagem do `crypto` já chegou a ecoar material da chave.
+			const sanitized = classifyBrokerError(error);
+			this.logger.warn(
+				`Falha ao instanciar cliente de ${provider}: ` +
+					brokerErrorLogLabel(error, sanitized)
 			);
+			throw new BadRequestException(sanitized.message);
 		}
 
 		try {
@@ -246,7 +281,8 @@ export class BrokerSyncService {
 						}
 					} catch (e) {
 						this.logger.warn(
-							`Erro ao buscar balance ${type} na Binance: ${e.message}`
+							`Erro ao buscar balance ${type} na Binance: ` +
+								brokerErrorLogLabel(e, classifyBrokerError(e))
 						);
 					}
 				}
@@ -263,7 +299,8 @@ export class BrokerSyncService {
 						}
 					} catch (e) {
 						this.logger.warn(
-							`Erro no fallback fetchBalance() da Binance: ${e.message}`
+							`Erro no fallback fetchBalance() da Binance: ` +
+								brokerErrorLogLabel(e, classifyBrokerError(e))
 						);
 					}
 				}
@@ -371,6 +408,8 @@ export class BrokerSyncService {
 			connection.lastSync = new Date();
 			connection.status = 'connected';
 			connection.lastError = null;
+			connection.lastErrorCode = null;
+			connection.lastErrorStatus = null;
 			await connection.save();
 
 			return {
@@ -381,23 +420,27 @@ export class BrokerSyncService {
 				failedAssetsDetails: failedAssets.slice(0, 5),
 			};
 		} catch (error) {
-			const reason =
-				(error as any)?.response?.data?.msg ||
-				(error as any)?.response?.data?.message ||
-				(error as any)?.message ||
-				'Erro desconhecido na sincronização';
-			const normalizedReason =
-				provider === 'coinbase' &&
-				(String(reason).includes('Illegal character at offset') ||
-					String(reason).includes('Unsupported key format'))
-					? 'Formato de chave da Coinbase inválido. Use API Key + Private Key no formato PEM (com BEGIN/END), e informe passphrase se a sua chave exigir.'
-					: String(reason);
+			// TRK-011: o texto da corretora morre aqui. Algumas exchanges ecoam
+			// a URL da requisição dentro da mensagem de erro, e a URL carrega a
+			// API key — persistir isso colocava a credencial em claro no mesmo
+			// banco onde ela está cifrada. O que sai daqui é categoria +
+			// status, nada do provedor.
+			const sanitized = classifyBrokerError(error);
+
 			connection.status = 'error';
-			connection.lastError = normalizedReason;
+			connection.lastError = sanitized.message;
+			connection.lastErrorCode = sanitized.category;
+			connection.lastErrorStatus = sanitized.statusCode ?? null;
 			await connection.save();
-			throw new BadRequestException(
-				`Erro na sincronização: ${normalizedReason}`
+
+			// Log com tipo e status, sem a mensagem: log é mais um lugar onde
+			// uma API key ecoada não deveria parar.
+			this.logger.warn(
+				`Falha ao sincronizar ${provider} para usuário ${userId}: ` +
+					brokerErrorLogLabel(error, sanitized)
 			);
+
+			throw new BadRequestException(sanitized.message);
 		}
 	}
 

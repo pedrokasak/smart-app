@@ -123,7 +123,7 @@
 		"coverageDirectory": "../coverage",
 		"testEnvironment": "node",
 		"moduleNameMapper": {
-			"src/(.*)": "<rootDir>/$1"
+			"^src/(.*)$": "<rootDir>/$1"
 		}
 	},
 	"packageManager": "yarn@4.5.0"

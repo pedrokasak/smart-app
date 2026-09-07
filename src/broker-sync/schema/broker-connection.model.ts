@@ -1,4 +1,8 @@
 import { Schema, model, Types, Document } from 'mongoose';
+import {
+	BROKER_SYNC_ERROR_CATEGORIES,
+	BrokerSyncErrorCategory,
+} from 'src/broker-sync/domain/broker-sync-error';
 
 export interface BrokerConnection extends Document {
 	userId: Types.ObjectId;
@@ -9,7 +13,17 @@ export interface BrokerConnection extends Document {
 	cpf?: string;
 	status: 'connected' | 'disconnected' | 'error';
 	lastSync?: Date;
+	/**
+	 * Mensagem segura, derivada de `lastErrorCode` — NUNCA o texto do
+	 * provedor (TRK-011). Linhas gravadas antes desta mudanca ainda podem
+	 * conter texto cru; por isso o serviço nunca as devolve sem
+	 * `lastErrorCode` ao lado (ver `getConnections`).
+	 */
 	lastError?: string;
+	/** Categoria fechada da falha. Ver `domain/broker-sync-error.ts`. */
+	lastErrorCode?: BrokerSyncErrorCategory;
+	/** Status HTTP devolvido pela corretora, quando houve resposta HTTP. */
+	lastErrorStatus?: number;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -38,6 +52,11 @@ const brokerConnectionSchema = new Schema<BrokerConnection>(
 		},
 		lastSync: Date,
 		lastError: String,
+		lastErrorCode: {
+			type: String,
+			enum: BROKER_SYNC_ERROR_CATEGORIES,
+		},
+		lastErrorStatus: Number,
 	},
 	{ timestamps: true }
 );
