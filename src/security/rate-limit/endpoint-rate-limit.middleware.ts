@@ -35,6 +35,15 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		'POST:/auth/2fa/authenticate': { limit: 5, windowMs: 60_000 },
 		'POST:/auth/2fa/verify': { limit: 5, windowMs: 60_000 },
 		'DELETE:/auth/2fa/disable': { limit: 5, windowMs: 60_000 },
+		// Códigos de recuperação. O consumo é um *bypass* do segundo
+		// fator e não tem guard — mesma posição de `/auth/2fa/authenticate` —,
+		// então não pode ser mais frouxo que ele: mesmos 5/min. A geração
+		// exige TOTP válido e o mesmo teto vale como anti-automação; o status
+		// é leitura sem segredo e fica mais folgado, só para não virar um
+		// canal de polling barato contra o banco.
+		'POST:/auth/2fa/recovery-codes/generate': { limit: 5, windowMs: 60_000 },
+		'POST:/auth/2fa/recovery-codes/consume': { limit: 5, windowMs: 60_000 },
+		'GET:/auth/2fa/recovery-codes/status': { limit: 30, windowMs: 60_000 },
 		'POST:/broker-sync/upload-note': { limit: 20, windowMs: 10 * 60_000 },
 		'POST:/leads/purchase-intent': { limit: 5, windowMs: 60_000 },
 		// Cada chamada destas custa uma requisição paga de LLM.
