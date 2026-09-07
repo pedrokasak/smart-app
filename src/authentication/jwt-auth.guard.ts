@@ -10,6 +10,9 @@ import { jwtSecret } from '../env';
 import { TokenBlacklistService } from '../token-blacklist/token-blacklist.service';
 import { IS_PUBLIC_KEY } from '../utils/constants';
 
+/** Único `type` de JWT que autoriza uma rota protegida. */
+const ACCESS_TOKEN_TYPE = 'access';
+
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
 	constructor(
@@ -60,14 +63,29 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
 			throw new UnauthorizedException('Token inválido ou expirado.');
 		}
 
+		let payload: { type?: string };
 		try {
-			const payload = await this.jwtService.verifyAsync(token, {
+			payload = await this.jwtService.verifyAsync(token, {
 				secret: jwtSecret,
 			});
-			request['user'] = payload;
 		} catch (error) {
 			throw new UnauthorizedException('Token inválido ou expirado.');
 		}
+
+		// Assinatura válida não basta: `tempToken` de 2FA, refresh token e token
+		// de acesso são assinados com o MESMO jwtSecret e só se distinguem pelo
+		// claim `type`. Sem esta checagem, o tempToken devolvido pelo /auth/signin
+		// a quem apresentou apenas a senha — antes do segundo fator — era aceito
+		// como credencial em qualquer rota, e o 2FA deixava de proteger a conta.
+		//
+		// Falha fechada de propósito: token sem `type` não foi emitido como token
+		// de acesso por este servidor. Todos os emissores atuais marcam 'access'
+		// (signin, refresh, cadastro e o fluxo de 2FA).
+		if (payload?.type !== ACCESS_TOKEN_TYPE) {
+			throw new UnauthorizedException('Token inválido ou expirado.');
+		}
+
+		request['user'] = payload;
 
 		return true;
 	}
