@@ -350,7 +350,13 @@ export class AuthenticationService {
 				throw new Error('Invalid token type');
 			}
 
-			const user = await UserModel.findById(payload.userId);
+			// `refreshToken` e `select: false` no schema: sem projetar explicitamente,
+			// o campo volta undefined e TODA renovacao falha — para todo usuario, nao
+			// so os de 2FA. Os testes nao pegavam porque mockavam `findById`
+			// devolvendo o documento ja com o campo, formato que producao nunca tem.
+			const user = await UserModel.findById(payload.userId).select(
+				'+refreshToken'
+			);
 			if (!user || !user.refreshToken) {
 				throw new Error('Invalid refresh token');
 			}

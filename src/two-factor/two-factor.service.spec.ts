@@ -130,9 +130,11 @@ describe('TwoFactorService', () => {
 				authenticator.generate(secret)
 			);
 
-			// Segunda etapa: o refresh usa o caminho comum do
-			// AuthenticationService, que lê `user.refreshToken` direto.
-			(UserModel.findById as jest.Mock).mockResolvedValue(user);
+			// Segunda etapa: o refresh usa o caminho comum do AuthenticationService,
+			// que projeta `+refreshToken` porque o campo é `select: false`.
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(user),
+			});
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
 
 			const refreshed = await authenticationService.refreshAccessToken(
