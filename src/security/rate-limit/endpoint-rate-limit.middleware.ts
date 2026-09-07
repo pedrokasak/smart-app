@@ -1,26 +1,26 @@
 import {
-	Injectable,
 	HttpException,
 	HttpStatus,
+	Inject,
+	Injectable,
 	NestMiddleware,
+	Optional,
 } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { NextFunction, Request, Response } from 'express';
+import {
+	RATE_LIMIT_STORE,
+	RateLimitStore,
+} from 'src/security/rate-limit/application/ports/rate-limit-store.port';
+import { InMemoryRateLimitStore } from 'src/security/rate-limit/infrastructure/in-memory-rate-limit.store';
 
 type RateLimitRule = {
 	limit: number;
 	windowMs: number;
 };
 
-type RateBucket = {
-	count: number;
-	resetAt: number;
-};
-
 @Injectable()
 export class EndpointRateLimitMiddleware implements NestMiddleware {
-	private readonly buckets = new Map<string, RateBucket>();
-	private readonly cleanupIntervalMs = 60_000;
 	private readonly defaultRule: RateLimitRule = {
 		limit: 300,
 		windowMs: 60_000,
@@ -52,46 +52,48 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		'POST:/ai/analyze': { limit: 20, windowMs: 60_000 },
 	};
 
+	private readonly store: RateLimitStore;
+
 	/**
-	 * Teto de buckets ativos. Existe pra que uma enxurrada de fingerprints
-	 * distintos não vire consumo de memória sem limite entre duas passadas
-	 * da limpeza — o `cleanup` só remove o que já expirou.
+	 * A store é opcional no construtor para que o middleware continue
+	 * instanciável sem container — é assim que os testes o exercitam, e o
+	 * default (contador em memória) é o mesmo comportamento de antes da
+	 * TRA-138. Em produção o RateLimitModule injeta a implementação Redis.
 	 */
-	private readonly maxBuckets = 50_000;
-	private cleanupTimer: NodeJS.Timeout | null = null;
+	constructor(@Optional() @Inject(RATE_LIMIT_STORE) store?: RateLimitStore) {
+		this.store = store ?? new InMemoryRateLimitStore();
+	}
 
-	use(req: Request, res: Response, next: NextFunction): void {
-		if (!this.cleanupTimer) {
-			this.cleanupTimer = setInterval(
-				() => this.cleanup(),
-				this.cleanupIntervalMs
-			);
-			this.cleanupTimer.unref();
-		}
-
+	/**
+	 * Janela FIXA (não deslizante), preservada da implementação anterior: a
+	 * janela nasce na primeira requisição do par rota+fingerprint, vale
+	 * `windowMs`, e ao expirar a contagem recomeça do zero. Trocar para
+	 * sliding window mudaria quantas tentativas cabem na virada da janela —
+	 * a TRA-138 muda ONDE o contador mora, não a política.
+	 *
+	 * `async` porque o contador agora pode estar em outro processo. O Nest
+	 * aguarda o middleware e trata a exceção lançada aqui pelo mesmo caminho
+	 * de antes (RouterProxy -> ExceptionsHandler), então a resposta 429 e o
+	 * header `Retry-After` continuam idênticos.
+	 */
+	async use(req: Request, res: Response, next: NextFunction): Promise<void> {
 		const routeKey = `${req.method.toUpperCase()}:${req.path}`;
 		const rule = this.rules[routeKey] || this.defaultRule;
 		const fingerprint = this.buildFingerprint(req);
-		const now = Date.now();
 		const key = `${routeKey}:${fingerprint}`;
-		const existing = this.buckets.get(key);
 
-		if (!existing || existing.resetAt <= now) {
-			if (this.buckets.size >= this.maxBuckets) {
-				this.cleanup();
-			}
-			this.buckets.set(key, {
-				count: 1,
-				resetAt: now + rule.windowMs,
-			});
+		const hit = await this.store.hit(key, rule.windowMs);
+
+		// FAIL OPEN. Sem contador não há decisão informada a tomar, e recusar
+		// tudo transformaria uma piscada do Redis em queda do login. Quem
+		// derrubar o armazenamento ganha uma janela sem limite: é o custo
+		// aceito, e o adaptador loga a degradação (uma vez, não por request).
+		if (hit.outcome === 'unavailable') {
 			return next();
 		}
 
-		if (existing.count >= rule.limit) {
-			const retryAfterSeconds = Math.max(
-				1,
-				Math.ceil((existing.resetAt - now) / 1000)
-			);
+		if (hit.count > rule.limit) {
+			const retryAfterSeconds = Math.max(1, Math.ceil(hit.resetInMs / 1000));
 			res.setHeader('Retry-After', String(retryAfterSeconds));
 			throw new HttpException(
 				`Rate limit excedido para este endpoint. Tente novamente em ${retryAfterSeconds}s.`,
@@ -99,8 +101,6 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 			);
 		}
 
-		existing.count += 1;
-		this.buckets.set(key, existing);
 		next();
 	}
 
@@ -132,14 +132,5 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		return createHash('sha256')
 			.update(`${ip}|${userAgent}|${acceptLanguage}`)
 			.digest('hex');
-	}
-
-	private cleanup(): void {
-		const now = Date.now();
-		for (const [key, bucket] of this.buckets.entries()) {
-			if (bucket.resetAt <= now) {
-				this.buckets.delete(key);
-			}
-		}
 	}
 }

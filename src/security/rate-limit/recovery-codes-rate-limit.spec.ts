@@ -19,7 +19,7 @@ const buildRequest = (method: string, path: string) => ({
 });
 
 /** Quantas passagens o middleware permite antes de recusar. */
-const allowedCalls = (method: string, path: string): number => {
+const allowedCalls = async (method: string, path: string): Promise<number> => {
 	const middleware = new EndpointRateLimitMiddleware();
 	const req: any = buildRequest(method, path);
 	const res: any = { setHeader: jest.fn() };
@@ -27,7 +27,7 @@ const allowedCalls = (method: string, path: string): number => {
 
 	for (let attempt = 0; attempt < 400; attempt += 1) {
 		try {
-			middleware.use(req, res, next);
+			await middleware.use(req, res, next);
 		} catch (error) {
 			expect(error).toBeInstanceOf(HttpException);
 			expect((error as HttpException).getStatus()).toBe(
@@ -41,10 +41,14 @@ const allowedCalls = (method: string, path: string): number => {
 };
 
 describe('EndpointRateLimitMiddleware — códigos de recuperação', () => {
-	const authenticateLimit = allowedCalls('POST', '/auth/2fa/authenticate');
+	let authenticateLimit: number;
 
-	it('o consumo não é mais frouxo que /auth/2fa/authenticate', () => {
-		const consumeLimit = allowedCalls(
+	beforeAll(async () => {
+		authenticateLimit = await allowedCalls('POST', '/auth/2fa/authenticate');
+	});
+
+	it('o consumo não é mais frouxo que /auth/2fa/authenticate', async () => {
+		const consumeLimit = await allowedCalls(
 			'POST',
 			'/auth/2fa/recovery-codes/consume'
 		);
@@ -53,12 +57,17 @@ describe('EndpointRateLimitMiddleware — códigos de recuperação', () => {
 		expect(consumeLimit).toBe(5);
 	});
 
-	it('a geração tem o mesmo teto das demais rotas de 2FA', () => {
-		expect(allowedCalls('POST', '/auth/2fa/recovery-codes/generate')).toBe(5);
+	it('a geração tem o mesmo teto das demais rotas de 2FA', async () => {
+		expect(
+			await allowedCalls('POST', '/auth/2fa/recovery-codes/generate')
+		).toBe(5);
 	});
 
-	it('o status é leitura sem segredo, mas ainda assim limitado', () => {
-		const statusLimit = allowedCalls('GET', '/auth/2fa/recovery-codes/status');
+	it('o status é leitura sem segredo, mas ainda assim limitado', async () => {
+		const statusLimit = await allowedCalls(
+			'GET',
+			'/auth/2fa/recovery-codes/status'
+		);
 
 		expect(statusLimit).toBe(30);
 		// Bem abaixo do padrão de 300/min: contar códigos restantes não é
@@ -66,11 +75,11 @@ describe('EndpointRateLimitMiddleware — códigos de recuperação', () => {
 		expect(statusLimit).toBeLessThan(300);
 	});
 
-	it('as rotas novas não caem no limite padrão por falta de chave', () => {
+	it('as rotas novas não caem no limite padrão por falta de chave', async () => {
 		// Sanidade da checagem acima: uma rota sem regra própria realmente
 		// recebe 300/min, então os números acima vêm de entradas explícitas.
-		expect(allowedCalls('POST', '/auth/2fa/recovery-codes/inexistente')).toBe(
-			300
-		);
+		expect(
+			await allowedCalls('POST', '/auth/2fa/recovery-codes/inexistente')
+		).toBe(300);
 	});
 });

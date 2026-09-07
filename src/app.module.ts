@@ -27,6 +27,7 @@ import { FiscalModule } from './fiscal/fiscal.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
 import { TargetAllocationModule } from './portfolio/target-allocation/target-allocation.module';
 import { EndpointRateLimitMiddleware } from 'src/security/rate-limit/endpoint-rate-limit.middleware';
+import { RateLimitModule } from 'src/security/rate-limit/rate-limit.module';
 import { AdminModule } from './admin/admin.module';
 import { LeadsModule } from './leads/leads.module';
 import { PortfolioDigestModule } from './notifications/portfolio-digest/portfolio-digest.module';
@@ -40,6 +41,7 @@ import { QuoteStalenessModule } from './market-data/quote-staleness/quote-stalen
 @Module({
 	imports: [
 		EventsModule,
+		RateLimitModule,
 		AuthenticationModule,
 		UsersModule,
 		ProfileModule,
