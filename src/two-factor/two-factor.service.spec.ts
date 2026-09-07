@@ -14,6 +14,9 @@ jest.mock('src/users/schema/user.model', () => ({
 	UserModel: {
 		findById: jest.fn(),
 		findByIdAndUpdate: jest.fn(),
+		updateOne: jest.fn().mockReturnValue({
+			exec: jest.fn().mockResolvedValue({ matchedCount: 1, modifiedCount: 1 }),
+		}),
 	},
 }));
 
@@ -186,6 +189,131 @@ describe('TwoFactorService', () => {
 			await expect(
 				service.authenticateWithTwoFactor('temp.token', '000000')
 			).rejects.toThrow(UnauthorizedException);
+		});
+	});
+
+	// TRA-140, achado 2: a rota nao tem guard (por desenho) e aceitava
+	// tentativas ilimitadas contra 6 digitos dentro da janela do tempToken.
+	describe('brute-force protection', () => {
+		const wrongCode = '000000';
+
+		const mockUserWith = (state: {
+			twoFactorFailedAttempts?: number;
+			twoFactorFirstFailedAttemptAt?: Date | null;
+		}) => {
+			const user = { ...buildUser(), ...state };
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(user),
+			});
+			return user;
+		};
+
+		it('counts a wrong code and keeps the generic message below the threshold', async () => {
+			mockUserWith({ twoFactorFailedAttempts: 0 });
+
+			await expect(
+				service.authenticateWithTwoFactor('temp.token', wrongCode)
+			).rejects.toThrow('Código 2FA inválido ou expirado.');
+
+			expect(UserModel.updateOne).toHaveBeenCalledWith(
+				{ _id: 'u1' },
+				expect.objectContaining({
+					$set: expect.objectContaining({ twoFactorFailedAttempts: 1 }),
+				})
+			);
+			expect(mockTokenBlacklistService.addToBlacklist).not.toHaveBeenCalled();
+		});
+
+		it('revokes the temp token on the fifth wrong code', async () => {
+			mockUserWith({
+				twoFactorFailedAttempts: 4,
+				twoFactorFirstFailedAttemptAt: new Date(),
+			});
+
+			await expect(
+				service.authenticateWithTwoFactor('temp.token', wrongCode)
+			).rejects.toThrow(
+				'Muitas tentativas de verificação. Faça login novamente.'
+			);
+
+			expect(mockTokenBlacklistService.addToBlacklist).toHaveBeenCalledWith(
+				'temp.token',
+				expect.any(Number)
+			);
+		});
+
+		it('blocks even a CORRECT code once the threshold was reached', async () => {
+			// O ponto do bloqueio: nao adianta acertar depois de esgotar as
+			// tentativas — e preciso refazer o login com senha.
+			const user = mockUserWith({
+				twoFactorFailedAttempts: 5,
+				twoFactorFirstFailedAttemptAt: new Date(),
+			});
+
+			await expect(
+				service.authenticateWithTwoFactor(
+					'temp.token',
+					authenticator.generate(secret)
+				)
+			).rejects.toThrow(
+				'Muitas tentativas de verificação. Faça login novamente.'
+			);
+
+			expect(user.save).not.toHaveBeenCalled();
+		});
+
+		it('rejects a temp token already on the blacklist', async () => {
+			mockTokenBlacklistService.isBlacklisted.mockResolvedValue(true);
+			mockUserWith({});
+
+			await expect(
+				service.authenticateWithTwoFactor(
+					'temp.token',
+					authenticator.generate(secret)
+				)
+			).rejects.toThrow('Token temporário inválido ou expirado.');
+		});
+
+		it('starts the count over once the window has elapsed', async () => {
+			mockUserWith({
+				twoFactorFailedAttempts: 5,
+				twoFactorFirstFailedAttemptAt: new Date(Date.now() - 16 * 60 * 1000),
+			});
+
+			// Janela vencida: nao ha bloqueio permanente, o erro volta a ser o
+			// generico e a contagem recomeca em 1.
+			await expect(
+				service.authenticateWithTwoFactor('temp.token', wrongCode)
+			).rejects.toThrow('Código 2FA inválido ou expirado.');
+
+			expect(UserModel.updateOne).toHaveBeenCalledWith(
+				{ _id: 'u1' },
+				expect.objectContaining({
+					$set: expect.objectContaining({ twoFactorFailedAttempts: 1 }),
+				})
+			);
+		});
+
+		it('clears the count after a successful verification', async () => {
+			mockUserWith({
+				twoFactorFailedAttempts: 3,
+				twoFactorFirstFailedAttemptAt: new Date(),
+			});
+
+			await service.authenticateWithTwoFactor(
+				'temp.token',
+				authenticator.generate(secret)
+			);
+
+			expect(UserModel.updateOne).toHaveBeenCalledWith(
+				{ _id: 'u1' },
+				{
+					$set: {
+						twoFactorFailedAttempts: 0,
+						twoFactorFirstFailedAttemptAt: null,
+					},
+				}
+			);
 		});
 	});
 });

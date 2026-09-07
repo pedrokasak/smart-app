@@ -21,6 +21,13 @@ export interface User extends Document {
 	lastLogin?: Date;
 	twoFactorSecret?: string;
 	twoFactorEnabled: boolean;
+	/**
+	 * Anti-automacao da verificacao TOTP (TRA-140). Aditivos e opcionais:
+	 * ausencia significa "nunca errou". Ver
+	 * `src/two-factor/security/two-factor-attempt-policy.ts`.
+	 */
+	twoFactorFailedAttempts?: number;
+	twoFactorFirstFailedAttemptAt?: Date | null;
 	role: Role;
 	notificationPreferences?: {
 		portfolioDigest?: {
@@ -143,6 +150,20 @@ const userSchema = new Schema<User>(
 		twoFactorEnabled: {
 			type: Boolean,
 			default: false,
+		},
+
+		// Contagem de tentativas TOTP erradas (TRA-140). `select: false` porque
+		// e estado interno de seguranca: nenhum payload de usuario precisa
+		// dele, e quem le explicitamente e so `authenticateWithTwoFactor`.
+		twoFactorFailedAttempts: {
+			type: Number,
+			default: 0,
+			select: false,
+		},
+		twoFactorFirstFailedAttemptAt: {
+			type: Date,
+			default: null,
+			select: false,
 		},
 
 		// RBAC
