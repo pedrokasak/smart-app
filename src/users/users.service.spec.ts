@@ -6,6 +6,11 @@ import { UserModel } from './schema/user.model';
 import { EmailService } from 'src/notifications/email/email.service';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 import { RAG_ERASURE } from 'src/users/application/rag-erasure.port';
+import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
+import {
+	BreachedPasswordChecker,
+	BreachedPasswordVerdict,
+} from 'src/authentication/application/ports/breached-password-checker.port';
 
 jest.mock('./schema/user.model', () => {
 	const mockUserModel = jest.fn().mockImplementation(() => ({
@@ -36,7 +41,18 @@ describe('UsersService', () => {
 		eraseUserData: jest.fn().mockResolvedValue({ erased: true }),
 	};
 
+	/**
+	 * TRK-012: a politica REAL, com a porta trocada por um stub. Assim o
+	 * teste exercita a decisao de politica de verdade (o que faz com cada
+	 * veredito) sem tocar na rede.
+	 */
+	let verdictoAtual: BreachedPasswordVerdict = 'not_breached';
+	const breachedChecker: BreachedPasswordChecker = {
+		check: jest.fn(async () => verdictoAtual),
+	};
+
 	beforeEach(async () => {
+		verdictoAtual = 'not_breached';
 		const module: TestingModule = await Test.createTestingModule({
 			imports: [JwtModule.register({ secret: 'test-secret' })],
 			providers: [
@@ -44,6 +60,10 @@ describe('UsersService', () => {
 				{ provide: EmailService, useValue: emailService },
 				{ provide: PasswordSecurityService, useValue: passwordSecurityService },
 				{ provide: RAG_ERASURE, useValue: ragErasure },
+				{
+					provide: BreachedPasswordPolicy,
+					useValue: new BreachedPasswordPolicy(breachedChecker),
+				},
 			],
 		}).compile();
 
@@ -151,6 +171,84 @@ describe('UsersService', () => {
 
 			expect(result.message).toBe('User created successfully');
 			expect(result.accessToken).toBeDefined();
+		});
+
+		/**
+		 * TRK-012 (ASVS 5.0 6.2.12). Fica no FIM do describe de proposito:
+		 * `mockImplementationOnce` no construtor de `UserModel` e uma fila
+		 * global, e um teste que enfileira sem consumir (porque a criacao foi
+		 * recusada antes) empurraria a implementacao para o teste seguinte.
+		 */
+		describe('senha vazada', () => {
+			const dadosDeCadastro = {
+				firstName: 'Pedro',
+				lastName: 'SantAnna',
+				email: 'pedro@example.com',
+				password: 'Password123@',
+				confirmPassword: 'Password123@',
+				avatar: 'http://example.com/avatar.jpg',
+			};
+
+			function prepararCadastro() {
+				(UserModel.findOne as jest.Mock).mockResolvedValue(null);
+				const save = jest.fn().mockResolvedValue(true);
+				(UserModel as any).mockImplementationOnce(() => ({
+					_id: 'u1',
+					id: 'u1',
+					...dadosDeCadastro,
+					save,
+				}));
+				return save;
+			}
+
+			it('recusa o cadastro quando a senha esta em vazamento', async () => {
+				verdictoAtual = 'breached';
+				(UserModel.findOne as jest.Mock).mockResolvedValue(null);
+
+				const erro = await service
+					.create(dadosDeCadastro)
+					.then(() => null)
+					.catch((e) => e);
+
+				expect(erro).toBeInstanceOf(HttpException);
+				// A mensagem precisa dizer o que houve e o que fazer — nao
+				// "senha invalida", que nao daria ao usuario nenhuma saida.
+				expect((erro.getResponse() as any).error).toMatch(
+					/vazamentos públicos/i
+				);
+				// Nem chega a construir o usuario nem a gastar Argon2id.
+				expect(UserModel).not.toHaveBeenCalled();
+				expect(passwordSecurityService.hashPassword).not.toHaveBeenCalled();
+			});
+
+			it('aceita o cadastro quando a senha nao esta em vazamento', async () => {
+				verdictoAtual = 'not_breached';
+				const save = prepararCadastro();
+
+				const resultado = await service.create(dadosDeCadastro);
+
+				expect(resultado.message).toBe('User created successfully');
+				expect(save).toHaveBeenCalled();
+			});
+
+			/**
+			 * O teste que da nome a decisao: com o HIBP fora do ar o adaptador
+			 * devolve `unknown`, e o cadastro TEM que continuar funcionando.
+			 * Bloquear aqui trocaria um ganho pequeno de seguranca por uma
+			 * indisponibilidade acionavel por terceiro.
+			 */
+			it('HIBP indisponivel NAO impede o cadastro (falha aberta)', async () => {
+				verdictoAtual = 'unknown';
+				const save = prepararCadastro();
+
+				const resultado = await service.create(dadosDeCadastro);
+
+				expect(resultado.message).toBe('User created successfully');
+				expect(save).toHaveBeenCalled();
+				expect(passwordSecurityService.hashPassword).toHaveBeenCalledWith(
+					'Password123@'
+				);
+			});
 		});
 	});
 

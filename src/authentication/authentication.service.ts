@@ -31,6 +31,7 @@ import {
 import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
 import { INITIAL_ADMIN_EMAIL } from 'src/admin/constants/admin.constants';
 import { Role } from 'src/auth/enums/role.enum';
+import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
 
 /**
  * Documento mínimo de usuário aceito por `issueSessionTokens`.
@@ -78,7 +79,8 @@ export class AuthenticationService {
 		private jwtService: JwtService,
 		private tokenBlacklistService: TokenBlacklistService,
 		private readonly emailService: EmailService,
-		private readonly passwordSecurityService: PasswordSecurityService
+		private readonly passwordSecurityService: PasswordSecurityService,
+		private readonly breachedPasswordPolicy: BreachedPasswordPolicy
 	) {}
 
 	async signin(
@@ -406,6 +408,13 @@ export class AuthenticationService {
 			throw new UnauthorizedException('Invalid old password');
 		}
 
+		// TRK-012. Depois de conferir a senha antiga: quem nao provou ser o
+		// dono da conta nao deveria conseguir usar esta rota como oraculo
+		// para descobrir se uma senha qualquer esta em vazamento.
+		await this.breachedPasswordPolicy.assertNotBreached(
+			updatePasswordDto.newPassword
+		);
+
 		const hashedPassword = await this.passwordSecurityService.hashPassword(
 			updatePasswordDto.newPassword
 		);
@@ -518,6 +527,13 @@ export class AuthenticationService {
 				throw new UnauthorizedException('Código de dois fatores inválido');
 			}
 		}
+
+		// TRK-012. Depois do token e do 2FA, pela mesma razao do
+		// `updatePassword`: a checagem so roda para quem ja provou ter direito
+		// de trocar a senha desta conta.
+		await this.breachedPasswordPolicy.assertNotBreached(
+			resetPasswordDto.newPassword
+		);
 
 		const hashedPassword = await this.passwordSecurityService.hashPassword(
 			resetPasswordDto.newPassword
