@@ -29,6 +29,16 @@ const envSchema = z.object({
 	VAPID_PUBLIC_KEY: z.string().optional(),
 	VAPID_PRIVATE_KEY: z.string().optional(),
 	VAPID_SUBJECT: z.string().optional(),
+	/**
+	 * Cifragem das credenciais de corretora (TRA-144). Opcional no schema
+	 * porque ausencia = feature desligada (null object), nao boot quebrado.
+	 * A validacao de FORMATO (64 hex) mora em `credential-cipher.factory.ts`
+	 * e derruba o boot quando a variavel existe e esta malformada.
+	 * Gerar com: openssl rand -hex 32
+	 */
+	BROKER_ENCRYPTION_KEY: z.string().optional(),
+	/** Chave do formato v1 (AES-256-CBC). Somente leitura de linhas antigas. */
+	BROKER_ENCRYPTION_KEY_LEGACY: z.string().optional(),
 });
 
 const isTestEnvironment = process.env.NODE_ENV === 'test';
@@ -84,3 +94,7 @@ export const digestTokenSecret: string = env.data.DIGEST_TOKEN_SECRET;
 export const vapidPublicKey: string | undefined = env.data.VAPID_PUBLIC_KEY;
 export const vapidPrivateKey: string | undefined = env.data.VAPID_PRIVATE_KEY;
 export const vapidSubject: string | undefined = env.data.VAPID_SUBJECT;
+export const brokerEncryptionKey: string | undefined =
+	env.data.BROKER_ENCRYPTION_KEY;
+export const brokerEncryptionKeyLegacy: string | undefined =
+	env.data.BROKER_ENCRYPTION_KEY_LEGACY;
