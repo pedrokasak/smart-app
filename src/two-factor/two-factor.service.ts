@@ -7,15 +7,29 @@ import { authenticator } from 'otplib';
 import * as QRCode from 'qrcode';
 import { UserModel } from 'src/users/schema/user.model';
 import { JwtService } from '@nestjs/jwt';
+import { jwtSecret } from 'src/env';
 import {
-	jwtSecret,
-	expireKeepAliveConected,
-	expireKeepAliveConectedRefreshToken,
-} from 'src/env';
+	AuthenticationService,
+	SessionTokens,
+	SessionUser,
+} from 'src/authentication/authentication.service';
+import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
+import {
+	TwoFactorAttemptState,
+	clearedAttemptState,
+	hasReachedLimit,
+	isTwoFactorBlocked,
+	readAttemptState,
+	registerFailedAttempt,
+} from './security/two-factor-attempt-policy';
 
 @Injectable()
 export class TwoFactorService {
-	constructor(private jwtService: JwtService) {}
+	constructor(
+		private jwtService: JwtService,
+		private readonly authenticationService: AuthenticationService,
+		private readonly tokenBlacklistService: TokenBlacklistService
+	) {}
 
 	/**
 	 * Gera um segredo TOTP para o usuário e retorna a URL do QR Code em base64.
@@ -95,13 +109,20 @@ export class TwoFactorService {
 
 	/**
 	 * Autentica o código TOTP pós-login (quando 2FA está habilitado).
-	 * Recebe o tempToken + código e emite o JWT final.
+	 * Recebe o tempToken + código e emite a sessão final.
+	 *
+	 * A emissão é delegada a `AuthenticationService.issueSessionTokens`
+	 * (TRA-140): é o mesmo caminho do login sem 2FA, então o refresh token sai
+	 * daqui hasheado em SHA-256 como qualquer outro e o access token carrega o
+	 * `role`. Antes este método assinava e gravava os tokens sozinho, e a cópia
+	 * gravava `user.refreshToken` em texto puro — um bearer legível no banco
+	 * que, ainda por cima, nunca casava com o verificador de `refreshAccessToken`.
 	 */
 	async authenticateWithTwoFactor(
 		tempToken: string,
 		code: string
-	): Promise<{ accessToken: string; refreshToken: string; expiresIn: string }> {
-		let payload: { userId: string; type: string };
+	): Promise<SessionTokens> {
+		let payload: { userId: string; type: string; exp?: number };
 		try {
 			payload = this.jwtService.verify(tempToken, { secret: jwtSecret }) as any;
 		} catch {
@@ -112,11 +133,30 @@ export class TwoFactorService {
 			throw new UnauthorizedException('Token inválido.');
 		}
 
+		// Um tempToken revogado por excesso de tentativas nao volta a valer so
+		// porque ainda nao expirou. Mesma mensagem do token invalido: quem
+		// tenta reusar nao aprende nada com a resposta.
+		if (await this.tokenBlacklistService.isBlacklisted(tempToken)) {
+			throw new UnauthorizedException('Token temporário inválido ou expirado.');
+		}
+
 		const user = await UserModel.findById(payload.userId).select(
-			'+twoFactorSecret'
+			'+twoFactorSecret +twoFactorFailedAttempts +twoFactorFirstFailedAttemptAt'
 		);
 		if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
 			throw new BadRequestException('2FA não configurado para este usuário.');
+		}
+
+		const now = new Date();
+		const attemptState = readAttemptState(user);
+
+		// Bloqueio conferido ANTES de validar o codigo: validar primeiro
+		// devolveria ao atacante a informacao que o bloqueio existe para negar.
+		if (isTwoFactorBlocked(attemptState, now)) {
+			await this.revokeTempToken(tempToken, payload.exp);
+			throw new UnauthorizedException(
+				'Muitas tentativas de verificação. Faça login novamente.'
+			);
 		}
 
 		const isValid = authenticator.verify({
@@ -125,22 +165,64 @@ export class TwoFactorService {
 		});
 
 		if (!isValid) {
+			const nextState = registerFailedAttempt(attemptState, now);
+			await this.persistAttemptState(user.id, nextState);
+
+			if (hasReachedLimit(nextState)) {
+				await this.revokeTempToken(tempToken, payload.exp);
+				throw new UnauthorizedException(
+					'Muitas tentativas de verificação. Faça login novamente.'
+				);
+			}
+
 			throw new UnauthorizedException('Código 2FA inválido ou expirado.');
 		}
 
-		const accessToken = this.jwtService.sign(
-			{ userId: user.id, type: 'access' },
-			{ secret: jwtSecret, expiresIn: expireKeepAliveConected }
-		);
-		const refreshToken = this.jwtService.sign(
-			{ userId: user.id, type: 'refresh' },
-			{ secret: jwtSecret, expiresIn: expireKeepAliveConectedRefreshToken }
-		);
+		// Acerto zera a contagem: a janela existe para conter automacao, nao
+		// para punir quem digitou errado uma vez e acertou depois.
+		await this.persistAttemptState(user.id, clearedAttemptState());
 
-		user.refreshToken = refreshToken;
-		await user.save();
+		return this.authenticationService.issueSessionTokens(
+			user as unknown as SessionUser
+		);
+	}
 
-		return { accessToken, refreshToken, expiresIn: expireKeepAliveConected };
+	/**
+	 * Grava a contagem de tentativas com `updateOne` em vez de mexer no
+	 * documento carregado: `issueSessionTokens` faz o proprio `save()` logo em
+	 * seguida no caminho de sucesso, e um `save()` extra aqui competiria com
+	 * ele pela versao do documento.
+	 */
+	private async persistAttemptState(
+		userId: string,
+		state: TwoFactorAttemptState
+	): Promise<void> {
+		await UserModel.updateOne(
+			{ _id: userId },
+			{
+				$set: {
+					twoFactorFailedAttempts: state.failedAttempts,
+					twoFactorFirstFailedAttemptAt: state.firstFailedAttemptAt,
+				},
+			}
+		).exec();
+	}
+
+	/**
+	 * Revoga o tempToken reaproveitando a blacklist que ja existe para os
+	 * access tokens — mesmo mecanismo, mesma colecao com TTL, nenhuma
+	 * dependencia nova. Sem `exp` no payload nao ha o que revogar de forma
+	 * limpa, e a contagem por usuario ja segura a tentativa seguinte.
+	 */
+	private async revokeTempToken(
+		tempToken: string,
+		exp?: number
+	): Promise<void> {
+		if (!exp) {
+			return;
+		}
+
+		await this.tokenBlacklistService.addToBlacklist(tempToken, exp);
 	}
 
 	/**

@@ -32,6 +32,36 @@ import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
 import { INITIAL_ADMIN_EMAIL } from 'src/admin/constants/admin.constants';
 import { Role } from 'src/auth/enums/role.enum';
 
+/**
+ * Documento mínimo de usuário aceito por `issueSessionTokens`.
+ *
+ * Existe para que outros fluxos de login (ex.: 2FA) possam reaproveitar a
+ * emissão de sessão sem depender do tipo completo do Mongoose.
+ */
+export interface SessionUser {
+	id: string;
+	email: string;
+	firstName?: string;
+	lastName?: string;
+	refreshToken?: string | null;
+	save: () => Promise<unknown>;
+	role?: string;
+}
+
+/** Par de tokens devolvido por todo fluxo de login. */
+export interface SessionTokens {
+	accessToken: string;
+	refreshToken: string;
+	expiresIn: string;
+	user: {
+		id: string;
+		email: string;
+		firstName?: string;
+		lastName?: string;
+		role: string;
+	};
+}
+
 type GoogleTokenInfoResponse = {
 	aud?: string;
 	email?: string;
@@ -230,15 +260,16 @@ export class AuthenticationService {
 		return data;
 	}
 
-	private async issueSessionTokens(user: {
-		id: string;
-		email: string;
-		firstName?: string;
-		lastName?: string;
-		refreshToken?: string | null;
-		save: () => Promise<unknown>;
-		role?: string;
-	}) {
+	/**
+	 * Único ponto de emissão de sessão do backend (TRA-140).
+	 *
+	 * Público de propósito: o fluxo de 2FA (`TwoFactorService`) chama este
+	 * mesmo método em vez de assinar e gravar os tokens por conta própria. O
+	 * 2FA duplicava esta lógica e a cópia esqueceu do hash — gravava o refresh
+	 * token em texto puro e, de quebra, emitia access token sem `role`. Manter
+	 * uma emissão só elimina a origem da divergência em vez de remendá-la.
+	 */
+	async issueSessionTokens(user: SessionUser): Promise<SessionTokens> {
 		const accessToken = this.jwtService.sign(
 			{
 				userId: user.id,
@@ -319,7 +350,13 @@ export class AuthenticationService {
 				throw new Error('Invalid token type');
 			}
 
-			const user = await UserModel.findById(payload.userId);
+			// `refreshToken` e `select: false` no schema: sem projetar explicitamente,
+			// o campo volta undefined e TODA renovacao falha — para todo usuario, nao
+			// so os de 2FA. Os testes nao pegavam porque mockavam `findById`
+			// devolvendo o documento ja com o campo, formato que producao nunca tem.
+			const user = await UserModel.findById(payload.userId).select(
+				'+refreshToken'
+			);
 			if (!user || !user.refreshToken) {
 				throw new Error('Invalid refresh token');
 			}

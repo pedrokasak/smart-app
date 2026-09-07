@@ -249,12 +249,16 @@ describe('AuthenticationService', () => {
 			};
 
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue(mockUser);
+			const select = jest.fn().mockResolvedValue(mockUser);
+			(UserModel.findById as jest.Mock).mockReturnValue({ select });
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
 			mockJwtService.sign.mockReturnValue('new-access-token');
 
 			const result = await service.refreshAccessToken('raw-refresh-token');
 
+			// `refreshToken` e `select: false`: sem esta projecao o campo volta
+			// undefined em producao e nenhuma renovacao funciona.
+			expect(select).toHaveBeenCalledWith('+refreshToken');
 			expect(mockPasswordSecurityService.verifyPassword).toHaveBeenCalledWith(
 				'raw-refresh-token',
 				'hashed-refresh-token'
@@ -700,10 +704,12 @@ describe('AuthenticationService', () => {
 		it('refreshes with a token whose digest matches the stored one', async () => {
 			const rawToken = 'valid.refresh.token';
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				role: 'user',
-				refreshToken: sha256(rawToken),
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					role: 'user',
+					refreshToken: sha256(rawToken),
+				}),
 			});
 			mockJwtService.sign.mockReturnValue('new-access-token');
 
@@ -756,10 +762,12 @@ describe('AuthenticationService', () => {
 				'$argon2id$v=19$m=65536,t=3,p=1$c29tZXNhbHQ$aGFzaGVkdmFsdWVoZXJl';
 
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				role: 'user',
-				refreshToken: legacyHash,
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					role: 'user',
+					refreshToken: legacyHash,
+				}),
 			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
 			mockJwtService.sign.mockReturnValue('new-access-token');
