@@ -28,6 +28,15 @@ export interface User extends Document {
 	 */
 	twoFactorFailedAttempts?: number;
 	twoFactorFirstFailedAttemptAt?: Date | null;
+	/**
+	 * Codigos de recuperacao do 2FA. Aditivos e opcionais: ausencia
+	 * significa "nunca gerou". Guardamos o digest SHA-256 e o carimbo de uso —
+	 * nunca o codigo. A entrada consumida permanece na lista com `usedAt`
+	 * preenchido, para que o uso continue auditavel. Ver
+	 * `src/two-factor/security/recovery-codes.ts`.
+	 */
+	twoFactorRecoveryCodes?: { hash: string; usedAt?: Date | null }[];
+	twoFactorRecoveryCodesGeneratedAt?: Date | null;
 	role: Role;
 	notificationPreferences?: {
 		portfolioDigest?: {
@@ -161,6 +170,30 @@ const userSchema = new Schema<User>(
 			select: false,
 		},
 		twoFactorFirstFailedAttemptAt: {
+			type: Date,
+			default: null,
+			select: false,
+		},
+
+		// Codigos de recuperacao do 2FA. `select: false` pelo mesmo
+		// motivo do segredo TOTP: e material de autenticacao, e nenhum payload
+		// de usuario deve carrega-lo por acidente. Quem le pede explicitamente,
+		// e so o `TwoFactorService`. `_id: false` porque a entrada nao e uma
+		// entidade — nao ha nada que faca sentido referenciar por id aqui.
+		twoFactorRecoveryCodes: {
+			type: [
+				new Schema(
+					{
+						hash: { type: String, required: true },
+						usedAt: { type: Date, default: null },
+					},
+					{ _id: false }
+				),
+			],
+			default: undefined,
+			select: false,
+		},
+		twoFactorRecoveryCodesGeneratedAt: {
 			type: Date,
 			default: null,
 			select: false,

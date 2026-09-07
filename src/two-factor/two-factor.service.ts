@@ -22,6 +22,14 @@ import {
 	readAttemptState,
 	registerFailedAttempt,
 } from './security/two-factor-attempt-policy';
+import {
+	RecoveryCodesSummary,
+	StoredRecoveryCode,
+	findUsableRecoveryCodeHash,
+	generateRecoveryCodes,
+	summarizeRecoveryCodes,
+	toStoredRecoveryCodes,
+} from './security/recovery-codes';
 
 @Injectable()
 export class TwoFactorService {
@@ -122,6 +130,201 @@ export class TwoFactorService {
 		tempToken: string,
 		code: string
 	): Promise<SessionTokens> {
+		const { payload, user, attemptState, now } =
+			await this.openTwoFactorChallenge(tempToken);
+
+		const isValid = authenticator.verify({
+			token: code,
+			secret: user.twoFactorSecret,
+		});
+
+		if (!isValid) {
+			await this.registerFailure(user.id, attemptState, now, {
+				tempToken,
+				exp: payload.exp,
+			});
+
+			throw new UnauthorizedException('Código 2FA inválido ou expirado.');
+		}
+
+		// Acerto zera a contagem: a janela existe para conter automacao, nao
+		// para punir quem digitou errado uma vez e acertou depois.
+		await this.persistAttemptState(user.id, clearedAttemptState());
+
+		return this.authenticationService.issueSessionTokens(
+			user as unknown as SessionUser
+		);
+	}
+
+	/**
+	 * Gera um conjunto novo de códigos de recuperação.
+	 *
+	 * Exige o TOTP atual, não apenas a sessão. Um access token roubado não pode
+	 * virar acesso permanente à conta imprimindo dez chaves de bypass do
+	 * segundo fator: quem regenera tem que estar de posse do autenticador.
+	 *
+	 * O texto puro sai daqui uma única vez — o banco só recebe os digests.
+	 */
+	async generateRecoveryCodes(
+		userId: string,
+		code: string
+	): Promise<{ codes: string[]; generatedAt: string }> {
+		const user = await UserModel.findById(userId).select('+twoFactorSecret');
+		if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+			throw new BadRequestException('2FA não está habilitado.');
+		}
+
+		const isValid = authenticator.verify({
+			token: code,
+			secret: user.twoFactorSecret,
+		});
+
+		if (!isValid) {
+			throw new UnauthorizedException('Código inválido ou expirado.');
+		}
+
+		const codes = generateRecoveryCodes();
+		const generatedAt = new Date();
+
+		// Um `$set` só, com a lista inteira e o carimbo juntos: a substituição
+		// do conjunto é atômica no documento. Não existe instante em que o
+		// usuário fique sem códigos ou com metade dos antigos e metade dos
+		// novos — o conjunto anterior deixa de valer exatamente quando o novo
+		// passa a valer.
+		await UserModel.updateOne(
+			{ _id: userId },
+			{
+				$set: {
+					twoFactorRecoveryCodes: toStoredRecoveryCodes(codes),
+					twoFactorRecoveryCodesGeneratedAt: generatedAt,
+				},
+			}
+		).exec();
+
+		return { codes, generatedAt: generatedAt.toISOString() };
+	}
+
+	/**
+	 * Quantos códigos ainda restam. Nunca devolve código nem hash: só o que a
+	 * UI precisa para dizer "restam 7" e sugerir regenerar.
+	 */
+	async getRecoveryCodesStatus(userId: string): Promise<RecoveryCodesSummary> {
+		const user = await UserModel.findById(userId).select(
+			'+twoFactorRecoveryCodes +twoFactorRecoveryCodesGeneratedAt'
+		);
+		if (!user) {
+			throw new BadRequestException('Usuário não encontrado.');
+		}
+
+		return summarizeRecoveryCodes(
+			user.twoFactorRecoveryCodes as StoredRecoveryCode[],
+			user.twoFactorRecoveryCodesGeneratedAt
+		);
+	}
+
+	/**
+	 * Consome um código de recuperação no lugar do TOTP.
+	 *
+	 * Mesma posição de `authenticateWithTwoFactor` — sem guard, porque neste
+	 * ponto o usuário só tem o `tempToken` — e por isso mesmo passa pela mesma
+	 * contagem de tentativas por usuário: um código de recuperação é um
+	 * *bypass* do segundo fator, então não pode ter um orçamento de tentativas
+	 * próprio e zerado. Quem gasta as 5 tentativas errando TOTP não ganha mais
+	 * 5 trocando de endpoint.
+	 */
+	async consumeRecoveryCode(
+		tempToken: string,
+		recoveryCode: string
+	): Promise<SessionTokens> {
+		const { payload, user, attemptState, now } =
+			await this.openTwoFactorChallenge(
+				tempToken,
+				'+twoFactorRecoveryCodes +twoFactorRecoveryCodesGeneratedAt'
+			);
+
+		const matchedHash = findUsableRecoveryCodeHash(
+			(user.twoFactorRecoveryCodes as StoredRecoveryCode[]) ?? [],
+			recoveryCode
+		);
+
+		// Um código consumido cai aqui junto com um código inexistente: a
+		// resposta é a mesma, então ninguém descobre pela mensagem se acertou
+		// um código que já tinha sido usado.
+		const consumed = matchedHash
+			? await this.markRecoveryCodeAsUsed(user.id, matchedHash, now)
+			: false;
+
+		if (!consumed) {
+			await this.registerFailure(user.id, attemptState, now, {
+				tempToken,
+				exp: payload.exp,
+			});
+
+			throw new UnauthorizedException('Código de recuperação inválido.');
+		}
+
+		await this.persistAttemptState(user.id, clearedAttemptState());
+
+		// O tempToken morre aqui. Sem isto, o mesmo token continuaria válido
+		// pelo resto da janela de 5 minutos e serviria para uma segunda
+		// tentativa de login — o código é de uso único, a autorização que ele
+		// consumiu também precisa ser.
+		await this.revokeTempToken(tempToken, payload.exp);
+
+		return this.authenticationService.issueSessionTokens(
+			user as unknown as SessionUser
+		);
+	}
+
+	/**
+	 * Carimba `usedAt` na entrada que casou, e só se ela ainda estiver livre.
+	 *
+	 * O filtro repete a condição "ainda não usada" dentro do próprio `update`
+	 * de propósito: entre a leitura do documento e esta escrita cabe uma
+	 * segunda requisição com o mesmo código. Deixar a decisão de uso único no
+	 * processo Node seria confiar num read-modify-write sem trava; deixando-a
+	 * no filtro do Mongo, a segunda escrita simplesmente não casa e
+	 * `modifiedCount` volta 0. O uso único é do banco, não da aplicação.
+	 *
+	 * A entrada nunca é removida — `usedAt` preservado é o registro auditável
+	 * de que aquele código específico foi gasto, e quando.
+	 */
+	private async markRecoveryCodeAsUsed(
+		userId: string,
+		hash: string,
+		usedAt: Date
+	): Promise<boolean> {
+		const result = await UserModel.updateOne(
+			{
+				_id: userId,
+				twoFactorRecoveryCodes: { $elemMatch: { hash, usedAt: null } },
+			},
+			{ $set: { 'twoFactorRecoveryCodes.$[entry].usedAt': usedAt } },
+			{ arrayFilters: [{ 'entry.hash': hash, 'entry.usedAt': null }] }
+		).exec();
+
+		return (result?.modifiedCount ?? 0) > 0;
+	}
+
+	/**
+	 * Preâmbulo comum aos dois caminhos sem guard (`authenticate` e
+	 * `recovery-codes/consume`): valida o tempToken, carrega o usuário e
+	 * aplica o bloqueio por tentativas ANTES de olhar para o que foi digitado.
+	 *
+	 * Existe para que os dois caminhos não possam divergir: uma segunda cópia
+	 * desta sequência é exatamente o tipo de duplicação que esquece um passo —
+	 * foi assim que o 2FA acabou emitindo sessão por fora de
+	 * `issueSessionTokens` (TRA-140).
+	 */
+	private async openTwoFactorChallenge(
+		tempToken: string,
+		extraProjection = ''
+	): Promise<{
+		payload: { userId: string; type: string; exp?: number };
+		user: any;
+		attemptState: TwoFactorAttemptState;
+		now: Date;
+	}> {
 		let payload: { userId: string; type: string; exp?: number };
 		try {
 			payload = this.jwtService.verify(tempToken, { secret: jwtSecret }) as any;
@@ -140,9 +343,14 @@ export class TwoFactorService {
 			throw new UnauthorizedException('Token temporário inválido ou expirado.');
 		}
 
-		const user = await UserModel.findById(payload.userId).select(
-			'+twoFactorSecret +twoFactorFailedAttempts +twoFactorFirstFailedAttemptAt'
-		);
+		const projection = [
+			'+twoFactorSecret +twoFactorFailedAttempts +twoFactorFirstFailedAttemptAt',
+			extraProjection,
+		]
+			.filter(Boolean)
+			.join(' ');
+
+		const user = await UserModel.findById(payload.userId).select(projection);
 		if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
 			throw new BadRequestException('2FA não configurado para este usuário.');
 		}
@@ -159,32 +367,32 @@ export class TwoFactorService {
 			);
 		}
 
-		const isValid = authenticator.verify({
-			token: code,
-			secret: user.twoFactorSecret,
-		});
+		return { payload, user, attemptState, now };
+	}
 
-		if (!isValid) {
-			const nextState = registerFailedAttempt(attemptState, now);
-			await this.persistAttemptState(user.id, nextState);
+	/**
+	 * Contabiliza uma tentativa errada — de TOTP ou de código de recuperação,
+	 * indiferentemente — e derruba o tempToken quando o limite fecha.
+	 *
+	 * O contador é um só de propósito (`twoFactorFailedAttempts`): os dois
+	 * endpoints são caminhos alternativos para o mesmo segundo fator, e um
+	 * contador por endpoint dobraria o orçamento do atacante.
+	 */
+	private async registerFailure(
+		userId: string,
+		attemptState: TwoFactorAttemptState,
+		now: Date,
+		token: { tempToken: string; exp?: number }
+	): Promise<void> {
+		const nextState = registerFailedAttempt(attemptState, now);
+		await this.persistAttemptState(userId, nextState);
 
-			if (hasReachedLimit(nextState)) {
-				await this.revokeTempToken(tempToken, payload.exp);
-				throw new UnauthorizedException(
-					'Muitas tentativas de verificação. Faça login novamente.'
-				);
-			}
-
-			throw new UnauthorizedException('Código 2FA inválido ou expirado.');
+		if (hasReachedLimit(nextState)) {
+			await this.revokeTempToken(token.tempToken, token.exp);
+			throw new UnauthorizedException(
+				'Muitas tentativas de verificação. Faça login novamente.'
+			);
 		}
-
-		// Acerto zera a contagem: a janela existe para conter automacao, nao
-		// para punir quem digitou errado uma vez e acertou depois.
-		await this.persistAttemptState(user.id, clearedAttemptState());
-
-		return this.authenticationService.issueSessionTokens(
-			user as unknown as SessionUser
-		);
 	}
 
 	/**
