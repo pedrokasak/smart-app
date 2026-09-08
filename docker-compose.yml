@@ -23,8 +23,18 @@ services:
       MONGO_INITDB_ROOT_PASSWORD: ${MONGO_INITDB_ROOT_PASSWORD}
     volumes:
       - mongodb_data:/data/db
+    # Bind explicito em 127.0.0.1: a aplicacao alcanca o banco pela rede
+    # interna do compose (host `mongo`), e a porta no host existe so para
+    # ferramenta local — Compass, mongosh, dump.
+    #
+    # `"27017:27017"` publicava em 0.0.0.0. Publicar porta no Docker NAO
+    # respeita o ufw: as regras entram na cadeia DOCKER do iptables, avaliada
+    # antes das do ufw. Um `ufw deny 27017` no host nao fechava nada, e o
+    # banco respondia para a internet com apenas a senha de root na frente.
+    #
+    # Mesmo motivo pelo qual o redis abaixo nao publica porta nenhuma.
     ports:
-      - "27017:27017"
+      - "127.0.0.1:27017:27017"
 
   # Fila duravel de eventos (TRA-136). Sidecar no proprio VPS do Coolify:
   # aqui o custo e RAM, nao assinatura de servico gerenciado.
