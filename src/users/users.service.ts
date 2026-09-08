@@ -20,6 +20,7 @@ import {
 	RAG_ERASURE,
 	RagErasurePort,
 } from 'src/users/application/rag-erasure.port';
+import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
 
 @Injectable()
 export class UsersService {
@@ -30,7 +31,8 @@ export class UsersService {
 		private readonly emailService: EmailService,
 		private readonly passwordSecurityService: PasswordSecurityService,
 		@Inject(RAG_ERASURE)
-		private readonly ragErasure: RagErasurePort
+		private readonly ragErasure: RagErasurePort,
+		private readonly breachedPasswordPolicy: BreachedPasswordPolicy
 	) {}
 	async create(createUserDto: CreateUserDto) {
 		try {
@@ -46,6 +48,12 @@ export class UsersService {
 			if (password !== confirmPassword) {
 				throw AuthErrorService.handleInvalidConfirmPassword();
 			}
+
+			// TRK-012 (ASVS 5.0 6.2.12). Antes do Argon2id de proposito: nao
+			// faz sentido gastar 64 MiB derivando o hash de uma senha que vai
+			// ser recusada. Falha aberta se a checagem nao concluir — ver
+			// `BreachedPasswordPolicy`.
+			await this.breachedPasswordPolicy.assertNotBreached(password);
 
 			const hashedPassword =
 				await this.passwordSecurityService.hashPassword(password);

@@ -7,6 +7,11 @@ import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { urlDevelopment, urlProduction } from 'src/env';
+import {
+	SWAGGER_DOCS_PATH,
+	buildCspMiddleware,
+	isCspReportOnly,
+} from 'src/security/http/content-security-policy';
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule, {
@@ -24,10 +29,17 @@ async function bootstrap() {
 	// (TRA-89). `1` = confia apenas no salto imediatamente à frente.
 	app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
-	// Cabeçalhos de segurança. CSP fica desligada de propósito: esta API só
-	// serve JSON e o Swagger, e uma política mal calibrada aqui quebraria a
-	// UI do Swagger sem proteger nada que já não seja JSON.
+	// Cabeçalhos de segurança. O CSP sai daqui e entra logo abaixo, com
+	// política própria por rota (TRK-009) — `helmet()` continua respondendo
+	// por HSTS, nosniff, referrer-policy e companhia.
 	app.use(helmet({ contentSecurityPolicy: false }));
+
+	// CSP (TRK-009). Report-only por padrão; `CSP_REPORT_ONLY=false` promove
+	// para enforce sem mexer em código. A política das rotas JSON é
+	// `default-src 'none'` — uma API que não renderiza nada não precisa
+	// carregar nada. O Swagger recebe a sua, mais frouxa, escopada no path
+	// dele; ver `content-security-policy.ts` para o porquê de cada diretiva.
+	app.use(buildCspMiddleware(isCspReportOnly()));
 
 	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
 	app.use(bodyParser.json({ limit: '1mb' }));
@@ -100,6 +112,8 @@ function setupSwagger(app: Parameters<typeof SwaggerModule.setup>[1]): void {
 		.build();
 
 	const document = SwaggerModule.createDocument(app, configSwagger);
-	SwaggerModule.setup('api', app, document);
+	// Mesma constante que o CSP usa para escapar da política apertada
+	// (TRK-009). Se o path mudar aqui, a política do Swagger acompanha.
+	SwaggerModule.setup(SWAGGER_DOCS_PATH, app, document);
 }
 bootstrap();

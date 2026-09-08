@@ -7,6 +7,7 @@ import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.servi
 import { EmailService } from 'src/notifications/email/email.service';
 import { UserModel } from 'src/users/schema/user.model';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
+import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
 
 jest.mock('src/users/schema/user.model', () => {
 	// `updateOne(...)` no serviço é encadeado como `.exec()` (Mongoose), então
@@ -40,6 +41,10 @@ describe('AuthenticationService', () => {
 		sendPasswordResetEmail: jest.fn(),
 	};
 
+	const mockBreachedPasswordPolicy = {
+		assertNotBreached: jest.fn().mockResolvedValue(undefined),
+	};
+
 	const mockPasswordSecurityService = {
 		hashPassword: jest.fn(),
 		verifyPassword: jest.fn(),
@@ -56,6 +61,13 @@ describe('AuthenticationService', () => {
 				{
 					provide: PasswordSecurityService,
 					useValue: mockPasswordSecurityService,
+				},
+				// TRK-012: dependencia nova de `updatePassword`/`resetPassword`.
+				// Stub que sempre aprova — os testes de veredito da politica
+				// moram em `breached-password.policy.spec.ts`.
+				{
+					provide: BreachedPasswordPolicy,
+					useValue: mockBreachedPasswordPolicy,
 				},
 			],
 		}).compile();

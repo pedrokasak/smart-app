@@ -5,6 +5,7 @@ import { JwtService } from '@nestjs/jwt';
 import { authenticator } from 'otplib';
 import { TwoFactorService } from './two-factor.service';
 import { AuthenticationService } from 'src/authentication/authentication.service';
+import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { EmailService } from 'src/notifications/email/email.service';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
@@ -114,6 +115,13 @@ describe('TwoFactorService — códigos de recuperação', () => {
 				{
 					provide: PasswordSecurityService,
 					useValue: mockPasswordSecurityService,
+				},
+				// Dublê so para satisfazer a injecao do AuthenticationService real:
+				// nenhum caminho de codigo de recuperacao passa pela politica de
+				// senha vazada.
+				{
+					provide: BreachedPasswordPolicy,
+					useValue: { assertNotBreached: jest.fn() },
 				},
 			],
 		}).compile();
