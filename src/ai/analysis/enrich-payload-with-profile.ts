@@ -22,6 +22,20 @@ export interface ProfileEnrichedPayload extends Record<string, unknown> {
 	profile_source?: InvestorSophisticationProfile['source'];
 }
 
+/**
+ * Campos que só o servidor preenche.
+ *
+ * Numa lista nomeada de propósito: acrescentar um campo de perfil no futuro
+ * não pode depender de alguém lembrar de removê-lo do corpo do cliente
+ * também.
+ */
+const SERVER_CONTROLLED_FIELDS = [
+	'sophistication',
+	'risk_profile',
+	'profile_confidence',
+	'profile_source',
+] as const;
+
 export function enrichPayloadWithProfile(params: {
 	body: Record<string, unknown>;
 	userId: string;
@@ -29,16 +43,13 @@ export function enrichPayloadWithProfile(params: {
 }): ProfileEnrichedPayload {
 	const { body, userId, profile } = params;
 
-	// Campos controlados pelo servidor. Removidos do corpo do cliente antes de
-	// qualquer coisa, para que um cliente desatualizado (ou malicioso) não
-	// consiga ditá-los por omissão nossa.
-	const {
-		sophistication: _ignoredSophistication,
-		risk_profile: _ignoredRiskProfile,
-		profile_confidence: _ignoredConfidence,
-		profile_source: _ignoredSource,
-		...clientControlled
-	} = body;
+	// Descarta o que o cliente tentou ditar antes de qualquer coisa, para que um
+	// cliente desatualizado (ou malicioso) não consiga preenchê-los por omissão
+	// nossa.
+	const clientControlled: Record<string, unknown> = { ...body };
+	for (const field of SERVER_CONTROLLED_FIELDS) {
+		delete clientControlled[field];
+	}
 
 	const payload: ProfileEnrichedPayload = {
 		...clientControlled,
