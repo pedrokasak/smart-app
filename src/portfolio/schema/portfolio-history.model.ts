@@ -4,7 +4,19 @@ export interface PortfolioHistory extends Document {
 	portfolioId: ObjectId;
 	userId: ObjectId;
 	date: string; // Formato YYYY-MM-DD para o dia correspondente
+	/** Posição a preço de mercado no dia. */
 	totalValue: number;
+	/**
+	 * Custo de aquisição acumulado. Até TRA-143 este número ocupava o lugar de
+	 * `totalValue` — o snapshot somava `asset.total`, que é quantity * custo, e
+	 * por isso a série saía reta. Separados, a diferença entre os dois é
+	 * retorno não realizado.
+	 */
+	investedValue?: number;
+	/** true quando algum ativo caiu para o custo por falta de cotação. */
+	stale?: boolean;
+	/** Símbolos sem cotação no momento do snapshot. */
+	staleSymbols?: string[];
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -31,6 +43,23 @@ export const portfolioHistorySchema = new Schema<PortfolioHistory>(
 			type: Number,
 			required: true,
 			min: 0,
+		},
+		// Opcionais para não invalidar os snapshots já gravados (CLAUDE.md §9).
+		// Ausência significa "snapshot anterior a TRA-143", que é informação
+		// útil: aqueles pontos são custo, não valor de mercado.
+		investedValue: {
+			type: Number,
+			required: false,
+			min: 0,
+		},
+		stale: {
+			type: Boolean,
+			required: false,
+		},
+		staleSymbols: {
+			type: [String],
+			required: false,
+			default: undefined,
 		},
 	},
 	{

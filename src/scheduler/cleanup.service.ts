@@ -23,10 +23,25 @@ export class CleanupService {
 	}
 
 	// Snapshot diário do histórico de TODOS os portfólios, para que os
-	// gráficos de período (1M/3M/...) tenham uma curva contínua crescente
-	// mesmo em dias sem upload/manual. Sem isto, o histórico só cresce quando
-	// o usuário adiciona/atualiza um ativo (addAssetToPortfolio) ou re-upa.
-	@Cron('30 0 * * *') // 00:30 diário, após a limpeza de tokens (00:00)
+	// gráficos de período (1M/3M/...) tenham uma curva contínua mesmo em dias
+	// sem upload/manual. Sem isto, o histórico só cresce quando o usuário
+	// adiciona/atualiza um ativo (addAssetToPortfolio) ou re-upa.
+	//
+	// Horário e fuso corrigidos em TRA-143. Dois problemas coexistiam:
+	//
+	// 1. Era o ÚNICO @Cron do projeto sem `timeZone`, enquanto todos os outros
+	//    declaram America/Sao_Paulo e não há TZ global. Num servidor UTC,
+	//    `30 0 * * *` cai às 21:30 do dia ANTERIOR em São Paulo — e a data do
+	//    snapshot (`toISOString`, UTC) ficava um dia à frente do pregão que
+	//    ele de fato refletia.
+	//
+	// 2. Rodava antes do refresh de cotação das 00:00, então usava a cotação
+	//    das 18:00 do dia anterior. Às 19:30 o pregão já fechou (incluindo
+	//    after-market) e o refresh das 18:00 já gravou o fechamento do dia.
+	@Cron('30 19 * * *', {
+		name: 'portfolio-daily-snapshot',
+		timeZone: 'America/Sao_Paulo',
+	})
 	async recordDailyPortfolioSnapshots() {
 		this.logger.debug('Registrando snapshots diários de portfólio...');
 		try {

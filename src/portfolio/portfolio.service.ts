@@ -2,6 +2,7 @@ import {
 	Injectable,
 	ForbiddenException,
 	NotFoundException,
+	Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -12,9 +13,12 @@ import { UpdatePortfolioDto } from 'src/portfolio/dto/update-portfolio.dto';
 import { PortfolioEnrichService } from 'src/portfolio/portfolio-enrich.service';
 import { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import { PortfolioHistory } from 'src/portfolio/schema/portfolio-history.model';
+import { computePortfolioSnapshot } from 'src/portfolio/history/compute-snapshot';
 
 @Injectable()
 export class PortfolioService {
+	private readonly logger = new Logger(PortfolioService.name);
+
 	constructor(
 		@InjectModel('Portfolio') private portfolioModel: Model<Portfolio>,
 		@InjectModel('PortfolioHistory')
@@ -121,10 +125,12 @@ export class PortfolioService {
 		if (!portfolio) return;
 
 		const assets = portfolio.assets as unknown as Asset[];
-		const totalValue = assets.reduce(
-			(acc, asset) => acc + (asset.total || 0),
-			0
-		);
+
+		// Antes: `assets.reduce((acc, a) => acc + (a.total || 0), 0)`.
+		// `asset.total` é `quantity * costBasis`, não valor de mercado — a série
+		// gravava custo todo dia e por isso saía reta (TRA-143). O resto do
+		// código já valorizava por `currentPrice`; só o snapshot não.
+		const snapshot = computePortfolioSnapshot(assets);
 
 		const snapshotDate = date || new Date().toISOString().split('T')[0];
 
@@ -132,10 +138,19 @@ export class PortfolioService {
 			{ portfolioId, date: snapshotDate },
 			{
 				userId: portfolio.userId,
-				totalValue,
+				totalValue: snapshot.totalValue,
+				investedValue: snapshot.investedValue,
+				stale: snapshot.stale,
+				staleSymbols: snapshot.staleSymbols,
 			},
 			{ upsert: true, new: true }
 		);
+
+		if (snapshot.stale) {
+			this.logger.warn(
+				`Snapshot ${snapshotDate} do portfólio ${portfolioId} sem cotação para: ${snapshot.staleSymbols.join(', ')}`
+			);
+		}
 	}
 
 	/**
