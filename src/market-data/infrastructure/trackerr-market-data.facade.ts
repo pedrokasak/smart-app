@@ -4,6 +4,7 @@ import {
 	B3MarketDataProviderPort,
 } from 'src/market-data/application/b3-market-data-provider.port';
 import {
+	DailyClose,
 	MarketAssetSnapshot,
 	MarketAssetType,
 	MarketDataProviderPort,
@@ -44,6 +45,23 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 		return snapshots.filter(
 			(snapshot): snapshot is MarketAssetSnapshot => !!snapshot
 		);
+	}
+
+	/**
+	 * Fechamentos diários, para beta e tracking error (TRA-141).
+	 *
+	 * Devolve `[]` em qualquer falha — a fonte é rate-limited e uma métrica
+	 * indisponível é melhor que uma exceção derrubando a rota de retornos.
+	 */
+	async getDailyCloses(symbol: string, range: string): Promise<DailyClose[]> {
+		try {
+			return await this.stockService.getDailyCloses(symbol, range);
+		} catch (error: any) {
+			this.logger.warn(
+				`getDailyCloses(${symbol}, ${range}) falhou: ${error?.message || 'unknown_error'}`
+			);
+			return [];
+		}
 	}
 
 	async getAssetSnapshot(symbol: string): Promise<MarketAssetSnapshot | null> {

@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { PortfolioHistory } from 'src/portfolio/schema/portfolio-history.model';
@@ -6,12 +6,21 @@ import { TradeDocument } from 'src/fiscal/schema/trade.model';
 import { computeDailyCashFlows } from 'src/portfolio/history/cash-flows';
 import {
 	annualize,
+	computeDailyReturns,
 	computeTwr,
 	computeXirr,
 	decomposeContribution,
 	type DailyValuePoint,
 	type IrrCashFlow,
 } from 'src/portfolio/history/returns';
+import {
+	closesToReturns,
+	computeBenchmarkMetrics,
+} from 'src/portfolio/history/benchmark-metrics';
+import {
+	MARKET_DATA_PROVIDER,
+	type MarketDataProviderPort,
+} from 'src/market-data/application/market-data-provider.port';
 
 /**
  * Monta os retornos da carteira a partir da série diária e das negociações
@@ -36,6 +45,17 @@ export interface PortfolioReturnsOutput {
 	/** Retorno ponderado pelo dinheiro: qual foi o retorno do SEU capital. */
 	irr: number | null;
 	/**
+	 * Sensibilidade e aderência ao IBOV (TRA-141). Voltaram a existir quando
+	 * TRA-143 corrigiu a série diária; antes disso eram `'—'` fixo na tela.
+	 */
+	benchmark: {
+		symbol: string;
+		beta: number | null;
+		trackingError: number | null;
+		correlation: number | null;
+		observations: number;
+	};
+	/**
 	 * Por que algum número não pôde ser calculado. Vazio quando tudo saiu.
 	 * Preferimos declarar a lacuna a devolver número confiante e errado.
 	 */
@@ -43,6 +63,11 @@ export interface PortfolioReturnsOutput {
 	/** Dias da série que não tinham cotação para todos os ativos. */
 	staleDays: number;
 }
+
+/** Índice de referência do mercado brasileiro no Yahoo. */
+const BENCHMARK_SYMBOL = '^BVSP';
+/** Janela pedida ao provedor. Um ano cobre os 252 pregões da anualização. */
+const BENCHMARK_RANGE = '1y';
 
 @Injectable()
 export class PortfolioReturnsService {
@@ -52,7 +77,9 @@ export class PortfolioReturnsService {
 		@InjectModel('PortfolioHistory')
 		private readonly historyModel: Model<PortfolioHistory>,
 		@InjectModel('Trade')
-		private readonly tradeModel: Model<TradeDocument>
+		private readonly tradeModel: Model<TradeDocument>,
+		@Inject(MARKET_DATA_PROVIDER)
+		private readonly marketData: MarketDataProviderPort
 	) {}
 
 	async getReturns(
@@ -159,6 +186,25 @@ export class PortfolioReturnsService {
 			if (irr === null) unavailable.push('irr_not_solvable');
 		}
 
+		// Beta e tracking error contra o IBOV (TRA-141). Os retornos da carteira
+		// vêm ajustados por fluxo: sem isso o beta mediria o calendário de
+		// aportes do usuário em vez da sensibilidade ao índice.
+		const { returns: portfolioReturns } = computeDailyReturns({
+			series,
+			flows: flows.byDay,
+		});
+		const benchmarkCloses = await this.marketData.getDailyCloses(
+			BENCHMARK_SYMBOL,
+			BENCHMARK_RANGE
+		);
+		const benchmarkMetrics = computeBenchmarkMetrics(
+			portfolioReturns,
+			closesToReturns(benchmarkCloses)
+		);
+		if (benchmarkMetrics.unavailable) {
+			unavailable.push(`benchmark_${benchmarkMetrics.unavailable}`);
+		}
+
 		return {
 			from,
 			to,
@@ -169,6 +215,13 @@ export class PortfolioReturnsService {
 				periods: twrResult.periods,
 			},
 			irr,
+			benchmark: {
+				symbol: BENCHMARK_SYMBOL,
+				beta: benchmarkMetrics.beta,
+				trackingError: benchmarkMetrics.trackingError,
+				correlation: benchmarkMetrics.correlation,
+				observations: benchmarkMetrics.observations,
+			},
 			unavailable,
 			staleDays,
 		};

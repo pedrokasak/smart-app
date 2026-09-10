@@ -26,6 +26,28 @@ export class StockService implements StockRepository {
 		private readonly yahooFinance: YahooFinanceAdapter
 	) {}
 
+	/**
+	 * Série de fechamentos diários em YYYY-MM-DD, para métricas que exigem
+	 * retornos pareados dia-a-dia — beta e tracking error contra o IBOV
+	 * (`^BVSP`) em TRA-141.
+	 *
+	 * O adapter devolve epoch em segundos; a conversão para dia acontece aqui
+	 * para que quem consome trabalhe na mesma chave de data usada pela série da
+	 * carteira (`PortfolioHistory.date`).
+	 */
+	async getDailyCloses(
+		symbol: string,
+		range: string
+	): Promise<{ date: string; close: number }[]> {
+		const points = await this.yahooFinance.getHistory(symbol, 'stock', range);
+		return (points || [])
+			.filter((point) => Number.isFinite(point?.close) && point.close > 0)
+			.map((point) => ({
+				date: new Date(point.date * 1000).toISOString().slice(0, 10),
+				close: point.close,
+			}));
+	}
+
 	private isMissing(
 		value: unknown,
 		options?: { zeroIsMissing?: boolean }
