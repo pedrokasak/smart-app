@@ -97,29 +97,41 @@ export function decomposeContribution(params: {
  * Dias sem valor inicial positivo são pulados, não zerados: uma carteira que
  * ainda não existia não teve retorno -100%, ela não teve retorno nenhum.
  */
-export function computeTwr(params: {
+export interface DatedReturn {
+	/** YYYY-MM-DD */
+	date: string;
+	/** Retorno do dia, em fração. */
+	value: number;
+}
+
+/**
+ * Retornos diários da carteira, ajustados por fluxo.
+ *
+ * O ajuste é o mesmo do TWR e existe pelo mesmo motivo: sem ele um aporte
+ * aparece como um dia de alta enorme. Num retorno acumulado isso infla o
+ * número; em covariância com índice, destrói a medida — o beta passaria a
+ * medir o calendário de aportes do usuário, não a sensibilidade da carteira.
+ *
+ * Por isso `computeBeta` e `computeTrackingError` consomem esta função em vez
+ * de derivar retorno da variação bruta do valor.
+ */
+export function computeDailyReturns(params: {
 	series: DailyValuePoint[];
 	flows: DailyCashFlow[];
-	/** Excluir fim de semana e feriado. Padrão: true. */
 	tradingDaysOnly?: boolean;
-}): TwrResult {
+}): { returns: DatedReturn[]; skipped: number } {
 	const tradingDaysOnly = params.tradingDaysOnly !== false;
 
 	const series = [...(params.series || [])]
 		.filter((point) => (tradingDaysOnly ? point.tradingDay !== false : true))
 		.sort((a, b) => a.date.localeCompare(b.date));
 
-	if (series.length < 2) {
-		return { twr: null, periods: 0, skipped: 0 };
-	}
-
 	const flowByDay = new Map<string, number>();
 	for (const flow of params.flows || []) {
 		flowByDay.set(flow.date, (flowByDay.get(flow.date) || 0) + flow.flow);
 	}
 
-	let growth = 1;
-	let periods = 0;
+	const returns: DatedReturn[] = [];
 	let skipped = 0;
 
 	for (let i = 1; i < series.length; i += 1) {
@@ -133,17 +145,33 @@ export function computeTwr(params: {
 
 		// Fluxo no fim do dia: o aporte de hoje não rendeu hoje.
 		const flow = flowByDay.get(series[i].date) || 0;
-		const periodReturn = (current - flow) / previous - 1;
-
-		growth *= 1 + periodReturn;
-		periods += 1;
+		returns.push({
+			date: series[i].date,
+			value: (current - flow) / previous - 1,
+		});
 	}
 
-	if (periods === 0) {
+	return { returns, skipped };
+}
+
+export function computeTwr(params: {
+	series: DailyValuePoint[];
+	flows: DailyCashFlow[];
+	/** Excluir fim de semana e feriado. Padrão: true. */
+	tradingDaysOnly?: boolean;
+}): TwrResult {
+	const { returns, skipped } = computeDailyReturns(params);
+
+	if (returns.length === 0) {
 		return { twr: null, periods: 0, skipped };
 	}
 
-	return { twr: round6(growth - 1), periods, skipped };
+	let growth = 1;
+	for (const point of returns) {
+		growth *= 1 + point.value;
+	}
+
+	return { twr: round6(growth - 1), periods: returns.length, skipped };
 }
 
 /** Anualiza um retorno acumulado observado em `days` dias corridos. */

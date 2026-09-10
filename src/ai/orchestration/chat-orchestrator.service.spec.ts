@@ -27,6 +27,7 @@ describe('ChatOrchestratorService', () => {
 
 	const mockMarketDataProvider: MarketDataProviderPort = {
 		getAssetSnapshot: jest.fn(),
+		getDailyCloses: jest.fn().mockResolvedValue([]),
 		getManyAssetSnapshots: jest.fn(),
 	};
 

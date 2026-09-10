@@ -48,9 +48,24 @@ export interface MarketAssetSnapshot {
 	};
 }
 
+/** Fechamento diário de um símbolo. `date` em YYYY-MM-DD. */
+export interface DailyClose {
+	date: string;
+	close: number;
+}
+
 export interface MarketDataProviderPort {
 	getAssetSnapshot(symbol: string): Promise<MarketAssetSnapshot | null>;
 	getManyAssetSnapshots(symbols: string[]): Promise<MarketAssetSnapshot[]>;
+	/**
+	 * Série de fechamentos diários, para métricas que exigem retornos pareados
+	 * dia-a-dia — beta e tracking error contra índice (TRA-141).
+	 *
+	 * Devolve `[]` quando a fonte não tem o símbolo ou está indisponível: quem
+	 * consome decide se a métrica fica indisponível, em vez de receber exceção
+	 * no meio de um cálculo.
+	 */
+	getDailyCloses(symbol: string, range: string): Promise<DailyClose[]>;
 }
 
 export const MARKET_DATA_PROVIDER = Symbol('MARKET_DATA_PROVIDER');

@@ -206,6 +206,7 @@ describe('Chat routing eval (TRA-75)', () => {
 
 	const mockMarketDataProvider: MarketDataProviderPort = {
 		getAssetSnapshot: jest.fn(),
+		getDailyCloses: jest.fn().mockResolvedValue([]),
 		getManyAssetSnapshots: jest.fn(),
 	};
 
