@@ -119,7 +119,10 @@ export function backfillSeries(params: {
 
 			if (trade.side === 'buy') {
 				quantityBySymbol.set(trade.symbol, currentQty + trade.quantity);
-				costBySymbol.set(trade.symbol, currentCost + trade.quantity * trade.price);
+				costBySymbol.set(
+					trade.symbol,
+					currentCost + trade.quantity * trade.price
+				);
 			} else {
 				// Venda reduz a posição pelo custo médio, não pelo preço de venda:
 				// o custo que sai é o custo das cotas vendidas.
@@ -155,7 +158,8 @@ export function backfillSeries(params: {
 				totalValue += quantity * carried;
 			} else {
 				// Nunca houve cotação: vale o custo médio pago.
-				const avg = quantity > 0 ? (costBySymbol.get(symbol) ?? 0) / quantity : 0;
+				const avg =
+					quantity > 0 ? (costBySymbol.get(symbol) ?? 0) / quantity : 0;
 				totalValue += quantity * avg;
 			}
 			if (!staleSymbols.includes(symbol)) staleSymbols.push(symbol);

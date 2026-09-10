@@ -32,7 +32,12 @@ describe('cash-flows', () => {
 
 		it('ignora negocio sem quantidade', () => {
 			expect(
-				tradeCashFlow({ side: 'buy', quantity: 0, price: 30, date: '2025-01-10' })
+				tradeCashFlow({
+					side: 'buy',
+					quantity: 0,
+					price: 30,
+					date: '2025-01-10',
+				})
 			).toBe(0);
 		});
 	});

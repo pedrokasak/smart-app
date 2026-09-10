@@ -1,6 +1,8 @@
 import { backfillSeries, PriceLookup } from './backfill-series';
 
-const prices = (entries: Record<string, Record<string, number>>): PriceLookup => {
+const prices = (
+	entries: Record<string, Record<string, number>>
+): PriceLookup => {
 	const lookup: PriceLookup = new Map();
 	for (const [symbol, byDay] of Object.entries(entries)) {
 		lookup.set(symbol, new Map(Object.entries(byDay)));
@@ -14,7 +16,13 @@ describe('backfillSeries', () => {
 	it('valoriza ao fechamento real de cada dia, nao ao ultimo negociado', () => {
 		const result = backfillSeries({
 			trades: [
-				{ symbol: 'PETR4', side: 'buy', quantity: 100, price: 30, date: '2025-06-10' },
+				{
+					symbol: 'PETR4',
+					side: 'buy',
+					quantity: 100,
+					price: 30,
+					date: '2025-06-10',
+				},
 			],
 			prices: prices({
 				PETR4: {
@@ -29,13 +37,21 @@ describe('backfillSeries', () => {
 		expect(result.covered).toBe(true);
 		expect(result.points.map((p) => p.totalValue)).toEqual([3000, 3300, 3100]);
 		// Custo nao se move com o mercado.
-		expect(result.points.map((p) => p.investedValue)).toEqual([3000, 3000, 3000]);
+		expect(result.points.map((p) => p.investedValue)).toEqual([
+			3000, 3000, 3000,
+		]);
 	});
 
 	it('marca o ponto e o simbolo quando falta cotacao no dia', () => {
 		const result = backfillSeries({
 			trades: [
-				{ symbol: 'PETR4', side: 'buy', quantity: 100, price: 30, date: '2025-06-10' },
+				{
+					symbol: 'PETR4',
+					side: 'buy',
+					quantity: 100,
+					price: 30,
+					date: '2025-06-10',
+				},
 			],
 			prices: prices({ PETR4: { '2025-06-10': 30, '2025-06-12': 31 } }),
 			until: '2025-06-12',
@@ -53,7 +69,13 @@ describe('backfillSeries', () => {
 	it('marca fim de semana e feriado como dia sem pregao', () => {
 		const result = backfillSeries({
 			trades: [
-				{ symbol: 'PETR4', side: 'buy', quantity: 10, price: 30, date: '2025-06-06' },
+				{
+					symbol: 'PETR4',
+					side: 'buy',
+					quantity: 10,
+					price: 30,
+					date: '2025-06-06',
+				},
 			],
 			prices: prices({ PETR4: { '2025-06-06': 30 } }),
 			until: '2025-06-09',
@@ -69,8 +91,20 @@ describe('backfillSeries', () => {
 	it('reduz o custo pelo preco medio na venda, nao pelo preco de venda', () => {
 		const result = backfillSeries({
 			trades: [
-				{ symbol: 'PETR4', side: 'buy', quantity: 100, price: 30, date: '2025-06-10' },
-				{ symbol: 'PETR4', side: 'sell', quantity: 50, price: 50, date: '2025-06-11' },
+				{
+					symbol: 'PETR4',
+					side: 'buy',
+					quantity: 100,
+					price: 30,
+					date: '2025-06-10',
+				},
+				{
+					symbol: 'PETR4',
+					side: 'sell',
+					quantity: 50,
+					price: 50,
+					date: '2025-06-11',
+				},
 			],
 			prices: prices({ PETR4: { '2025-06-10': 30, '2025-06-11': 50 } }),
 			until: '2025-06-11',
@@ -85,8 +119,20 @@ describe('backfillSeries', () => {
 	it('nao deixa posicao negativa quando a venda excede o historico', () => {
 		const result = backfillSeries({
 			trades: [
-				{ symbol: 'PETR4', side: 'buy', quantity: 10, price: 30, date: '2025-06-10' },
-				{ symbol: 'PETR4', side: 'sell', quantity: 50, price: 40, date: '2025-06-11' },
+				{
+					symbol: 'PETR4',
+					side: 'buy',
+					quantity: 10,
+					price: 30,
+					date: '2025-06-10',
+				},
+				{
+					symbol: 'PETR4',
+					side: 'sell',
+					quantity: 50,
+					price: 40,
+					date: '2025-06-11',
+				},
 			],
 			prices: prices({ PETR4: { '2025-06-10': 30, '2025-06-11': 40 } }),
 			until: '2025-06-11',
@@ -100,8 +146,20 @@ describe('backfillSeries', () => {
 	it('soma varios simbolos no mesmo dia', () => {
 		const result = backfillSeries({
 			trades: [
-				{ symbol: 'PETR4', side: 'buy', quantity: 100, price: 30, date: '2025-06-10' },
-				{ symbol: 'VALE3', side: 'buy', quantity: 10, price: 60, date: '2025-06-10' },
+				{
+					symbol: 'PETR4',
+					side: 'buy',
+					quantity: 100,
+					price: 30,
+					date: '2025-06-10',
+				},
+				{
+					symbol: 'VALE3',
+					side: 'buy',
+					quantity: 10,
+					price: 60,
+					date: '2025-06-10',
+				},
 			],
 			prices: prices({
 				PETR4: { '2025-06-10': 32 },
@@ -117,7 +175,11 @@ describe('backfillSeries', () => {
 	// Carteira manual sem nota importada: projetar a posicao de hoje para tras
 	// seria ficcao, do mesmo tipo que motivou remover o preco-alvo (TRA-55).
 	it('recusa reconstruir sem negociacao, em vez de inventar posicao', () => {
-		const result = backfillSeries({ trades: [], prices: prices({}), until: '2025-06-10' });
+		const result = backfillSeries({
+			trades: [],
+			prices: prices({}),
+			until: '2025-06-10',
+		});
 
 		expect(result.covered).toBe(false);
 		expect(result.points).toEqual([]);
@@ -126,7 +188,13 @@ describe('backfillSeries', () => {
 	it('valoriza pelo custo medio quando o simbolo nunca teve cotacao', () => {
 		const result = backfillSeries({
 			trades: [
-				{ symbol: 'XPTO11', side: 'buy', quantity: 10, price: 100, date: '2025-06-10' },
+				{
+					symbol: 'XPTO11',
+					side: 'buy',
+					quantity: 10,
+					price: 100,
+					date: '2025-06-10',
+				},
 			],
 			prices: prices({}),
 			until: '2025-06-10',

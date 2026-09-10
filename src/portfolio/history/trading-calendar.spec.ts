@@ -84,8 +84,9 @@ describe('trading-calendar', () => {
 	// O motivo do modulo existir: um mes com 30 pontos onde so ~21 sao pregao
 	// dilui desvio-padrao e retorno por construcao.
 	it('conta os pregoes de um mes corretamente', () => {
-		const june2025 = Array.from({ length: 30 }, (_, i) =>
-			`2025-06-${String(i + 1).padStart(2, '0')}`
+		const june2025 = Array.from(
+			{ length: 30 },
+			(_, i) => `2025-06-${String(i + 1).padStart(2, '0')}`
 		);
 		const tradingDays = june2025.filter(isTradingDay);
 

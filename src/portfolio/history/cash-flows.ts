@@ -72,9 +72,7 @@ export function tradeCashFlow(trade: CashFlowTrade): number {
 	return trade.side === 'buy' ? gross + fees : -(gross - fees);
 }
 
-export function computeDailyCashFlows(
-	trades: CashFlowTrade[]
-): CashFlowSeries {
+export function computeDailyCashFlows(trades: CashFlowTrade[]): CashFlowSeries {
 	const byDayMap = new Map<string, number>();
 	let netContribution = 0;
 	let counted = 0;

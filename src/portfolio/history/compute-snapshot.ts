@@ -75,7 +75,8 @@ export function computePortfolioSnapshot(
 		pricedAssets += 1;
 
 		const quote = asset?.currentPrice;
-		const hasQuote = typeof quote === 'number' && Number.isFinite(quote) && quote > 0;
+		const hasQuote =
+			typeof quote === 'number' && Number.isFinite(quote) && quote > 0;
 
 		if (hasQuote) {
 			totalValue += quantity * (quote as number);
