@@ -49,6 +49,7 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 import { InvestorSophisticationProfile } from 'src/intelligence/application/investor-profile/investor-profile.types';
 import { InvestorProfileOverrideDto } from './dto/investor-profile-override.dto';
+import { enrichPayloadWithProfile } from './analysis/enrich-payload-with-profile';
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
 import { AppendChatMessageRequestDto } from 'src/ai/chat-history/dto/append-chat-message-request.dto';
 import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
@@ -101,12 +102,23 @@ export class AiController {
 			throw new UnauthorizedException('User ID ausente no token');
 		}
 
-		// Monta o payload completo para o trakker-ia
-		// O frontend pode enviar o portfólio já formatado; completamos com o userId
-		const payload = {
-			...body,
-			user_id: body.user_id || userId,
-		};
+		// Monta o payload completo para o trakker-ia. O frontend pode enviar o
+		// portfólio já formatado; o servidor completa com userId e com o perfil
+		// do investidor (TRA-142).
+		//
+		// O perfil é best-effort: se a leitura falhar, a análise continua sem os
+		// campos de perfil em vez de derrubar a requisição inteira. O texto sai
+		// menos personalizado, não sai errado.
+		let profile: InvestorSophisticationProfile | null = null;
+		try {
+			profile = await this.investorProfileService.getEffectiveProfile(userId);
+		} catch (error: any) {
+			this.logger.warn(
+				`analyze: perfil de investidor indisponível para ${userId}: ${error?.message || 'unknown_error'}`
+			);
+		}
+
+		const payload = enrichPayloadWithProfile({ body, userId, profile });
 
 		return this.aiService.analyzePortfolio(payload);
 	}
