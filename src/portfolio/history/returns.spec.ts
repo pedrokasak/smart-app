@@ -148,7 +148,11 @@ describe('computeTwr', () => {
 
 	it('ordena a serie antes de encadear', () => {
 		const result = computeTwr({
-			series: [trading('2025-06-12', 1210), trading('2025-06-10', 1000), trading('2025-06-11', 1100)],
+			series: [
+				trading('2025-06-12', 1210),
+				trading('2025-06-10', 1000),
+				trading('2025-06-11', 1100),
+			],
 			flows: [],
 		});
 

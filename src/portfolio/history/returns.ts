@@ -87,8 +87,7 @@ export function decomposeContribution(params: {
 		marketGain: round2(marketGain),
 		// Retirada líquida maior que o valor atual torna a base negativa e a
 		// porcentagem sem sentido — melhor não reportar do que reportar torto.
-		marketGainPct:
-			contributed > 0 ? round6(marketGain / contributed) : null,
+		marketGainPct: contributed > 0 ? round6(marketGain / contributed) : null,
 	};
 }
 
@@ -107,9 +106,7 @@ export function computeTwr(params: {
 	const tradingDaysOnly = params.tradingDaysOnly !== false;
 
 	const series = [...(params.series || [])]
-		.filter((point) =>
-			tradingDaysOnly ? point.tradingDay !== false : true
-		)
+		.filter((point) => (tradingDaysOnly ? point.tradingDay !== false : true))
 		.sort((a, b) => a.date.localeCompare(b.date));
 
 	if (series.length < 2) {
@@ -173,7 +170,8 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 function npv(rate: number, flows: IrrCashFlow[], start: number): number {
 	let total = 0;
 	for (const flow of flows) {
-		const days = (new Date(`${flow.date}T00:00:00.000Z`).getTime() - start) / MS_PER_DAY;
+		const days =
+			(new Date(`${flow.date}T00:00:00.000Z`).getTime() - start) / MS_PER_DAY;
 		total += flow.amount / Math.pow(1 + rate, days / 365);
 	}
 	return total;
