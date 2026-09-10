@@ -14,6 +14,7 @@ import { PortfolioEnrichService } from 'src/portfolio/portfolio-enrich.service';
 import { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import { PortfolioHistory } from 'src/portfolio/schema/portfolio-history.model';
 import { computePortfolioSnapshot } from 'src/portfolio/history/compute-snapshot';
+import { nonTradingReason } from 'src/portfolio/history/trading-calendar';
 
 @Injectable()
 export class PortfolioService {
@@ -134,6 +135,11 @@ export class PortfolioService {
 
 		const snapshotDate = date || new Date().toISOString().split('T')[0];
 
+		// Fim de semana e feriado geram snapshot igual ao do pregão anterior.
+		// Marcar permite ao gráfico manter a linha contínua e ao cálculo de
+		// volatilidade/beta usar só os pregões (TRA-143).
+		const reason = nonTradingReason(snapshotDate);
+
 		await this.portfolioHistoryModel.findOneAndUpdate(
 			{ portfolioId, date: snapshotDate },
 			{
@@ -142,6 +148,8 @@ export class PortfolioService {
 				investedValue: snapshot.investedValue,
 				stale: snapshot.stale,
 				staleSymbols: snapshot.staleSymbols,
+				tradingDay: reason === null,
+				nonTradingReason: reason ?? undefined,
 			},
 			{ upsert: true, new: true }
 		);

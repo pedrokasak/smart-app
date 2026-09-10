@@ -17,6 +17,14 @@ export interface PortfolioHistory extends Document {
 	stale?: boolean;
 	/** Símbolos sem cotação no momento do snapshot. */
 	staleSymbols?: string[];
+	/**
+	 * false em fim de semana e feriado. O snapshot roda todo dia, e nesses dias
+	 * a cotação não muda — incluí-los em volatilidade ou retorno dilui a
+	 * variação por construção (um mês de 30 pontos com ~21 pregões).
+	 */
+	tradingDay?: boolean;
+	/** Por que não houve pregão, quando `tradingDay` é false. */
+	nonTradingReason?: 'weekend' | 'holiday';
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -60,6 +68,15 @@ export const portfolioHistorySchema = new Schema<PortfolioHistory>(
 			type: [String],
 			required: false,
 			default: undefined,
+		},
+		tradingDay: {
+			type: Boolean,
+			required: false,
+		},
+		nonTradingReason: {
+			type: String,
+			enum: ['weekend', 'holiday'],
+			required: false,
 		},
 	},
 	{
