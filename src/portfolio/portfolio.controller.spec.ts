@@ -4,6 +4,7 @@ import { PortfolioController } from './portfolio.controller';
 import { PortfolioService } from './portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
+import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 
 jest.mock('src/authentication/jwt-auth.guard', () => ({
@@ -41,6 +42,10 @@ describe('PortfolioController', () => {
 		findCurrentSubscriptionByUser: jest.fn(),
 	};
 
+	const mockPortfolioReturnsService = {
+		getReturns: jest.fn(),
+	};
+
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
 			controllers: [PortfolioController],
@@ -56,6 +61,10 @@ describe('PortfolioController', () => {
 				{
 					provide: SubscriptionService,
 					useValue: mockSubscriptionService,
+				},
+				{
+					provide: PortfolioReturnsService,
+					useValue: mockPortfolioReturnsService,
 				},
 			],
 		}).compile();

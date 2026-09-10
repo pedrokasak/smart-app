@@ -8,6 +8,7 @@ import {
 	Post,
 	Put,
 	Delete,
+	Query,
 	Req,
 	UseGuards,
 	UseInterceptors,
@@ -26,6 +27,7 @@ import { UpdatePortfolioDto } from 'src/portfolio/dto/update-portfolio.dto';
 import { PortfolioResponseDto } from 'src/portfolio/dto/portfolio-response.dto';
 import { PortfolioWithAssetsDto } from 'src/portfolio/dto/portfolio-with-assets.dto';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
@@ -59,7 +61,8 @@ export class PortfolioController {
 	constructor(
 		private portfolioService: PortfolioService,
 		private assetService: AssetsService,
-		private subscriptionService: SubscriptionService
+		private subscriptionService: SubscriptionService,
+		private portfolioReturnsService: PortfolioReturnsService
 	) {}
 
 	@Post('create')
@@ -252,6 +255,25 @@ export class PortfolioController {
 			totalAssets: allAssets.length,
 			portfolios: portfolios.length,
 		};
+	}
+
+	/**
+	 * GET /portfolio/returns
+	 *
+	 * Responde "fui bem, ou só coloquei mais dinheiro?" — pergunta que o P&L a
+	 * custo médio nunca respondeu (TRA-146).
+	 *
+	 * Declarada ANTES de `@Get(':id')` de propósito: o Nest casa por ordem, e
+	 * `:id` engoliria `/returns`.
+	 */
+	@Get('returns')
+	async getReturns(
+		@Req() req: any,
+		@Query('from') from?: string,
+		@Query('to') to?: string
+	) {
+		const userId = resolveUserId(req);
+		return this.portfolioReturnsService.getReturns(userId, { from, to });
 	}
 
 	@Get(':id')

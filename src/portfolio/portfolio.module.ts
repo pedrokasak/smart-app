@@ -16,6 +16,8 @@ import { portfolioSchema } from 'src/portfolio/schema/portfolio.model';
 import { portfolioHistorySchema } from 'src/portfolio/schema/portfolio-history.model';
 
 import { SubscriptionModule } from 'src/subscription/subscription.module';
+import { tradeSchema } from 'src/fiscal/schema/trade.model';
+import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 
 @Module({
 	imports: [
@@ -27,6 +29,13 @@ import { SubscriptionModule } from 'src/subscription/subscription.module';
 			{
 				name: 'PortfolioHistory',
 				schema: portfolioHistorySchema,
+			},
+			// Negociações são lidas para derivar fluxo de caixa (TRA-146).
+			// Registradas localmente em vez de importar o FiscalModule inteiro —
+			// mesmo padrão já usado por privacy.module.ts (CLAUDE.md §11).
+			{
+				name: 'Trade',
+				schema: tradeSchema,
 			},
 		]),
 		HttpModule,
@@ -48,8 +57,13 @@ import { SubscriptionModule } from 'src/subscription/subscription.module';
 		PortfolioService,
 		PortfolioEnrichService,
 		PortfolioIntelligenceService,
+		PortfolioReturnsService,
 	],
 	controllers: [PortfolioController],
-	exports: [PortfolioService, PortfolioIntelligenceService],
+	exports: [
+		PortfolioService,
+		PortfolioIntelligenceService,
+		PortfolioReturnsService,
+	],
 })
 export class PortfolioModule {}
