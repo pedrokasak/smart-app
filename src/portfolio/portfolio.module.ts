@@ -16,6 +16,8 @@ import { portfolioSchema } from 'src/portfolio/schema/portfolio.model';
 import { portfolioHistorySchema } from 'src/portfolio/schema/portfolio-history.model';
 
 import { SubscriptionModule } from 'src/subscription/subscription.module';
+import { TargetAllocationModule } from 'src/portfolio/target-allocation/target-allocation.module';
+import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
 import { tradeSchema } from 'src/fiscal/schema/trade.model';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 
@@ -41,6 +43,9 @@ import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns
 		HttpModule,
 		forwardRef(() => AssetsModule),
 		SubscriptionModule,
+		// Exporta TargetAllocationService e não importa PortfolioModule de
+		// volta, então a dependência é de mão única — sem ciclo.
+		TargetAllocationModule,
 		MarketDataModule,
 	],
 	providers: [
@@ -58,12 +63,14 @@ import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns
 		PortfolioEnrichService,
 		PortfolioIntelligenceService,
 		PortfolioReturnsService,
+		PortfolioCompositionService,
 	],
 	controllers: [PortfolioController],
 	exports: [
 		PortfolioService,
 		PortfolioIntelligenceService,
 		PortfolioReturnsService,
+		PortfolioCompositionService,
 	],
 })
 export class PortfolioModule {}
