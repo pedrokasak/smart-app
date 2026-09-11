@@ -29,6 +29,10 @@ import { AiAnalysisRequestDto } from './dto/ai-analysis-request.dto';
 import { FutureSimulatorRequestDto } from './dto/future-simulator-request.dto';
 import { IntelligentChatRequestDto } from './intelligence/dto/intelligent-chat-request.dto';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
+import {
+	buildAnswerSources,
+	computeAnswerConfidence,
+} from './orchestration/answer-confidence';
 import { RagColdStartService } from 'src/ai/rag-ingestion/application/rag-cold-start.service';
 import { ChatOrchestratorResponse } from './orchestration/chat-orchestrator.types';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
@@ -230,6 +234,20 @@ export class AiController {
 				unavailable: orchestration.unavailable,
 				warnings: orchestration.warnings,
 				assumptions: orchestration.assumptions,
+				// "confiança 92%" e chips de fonte da bolha do handoff (TRA-141).
+				// Este endpoint não passa pelo RAG: toda resposta aqui é
+				// determinística, e a confiança mede a cobertura do dado.
+				confidence: computeAnswerConfidence({
+					routeType: orchestration.route.type,
+					routeReason: orchestration.route.reason,
+					unavailable: orchestration.unavailable,
+					assumptions: orchestration.assumptions,
+				}),
+				sources: buildAnswerSources({
+					intent: orchestration.intent,
+					positionsCount: orchestration.context?.positionsCount ?? 0,
+					data: orchestration.data,
+				}),
 			};
 		} catch (error: any) {
 			this.logger.error(
