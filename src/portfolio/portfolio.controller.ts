@@ -28,6 +28,7 @@ import { PortfolioResponseDto } from 'src/portfolio/dto/portfolio-response.dto';
 import { PortfolioWithAssetsDto } from 'src/portfolio/dto/portfolio-with-assets.dto';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
+import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
@@ -62,7 +63,8 @@ export class PortfolioController {
 		private portfolioService: PortfolioService,
 		private assetService: AssetsService,
 		private subscriptionService: SubscriptionService,
-		private portfolioReturnsService: PortfolioReturnsService
+		private portfolioReturnsService: PortfolioReturnsService,
+		private portfolioCompositionService: PortfolioCompositionService
 	) {}
 
 	@Post('create')
@@ -274,6 +276,23 @@ export class PortfolioController {
 	) {
 		const userId = resolveUserId(req);
 		return this.portfolioReturnsService.getReturns(userId, { from, to });
+	}
+
+	/**
+	 * GET /portfolio/composition
+	 *
+	 * Retrato da carteira hoje: quanto rende sobre o que foi pago (yield on
+	 * cost) e quão longe está da política-alvo (TRA-141).
+	 *
+	 * Separada de `/returns` porque aquilo é rentabilidade no tempo — juntar
+	 * faria uma resposta que muda por dois motivos independentes.
+	 *
+	 * Também antes de `@Get(':id')`, pelo mesmo motivo de ordem de rotas.
+	 */
+	@Get('composition')
+	async getComposition(@Req() req: any) {
+		const userId = resolveUserId(req);
+		return this.portfolioCompositionService.getComposition(userId);
 	}
 
 	@Get(':id')
