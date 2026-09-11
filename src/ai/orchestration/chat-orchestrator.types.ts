@@ -19,6 +19,12 @@ export type ChatOrchestratorIntent =
 	| 'narrative_synthesis'
 	| 'external_asset_question'
 	| 'market_screening'
+	// Análises do prompt avançado do Copiloto no handoff (TRA-141).
+	| 'correlation_matrix'
+	| 'return_attribution'
+	// Pedido quantitativo que o produto ainda não calcula. Responder com recusa
+	// honesta em vez de deixar o LLM inventar VaR por fator ou carry fiscal.
+	| 'unsupported_quant_analysis'
 	| 'unknown';
 
 export type ChatRouteType = 'deterministic_no_llm' | 'synthesis_required';
@@ -73,6 +79,8 @@ export interface ChatOrchestratorResponse {
 		rebalancePlan?: unknown;
 		personalizedInsights?: unknown;
 		investmentCommittee?: unknown;
+		correlationMatrix?: unknown;
+		returnAttribution?: unknown;
 	};
 	unavailable: string[];
 	warnings: string[];

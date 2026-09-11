@@ -181,6 +181,121 @@ describe('ChatOrchestratorService', () => {
 		});
 	});
 
+	/**
+	 * Prompts avançados do Copiloto no handoff (TRA-141). "Matriz de
+	 * correlação" e "Atribuição de retorno 12M" viram cálculo determinístico;
+	 * "Decompor o VaR por fator" e "Otimizar carry fiscal até dez" viram
+	 * recusa honesta — nada de LLM improvisando número.
+	 */
+	describe('prompts avançados do Copiloto', () => {
+		const businessCloses = (returns: number[]) => {
+			const out: { date: string; close: number }[] = [];
+			const cursor = new Date(Date.UTC(2025, 0, 6));
+			let price = 100;
+			let index = -1;
+			while (out.length < returns.length + 1) {
+				const weekday = cursor.getUTCDay();
+				if (weekday !== 0 && weekday !== 6) {
+					if (index >= 0) price = price * (1 + returns[index]);
+					out.push({ date: cursor.toISOString().slice(0, 10), close: price });
+					index += 1;
+				}
+				cursor.setUTCDate(cursor.getUTCDate() + 1);
+			}
+			return out;
+		};
+		const wave = Array.from({ length: 40 }, (_, i) =>
+			i % 2 === 0 ? 0.01 : -0.008
+		);
+
+		it('calcula a matriz de correlação com as posições listadas', async () => {
+			(mockMarketDataProvider.getDailyCloses as jest.Mock).mockResolvedValue(
+				businessCloses(wave)
+			);
+
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Matriz de correlação'
+			);
+
+			expect(response.intent).toBe('correlation_matrix');
+			expect(response.route.type).toBe('deterministic_no_llm');
+			expect(response.route.reason).toBe('rules_resolved');
+			expect((response.data.correlationMatrix as any).symbols).toEqual([
+				'ITUB4',
+				'XPLG11',
+			]);
+			expect(mockMarketDataProvider.getDailyCloses).toHaveBeenCalledWith(
+				'ITUB4',
+				'1y'
+			);
+		});
+
+		it('declara indisponível quando falta histórico', async () => {
+			(mockMarketDataProvider.getDailyCloses as jest.Mock).mockResolvedValue(
+				[]
+			);
+
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Matriz de correlação'
+			);
+
+			expect(response.route.reason).toBe('insufficient_structured_data');
+			expect(response.unavailable).toContain(
+				'correlation_requires_two_listed_assets'
+			);
+		});
+
+		it('atribui retorno 12M e declara a premissa', async () => {
+			(mockMarketDataProvider.getDailyCloses as jest.Mock).mockResolvedValue(
+				businessCloses(wave)
+			);
+
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Atribuição de retorno 12M'
+			);
+
+			expect(response.intent).toBe('return_attribution');
+			expect((response.data.returnAttribution as any).rows).toHaveLength(2);
+			expect(response.assumptions).toContain(
+				'attribution_buy_and_hold_current_quantities'
+			);
+		});
+
+		it.each(['Decompor o VaR por fator', 'Otimizar carry fiscal até dez'])(
+			'recusa com honestidade: %s',
+			async (question) => {
+				const response = await makeService().orchestrate('user-1', question);
+
+				expect(response.intent).toBe('unsupported_quant_analysis');
+				expect(response.route.reason).toBe('capability_not_available');
+				expect(response.data).toEqual({});
+			}
+		);
+
+		// Antes: o verbo "comparar" levava para asset_comparison, que pede dois
+		// tickers e respondia sem dado.
+		it('leva "Comparar com o IBOV" para o benchmark', async () => {
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Comparar com o IBOV'
+			);
+
+			expect(response.intent).toBe('benchmark_simple');
+		});
+
+		it('não confunde "variação" com VaR', async () => {
+			const response = await makeService().orchestrate(
+				'user-1',
+				'qual a variação da minha carteira?'
+			);
+
+			expect(response.intent).not.toBe('unsupported_quant_analysis');
+		});
+	});
+
 	it('routes portfolio summary intent deterministically', async () => {
 		(mockUnifiedFacade.getPortfolioSummary as jest.Mock).mockReturnValue({
 			totalValue: 1500,
