@@ -3,6 +3,8 @@ export class AssetResponseDto {
 	portfolioId: string;
 	symbol: string;
 	name?: string;
+	/** Setor econômico; `null` quando desconhecido ou não aplicável (TRA-144). */
+	sector?: string | null;
 	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
 	quantity: number;
 	price: number;
