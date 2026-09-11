@@ -499,6 +499,23 @@ export class AiController {
 		};
 		const signedPp = (fraction: number) =>
 			signedPct(fraction).replace('%', ' p.p.');
+		const ptBr1 = (value: number) =>
+			Number(value).toLocaleString('pt-BR', {
+				minimumFractionDigits: 1,
+				maximumFractionDigits: 1,
+			});
+		const money = (value: number) =>
+			new Intl.NumberFormat('pt-BR', {
+				style: 'currency',
+				currency: 'BRL',
+				maximumFractionDigits: 0,
+			}).format(Number(value) || 0);
+		const BUCKET_LABEL: Record<string, string> = {
+			stocks: 'Ações',
+			crypto: 'Cripto',
+			fiis: 'FIIs',
+			other: 'Outros',
+		};
 
 		switch (response.intent) {
 			case 'correlation_matrix': {
@@ -549,6 +566,71 @@ export class AiController {
 				msg +=
 					' Aportes e vendas feitos no período não entram nesta conta — para o retorno que você teve de fato, veja a rentabilidade (TWR).';
 				return msg;
+			}
+			case 'allocation_gap': {
+				const rebalancing = (data as any)?.rebalancing;
+				if (!rebalancing?.hasTarget) {
+					return 'Você ainda não definiu uma meta de alocação. Configure a política de investimento para eu medir onde a carteira está fora do alvo.';
+				}
+				const offTarget = (rebalancing.buckets || [])
+					.filter((bucket: any) => Math.abs(Number(bucket.gapPct)) > 0.05)
+					.sort((a: any, b: any) => Math.abs(b.gapPct) - Math.abs(a.gapPct));
+				if (!offTarget.length) {
+					return 'Sua carteira está alinhada à meta de alocação. Nenhuma classe está fora do alvo.';
+				}
+				const lines = offTarget.map((bucket: any) => {
+					// Convenção do handoff: atual − alvo. Positivo = acima da meta.
+					const deviation = -Number(bucket.gapPct) / 100;
+					const action = bucket.gapPct < 0 ? 'reduzir' : 'comprar';
+					return `${BUCKET_LABEL[bucket.bucket] || bucket.bucket}: ${signedPp(deviation)} (${action} ${money(Math.abs(bucket.amount))})`;
+				});
+				return `Onde a carteira está fora do alvo:\n${lines.join('\n')}`;
+			}
+			case 'contribution_simulation': {
+				const simulation = (data as any)?.contributionSimulation;
+				if (!(data as any)?.rebalancing?.hasTarget) {
+					return 'Para simular o aporte preciso da sua meta de alocação. Configure a política de investimento e pergunte de novo.';
+				}
+				if (!simulation) {
+					return 'Qual o valor do aporte? Por exemplo: "Simular aporte de R$ 20k".';
+				}
+				const lines = (simulation.slices || []).map(
+					(slice: any) =>
+						`${BUCKET_LABEL[slice.bucket] || slice.bucket}: ${money(slice.amount)}`
+				);
+				return `Para aportar ${money(simulation.contribution)} sem vender nada:\n${lines.join('\n')}\nO desvio total da meta cai de ${ptBr1(simulation.driftBeforePct)} p.p. para ${ptBr1(simulation.driftAfterPct)} p.p.`;
+			}
+			case 'dividends_received': {
+				const received = (data as any)?.dividendsReceived;
+				if (!received) {
+					return 'Ainda não tenho o histórico de proventos dos seus ativos. Ele é carregado junto com as cotações — tente de novo mais tarde.';
+				}
+				let msg = `Nos últimos 12 meses seus ativos pagaram cerca de ${money(received.total12m)} em proventos.`;
+				const payers: any[] = received.topPayers || [];
+				if (payers.length) {
+					msg += ` Quem mais pagou: ${payers
+						.map((payer) => `${payer.symbol} (${money(payer.amount)})`)
+						.join(', ')}.`;
+				}
+				// A premissa é dita, não deixada implícita.
+				msg +=
+					' A conta usa a quantidade que você tem hoje; se comprou parte das cotas no meio do período, o valor real recebido é menor.';
+				return msg;
+			}
+			case 'action_checklist': {
+				const checklist = (data as any)?.actionChecklist;
+				const items: any[] = checklist?.items || [];
+				if (!items.length) {
+					return 'Nada exige ação hoje. Sua carteira está dentro da meta e sem concentração relevante em um único ativo.';
+				}
+				const lines = items.map((item) => {
+					const detail = JSON.parse(item.detail || '{}');
+					if (item.kind === 'rebalance') {
+						return `• ${BUCKET_LABEL[detail.bucket] || detail.bucket} está ${signedPp(detail.deviationPp / 100)} fora da meta — rebalanceamento de ${money(detail.amount)}.`;
+					}
+					return `• ${detail.symbol} responde por ${ptBr1(detail.weightPct)}% da carteira — uma notícia dessa empresa mexe no resultado inteiro.`;
+				});
+				return `Pontos de atenção, sem urgência de mercado:\n${lines.join('\n')}`;
 			}
 			case 'unsupported_quant_analysis': {
 				return 'Ainda não calculo VaR decomposto por fator nem otimização de carry fiscal. Posso mostrar o risco e a concentração da carteira, a correlação entre as posições ou a atribuição de retorno dos últimos 12 meses.';

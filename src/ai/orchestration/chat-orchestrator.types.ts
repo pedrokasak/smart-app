@@ -25,6 +25,12 @@ export type ChatOrchestratorIntent =
 	// Pedido quantitativo que o produto ainda não calcula. Responder com recusa
 	// honesta em vez de deixar o LLM inventar VaR por fator ou carry fiscal.
 	| 'unsupported_quant_analysis'
+	// Prompts dos níveis iniciante/intermediário no handoff que caíam no LLM
+	// genérico por falta de rota (TRA-141).
+	| 'allocation_gap'
+	| 'contribution_simulation'
+	| 'dividends_received'
+	| 'action_checklist'
 	| 'unknown';
 
 export type ChatRouteType = 'deterministic_no_llm' | 'synthesis_required';
@@ -81,6 +87,10 @@ export interface ChatOrchestratorResponse {
 		investmentCommittee?: unknown;
 		correlationMatrix?: unknown;
 		returnAttribution?: unknown;
+		rebalancing?: unknown;
+		contributionSimulation?: unknown;
+		dividendsReceived?: unknown;
+		actionChecklist?: unknown;
 	};
 	unavailable: string[];
 	warnings: string[];

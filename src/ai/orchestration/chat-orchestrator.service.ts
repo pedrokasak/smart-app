@@ -21,6 +21,11 @@ import {
 } from 'src/market-data/application/market-data-provider.port';
 import { computeCorrelationMatrix } from 'src/portfolio/history/asset-correlation';
 import { computeReturnAttribution } from 'src/portfolio/history/return-attribution';
+import {
+	allocateContribution,
+	parseContributionAmount,
+} from 'src/portfolio/composition/contribution-allocation';
+import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
@@ -78,6 +83,7 @@ export class ChatOrchestratorService {
 		private readonly stockService: StockService,
 		@Inject(USER_PLAN_RESOLVER)
 		private readonly userPlanResolver: UserPlanResolverPort,
+		private readonly compositionService: PortfolioCompositionService,
 		@Optional()
 		@Inject(RI_DOCUMENT_QUERY)
 		private readonly riDocumentQuery?: RiDocumentQueryPort
@@ -1036,6 +1042,158 @@ export class ChatOrchestratorService {
 			});
 		}
 
+		// Prompts dos níveis base do handoff (TRA-141): respondem com o que
+		// `/portfolio/composition` já calcula, em vez de LLM genérico.
+		if (
+			intent === 'allocation_gap' ||
+			intent === 'contribution_simulation' ||
+			intent === 'dividends_received' ||
+			intent === 'action_checklist'
+		) {
+			const composition = await this.compositionService.getComposition(userId);
+			const { rebalancing } = composition;
+
+			if (intent === 'dividends_received') {
+				const yieldResult = composition.yield;
+				if (composition.unavailable.includes('dividend_history_missing')) {
+					unavailable.push('dividend_history_missing');
+					return this.finish(env, {
+						routeType: 'deterministic_no_llm',
+						routeReason: 'insufficient_structured_data',
+						data: {},
+					});
+				}
+				// `dividendHistory` guarda provento POR COTA; o total vem da
+				// quantidade de hoje. Quem comprou no meio do ano vê a mais —
+				// dito, não escondido.
+				assumptions.push('dividends_estimated_from_current_quantity');
+				const quantityBySymbol = new Map(
+					positions.map((position) => [
+						this.normalizeTicker(position.symbol),
+						position.quantity,
+					])
+				);
+				const topPayers = yieldResult.assets
+					.map((asset) => ({
+						symbol: asset.symbol,
+						amount: Number(
+							(
+								asset.dividendsPerShare *
+								(quantityBySymbol.get(this.normalizeTicker(asset.symbol)) || 0)
+							).toFixed(2)
+						),
+					}))
+					.filter((payer) => payer.amount > 0)
+					.sort((a, b) => b.amount - a.amount)
+					.slice(0, 3);
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: 'rules_resolved',
+					data: {
+						dividendsReceived: {
+							total12m: yieldResult.estimatedAnnualIncome,
+							yieldOnMarket: yieldResult.portfolioYieldOnMarket,
+							yieldOnCost: yieldResult.portfolioYieldOnCost,
+							approximated: yieldResult.approximated,
+							topPayers,
+						},
+					},
+				});
+			}
+
+			if (intent === 'action_checklist') {
+				const portfolioRisk: any =
+					this.unifiedIntelligenceFacade.getPortfolioRiskAnalysis({
+						positions,
+					});
+				const items: Array<{
+					kind: 'rebalance' | 'concentration';
+					title: string;
+					detail: string;
+				}> = [];
+				const gap = rebalancing.largestGap;
+				// Mesmo limiar do card Alocação do handoff (`--warn` acima de 5 p.p.).
+				if (gap && Math.abs(gap.gapPct) > 5) {
+					items.push({
+						kind: 'rebalance',
+						title: `${gap.bucket} fora da meta`,
+						detail: JSON.stringify({
+							bucket: gap.bucket,
+							deviationPp: -gap.gapPct,
+							amount: Math.abs(gap.amount),
+						}),
+					});
+				}
+				const topAsset = portfolioRisk?.concentrationByAsset?.[0];
+				const topWeight = Number(
+					topAsset?.weightPct ?? topAsset?.percentage ?? 0
+				);
+				// 20%: acima disso uma notícia de uma empresa só mexe no resultado
+				// inteiro. Limiar fixo até existir limite por ativo na política.
+				if (topWeight >= 20) {
+					items.push({
+						kind: 'concentration',
+						title: `${topAsset?.symbol || topAsset?.key} concentrado`,
+						detail: JSON.stringify({
+							symbol: topAsset?.symbol || topAsset?.key,
+							weightPct: Number(topWeight.toFixed(1)),
+						}),
+					});
+				}
+				if (!rebalancing.hasTarget) {
+					unavailable.push('target_allocation_missing');
+				}
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: 'rules_resolved',
+					data: {
+						actionChecklist: { urgent: items.length > 0, items },
+						rebalancing,
+					},
+				});
+			}
+
+			if (!rebalancing.hasTarget) {
+				unavailable.push('target_allocation_missing');
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: 'insufficient_structured_data',
+					data: { rebalancing },
+				});
+			}
+
+			if (intent === 'allocation_gap') {
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: 'rules_resolved',
+					data: { rebalancing },
+				});
+			}
+
+			const contribution = parseContributionAmount(normalizedQuestion);
+			if (contribution === null) {
+				unavailable.push('contribution_amount_missing');
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: 'insufficient_structured_data',
+					data: { rebalancing },
+				});
+			}
+			assumptions.push('contribution_without_selling');
+			return this.finish(env, {
+				routeType: 'deterministic_no_llm',
+				routeReason: 'rules_resolved',
+				data: {
+					contributionSimulation: allocateContribution({
+						buckets: rebalancing.buckets,
+						totalValue: rebalancing.totalValue,
+						contribution,
+					}),
+					rebalancing,
+				},
+			});
+		}
+
 		if (intent === 'unsupported_quant_analysis') {
 			// Mesmo princípio do screening de mercado: dizer que não calcula é
 			// melhor que deixar o LLM produzir um VaR por fator ou um plano de
@@ -1269,6 +1427,14 @@ export class ChatOrchestratorService {
 		if (intent === 'future_scenario') return 180;
 		if (intent === 'opportunity_radar') return 90;
 		if (intent === 'investment_committee') return 300;
+		// Proventos mudam no máximo uma vez por dia (enriquecimento de mercado).
+		if (intent === 'dividends_received') return 300;
+		if (
+			intent === 'allocation_gap' ||
+			intent === 'contribution_simulation' ||
+			intent === 'action_checklist'
+		)
+			return 60;
 		// Um ano de fechamentos diários: muda uma vez por pregão.
 		if (intent === 'correlation_matrix' || intent === 'return_attribution')
 			return 300;
@@ -1393,6 +1559,32 @@ export class ChatOrchestratorService {
 		) {
 			return 'unsupported_quant_analysis';
 		}
+		// Prompts dos níveis base do handoff (TRA-141). Antes da síntese
+		// narrativa: sem estas regras os quatro caíam em `unknown` e o LLM
+		// respondia sem os números que o produto já tem.
+		if (
+			/\b(fora do alvo|fora da meta|desvio do alvo|desvio da meta|longe da meta|longe do alvo)\b/.test(
+				text
+			)
+		) {
+			return 'allocation_gap';
+		}
+		if (/simul\S* (de |um )?aporte|\baportar\b|\baporte de\b/.test(text)) {
+			return 'contribution_simulation';
+		}
+		if (
+			/\b(recebi|recebido|recebidos|ganhei)\b/.test(text) &&
+			/\b(provento\w*|dividendo\w*|rendimento\w*|jcp)\b/.test(text)
+		) {
+			return 'dividends_received';
+		}
+		if (
+			/\b(preciso fazer algo|fazer algo hoje|algo urgente|o que (eu )?(devo|preciso) fazer)\b/.test(
+				text
+			)
+		) {
+			return 'action_checklist';
+		}
 		// Síntese narrativa (LLM com contexto da carteira):
 		//  - "estratégia" SEMPRE vira narrativa (pedido de análise estratégica,
 		//    mesmo mencionando carteira) — intenção original do orquestrador;
@@ -1459,7 +1651,7 @@ export class ChatOrchestratorService {
 			return 'tax_estimation';
 		}
 		if (
-			/\b(dividendo|dividendos|projecao de dividendos|projeção de dividendos)\b/.test(
+			/\b(dividendo|dividendos|provento|proventos|projecao de dividendos|projeção de dividendos)\b/.test(
 				text
 			)
 		) {
