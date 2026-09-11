@@ -2,6 +2,7 @@ import {
 	Body,
 	Controller,
 	Get,
+	Logger,
 	Post,
 	Query,
 	Req,
@@ -438,15 +439,24 @@ export class FiscalController {
 		]);
 		const portfolioValue = Number(totalPortfolioValue?.[0]?.total || 0);
 
-		let sector = 'setor não identificado';
-		try {
-			const quote = await this.stockService.getNationalQuote(symbol, {
-				fundamental: true,
-				dividends: false,
-			});
-			sector = quote?.results?.[0]?.sector || sector;
-		} catch {
-			// best effort
+		// Setor persistido primeiro (TRA-144). A busca ao vivo com `catch {}`
+		// vazio transformava falha de cotação em "setor não identificado"
+		// exibido como se fosse dado. Ela fica só como fallback para ativo que o
+		// backfill diário ainda não alcançou — e a falha agora é registrada.
+		let sector = asset?.sector || 'setor não identificado';
+		if (!asset?.sector) {
+			try {
+				const quote = await this.stockService.getNationalQuote(symbol, {
+					fundamental: true,
+					dividends: false,
+				});
+				sector = quote?.results?.[0]?.sector || sector;
+			} catch (error: any) {
+				Logger.warn(
+					`Setor de ${symbol} indisponível no sale-preview: ${error?.message || 'unknown_error'}`,
+					'FiscalController'
+				);
+			}
 		}
 
 		const now = new Date();

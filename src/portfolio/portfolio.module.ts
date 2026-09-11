@@ -20,6 +20,7 @@ import { TargetAllocationModule } from 'src/portfolio/target-allocation/target-a
 import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
 import { tradeSchema } from 'src/fiscal/schema/trade.model';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
+import { SectorBackfillScheduler } from 'src/portfolio/sector/sector-backfill.scheduler';
 
 @Module({
 	imports: [
@@ -64,6 +65,11 @@ import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns
 		PortfolioIntelligenceService,
 		PortfolioReturnsService,
 		PortfolioCompositionService,
+
+		// Schedulers
+		// Backfill diário do setor dos ativos existentes (TRA-144): o
+		// enriquecimento só roda ao adicionar ativo, então não alcança a base.
+		SectorBackfillScheduler,
 	],
 	controllers: [PortfolioController],
 	exports: [

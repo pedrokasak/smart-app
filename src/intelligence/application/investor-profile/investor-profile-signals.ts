@@ -34,10 +34,12 @@ export function computeSophistication(
 		input.distinctAssetCount,
 		input.tradesLast12Months
 	);
-	// distinctSectorCount nao gate mais 'experienced': Asset nao tem campo
-	// `sector` persistido hoje (ver PortfolioService.getUserPortfolios), entao
-	// esse sinal fica sempre em 0 em producao. distinctSectorCount continua
-	// calculado e armazenado em signals para fins informativos/auditoria.
+	// distinctSectorCount nao gate 'experienced'. Ele ficava sempre em 0 porque
+	// Asset nao persistia `sector`; TRA-144 passou a persistir (enriquecimento
+	// ao adicionar ativo + backfill diario), entao o sinal agora tem valor real.
+	// Voltar a usa-lo na classificacao muda o nivel de usuarios existentes e e
+	// decisao a parte — por ora segue calculado e guardado em signals para
+	// fins informativos/auditoria.
 	const isExperienced =
 		turnover >= HIGH_TURNOVER_THRESHOLD || input.hasAdvancedInstrument;
 	if (isExperienced) return 'experienced';
