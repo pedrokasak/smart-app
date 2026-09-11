@@ -19,6 +19,8 @@ import {
 	MARKET_DATA_PROVIDER,
 	MarketDataProviderPort,
 } from 'src/market-data/application/market-data-provider.port';
+import { computeCorrelationMatrix } from 'src/portfolio/history/asset-correlation';
+import { computeReturnAttribution } from 'src/portfolio/history/return-attribution';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
@@ -960,6 +962,93 @@ export class ChatOrchestratorService {
 			});
 		}
 
+		// Análises do prompt avançado do Copiloto no handoff (TRA-141).
+		if (intent === 'correlation_matrix' || intent === 'return_attribution') {
+			// Só ativos listados na B3: `getDailyCloses` normaliza o símbolo como
+			// ação no Yahoo, o que daria série errada para cripto. As maiores
+			// posições primeiro, com teto — a fonte é rate-limited e uma matriz
+			// com dezenas de linhas não é legível.
+			const MAX_ANALYTIC_SYMBOLS = 12;
+			const listed = positions
+				.filter(
+					(position) =>
+						position.quantity > 0 &&
+						['stock', 'fii', 'etf'].includes(position.assetType)
+				)
+				.map((position) => ({
+					...position,
+					// Valor de MERCADO, nunca `totalValue` — que vem de `asset.total`,
+					// custo de aquisição.
+					marketValue:
+						position.quantity * (position.currentPrice ?? position.price ?? 0),
+				}))
+				.sort((a, b) => b.marketValue - a.marketValue);
+
+			if (listed.length > MAX_ANALYTIC_SYMBOLS) {
+				warnings.push(
+					`analysis_limited_to_top_${MAX_ANALYTIC_SYMBOLS}_positions`
+				);
+			}
+			const selected = listed.slice(0, MAX_ANALYTIC_SYMBOLS);
+			const closesEntries = await Promise.all(
+				selected.map(
+					async (position) =>
+						[
+							position.symbol,
+							await this.marketDataProvider.getDailyCloses(
+								position.symbol,
+								'1y'
+							),
+						] as const
+				)
+			);
+			const closesBySymbol = Object.fromEntries(closesEntries);
+
+			if (intent === 'correlation_matrix') {
+				const correlationMatrix = computeCorrelationMatrix(closesBySymbol);
+				const enough = correlationMatrix.symbols.length >= 2;
+				if (!enough) {
+					unavailable.push('correlation_requires_two_listed_assets');
+				}
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: enough
+						? 'rules_resolved'
+						: 'insufficient_structured_data',
+					data: { correlationMatrix },
+				});
+			}
+
+			const returnAttribution = computeReturnAttribution({
+				positions: selected,
+				closesBySymbol,
+			});
+			assumptions.push(...returnAttribution.assumptions);
+			if (!returnAttribution.rows.length) {
+				unavailable.push('attribution_requires_price_history');
+			}
+			return this.finish(env, {
+				routeType: 'deterministic_no_llm',
+				routeReason: returnAttribution.rows.length
+					? 'rules_resolved'
+					: 'insufficient_structured_data',
+				data: { returnAttribution },
+			});
+		}
+
+		if (intent === 'unsupported_quant_analysis') {
+			// Mesmo princípio do screening de mercado: dizer que não calcula é
+			// melhor que deixar o LLM produzir um VaR por fator ou um plano de
+			// carry fiscal com a cara de um cálculo real.
+			unavailable.push('quant_analysis_not_available');
+			warnings.push('quant_analysis_requires_unbuilt_model');
+			return this.finish(env, {
+				routeType: 'deterministic_no_llm',
+				routeReason: 'capability_not_available',
+				data: {},
+			});
+		}
+
 		if (intent === 'narrative_synthesis') {
 			// A síntese narrativa precisa do contexto da carteira para o LLM não
 			// responder de forma genérica. Populamos o data com o mesmo resumo
@@ -1180,6 +1269,9 @@ export class ChatOrchestratorService {
 		if (intent === 'future_scenario') return 180;
 		if (intent === 'opportunity_radar') return 90;
 		if (intent === 'investment_committee') return 300;
+		// Um ano de fechamentos diários: muda uma vez por pregão.
+		if (intent === 'correlation_matrix' || intent === 'return_attribution')
+			return 300;
 		if (intent === 'ri_summary' || intent === 'ri_comparison') return 120;
 		if (intent === 'asset_comparison') return 90;
 		if (intent === 'sell_simulation' || intent === 'tax_estimation') return 60;
@@ -1281,6 +1373,26 @@ export class ChatOrchestratorService {
 		) {
 			return 'investment_committee';
 		}
+		// Prompts avançados do Copiloto no handoff (TRA-141). Antes da síntese
+		// narrativa e da comparação: "atribuição de retorno" não pode virar LLM
+		// genérico, e "correlação entre PETR4 e VALE3" não é comparar ativos.
+		if (/\b(correla\w*)\b/.test(text)) {
+			return 'correlation_matrix';
+		}
+		if (
+			/\b(atribui\w*)\b/.test(text) ||
+			/\b(contribui\w*|contribuiu)\b.*\b(retorno|rentabilidade|resultado)\b/.test(
+				text
+			)
+		) {
+			return 'return_attribution';
+		}
+		if (
+			/\b(var|value at risk|carry)\b/.test(text) ||
+			/\bfator(es)? de risco\b/.test(text)
+		) {
+			return 'unsupported_quant_analysis';
+		}
 		// Síntese narrativa (LLM com contexto da carteira):
 		//  - "estratégia" SEMPRE vira narrativa (pedido de análise estratégica,
 		//    mesmo mencionando carteira) — intenção original do orquestrador;
@@ -1321,6 +1433,12 @@ export class ChatOrchestratorService {
 			)
 		) {
 			return 'future_scenario';
+		}
+		// "Comparar com o IBOV" (prompt do handoff) é comparar a CARTEIRA com o
+		// benchmark, não dois ativos. Sem esta ordem o verbo "comparar" levava
+		// para `asset_comparison`, que pede dois tickers e respondia sem dado.
+		if (symbols.length < 2 && /\b(benchmark|cdi|ibov|ibovespa)\b/.test(text)) {
+			return 'benchmark_simple';
 		}
 		if (
 			symbols.length >= 2 ||

@@ -486,7 +486,73 @@ export class AiController {
 			}
 		}
 
+		// Formatação pt-BR dos números das análises do Copiloto (TRA-141).
+		const ptBr2 = (value: number) =>
+			value.toLocaleString('pt-BR', {
+				minimumFractionDigits: 2,
+				maximumFractionDigits: 2,
+			});
+		const signedPct = (fraction: number) => {
+			const pct = fraction * 100;
+			const sign = pct > 0 ? '+' : pct < 0 ? '-' : '';
+			return `${sign}${Math.abs(pct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+		};
+		const signedPp = (fraction: number) =>
+			signedPct(fraction).replace('%', ' p.p.');
+
 		switch (response.intent) {
+			case 'correlation_matrix': {
+				const matrix = (data as any)?.correlationMatrix;
+				const symbols: string[] = matrix?.symbols || [];
+				const missing: string[] = matrix?.missingSymbols || [];
+				if (symbols.length < 2 || matrix?.averageCorrelation == null) {
+					return 'Preciso de pelo menos dois ativos listados na B3 com um ano de histórico de preço para montar a matriz de correlação.';
+				}
+				const average = Number(matrix.averageCorrelation);
+				let msg = `Correlação média entre os ${symbols.length} ativos: ${ptBr2(average)}.`;
+				const high = matrix?.highestPair;
+				const low = matrix?.lowestPair;
+				if (high?.correlation != null) {
+					msg += ` O par que mais anda junto é ${high.a} e ${high.b} (${ptBr2(high.correlation)}).`;
+				}
+				if (low?.correlation != null) {
+					msg += ` O que mais se descola é ${low.a} e ${low.b} (${ptBr2(low.correlation)}).`;
+				}
+				if (average >= 0.6) {
+					msg +=
+						' A carteira se move muito em bloco: a diversificação entre esses ativos é menor do que o número de posições sugere.';
+				} else if (average <= 0.3) {
+					msg +=
+						' Os ativos se movem de forma bastante independente, o que ajuda a amortecer quedas.';
+				}
+				if (missing.length) {
+					msg += ` Sem histórico suficiente para entrar na conta: ${missing.join(', ')}.`;
+				}
+				return msg;
+			}
+			case 'return_attribution': {
+				const attribution = (data as any)?.returnAttribution;
+				const rows: any[] = attribution?.rows || [];
+				if (!rows.length || attribution?.totalReturn == null) {
+					return 'Não encontrei histórico de preço suficiente para atribuir o retorno por ativo nos últimos 12 meses.';
+				}
+				let msg = `Comprando e segurando a carteira de hoje nos últimos 12 meses, o retorno seria de ${signedPct(Number(attribution.totalReturn))}.`;
+				const top = attribution.topContributor;
+				if (top) {
+					msg += ` Quem mais contribuiu foi ${top.symbol} (${signedPp(Number(top.contribution))}).`;
+				}
+				const detractor = attribution.topDetractor;
+				if (detractor) {
+					msg += ` Quem mais tirou foi ${detractor.symbol} (${signedPp(Number(detractor.contribution))}).`;
+				}
+				// A premissa é dita, não deixada implícita.
+				msg +=
+					' Aportes e vendas feitos no período não entram nesta conta — para o retorno que você teve de fato, veja a rentabilidade (TWR).';
+				return msg;
+			}
+			case 'unsupported_quant_analysis': {
+				return 'Ainda não calculo VaR decomposto por fator nem otimização de carry fiscal. Posso mostrar o risco e a concentração da carteira, a correlação entre as posições ou a atribuição de retorno dos últimos 12 meses.';
+			}
 			case 'portfolio_risk': {
 				const riskScore = (data as any)?.portfolioRisk?.risk?.score;
 				const topAsset = (data as any)?.portfolioRisk
