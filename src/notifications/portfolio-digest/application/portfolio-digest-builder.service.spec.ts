@@ -265,7 +265,33 @@ describe('PortfolioDigestBuilderService', () => {
 
 			const facts = await service.build('user-1');
 
-			expect(facts.dividendsReceived).toBe(50);
+			// `value` é provento por cota: 50 × 100 cotas.
+			expect(facts.dividendsReceived).toBe(5000);
+		});
+
+		it('multiplica o provento por cota pela quantidade de cada ativo', async () => {
+			const recent = new Date();
+			recent.setDate(recent.getDate() - 1);
+
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						asset({
+							quantity: 10,
+							dividendHistory: [{ date: recent, value: 1.5 }],
+						}),
+						asset({
+							symbol: 'MXRF11',
+							quantity: 200,
+							dividendHistory: [{ date: recent, value: 0.1 }],
+						}),
+					],
+				},
+			]);
+
+			const facts = await service.build('user-1');
+
+			expect(facts.dividendsReceived).toBe(35);
 		});
 
 		it('devolve null quando nenhum ativo tem dividendHistory', async () => {

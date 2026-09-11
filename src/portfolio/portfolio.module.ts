@@ -24,6 +24,7 @@ import { SectorBackfillScheduler } from 'src/portfolio/sector/sector-backfill.sc
 import { RISK_FREE_RATE_PROVIDER } from 'src/portfolio/returns/risk-free-rate.port';
 import { StockModule } from 'src/stocks/stocks.module';
 import { StockService } from 'src/stocks/stocks.service';
+import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
 
 @Module({
 	imports: [
@@ -72,6 +73,7 @@ import { StockService } from 'src/stocks/stocks.service';
 		PortfolioReturnsService,
 		PortfolioCompositionService,
 		{ provide: RISK_FREE_RATE_PROVIDER, useExisting: StockService },
+		PortfolioRiskContributionService,
 
 		// Schedulers
 		// Backfill diário do setor dos ativos existentes (TRA-144): o
