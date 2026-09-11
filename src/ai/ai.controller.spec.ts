@@ -273,6 +273,12 @@ describe('AiController', () => {
 
 		expect(response.intent).toBe('portfolio_summary');
 		expect(response.data?.portfolioSummary?.totalValue).toBe(1000);
+		// Resposta determinística sem lacuna: confiança alta, base declarada.
+		expect(response.confidence).toEqual({
+			score: 0.95,
+			basis: 'deterministic',
+		});
+		expect(response.sources).toEqual([]);
 		expect(mockChatOrchestratorService.orchestrate).toHaveBeenCalledWith(
 			'user-123',
 			'Resumo da carteira',
