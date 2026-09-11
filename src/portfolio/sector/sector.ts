@@ -33,7 +33,9 @@ const PLACEHOLDERS = new Set([
 	'ND',
 	'NULL',
 	'NONE',
-	'OUTROS',
+	// "Outros" NÃO entra: é um dos setores econômicos da classificação da
+	// B3. Tratá-lo como placeholder deixaria esses ativos sem setor para
+	// sempre e os devolveria ao backfill todo dia, ocupando vaga da rotação.
 ]);
 
 export function isSectorApplicable(assetType?: string | null): boolean {

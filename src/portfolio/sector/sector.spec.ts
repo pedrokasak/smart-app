@@ -55,6 +55,17 @@ describe('toDisplaySector', () => {
 	});
 });
 
+describe('setores reais que parecem placeholder', () => {
+	// "Outros" é um dos setores econômicos da B3. Descartá-lo deixaria esses
+	// ativos sem setor e de volta ao backfill todos os dias.
+	it('mantém "Outros", que é setor da classificação da B3', () => {
+		expect(toDisplaySector('Outros')).toBe('Outros');
+		expect(
+			resolveSectorForStorage({ assetType: 'stock', snapshotSector: 'Outros' })
+		).toBe('Outros');
+	});
+});
+
 describe('resolveSectorForStorage', () => {
 	it('grava o setor de ação na forma de exibição', () => {
 		expect(
