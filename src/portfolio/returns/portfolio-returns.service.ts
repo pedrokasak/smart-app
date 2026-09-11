@@ -21,6 +21,18 @@ import {
 	MARKET_DATA_PROVIDER,
 	type MarketDataProviderPort,
 } from 'src/market-data/application/market-data-provider.port';
+import {
+	computeDrawdown,
+	computeHistoricalVar,
+	computeSharpe,
+	type DrawdownResult,
+	type HistoricalVarResult,
+	type SharpeResult,
+} from 'src/portfolio/history/risk-metrics';
+import {
+	RISK_FREE_RATE_PROVIDER,
+	type RiskFreeRatePort,
+} from './risk-free-rate.port';
 
 /**
  * Monta os retornos da carteira a partir da série diária e das negociações
@@ -54,6 +66,20 @@ export interface PortfolioReturnsOutput {
 		trackingError: number | null;
 		correlation: number | null;
 		observations: number;
+		upBeta: number | null;
+		downBeta: number | null;
+		portfolioReturn: number | null;
+		benchmarkReturn: number | null;
+		alpha: number | null;
+	};
+	/**
+	 * Risco do nível avançado do handoff: Sharpe (rf = CDI), VaR 95% 21d
+	 * histórico e máximo drawdown, todos sobre retorno ajustado por fluxo.
+	 */
+	risk: {
+		sharpe: SharpeResult;
+		valueAtRisk: HistoricalVarResult;
+		drawdown: DrawdownResult;
 	};
 	/**
 	 * Por que algum número não pôde ser calculado. Vazio quando tudo saiu.
@@ -79,8 +105,33 @@ export class PortfolioReturnsService {
 		@InjectModel('Trade')
 		private readonly tradeModel: Model<TradeDocument>,
 		@Inject(MARKET_DATA_PROVIDER)
-		private readonly marketData: MarketDataProviderPort
+		private readonly marketData: MarketDataProviderPort,
+		@Inject(RISK_FREE_RATE_PROVIDER)
+		private readonly riskFreeRate: RiskFreeRatePort
 	) {}
+
+	/** CDI diário em fração, para o período dos retornos. Falha vira série vazia. */
+	private async fetchRiskFreeDaily(
+		from: string | undefined,
+		to: string | undefined
+	): Promise<{ date: string; value: number }[]> {
+		if (!from || !to) return [];
+		try {
+			const { series } = await this.riskFreeRate.getCdiSeries(
+				new Date(`${from}T00:00:00.000Z`),
+				new Date(`${to}T00:00:00.000Z`)
+			);
+			return (series || []).map((point) => ({
+				date: point.date,
+				value: point.value / 100,
+			}));
+		} catch (error) {
+			this.logger.warn(
+				`CDI indisponível para o Sharpe: ${(error as Error)?.message || error}`
+			);
+			return [];
+		}
+	}
 
 	async getReturns(
 		userId: string,
@@ -193,10 +244,13 @@ export class PortfolioReturnsService {
 			series,
 			flows: flows.byDay,
 		});
-		const benchmarkCloses = await this.marketData.getDailyCloses(
-			BENCHMARK_SYMBOL,
-			BENCHMARK_RANGE
-		);
+		const [benchmarkCloses, riskFreeDaily] = await Promise.all([
+			this.marketData.getDailyCloses(BENCHMARK_SYMBOL, BENCHMARK_RANGE),
+			this.fetchRiskFreeDaily(
+				portfolioReturns[0]?.date,
+				portfolioReturns[portfolioReturns.length - 1]?.date
+			),
+		]);
 		const benchmarkMetrics = computeBenchmarkMetrics(
 			portfolioReturns,
 			closesToReturns(benchmarkCloses)
@@ -204,6 +258,16 @@ export class PortfolioReturnsService {
 		if (benchmarkMetrics.unavailable) {
 			unavailable.push(`benchmark_${benchmarkMetrics.unavailable}`);
 		}
+
+		const sharpe = computeSharpe(portfolioReturns, riskFreeDaily);
+		if (sharpe.sharpe === null) unavailable.push('sharpe_insufficient_data');
+		const valueAtRisk = computeHistoricalVar(portfolioReturns, {
+			portfolioValue: currentValue,
+		});
+		if (valueAtRisk.varPct === null) {
+			unavailable.push('var_insufficient_windows');
+		}
+		const drawdown = computeDrawdown(portfolioReturns);
 
 		return {
 			from,
@@ -221,7 +285,13 @@ export class PortfolioReturnsService {
 				trackingError: benchmarkMetrics.trackingError,
 				correlation: benchmarkMetrics.correlation,
 				observations: benchmarkMetrics.observations,
+				upBeta: benchmarkMetrics.upBeta,
+				downBeta: benchmarkMetrics.downBeta,
+				portfolioReturn: benchmarkMetrics.portfolioReturn,
+				benchmarkReturn: benchmarkMetrics.benchmarkReturn,
+				alpha: benchmarkMetrics.alpha,
 			},
+			risk: { sharpe, valueAtRisk, drawdown },
 			unavailable,
 			staleDays,
 		};

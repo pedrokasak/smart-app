@@ -21,6 +21,9 @@ import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio
 import { tradeSchema } from 'src/fiscal/schema/trade.model';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 import { SectorBackfillScheduler } from 'src/portfolio/sector/sector-backfill.scheduler';
+import { RISK_FREE_RATE_PROVIDER } from 'src/portfolio/returns/risk-free-rate.port';
+import { StockModule } from 'src/stocks/stocks.module';
+import { StockService } from 'src/stocks/stocks.service';
 
 @Module({
 	imports: [
@@ -48,6 +51,9 @@ import { SectorBackfillScheduler } from 'src/portfolio/sector/sector-backfill.sc
 		// volta, então a dependência é de mão única — sem ciclo.
 		TargetAllocationModule,
 		MarketDataModule,
+		// Fonte do CDI para o Sharpe (TRA-141). StockModule só importa
+		// HttpModule, então a dependência é de mão única — sem ciclo.
+		StockModule,
 	],
 	providers: [
 		// Adapters
@@ -65,6 +71,7 @@ import { SectorBackfillScheduler } from 'src/portfolio/sector/sector-backfill.sc
 		PortfolioIntelligenceService,
 		PortfolioReturnsService,
 		PortfolioCompositionService,
+		{ provide: RISK_FREE_RATE_PROVIDER, useExisting: StockService },
 
 		// Schedulers
 		// Backfill diário do setor dos ativos existentes (TRA-144): o

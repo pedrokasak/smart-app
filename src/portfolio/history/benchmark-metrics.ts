@@ -38,6 +38,22 @@ export interface BenchmarkMetricsResult {
 	correlation: number | null;
 	/** Dias efetivamente pareados entre as duas séries. */
 	observations: number;
+	/**
+	 * Beta só nos dias de alta / de queda do índice (nota "up 0,88 / down
+	 * 0,61" da barra quant do handoff). Carteira defensiva de verdade tem o
+	 * down menor que o up. `null` com menos de 10 dias em cada lado.
+	 */
+	upBeta: number | null;
+	downBeta: number | null;
+	/** Retorno acumulado da carteira nos dias pareados, em fração. */
+	portfolioReturn: number | null;
+	/** Retorno acumulado do índice nos mesmos dias, em fração. */
+	benchmarkReturn: number | null;
+	/**
+	 * Alpha de Jensen sem taxa livre de risco, como no GLOSSARY do handoff:
+	 * retorno da carteira − beta × retorno do índice.
+	 */
+	alpha: number | null;
 	/** Por que não deu, quando algum resultado é null. */
 	unavailable: 'insufficient_observations' | 'benchmark_no_variance' | null;
 }
@@ -48,6 +64,38 @@ const round6 = (value: number): number => Number(value.toFixed(6));
 
 const mean = (values: number[]): number =>
 	values.reduce((sum, value) => sum + value, 0) / values.length;
+
+/** Metade do mínimo geral: cada lado (alta/queda) tem cerca de metade dos dias. */
+const MIN_SIDE_OBSERVATIONS = MIN_OBSERVATIONS / 2;
+
+/** Beta amostral de `a` contra `b`; `null` sem variação ou com poucos dias. */
+function betaOf(
+	a: number[],
+	b: number[],
+	minObservations: number
+): number | null {
+	if (a.length < minObservations) return null;
+	const meanA = mean(a);
+	const meanB = mean(b);
+	let covariance = 0;
+	let variance = 0;
+	for (let i = 0; i < a.length; i += 1) {
+		covariance += (a[i] - meanA) * (b[i] - meanB);
+		variance += (b[i] - meanB) ** 2;
+	}
+	return variance > 0 ? covariance / variance : null;
+}
+
+const compound = (values: number[]): number =>
+	values.reduce((growth, value) => growth * (1 + value), 1) - 1;
+
+const EMPTY_EXTENDED = {
+	upBeta: null,
+	downBeta: null,
+	portfolioReturn: null,
+	benchmarkReturn: null,
+	alpha: null,
+} as const;
 
 /**
  * Pareia duas séries de retorno por DATA, não por posição.
@@ -107,6 +155,7 @@ export function computeBenchmarkMetrics(
 		trackingError: null,
 		correlation: null,
 		observations,
+		...EMPTY_EXTENDED,
 		unavailable: 'insufficient_observations',
 	};
 
@@ -141,6 +190,7 @@ export function computeBenchmarkMetrics(
 			trackingError: null,
 			correlation: null,
 			observations,
+			...EMPTY_EXTENDED,
 			unavailable: 'benchmark_no_variance',
 		};
 	}
@@ -162,11 +212,33 @@ export function computeBenchmarkMetrics(
 	const correlation =
 		correlationDenominator > 0 ? covariance / correlationDenominator : null;
 
+	const upIndexes = paired.b.flatMap((value, i) => (value > 0 ? [i] : []));
+	const downIndexes = paired.b.flatMap((value, i) => (value < 0 ? [i] : []));
+	const upBeta = betaOf(
+		upIndexes.map((i) => paired.a[i]),
+		upIndexes.map((i) => paired.b[i]),
+		MIN_SIDE_OBSERVATIONS
+	);
+	const downBeta = betaOf(
+		downIndexes.map((i) => paired.a[i]),
+		downIndexes.map((i) => paired.b[i]),
+		MIN_SIDE_OBSERVATIONS
+	);
+
+	const portfolioReturn = compound(paired.a);
+	const benchmarkReturn = compound(paired.b);
+	const alpha = portfolioReturn - beta * benchmarkReturn;
+
 	return {
 		beta: round6(beta),
 		trackingError: round6(trackingError),
 		correlation: correlation === null ? null : round6(correlation),
 		observations,
+		upBeta: upBeta === null ? null : round6(upBeta),
+		downBeta: downBeta === null ? null : round6(downBeta),
+		portfolioReturn: round6(portfolioReturn),
+		benchmarkReturn: round6(benchmarkReturn),
+		alpha: round6(alpha),
 		unavailable: null,
 	};
 }

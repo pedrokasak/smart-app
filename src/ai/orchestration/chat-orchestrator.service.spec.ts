@@ -3,6 +3,7 @@ import { ChatCostObserverPort } from 'src/ai/orchestration/chat-cost-observer.po
 import { ChatResponseCachePort } from 'src/ai/orchestration/chat-response-cache.port';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { MarketDataProviderPort } from 'src/market-data/application/market-data-provider.port';
+import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiDocumentQueryPort } from 'src/ri-intelligence/application/ri-document-query.port';
@@ -64,6 +65,10 @@ describe('ChatOrchestratorService', () => {
 		resolve: jest.fn().mockResolvedValue('free'),
 	} as unknown as UserPlanResolverPort;
 
+	const mockCompositionService = {
+		getComposition: jest.fn(),
+	} as unknown as PortfolioCompositionService;
+
 	const makeService = () =>
 		new ChatOrchestratorService(
 			mockPortfolioService,
@@ -74,6 +79,7 @@ describe('ChatOrchestratorService', () => {
 			mockRiDocumentSummaryService,
 			mockStockService,
 			mockUserPlanResolver,
+			mockCompositionService,
 			mockRiDocumentQuery
 		);
 
@@ -293,6 +299,177 @@ describe('ChatOrchestratorService', () => {
 			);
 
 			expect(response.intent).not.toBe('unsupported_quant_analysis');
+		});
+	});
+
+	/**
+	 * Prompts dos níveis iniciante/intermediário do handoff (TRA-141). Os
+	 * quatro caíam em `unknown` e o LLM respondia sem os números do produto.
+	 */
+	describe('prompts dos níveis base do Copiloto', () => {
+		const composition = (overrides: Record<string, unknown> = {}) => ({
+			yield: {
+				assets: [
+					{
+						symbol: 'ITUB4',
+						dividendsPerShare: 2,
+						yieldOnCost: 0.02,
+						yieldOnMarket: 0.02,
+					},
+					{
+						symbol: 'XPLG11',
+						dividendsPerShare: 10,
+						yieldOnCost: 0.1,
+						yieldOnMarket: 0.1,
+					},
+				],
+				portfolioYieldOnCost: 0.05,
+				portfolioYieldOnMarket: 0.05,
+				estimatedAnnualIncome: 70,
+				approximated: false,
+			},
+			rebalancing: {
+				buckets: [
+					{
+						bucket: 'stocks',
+						currentPct: 60,
+						targetPct: 50,
+						gapPct: -10,
+						amount: -150,
+					},
+					{
+						bucket: 'fiis',
+						currentPct: 40,
+						targetPct: 50,
+						gapPct: 10,
+						amount: 150,
+					},
+				],
+				totalDriftPct: 20,
+				largestGap: {
+					bucket: 'stocks',
+					currentPct: 60,
+					targetPct: 50,
+					gapPct: -10,
+					amount: -150,
+				},
+				hasTarget: true,
+				totalValue: 1500,
+			},
+			unavailable: [],
+			...overrides,
+		});
+
+		beforeEach(() => {
+			(mockCompositionService.getComposition as jest.Mock).mockResolvedValue(
+				composition()
+			);
+			(mockUnifiedFacade.getPortfolioRiskAnalysis as jest.Mock).mockReturnValue(
+				{
+					concentrationByAsset: [{ symbol: 'ITUB4', weightPct: 66.7 }],
+				}
+			);
+		});
+
+		it('responde "Onde estou fora do alvo?" com o desvio da política', async () => {
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Onde estou fora do alvo?'
+			);
+
+			expect(response.intent).toBe('allocation_gap');
+			expect(response.route.reason).toBe('rules_resolved');
+			expect((response.data.rebalancing as any).largestGap.bucket).toBe(
+				'stocks'
+			);
+		});
+
+		it('declara quando não há meta configurada', async () => {
+			(mockCompositionService.getComposition as jest.Mock).mockResolvedValue(
+				composition({
+					rebalancing: {
+						buckets: [],
+						totalDriftPct: 0,
+						largestGap: null,
+						hasTarget: false,
+						totalValue: 1500,
+					},
+				})
+			);
+
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Onde estou fora do alvo?'
+			);
+
+			expect(response.route.reason).toBe('insufficient_structured_data');
+			expect(response.unavailable).toContain('target_allocation_missing');
+		});
+
+		it('simula o aporte pelos baldes abaixo da meta', async () => {
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Simular aporte de R$ 20k'
+			);
+
+			expect(response.intent).toBe('contribution_simulation');
+			const simulation = response.data.contributionSimulation as any;
+			expect(simulation.contribution).toBe(20000);
+			expect(simulation.slices[0].bucket).toBe('fiis');
+			expect(response.assumptions).toContain('contribution_without_selling');
+		});
+
+		it('pede o valor quando o aporte não tem número', async () => {
+			const response = await makeService().orchestrate(
+				'user-1',
+				'quero simular um aporte'
+			);
+
+			expect(response.intent).toBe('contribution_simulation');
+			expect(response.unavailable).toContain('contribution_amount_missing');
+		});
+
+		it('responde proventos recebidos com a premissa declarada', async () => {
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Quanto eu já recebi de proventos?'
+			);
+
+			expect(response.intent).toBe('dividends_received');
+			const received = response.data.dividendsReceived as any;
+			expect(received.total12m).toBe(70);
+			// XPLG11: 10/cota × 5 cotas = 50; ITUB4: 2 × 10 = 20.
+			expect(received.topPayers[0]).toEqual({ symbol: 'XPLG11', amount: 50 });
+			expect(response.assumptions).toContain(
+				'dividends_estimated_from_current_quantity'
+			);
+		});
+
+		it('lista o que exige atenção em "Preciso fazer algo hoje?"', async () => {
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Preciso fazer algo hoje?'
+			);
+
+			expect(response.intent).toBe('action_checklist');
+			const checklist = response.data.actionChecklist as any;
+			expect(checklist.urgent).toBe(true);
+			expect(checklist.items.map((item: any) => item.kind)).toEqual([
+				'rebalance',
+				'concentration',
+			]);
+		});
+
+		it('não confunde projeção de proventos com proventos recebidos', async () => {
+			(mockUnifiedFacade.getPortfolioSummary as jest.Mock).mockReturnValue({
+				dividendProjection: {},
+			});
+			const response = await makeService().orchestrate(
+				'user-1',
+				'qual a projeção de proventos?'
+			);
+
+			expect(response.intent).toBe('dividend_projection');
 		});
 	});
 

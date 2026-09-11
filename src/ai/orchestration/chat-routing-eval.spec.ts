@@ -251,6 +251,9 @@ describe('Chat routing eval (TRA-75)', () => {
 			mockRiDocumentSummaryService,
 			mockStockService,
 			mockUserPlanResolver,
+			{
+				getComposition: jest.fn(),
+			} as unknown as ConstructorParameters<typeof ChatOrchestratorService>[8],
 			mockRiDocumentQuery
 		);
 
