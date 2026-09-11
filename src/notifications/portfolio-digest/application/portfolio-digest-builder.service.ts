@@ -188,12 +188,16 @@ export class PortfolioDigestBuilderService {
 			const history = Array.isArray(asset?.dividendHistory)
 				? asset.dividendHistory
 				: [];
+			// `dividendHistory.value` é provento POR COTA (ver
+			// `dividendsPerShareInWindow` em yield-on-cost). Somar direto
+			// reportava centavos por cota como se fossem o dinheiro recebido.
+			const quantity = Number(asset?.quantity) || 0;
 			for (const entry of history) {
 				const date = new Date(entry?.date);
 				if (!Number.isFinite(date.getTime())) continue;
 				hasHistory = true;
 				if (date >= periodStart && date <= periodEnd) {
-					total += Number(entry?.value || 0);
+					total += Number(entry?.value || 0) * quantity;
 				}
 			}
 		}

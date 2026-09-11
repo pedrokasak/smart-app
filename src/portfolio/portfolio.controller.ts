@@ -29,6 +29,7 @@ import { PortfolioWithAssetsDto } from 'src/portfolio/dto/portfolio-with-assets.
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
+import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
@@ -64,7 +65,8 @@ export class PortfolioController {
 		private assetService: AssetsService,
 		private subscriptionService: SubscriptionService,
 		private portfolioReturnsService: PortfolioReturnsService,
-		private portfolioCompositionService: PortfolioCompositionService
+		private portfolioCompositionService: PortfolioCompositionService,
+		private portfolioRiskContributionService: PortfolioRiskContributionService
 	) {}
 
 	@Post('create')
@@ -293,6 +295,16 @@ export class PortfolioController {
 	async getComposition(@Req() req: any) {
 		const userId = resolveUserId(req);
 		return this.portfolioCompositionService.getComposition(userId);
+	}
+
+	/**
+	 * Contribuição de risco por ativo (TRA-141): card da tela Portfólio do
+	 * handoff. Antes de `@Get(':id')`, pelo mesmo motivo de ordem de rotas.
+	 */
+	@Get('risk-contribution')
+	async getRiskContribution(@Req() req: any) {
+		const userId = resolveUserId(req);
+		return this.portfolioRiskContributionService.getRiskContribution(userId);
 	}
 
 	@Get(':id')
