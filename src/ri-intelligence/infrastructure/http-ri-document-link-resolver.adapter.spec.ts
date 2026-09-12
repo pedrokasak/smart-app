@@ -16,16 +16,23 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 		status: number;
 		url?: string;
 		contentType?: string;
+		contentDisposition?: string;
 	}) {
 		global.fetch = jest.fn().mockResolvedValue({
 			ok: response.status >= 200 && response.status < 300,
 			status: response.status,
 			url: response.url || 'https://ri.example.com/doc.pdf',
 			headers: {
-				get: (name: string) =>
-					name.toLowerCase() === 'content-type'
-						? response.contentType || 'application/pdf'
-						: null,
+				get: (name: string) => {
+					const key = name.toLowerCase();
+					if (key === 'content-type') {
+						return response.contentType || 'application/pdf';
+					}
+					if (key === 'content-disposition') {
+						return response.contentDisposition ?? null;
+					}
+					return null;
+				},
 			},
 			body: { cancel: jest.fn().mockResolvedValue(undefined) },
 		});
@@ -97,5 +104,74 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 
 		expect(output.isValid).toBe(false);
 		expect(output.rejectionReason).toBe('invalid_http_status');
+	});
+
+	// TRA-92: reproduzido em produção — a CVM (fonte oficial, a mais
+	// confiável de todas) devolve Content-Type: text/html para um PDF de
+	// verdade; quem diz a verdade é o Content-Disposition. Antes deste
+	// teste, um documento oficial de verdade era descartado com o mesmo
+	// motivo de uma página de erro.
+	it('accepts a CVM ENET download despite its misleading text/html content-type', async () => {
+		mockFetch({
+			status: 200,
+			url: 'https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?Tela=ext&numProtocolo=1560116',
+			contentType: 'text/html',
+			contentDisposition: 'attachment; filename=000906000101012.pdf',
+		});
+
+		const output = await adapter.resolve({
+			url: 'https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?Tela=ext&numProtocolo=1560116',
+		});
+
+		expect(output.isValid).toBe(true);
+		expect(output.resolvedUrl).toBe(
+			'https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?Tela=ext&numProtocolo=1560116'
+		);
+	});
+
+	it('accepts a quoted UTF-8 filename* disposition', async () => {
+		mockFetch({
+			status: 200,
+			url: 'https://ri.example.com/download?id=1',
+			contentType: 'text/html',
+			contentDisposition: "attachment; filename*=UTF-8''Relat%C3%B3rio.pdf",
+		});
+
+		const output = await adapter.resolve({
+			url: 'https://ri.example.com/download?id=1',
+		});
+
+		expect(output.isValid).toBe(true);
+	});
+
+	it('still rejects a genuine HTML page with no file disposition', async () => {
+		mockFetch({
+			status: 200,
+			url: 'https://ri.bb.com.br/evento/apresentacao-1t26/',
+			contentType: 'text/html',
+		});
+
+		const output = await adapter.resolve({
+			url: 'https://ri.bb.com.br/evento/apresentacao-1t26/',
+		});
+
+		expect(output.isValid).toBe(false);
+		expect(output.rejectionReason).toBe('invalid_content_type');
+	});
+
+	it('rejects text/html with a disposition filename that is not a supported extension', async () => {
+		mockFetch({
+			status: 200,
+			url: 'https://ri.example.com/page',
+			contentType: 'text/html',
+			contentDisposition: 'inline; filename=page.html',
+		});
+
+		const output = await adapter.resolve({
+			url: 'https://ri.example.com/page',
+		});
+
+		expect(output.isValid).toBe(false);
+		expect(output.rejectionReason).toBe('invalid_content_type');
 	});
 });

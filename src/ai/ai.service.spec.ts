@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AiService } from './ai.service';
+import { AiInsightProducer } from './events/ai-insight.producer';
 import { HttpService } from '@nestjs/axios';
 import { InternalServerErrorException } from '@nestjs/common';
 import { of, throwError } from 'rxjs';
@@ -17,6 +18,11 @@ describe('AiService', () => {
 			providers: [
 				AiService,
 				{ provide: HttpService, useValue: mockHttpService },
+				// TRA-136: produtor de ai.insight.high_priority.
+				{
+					provide: AiInsightProducer,
+					useValue: { publishHighPriority: jest.fn() },
+				},
 			],
 		}).compile();
 
@@ -163,6 +169,69 @@ describe('AiService', () => {
 		);
 
 		await expect(service.chat({})).rejects.toThrow(
+			InternalServerErrorException
+		);
+	});
+
+	it('should call /api/insights with user_profile and service token header', async () => {
+		const fakeData = {
+			insights: [
+				{
+					id: 'insight_1',
+					title: 't',
+					body: 'b',
+					rationale: 'r',
+					evidence: [{ label: 'l', value: 1 }],
+					confidence: { value: 0.9, bucket: 'alta', reason: 'x' },
+					action: { label: 'go', route: '/x' },
+					sources: [],
+				},
+			],
+		};
+
+		const axiosResponse: AxiosResponse = {
+			data: fakeData,
+			status: 200,
+			statusText: 'OK',
+			headers: {},
+			config: {} as any,
+		};
+
+		process.env.TRACKERR_IA_SERVICE_TOKEN = 'test-token';
+		mockHttpService.post.mockReturnValue(of(axiosResponse));
+
+		const result = await service.getInsights(
+			{ user_id: 'u1', profile_plan: 'premium' },
+			7
+		);
+		expect(result).toEqual(fakeData);
+		expect(mockHttpService.post).toHaveBeenCalledWith(
+			expect.stringContaining('/api/insights'),
+			{
+				user_profile: { user_id: 'u1', profile_plan: 'premium' },
+				data_freshness_days: 7,
+			},
+			expect.objectContaining({
+				headers: expect.objectContaining({
+					'x-service-token': 'test-token',
+					'Content-Type': 'application/json',
+				}),
+				timeout: 30000,
+			})
+		);
+
+		delete process.env.TRACKERR_IA_SERVICE_TOKEN;
+	});
+
+	it('should throw InternalServerErrorException on insights failure', async () => {
+		mockHttpService.post.mockReturnValue(
+			throwError(() => ({
+				message: 'Connection refused',
+				response: { data: { detail: 'Insights service down' } },
+			}))
+		);
+
+		await expect(service.getInsights({ user_id: 'u1' })).rejects.toThrow(
 			InternalServerErrorException
 		);
 	});

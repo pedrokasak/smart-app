@@ -5,6 +5,16 @@ import {
 } from '@nestjs/common';
 
 export class AuthErrorService {
+	/**
+	 * Resposta única para "e-mail não existe" e "senha errada" (TRA-89).
+	 *
+	 * Separar os dois — 404 com o e-mail na mensagem versus 401 — entregava
+	 * de graça quem tem conta na plataforma.
+	 */
+	static handleInvalidCredentials(): never {
+		throw new UnauthorizedException('E-mail ou senha inválidos');
+	}
+
 	static handleUserNotFound(email: string): never {
 		throw new NotFoundException(`No user found for email: ${email}`);
 	}

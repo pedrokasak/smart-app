@@ -1,5 +1,6 @@
 import {
 	Injectable,
+	Logger,
 	UnauthorizedException,
 	NotFoundException,
 	InternalServerErrorException,
@@ -23,9 +24,45 @@ import * as crypto from 'crypto';
 import { EmailService } from 'src/notifications/email/email.service';
 import { authenticator } from 'otplib';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
+import {
+	hashRefreshToken,
+	isRefreshTokenDigest,
+	matchesRefreshTokenDigest,
+} from 'src/authentication/security/refresh-token-hash';
 import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
 import { INITIAL_ADMIN_EMAIL } from 'src/admin/constants/admin.constants';
 import { Role } from 'src/auth/enums/role.enum';
+import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
+
+/**
+ * Documento mínimo de usuário aceito por `issueSessionTokens`.
+ *
+ * Existe para que outros fluxos de login (ex.: 2FA) possam reaproveitar a
+ * emissão de sessão sem depender do tipo completo do Mongoose.
+ */
+export interface SessionUser {
+	id: string;
+	email: string;
+	firstName?: string;
+	lastName?: string;
+	refreshToken?: string | null;
+	save: () => Promise<unknown>;
+	role?: string;
+}
+
+/** Par de tokens devolvido por todo fluxo de login. */
+export interface SessionTokens {
+	accessToken: string;
+	refreshToken: string;
+	expiresIn: string;
+	user: {
+		id: string;
+		email: string;
+		firstName?: string;
+		lastName?: string;
+		role: string;
+	};
+}
 
 type GoogleTokenInfoResponse = {
 	aud?: string;
@@ -39,11 +76,14 @@ type GoogleTokenInfoResponse = {
 
 @Injectable()
 export class AuthenticationService {
+	private readonly logger = new Logger(AuthenticationService.name);
+
 	constructor(
 		private jwtService: JwtService,
 		private tokenBlacklistService: TokenBlacklistService,
 		private readonly emailService: EmailService,
-		private readonly passwordSecurityService: PasswordSecurityService
+		private readonly passwordSecurityService: PasswordSecurityService,
+		private readonly breachedPasswordPolicy: BreachedPasswordPolicy
 	) {}
 
 	async signin(
@@ -55,14 +95,20 @@ export class AuthenticationService {
 			.select('+password')
 			.exec();
 
-		if (!verifyUser) {
-			AuthErrorService.handleUserNotFound(email);
-		}
-
-		if (!verifyUser.password) {
-			throw new InternalServerErrorException(
-				'Senha não configurada para este usuário'
+		// E-mail inexistente e senha errada respondem igual (TRA-89).
+		//
+		// Antes, `handleUserNotFound` devolvia 404 com o e-mail na mensagem e
+		// senha errada devolvia 401 — dava pra descobrir quem tem conta aqui
+		// só olhando o status. E o caminho do usuário inexistente retornava
+		// sem executar o Argon2, então mesmo com respostas iguais o tempo
+		// entregava a diferença. Por isso a verificação roda contra um hash
+		// descartável quando não há usuário: mesmo custo, mesma resposta.
+		if (!verifyUser?.password) {
+			await this.passwordSecurityService.verifyPassword(
+				password,
+				await this.dummyPasswordHash()
 			);
+			AuthErrorService.handleInvalidCredentials();
 		}
 
 		const isPasswordValid = await this.passwordSecurityService.verifyPassword(
@@ -71,7 +117,7 @@ export class AuthenticationService {
 		);
 
 		if (!isPasswordValid) {
-			AuthErrorService.handleInvalidPassword();
+			AuthErrorService.handleInvalidCredentials();
 		}
 
 		// Secure migration path: seamlessly rehash legacy bcrypt passwords using Argon2id.
@@ -91,6 +137,23 @@ export class AuthenticationService {
 		}
 
 		return this.issueSessionTokens(verifyUser as any);
+	}
+
+	/**
+	 * Hash descartável usado só para gastar o mesmo tempo de verificação
+	 * quando o e-mail não existe. Calculado uma vez e reaproveitado — gerar a
+	 * cada tentativa custaria mais que verificar, invertendo a diferença de
+	 * tempo que este método existe pra apagar.
+	 */
+	private dummyHashPromise: Promise<string> | null = null;
+
+	private dummyPasswordHash(): Promise<string> {
+		if (!this.dummyHashPromise) {
+			this.dummyHashPromise = this.passwordSecurityService.hashPassword(
+				crypto.randomBytes(32).toString('hex')
+			);
+		}
+		return this.dummyHashPromise;
 	}
 
 	async googleSignin(payload: GoogleSigninDto): Promise<AuthenticationEntity> {
@@ -202,15 +265,16 @@ export class AuthenticationService {
 		return data;
 	}
 
-	private async issueSessionTokens(user: {
-		id: string;
-		email: string;
-		firstName?: string;
-		lastName?: string;
-		refreshToken?: string | null;
-		save: () => Promise<unknown>;
-		role?: string;
-	}) {
+	/**
+	 * Único ponto de emissão de sessão do backend (TRA-140).
+	 *
+	 * Público de propósito: o fluxo de 2FA (`TwoFactorService`) chama este
+	 * mesmo método em vez de assinar e gravar os tokens por conta própria. O
+	 * 2FA duplicava esta lógica e a cópia esqueceu do hash — gravava o refresh
+	 * token em texto puro e, de quebra, emitia access token sem `role`. Manter
+	 * uma emissão só elimina a origem da divergência em vez de remendá-la.
+	 */
+	async issueSessionTokens(user: SessionUser): Promise<SessionTokens> {
 		const accessToken = this.jwtService.sign(
 			{
 				userId: user.id,
@@ -225,7 +289,11 @@ export class AuthenticationService {
 			{ expiresIn: expireKeepAliveConectedRefreshToken }
 		);
 
-		user.refreshToken = refreshToken;
+		// SHA-256, não Argon2 (TRA-143). Ver `refresh-token-hash.ts`: o token é
+		// um JWT assinado e já validado por `jwtService.verify` antes desta
+		// comparação; o hash serve para revogação/binding, não para resistir a
+		// dicionário. Argon2 aqui custava 64 MiB por login sem ganho.
+		user.refreshToken = hashRefreshToken(refreshToken);
 		await user.save();
 
 		return {
@@ -240,6 +308,31 @@ export class AuthenticationService {
 				role: user.role ?? Role.User,
 			},
 		};
+	}
+
+	/**
+	 * Confere o refresh token recebido contra o valor gravado, aceitando os dois
+	 * formatos durante a transição (TRA-143).
+	 *
+	 * Formato novo: digest SHA-256 hex, comparado em tempo constante.
+	 * Formato legado: hash Argon2/bcrypt de sessões emitidas antes desta
+	 * mudança, verificado pelo caminho antigo. Sessões legadas migram sozinhas
+	 * para SHA-256 no próximo `issueSessionTokens` (todo login regrava o campo),
+	 * então nenhuma sessão em curso é derrubada e nenhuma escrita extra entra no
+	 * caminho quente do refresh.
+	 */
+	private async verifyStoredRefreshToken(
+		refreshToken: string,
+		storedValue: string
+	): Promise<boolean> {
+		if (isRefreshTokenDigest(storedValue)) {
+			return matchesRefreshTokenDigest(refreshToken, storedValue);
+		}
+
+		return this.passwordSecurityService.verifyPassword(
+			refreshToken,
+			storedValue
+		);
 	}
 
 	async signoutAll(userId: string) {
@@ -262,8 +355,21 @@ export class AuthenticationService {
 				throw new Error('Invalid token type');
 			}
 
-			const user = await UserModel.findById(payload.userId);
-			if (!user || user.refreshToken !== refreshToken) {
+			// `refreshToken` e `select: false` no schema: sem projetar explicitamente,
+			// o campo volta undefined e TODA renovacao falha — para todo usuario, nao
+			// so os de 2FA. Os testes nao pegavam porque mockavam `findById`
+			// devolvendo o documento ja com o campo, formato que producao nunca tem.
+			const user = await UserModel.findById(payload.userId).select(
+				'+refreshToken'
+			);
+			if (!user || !user.refreshToken) {
+				throw new Error('Invalid refresh token');
+			}
+			const tokenValid = await this.verifyStoredRefreshToken(
+				refreshToken,
+				user.refreshToken
+			);
+			if (!tokenValid) {
 				throw new Error('Invalid refresh token');
 			}
 
@@ -305,11 +411,21 @@ export class AuthenticationService {
 			throw new UnauthorizedException('Invalid old password');
 		}
 
+		// TRK-012. Depois de conferir a senha antiga: quem nao provou ser o
+		// dono da conta nao deveria conseguir usar esta rota como oraculo
+		// para descobrir se uma senha qualquer esta em vazamento.
+		await this.breachedPasswordPolicy.assertNotBreached(
+			updatePasswordDto.newPassword
+		);
+
 		const hashedPassword = await this.passwordSecurityService.hashPassword(
 			updatePasswordDto.newPassword
 		);
 
 		user.password = hashedPassword;
+		// Mesma razão do resetPassword: trocar a senha encerra as sessões
+		// anteriores (TRA-89).
+		user.refreshToken = null;
 		await user.save();
 
 		return { message: 'Password updated successfully' };
@@ -339,11 +455,25 @@ export class AuthenticationService {
 		user.resetPasswordExpires = resetPasswordExpires;
 		await user.save();
 
-		// Send email (safe fallback: avoid exposing provider failures to users)
+		// A resposta segue genérica mesmo quando o envio falha: variar o retorno
+		// entre "enviado" e "erro" revelaria quais e-mails existem, porque o
+		// caminho de e-mail inexistente retorna antes daqui e nunca falharia.
+		//
+		// O que estava errado era o `catch` VAZIO (TRA-151): uma queda total do
+		// provedor não deixava rastro nenhum no ponto de negócio, e recuperação
+		// de senha — o único caminho de volta de quem perdeu o acesso — falhava
+		// em silêncio. Resposta genérica para o usuário, ERROR para quem opera.
+		//
+		// Loga `user._id` em vez do e-mail: log de erro não precisa carregar
+		// dado pessoal para ser acionável (CLAUDE.md §8).
 		try {
 			await this.emailService.sendPasswordResetEmail(user.email, resetToken);
-		} catch (_error) {
-			// Keep deterministic generic response to avoid user/email enumeration.
+		} catch (error) {
+			this.logger.error(
+				`Falha ao enviar e-mail de recuperação de senha (userId=${user._id}): ` +
+					`${(error as Error)?.message ?? 'erro desconhecido'}. ` +
+					`O usuário recebeu a resposta genérica e NÃO tem como redefinir a senha.`
+			);
 		}
 
 		return {
@@ -415,6 +545,13 @@ export class AuthenticationService {
 			}
 		}
 
+		// TRK-012. Depois do token e do 2FA, pela mesma razao do
+		// `updatePassword`: a checagem so roda para quem ja provou ter direito
+		// de trocar a senha desta conta.
+		await this.breachedPasswordPolicy.assertNotBreached(
+			resetPasswordDto.newPassword
+		);
+
 		const hashedPassword = await this.passwordSecurityService.hashPassword(
 			resetPasswordDto.newPassword
 		);
@@ -422,6 +559,10 @@ export class AuthenticationService {
 		user.password = hashedPassword;
 		user.resetPasswordToken = undefined;
 		user.resetPasswordExpires = undefined;
+		// Derruba a sessão existente (TRA-89). Quem redefine a senha
+		// normalmente o faz porque suspeita que alguém entrou na conta —
+		// manter o refresh token anterior válido deixava esse alguém dentro.
+		user.refreshToken = null;
 		await user.save();
 
 		return { message: 'Senha redefinida com sucesso' };

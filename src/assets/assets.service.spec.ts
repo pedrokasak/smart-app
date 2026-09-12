@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AssetsService } from './assets.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { DividendReceivedProducer } from './events/dividend-received.producer';
 
 describe('AssetsService', () => {
 	let service: AssetsService;
@@ -32,6 +33,11 @@ describe('AssetsService', () => {
 				{
 					provide: PortfolioService,
 					useValue: mockPortfolioService,
+				},
+				// TRA-136: produtor do evento de provento.
+				{
+					provide: DividendReceivedProducer,
+					useValue: { publishForAsset: jest.fn() },
 				},
 			],
 		}).compile();

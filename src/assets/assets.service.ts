@@ -6,6 +6,7 @@ import { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import { Asset } from 'src/assets/schema/assets.model';
 import { CreateAssetDto } from 'src/assets/dto/create-asset.dto';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { DividendReceivedProducer } from 'src/assets/events/dividend-received.producer';
 
 @Injectable()
 export class AssetsService {
@@ -16,7 +17,8 @@ export class AssetsService {
 	constructor(
 		@InjectModel('Asset') private readonly assetModel: Model<Asset>,
 		@Inject(forwardRef(() => PortfolioService))
-		private readonly portfolioModel: Model<Portfolio>
+		private readonly portfolioModel: Model<Portfolio>,
+		private readonly dividendProducer: DividendReceivedProducer
 	) {}
 
 	// Buscar todos os assets
@@ -91,13 +93,25 @@ export class AssetsService {
 		return this.assetModel.findByIdAndUpdate(assetId, update, { new: true });
 	}
 
+	/**
+	 * `replaceRange` troca o merge por substituição dentro de uma janela de
+	 * datas. Existe para o extrato de movimentação, que é uma afirmação
+	 * completa sobre um período: "isto é tudo que aconteceu entre A e B".
+	 *
+	 * Sem isso, reimportar não conserta histórico errado — duplica. A
+	 * impressão digital do merge é `data|tipo|valor`, então proventos que o
+	 * importador antigo carimbou com a data do upload têm chave diferente
+	 * dos mesmos proventos com a data real, e as duas versões sobrevivem
+	 * lado a lado, dobrando o total recebido.
+	 */
 	async upsertDividendHistoryEntries(
 		assetId: string,
 		newEntries: Array<{
 			date: Date;
 			value: number;
 			paymentType?: 'JCP' | 'DIVIDEND' | 'RENDIMENTO' | 'OTHER';
-		}>
+		}>,
+		options?: { replaceRange?: { from: Date; to: Date } }
 	) {
 		const asset = await this.assetModel.findById(assetId);
 		if (!asset) return null;
@@ -126,8 +140,25 @@ export class AssetsService {
 			newEntries.map((entry) => toFingerprint(entry))
 		);
 
+		const replaceRange = options?.replaceRange;
+		const fromTime = replaceRange
+			? new Date(replaceRange.from).setHours(0, 0, 0, 0)
+			: null;
+		const toTime = replaceRange
+			? new Date(replaceRange.to).setHours(23, 59, 59, 999)
+			: null;
+
+		const isInsideReplacedRange = (entry: any): boolean => {
+			if (fromTime === null || toTime === null) return false;
+			const time = new Date(entry?.date || 0).getTime();
+			if (Number.isNaN(time)) return false;
+			return time >= fromTime && time <= toTime;
+		};
+
 		const keptEntries = existingHistory.filter(
-			(entry: any) => !incomingFingerprints.has(toFingerprint(entry))
+			(entry: any) =>
+				!incomingFingerprints.has(toFingerprint(entry)) &&
+				!isInsideReplacedRange(entry)
 		);
 
 		const merged = [...keptEntries, ...newEntries];
@@ -142,13 +173,36 @@ export class AssetsService {
 			return aDate - bDate;
 		});
 
-		return this.assetModel.findByIdAndUpdate(
+		// Provento "novo" e o que ainda nao estava no historico — a mesma
+		// impressao digital que evita a duplicata no merge decide aqui quem
+		// vira evento. Reimportar o mesmo extrato nao publica nada.
+		const existingFingerprints = new Set(
+			existingHistory.map((entry: any) => toFingerprint(entry))
+		);
+		const addedEntries = Array.from(
+			new Map(
+				newEntries
+					.filter((entry) => !existingFingerprints.has(toFingerprint(entry)))
+					.map((entry) => [toFingerprint(entry), entry] as const)
+			).values()
+		);
+
+		const updated = await this.assetModel.findByIdAndUpdate(
 			assetId,
 			{
 				$set: { dividendHistory: deduped },
 			},
 			{ new: true }
 		);
+
+		// Depois da persistencia e sem `await` no caminho de erro: o produtor
+		// nunca lanca, entao a importacao responde 200 mesmo com o
+		// barramento/Redis fora do ar (TRA-136).
+		if (addedEntries.length > 0) {
+			await this.dividendProducer.publishForAsset(assetId, addedEntries);
+		}
+
+		return updated;
 	}
 
 	// Deletar asset

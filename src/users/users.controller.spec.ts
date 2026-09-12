@@ -2,8 +2,12 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { UpdateUserDto } from 'src/users/dto/update-user.dto';
-import { HttpException } from '@nestjs/common';
+import { ForbiddenException, HttpException } from '@nestjs/common';
 import { CreateUserDto } from 'src/users/dto/create-user.dto';
+
+/** Rotas por id agora exigem ser o próprio usuário, ou admin. */
+const reqFor = (userId: string, role = 'user') =>
+	({ user: { userId, role } }) as any;
 
 const mockUsersService = {
 	create: jest.fn(),
@@ -101,10 +105,24 @@ describe('UsersController', () => {
 			};
 			service.findOne.mockResolvedValue(user);
 
-			const result = await controller.findOne('1');
+			const result = await controller.findOne('1', reqFor('1'));
 
 			expect(result).toEqual(user);
 			expect(service.findOne).toHaveBeenCalledWith('1');
+		});
+
+		it('nega leitura dos dados de outro usuário (TRA-89)', () => {
+			expect(() => controller.findOne('vitima', reqFor('atacante'))).toThrow(
+				ForbiddenException
+			);
+			expect(service.findOne).not.toHaveBeenCalled();
+		});
+
+		it('permite ao admin ler qualquer usuário', async () => {
+			service.findOne.mockResolvedValue({ _id: 'vitima' });
+
+			await controller.findOne('vitima', reqFor('admin-id', 'admin'));
+			expect(service.findOne).toHaveBeenCalledWith('vitima');
 		});
 	});
 
@@ -119,10 +137,19 @@ describe('UsersController', () => {
 			const updatedUser = { _id: '1', firstName: 'Updated 2' };
 			service.update.mockResolvedValue(updatedUser);
 
-			const result = await controller.update('1', dto);
+			const result = await controller.update('1', dto, reqFor('1'));
 
 			expect(result).toEqual(updatedUser);
 			expect(service.update).toHaveBeenCalledWith('1', dto);
+		});
+
+		it('nega alterar a conta de outro usuário (TRA-89)', () => {
+			// Trocar o e-mail alheio aqui permitia tomar a conta pelo fluxo de
+			// recuperação de senha.
+			expect(() =>
+				controller.update('vitima', { email: 'atacante@x.com' }, reqFor('eu'))
+			).toThrow(ForbiddenException);
+			expect(service.update).not.toHaveBeenCalled();
 		});
 	});
 

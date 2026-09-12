@@ -82,7 +82,14 @@ export class HttpRiDocumentLinkResolverAdapter implements RiDocumentLinkResolver
 		const contentType = this.normalizeContentType(
 			response.headers.get('content-type')
 		);
-		if (!this.isSupportedContentType(contentType, finalUrl)) {
+		const dispositionFileName = this.extractDispositionFileName(
+			response.headers.get('content-disposition')
+		);
+
+		if (
+			!this.isSupportedContentType(contentType, finalUrl) &&
+			!this.hasSupportedExtension(dispositionFileName)
+		) {
 			this.cancelBody(response);
 			return {
 				...this.invalid('invalid_content_type'),
@@ -191,6 +198,35 @@ export class HttpRiDocumentLinkResolverAdapter implements RiDocumentLinkResolver
 
 		const pathname = this.safePathname(resolvedUrl).toLowerCase();
 		return ALLOWED_FILE_EXTENSIONS.some((ext) => pathname.endsWith(ext));
+	}
+
+	/**
+	 * O endpoint oficial de download da CVM (rad.cvm.gov.br/ENET/...) devolve
+	 * `Content-Type: text/html` mesmo quando o corpo é um PDF de verdade — o
+	 * cabeçalho que diz a verdade é `Content-Disposition:
+	 * attachment; filename=....pdf`. Sem checar isto, a fonte mais confiável
+	 * de documento (arquivo regulatório oficial) era rejeitada tratando o
+	 * content-type mentiroso da CVM como se fosse uma página HTML qualquer.
+	 */
+	private extractDispositionFileName(
+		contentDisposition: string | null
+	): string | null {
+		if (!contentDisposition) return null;
+		const match = /filename\*?=(?:UTF-8''|")?([^";]+)"?/i.exec(
+			contentDisposition
+		);
+		if (!match) return null;
+		try {
+			return decodeURIComponent(match[1]).trim();
+		} catch {
+			return match[1].trim();
+		}
+	}
+
+	private hasSupportedExtension(fileName: string | null): boolean {
+		if (!fileName) return false;
+		const lower = fileName.toLowerCase();
+		return ALLOWED_FILE_EXTENSIONS.some((ext) => lower.endsWith(ext));
 	}
 
 	private safePathname(url: string): string {

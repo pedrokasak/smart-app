@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { HttpService } from '@nestjs/axios';
-import { of } from 'rxjs';
+import { of, throwError } from 'rxjs';
 import { BrapiAdapter } from 'src/stocks/adapter/brapiDataApi';
 import { TwelveDataAdapter } from 'src/stocks/adapter/twelveDataApi';
 
@@ -50,6 +50,27 @@ describe('Stock API Adapters', () => {
 			const result = await brapiAdapter.getStockQuote('PETR4');
 			expect(result).toEqual(mockResponse.data);
 			expect(httpService.get).toHaveBeenCalled();
+		});
+
+		it('throws naming the rejected interval instead of stripping fundamental/dividends on INVALID_INTERVAL', async () => {
+			const invalidIntervalError = {
+				response: {
+					data: {
+						error: true,
+						message:
+							'O intervalo "1mo" não está disponível no seu plano. Intervalos permitidos: 1d',
+						code: 'INVALID_INTERVAL',
+					},
+				},
+			};
+			(httpService.get as jest.Mock).mockReturnValue(
+				throwError(() => invalidIntervalError)
+			);
+
+			await expect(
+				brapiAdapter.getStockQuote('BBAS3', { interval: '1mo' })
+			).rejects.toThrow(/interval "1mo"/);
+			expect(httpService.get).toHaveBeenCalledTimes(1);
 		});
 	});
 

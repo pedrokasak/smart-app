@@ -45,7 +45,7 @@ export interface RiDocumentRecord {
 		score?: number;
 		matchedAliases?: string[];
 	};
-	contentStatus: 'metadata_only';
+	contentStatus: 'metadata_only' | 'extracted';
 }
 
 export interface RiDocumentQuery {

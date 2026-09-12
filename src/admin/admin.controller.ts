@@ -6,6 +6,7 @@ import {
 	Param,
 	Patch,
 	Post,
+	Query,
 	Req,
 	UseGuards,
 } from '@nestjs/common';
@@ -17,6 +18,7 @@ import { CreateSubscriptionDto } from 'src/subscription/dto/create-subscription.
 import { UpdateSubscriptionDto } from 'src/subscription/dto/update-subscription.dto';
 import { AdminService } from './admin.service';
 import { ManualGrantDto } from './dto/manual-grant.dto';
+import { ListManualGrantsQueryDto } from './dto/list-manual-grants.dto';
 import { UpdateUserRoleByEmailDto } from './dto/update-user-role-by-email.dto';
 
 @Controller('admin')
@@ -61,6 +63,23 @@ export class AdminController {
 		return this.adminService.deactivatePlan(id);
 	}
 
+	@Get('webhook/status')
+	@Roles(Role.Admin, Role.Editor)
+	@ApiOperation({ summary: 'Status de configuração do webhook Stripe' })
+	getWebhookStatus() {
+		return this.adminService.getWebhookStatus();
+	}
+
+	@Get('webhook/events')
+	@Roles(Role.Admin, Role.Editor)
+	@ApiOperation({
+		summary: 'Lista eventos recentes do webhook via Stripe Events API',
+	})
+	listWebhookEvents(@Query('limit') limit?: string) {
+		const parsedLimit = limit ? Number(limit) : undefined;
+		return this.adminService.listWebhookEvents(parsedLimit);
+	}
+
 	@Post('users/role')
 	@Roles(Role.Admin)
 	@ApiOperation({ summary: 'Promove usuário para admin/editor via email' })
@@ -73,5 +92,12 @@ export class AdminController {
 	@ApiOperation({ summary: 'Concede assinatura manual via email' })
 	grantSubscription(@Req() req: any, @Body() body: ManualGrantDto) {
 		return this.adminService.grantSubscriptionByEmail(req.user.userId, body);
+	}
+
+	@Get('grants')
+	@Roles(Role.Admin, Role.Editor)
+	@ApiOperation({ summary: 'Lista histórico de concessões manuais' })
+	listGrants(@Query() query: ListManualGrantsQueryDto) {
+		return this.adminService.listManualGrants(query);
 	}
 }

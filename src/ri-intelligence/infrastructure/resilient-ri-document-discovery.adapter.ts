@@ -10,7 +10,6 @@ export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryP
 	private readonly providerTimeoutMs: number;
 
 	constructor(
-		private readonly inMemoryAdapter: RiDocumentDiscoveryPort,
 		private readonly httpAdapter: RiDocumentDiscoveryPort,
 		private readonly cvmAdapter: RiDocumentDiscoveryPort,
 		private readonly fiiAdapter: RiDocumentDiscoveryPort,
@@ -23,46 +22,57 @@ export class ResilientRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryP
 	async discover(input: RiDocumentDiscoveryInput): Promise<RiDocumentRecord[]> {
 		const isFii = input.ticker.toUpperCase().endsWith('11');
 
-		// Catálogo em memória (tickers em destaque, curados à mão): consultado em
-		// paralelo com o restante da cadeia para não somar latência, mas usando o
-		// mesmo guard de timeout — um adapter travado não bloqueia a resposta além
-		// de providerTimeoutMs.
-		const inMemoryDocsPromise = this.safeDiscoverWithTimeout(
-			this.inMemoryAdapter,
-			input
-		);
+		// O catálogo em memória saiu da cadeia: as URLs dele eram inventadas,
+		// não curadas. Conferidas uma a uma, as quatro respondem 404 — o link
+		// do BBAS3 seguia o padrão de WordPress (`ri.bb.com.br/wp-content/...`)
+		// enquanto o arquivo real mora no gerenciador da MZ (`api.mziq.com`),
+		// e Petrobras, Vale e Bradesco tinham caminhos igualmente plausíveis e
+		// igualmente inexistentes.
+		//
+		// Pior: ele era MESCLADO com os adapters reais e entrava primeiro na
+		// deduplicação, então um documento verdadeiramente descoberto podia ser
+		// ofuscado por um link morto. É a razão de o RI Inteligente "nunca ter
+		// funcionado direito": a descoberta real existe, mas o resultado vinha
+		// contaminado por documentos que nunca existiram.
+		//
+		// A descoberta de verdade fica com HTTP, CVM, FII e Puppeteer. Sem
+		// resultado, a resposta é vazia — que é honesto, e visivelmente
+		// diferente de um link que quebra ao clicar.
 
-		// Primário: para FIIs, o adapter específico de FII; para ações, o adapter
-		// HTTP (bate RI sites estáticos, mais rápido que Puppeteer). O CVM fica
-		// como segundo nível para não-FIIs (atualmente mock, mas mantido no
-		// encadeamento para uma futura implementação real da CVM/dados.cvm.gov).
+		// Primário: para FIIs, o adapter específico; para ações, o adapter HTTP
+		// (bate RI sites estáticos, mais rápido que Puppeteer).
+		//
+		// A CVM entra SEMPRE para ações, não só quando o HTTP volta vazio.
+		// Antes ela era segundo nível — e isso deixava a fonte mais confiável
+		// de fora justamente quando ela era mais necessária: para BBAS3 o
+		// Puppeteer devolve 20 links, todos páginas de evento em HTML que a
+		// validação descarta depois, então "descoberta encontrou algo" era
+		// verdade e "encontramos documento" não. A CVM nunca era consultada e
+		// o resultado final era zero.
+		//
+		// Descobrir e validar são etapas separadas: número de links achados não
+		// diz nada sobre quantos são arquivo de verdade. Quem decide é a
+		// validação, adiante — aqui o certo é oferecer todas as fontes.
 		let primaryDocs: RiDocumentRecord[] = [];
 		if (isFii) {
 			primaryDocs = await this.safeDiscoverWithTimeout(this.fiiAdapter, input);
 		} else {
-			primaryDocs = await this.safeDiscoverWithTimeout(this.httpAdapter, input);
-			if (primaryDocs.length === 0) {
-				primaryDocs = await this.safeDiscoverWithTimeout(
-					this.cvmAdapter,
-					input
-				);
-			}
+			const [httpDocs, cvmDocs] = await Promise.all([
+				this.safeDiscoverWithTimeout(this.httpAdapter, input),
+				this.safeDiscoverWithTimeout(this.cvmAdapter, input),
+			]);
+			primaryDocs = this.mergeWithoutDuplicates(httpDocs, cvmDocs);
 		}
 
 		const fallbackDocs = await this.safeDiscoverWithTimeout(
 			this.fallbackAdapter,
 			input
 		);
-		const inMemoryDocs = await inMemoryDocsPromise;
-
-		// Funde catálogo em memória + primário + fallback sem duplicatas: uma
-		// fonte pode ter o título do release de hoje e outra os PDFs históricos —
-		// juntamos todas para a seleção de "resultado do trimestre atual" não
-		// perder o documento novo.
-		return this.mergeWithoutDuplicates(
-			this.mergeWithoutDuplicates(inMemoryDocs, primaryDocs),
-			fallbackDocs
-		);
+		// Funde primário + fallback sem duplicatas: uma fonte pode ter o título
+		// do release de hoje e outra os PDFs históricos — juntamos as duas para
+		// a seleção de "resultado do trimestre atual" não perder o documento
+		// novo.
+		return this.mergeWithoutDuplicates(primaryDocs, fallbackDocs);
 	}
 
 	private async safeDiscoverWithTimeout(

@@ -1,11 +1,17 @@
 import { config } from 'dotenv';
 config();
 import * as bodyParser from 'body-parser';
+import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { urlDevelopment, urlProduction } from 'src/env';
+import {
+	SWAGGER_DOCS_PATH,
+	buildCspMiddleware,
+	isCspReportOnly,
+} from 'src/security/http/content-security-policy';
 
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule, {
@@ -15,6 +21,25 @@ async function bootstrap() {
 	if (!(global as any).crypto) {
 		(global as any).crypto = require('crypto');
 	}
+
+	// `req.ip` só respeita x-forwarded-for quando o proxy é declarado confiável.
+	// O rate limit depende disso pra identificar o cliente: sem esta linha e
+	// atrás de um proxy, todo mundo compartilha o IP do proxy; lendo o header
+	// sem ela, o cliente escolhe o próprio identificador e escapa do limite
+	// (TRA-89). `1` = confia apenas no salto imediatamente à frente.
+	app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
+	// Cabeçalhos de segurança. O CSP sai daqui e entra logo abaixo, com
+	// política própria por rota (TRK-009) — `helmet()` continua respondendo
+	// por HSTS, nosniff, referrer-policy e companhia.
+	app.use(helmet({ contentSecurityPolicy: false }));
+
+	// CSP (TRK-009). Report-only por padrão; `CSP_REPORT_ONLY=false` promove
+	// para enforce sem mexer em código. A política das rotas JSON é
+	// `default-src 'none'` — uma API que não renderiza nada não precisa
+	// carregar nada. O Swagger recebe a sua, mais frouxa, escopada no path
+	// dele; ver `content-security-policy.ts` para o porquê de cada diretiva.
+	app.use(buildCspMiddleware(isCspReportOnly()));
 
 	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
 	app.use(bodyParser.json({ limit: '1mb' }));
@@ -53,6 +78,23 @@ async function bootstrap() {
 
 	const port = process.env.PORT || 3000;
 
+	// Swagger fora de produção (TRA-89): publicar o mapa completo da API,
+	// rotas administrativas incluídas, entrega de graça o levantamento que um
+	// atacante teria que fazer na mão. Ligar em produção só com
+	// ENABLE_SWAGGER=true e consciência do que isso expõe.
+	const swaggerEnabled =
+		process.env.NODE_ENV !== 'production' ||
+		process.env.ENABLE_SWAGGER === 'true';
+
+	if (swaggerEnabled) {
+		setupSwagger(app);
+	}
+
+	await app.listen(port, '0.0.0.0');
+	console.log(`Nest application is listening on port ${port}`);
+}
+
+function setupSwagger(app: Parameters<typeof SwaggerModule.setup>[1]): void {
 	const configSwagger = new DocumentBuilder()
 		.setTitle('TrackerInvest API')
 		.setDescription('The TrackerInvest API description')
@@ -70,9 +112,8 @@ async function bootstrap() {
 		.build();
 
 	const document = SwaggerModule.createDocument(app, configSwagger);
-	SwaggerModule.setup('api', app, document);
-
-	await app.listen(port, '0.0.0.0');
-	console.log(`Nest application is listening on port ${port}`);
+	// Mesma constante que o CSP usa para escapar da política apertada
+	// (TRK-009). Se o path mudar aqui, a política do Swagger acompanha.
+	SwaggerModule.setup(SWAGGER_DOCS_PATH, app, document);
 }
 bootstrap();

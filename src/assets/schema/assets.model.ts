@@ -16,6 +16,13 @@ export interface Asset extends Document {
 	portfolioId: Types.ObjectId;
 	symbol: string;
 	name?: string;
+	/**
+	 * Setor econômico (TRA-144). Nunca era persistido: a exposição setorial
+	 * ficava vazia, `distinctSectorCount` do perfil de investidor era sempre 0
+	 * e o fiscal buscava setor ao vivo engolindo a falha. `null` = ainda não
+	 * conhecido ou não aplicável (cripto, renda fixa).
+	 */
+	sector?: string | null;
 	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
 	quantity: number;
 	price: number; // Preço de entrada
