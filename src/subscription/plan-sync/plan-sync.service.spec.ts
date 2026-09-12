@@ -22,11 +22,11 @@ describe('PlanSyncService', () => {
 		STRIPE_PLAN_PRO_PRODUCT_ID: 'prod_pro_live',
 		STRIPE_PLAN_PRO_PRICE_MONTHLY_ID: 'price_pro_monthly_live',
 		STRIPE_PLAN_PRO_PRICE_ANNUAL_ID: 'price_pro_annual_live',
-		STRIPE_PLAN_PRO_ANNUAL_AMOUNT: '1490',
+		STRIPE_PLAN_PRO_ANNUAL_AMOUNT: '149',
 		STRIPE_PLAN_PREMIUM_PRODUCT_ID: 'prod_premium_live',
 		STRIPE_PLAN_PREMIUM_PRICE_MONTHLY_ID: 'price_premium_monthly_live',
 		STRIPE_PLAN_PREMIUM_PRICE_ANNUAL_ID: 'price_premium_annual_live',
-		STRIPE_PLAN_PREMIUM_ANNUAL_AMOUNT: '3890',
+		STRIPE_PLAN_PREMIUM_ANNUAL_AMOUNT: '249',
 	} satisfies NodeJS.ProcessEnv;
 
 	beforeEach(async () => {
@@ -78,7 +78,7 @@ describe('PlanSyncService', () => {
 		expect(proDoc).toMatchObject({
 			name: 'Pro',
 			price: 14.9,
-			annualPrice: 1490,
+			annualPrice: 149,
 			stripeProductId: 'prod_pro_live',
 			stripePriceId: 'price_pro_monthly_live',
 			annualStripePriceId: 'price_pro_annual_live',
@@ -92,7 +92,7 @@ describe('PlanSyncService', () => {
 			stripeProductId: 'prod_premium_live',
 			stripePriceId: 'price_premium_monthly_live',
 			annualStripePriceId: 'price_premium_annual_live',
-			annualPrice: 3890,
+			annualPrice: 249,
 		});
 	});
 
@@ -136,7 +136,7 @@ describe('PlanSyncService', () => {
 			stripeProductId: 'prod_pro_live',
 			stripePriceId: 'price_pro_monthly_live',
 			annualStripePriceId: 'price_pro_annual_live',
-			annualPrice: 1490,
+			annualPrice: 149,
 		});
 	});
 
