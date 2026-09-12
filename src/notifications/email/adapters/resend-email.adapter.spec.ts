@@ -18,15 +18,34 @@ jest.mock('resend', () => ({
 }));
 
 describe('ResendEmailAdapter — checagem do domínio do remetente', () => {
-	const envBackup = { ...process.env };
+	/**
+	 * Restaura só as chaves que este arquivo toca, em vez de reatribuir
+	 * `process.env` inteiro.
+	 *
+	 * O Jest isola o registro de módulos por arquivo, mas `process` é o objeto
+	 * real do Node, compartilhado por todos os arquivos que rodam no MESMO
+	 * worker. Trocar `process.env` por um objeto literal descarta o objeto
+	 * especial do Node e apaga qualquer variável que outro arquivo tenha
+	 * definido depois — flake intermitente em outra suíte, que muda conforme a
+	 * ordem de paralelização.
+	 */
+	const TOUCHED_KEYS = ['RESEND_API_KEY', 'RESEND_FROM'] as const;
+	const envBackup = new Map<string, string | undefined>();
 
 	beforeEach(() => {
 		jest.clearAllMocks();
+		for (const key of TOUCHED_KEYS) envBackup.set(key, process.env[key]);
 		process.env.RESEND_API_KEY = 're_fake_key';
 	});
 
 	afterEach(() => {
-		process.env = { ...envBackup };
+		jest.useRealTimers();
+		for (const key of TOUCHED_KEYS) {
+			const original = envBackup.get(key);
+			if (original === undefined) delete process.env[key];
+			else process.env[key] = original;
+		}
+		envBackup.clear();
 	});
 
 	function buildAdapter() {
@@ -117,6 +136,38 @@ describe('ResendEmailAdapter — checagem do domínio do remetente', () => {
 
 		expect(warnSpy).toHaveBeenCalledWith(
 			expect.stringContaining('Falha ao checar o domínio')
+		);
+		expect(errorSpy).not.toHaveBeenCalled();
+	});
+
+	/**
+	 * O `try/catch` cobre falha rápida, mas não cobre LENTIDÃO: o SDK usa
+	 * `fetch` sem timeout e o Nest espera `onModuleInit` resolver antes de dar
+	 * o módulo por pronto. Sem teto, a API do Resend degradada penduraria o
+	 * boot para sempre e o container nunca ficaria healthy.
+	 */
+	it('não trava o boot quando o Resend não responde', async () => {
+		jest.useFakeTimers();
+		process.env.RESEND_FROM = 'no-reply@trackerr.com.br';
+		listMock.mockReturnValue(new Promise(() => undefined));
+
+		const { adapter, warnSpy } = buildAdapter();
+		const boot = adapter.onModuleInit();
+		jest.advanceTimersByTime(5_000);
+
+		await expect(boot).resolves.toBeUndefined();
+		expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('abandonada'));
+	});
+
+	it('avisa quando o formato da resposta do SDK não é reconhecido', async () => {
+		process.env.RESEND_FROM = 'no-reply@trackerr.com.br';
+		listMock.mockResolvedValue({ data: { formatoNovo: true } });
+
+		const { adapter, warnSpy, errorSpy } = buildAdapter();
+		await adapter.onModuleInit();
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			expect.stringContaining('Resposta inesperada')
 		);
 		expect(errorSpy).not.toHaveBeenCalled();
 	});
