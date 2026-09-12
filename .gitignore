@@ -49,13 +49,6 @@ lerna-debug.log*
 .temp
 .tmp
 
-# Load test — credenciais e resultados nunca sao versionados.
-# O README manda manter o arquivo de usuarios fora do repo; isto e a rede
-# de seguranca para quem esquecer.
-test/load/**/users*.json
-test/load/**/*.local.json
-test/load/results/
-
 # Runtime data
 pids
 *.pid

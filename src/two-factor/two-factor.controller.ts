@@ -1,16 +1,7 @@
-import {
-	Body,
-	Controller,
-	Delete,
-	Get,
-	Post,
-	Req,
-	UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Delete, Post, Req, UseGuards } from '@nestjs/common';
 import { TwoFactorService } from './two-factor.service';
 import {
 	TwoFactorAuthenticateDto,
-	TwoFactorRecoveryConsumeDto,
 	TwoFactorVerifyDto,
 } from './dto/two-factor.dto';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
@@ -52,45 +43,6 @@ export class TwoFactorController {
 		return this.twoFactorService.authenticateWithTwoFactor(
 			dto.tempToken,
 			dto.code
-		);
-	}
-
-	/**
-	 * Gera um conjunto novo de códigos de recuperação.
-	 *
-	 * Exige o TOTP atual além da sessão: são chaves de bypass do segundo
-	 * fator, e emiti-las só com um access token tornaria o roubo de sessão
-	 * permanente.
-	 */
-	@UseGuards(JwtAuthGuard)
-	@Post('recovery-codes/generate')
-	async generateRecoveryCodes(
-		@Req() req: any,
-		@Body() dto: TwoFactorVerifyDto
-	) {
-		const userId = req.user.userId;
-		return this.twoFactorService.generateRecoveryCodes(userId, dto.code);
-	}
-
-	/** Quantos códigos ainda restam. Nunca devolve código nem hash. */
-	@UseGuards(JwtAuthGuard)
-	@Get('recovery-codes/status')
-	async recoveryCodesStatus(@Req() req: any) {
-		const userId = req.user.userId;
-		return this.twoFactorService.getRecoveryCodesStatus(userId);
-	}
-
-	/**
-	 * Login com código de recuperação, no lugar do TOTP.
-	 *
-	 * Sem `JwtAuthGuard` pela mesma razão de `authenticate`: quem perdeu o
-	 * autenticador ainda não tem o JWT final, só o `tempToken`.
-	 */
-	@Post('recovery-codes/consume')
-	async consumeRecoveryCode(@Body() dto: TwoFactorRecoveryConsumeDto) {
-		return this.twoFactorService.consumeRecoveryCode(
-			dto.tempToken,
-			dto.recoveryCode
 		);
 	}
 }

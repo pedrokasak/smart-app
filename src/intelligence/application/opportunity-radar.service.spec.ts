@@ -54,7 +54,6 @@ describe('OpportunityRadarService', () => {
 	it('detects attractive range opportunity', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest
 				.fn()
 				.mockResolvedValue([makeSnapshot('BBAS3')]),
@@ -82,7 +81,6 @@ describe('OpportunityRadarService', () => {
 	it('detects underallocated sector and rebalance signal', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest
 				.fn()
 				.mockResolvedValue([makeSnapshot('WEGE3', { sector: 'INDUSTRIAL' })]),
@@ -113,7 +111,6 @@ describe('OpportunityRadarService', () => {
 	it('handles partial data safely', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([
 				makeSnapshot('ABCD3', {
 					sector: null,
@@ -157,7 +154,6 @@ describe('OpportunityRadarService', () => {
 	it('keeps fallback provider metadata and warning', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([
 				makeSnapshot('VALE3', {
 					metadata: {
@@ -188,7 +184,6 @@ describe('OpportunityRadarService', () => {
 	it('prioritizes and limits competing signals by configured context', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest
 				.fn()
 				.mockResolvedValue([
@@ -236,7 +231,6 @@ describe('OpportunityRadarService', () => {
 	it('returns warning when no relevant signals are found', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([]),
 		};
 		const service = new OpportunityRadarService(

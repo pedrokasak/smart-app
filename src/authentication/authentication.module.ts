@@ -10,7 +10,6 @@ import { jwtSecret, expireKeepAliveConected } from '../env';
 import { TokenBlacklistModule } from 'src/token-blacklist/token-blacklist.module';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
-import { BreachedPasswordModule } from 'src/authentication/breached-password.module';
 
 @Module({
 	imports: [
@@ -23,7 +22,6 @@ import { BreachedPasswordModule } from 'src/authentication/breached-password.mod
 		UsersModule,
 		TokenBlacklistModule.forRoot(),
 		EmailModule,
-		BreachedPasswordModule,
 	],
 	controllers: [AuthenticationController],
 	providers: [
@@ -32,11 +30,6 @@ import { BreachedPasswordModule } from 'src/authentication/breached-password.mod
 		JwtAuthGuard,
 		PasswordSecurityService,
 	],
-	exports: [
-		AuthenticationService,
-		JwtAuthGuard,
-		TokenBlacklistModule,
-		PasswordSecurityService,
-	],
+	exports: [JwtAuthGuard, TokenBlacklistModule, PasswordSecurityService],
 })
 export class AuthenticationModule {}

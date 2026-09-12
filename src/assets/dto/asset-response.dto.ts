@@ -3,8 +3,6 @@ export class AssetResponseDto {
 	portfolioId: string;
 	symbol: string;
 	name?: string;
-	/** Setor econômico; `null` quando desconhecido ou não aplicável (TRA-144). */
-	sector?: string | null;
 	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
 	quantity: number;
 	price: number;
@@ -27,9 +25,7 @@ export class AssetResponseDto {
 		priceToBook?: number;
 		currentYield?: number;
 		pvpRatio?: number;
-		beta?: number;
 	};
-	signal?: string;
 	source: 'manual' | 'b3' | 'webscrape';
 	lastEnrichedAt?: Date;
 	createdAt: Date;

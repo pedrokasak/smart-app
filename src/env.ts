@@ -19,26 +19,6 @@ const envSchema = z.object({
 	GOOGLE_CLIENT_ID: z.string().optional(),
 	GOOGLE_CSE_API_KEY: z.string().optional(),
 	GOOGLE_CSE_ENGINE_ID: z.string().optional(),
-	BRAPI_SUPPORTED_RANGES: z.string().optional(),
-	DIGEST_TOKEN_SECRET: z.string(),
-	/**
-	 * Web Push / VAPID (TRA-136, fase 6). Opcionais de proposito: sem elas o
-	 * modulo sobe com o push desligado (null object) em vez de derrubar o
-	 * boot. Gerar o par com `npx web-push generate-vapid-keys`.
-	 */
-	VAPID_PUBLIC_KEY: z.string().optional(),
-	VAPID_PRIVATE_KEY: z.string().optional(),
-	VAPID_SUBJECT: z.string().optional(),
-	/**
-	 * Cifragem das credenciais de corretora (TRA-144). Opcional no schema
-	 * porque ausencia = feature desligada (null object), nao boot quebrado.
-	 * A validacao de FORMATO (64 hex) mora em `credential-cipher.factory.ts`
-	 * e derruba o boot quando a variavel existe e esta malformada.
-	 * Gerar com: openssl rand -hex 32
-	 */
-	BROKER_ENCRYPTION_KEY: z.string().optional(),
-	/** Chave do formato v1 (AES-256-CBC). Somente leitura de linhas antigas. */
-	BROKER_ENCRYPTION_KEY_LEGACY: z.string().optional(),
 });
 
 const isTestEnvironment = process.env.NODE_ENV === 'test';
@@ -57,7 +37,6 @@ const testDefaults: Record<string, string> = {
 	STRIPE_WEBHOOK_SECRET_PROD: 'test-key',
 	ASAAS_API_KEY: 'test-key',
 	ASAAS_URL_SANDBOX: 'https://example.com',
-	DIGEST_TOKEN_SECRET: 'test-digest-secret',
 };
 
 // Parse the environment variables
@@ -90,11 +69,3 @@ export const googleClientId: string | undefined = env.data.GOOGLE_CLIENT_ID;
 export const googleCseApiKey: string | undefined = env.data.GOOGLE_CSE_API_KEY;
 export const googleCseEngineId: string | undefined =
 	env.data.GOOGLE_CSE_ENGINE_ID;
-export const digestTokenSecret: string = env.data.DIGEST_TOKEN_SECRET;
-export const vapidPublicKey: string | undefined = env.data.VAPID_PUBLIC_KEY;
-export const vapidPrivateKey: string | undefined = env.data.VAPID_PRIVATE_KEY;
-export const vapidSubject: string | undefined = env.data.VAPID_SUBJECT;
-export const brokerEncryptionKey: string | undefined =
-	env.data.BROKER_ENCRYPTION_KEY;
-export const brokerEncryptionKeyLegacy: string | undefined =
-	env.data.BROKER_ENCRYPTION_KEY_LEGACY;

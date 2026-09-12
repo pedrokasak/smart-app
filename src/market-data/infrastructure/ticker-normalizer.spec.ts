@@ -13,21 +13,8 @@ describe('normalizeTickerForProvider', () => {
 		);
 	});
 
-	// Cripto vira par contra o REAL: a carteira é em reais, e BTC-USD
-	// misturaria a variação do câmbio na correlação e no risco (TRA-141).
-	it('turns crypto tickers into a BRL pair', () => {
-		expect(normalizeTickerForProvider('BTC', 'yahoo', 'crypto')).toBe(
-			'BTC-BRL'
-		);
-		expect(normalizeTickerForProvider(' eth ', 'yahoo', 'crypto')).toBe(
-			'ETH-BRL'
-		);
-	});
-
-	it('keeps a crypto pair the caller already chose', () => {
-		expect(normalizeTickerForProvider('BTC-USD', 'yahoo', 'crypto')).toBe(
-			'BTC-USD'
-		);
+	it('does not append a suffix for crypto tickers', () => {
+		expect(normalizeTickerForProvider('BTC', 'yahoo', 'crypto')).toBe('BTC');
 	});
 
 	it('does not append a suffix for global/US stock tickers', () => {

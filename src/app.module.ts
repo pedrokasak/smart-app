@@ -20,28 +20,16 @@ import { SubscriptionModule } from './subscription/subscription.module';
 import { StockModule } from './stocks/stocks.module';
 import { AssetsModule } from './assets/assets.module';
 import { AiModule } from './ai/ai.module';
-import { RagIngestionModule } from './ai/rag-ingestion/rag-ingestion.module';
 import { TwoFactorModule } from './two-factor/two-factor.module';
 import { BrokerSyncModule } from './broker-sync/broker-sync.module';
 import { FiscalModule } from './fiscal/fiscal.module';
 import { PortfolioModule } from './portfolio/portfolio.module';
-import { TargetAllocationModule } from './portfolio/target-allocation/target-allocation.module';
 import { EndpointRateLimitMiddleware } from 'src/security/rate-limit/endpoint-rate-limit.middleware';
-import { RateLimitModule } from 'src/security/rate-limit/rate-limit.module';
 import { AdminModule } from './admin/admin.module';
 import { LeadsModule } from './leads/leads.module';
-import { PortfolioDigestModule } from './notifications/portfolio-digest/portfolio-digest.module';
-import { NotificationsModule } from './notifications/events/notifications.module';
-import { PushModule } from './notifications/push/push.module';
-import { PortfolioEvaluationModule } from './portfolio/evaluation/portfolio-evaluation.module';
-import { PrivacyModule } from './privacy/privacy.module';
-import { EventsModule } from './events/events.module';
-import { QuoteStalenessModule } from './market-data/quote-staleness/quote-staleness.module';
 
 @Module({
 	imports: [
-		EventsModule,
-		RateLimitModule,
 		AuthenticationModule,
 		UsersModule,
 		ProfileModule,
@@ -53,20 +41,12 @@ import { QuoteStalenessModule } from './market-data/quote-staleness/quote-stalen
 		StockModule,
 		AssetsModule,
 		AiModule,
-		RagIngestionModule,
 		TwoFactorModule,
 		BrokerSyncModule,
 		PortfolioModule,
-		TargetAllocationModule,
-		PortfolioEvaluationModule,
-		QuoteStalenessModule,
 		FiscalModule,
 		AdminModule,
 		LeadsModule,
-		PortfolioDigestModule,
-		NotificationsModule,
-		PushModule,
-		PrivacyModule,
 	],
 	controllers: [AppController],
 	providers: [

@@ -327,63 +327,18 @@ export class SubscriptionService {
 		const plan = await this.subscriptionModel.findById(subscriptionId);
 		if (!plan) throw new NotFoundException('Plano não encontrado');
 
-		// Plano gratuito não passa pelo Stripe (TRA-150). Em produção o plano
-		// Free carregava um `stripePriceId` órfão, então o checkout devolvia o
-		// 400 cru do Stripe ("No such price") — erro de integração vazando
-		// para o usuário no lugar de uma regra de negócio tratada aqui.
-		if (!(plan.price > 0)) {
-			throw new BadRequestException(
-				'Plano gratuito não requer checkout de pagamento.'
-			);
-		}
-
-		// Esconder o plano na landing não é impedir a compra: sem esta
-		// checagem, um POST direto contrata um plano ainda não lançado
-		// (CLAUDE.md §6.2 — o backend é a fonte real de autorização).
-		if (plan.isComingSoon) {
-			throw new BadRequestException(
-				'Plano ainda não disponível para contratação.'
-			);
-		}
-
-		// Caso simétrico do anterior: `removeSubscription` aposenta plano por
-		// soft-delete (`isActive = false`) e `findAllSubscriptions` já filtra
-		// por `isActive: true`. Sem esta checagem o plano some da vitrine mas
-		// continua contratável por quem ainda tem o ID — aba antiga, link
-		// salvo, ou o próprio `/api-json`. Compara com `=== false` de
-		// propósito: o schema tem `default: true`, então documento antigo sem
-		// o campo deve seguir válido em vez de virar incontratável.
-		if (plan.isActive === false) {
-			throw new BadRequestException('Plano não está mais disponível.');
-		}
-
-		if (billingInterval !== 'monthly' && billingInterval !== 'annual') {
-			throw new BadRequestException(
-				`billingInterval inválido: "${billingInterval}". Use "monthly" ou "annual".`
-			);
-		}
-
 		let priceId = plan.stripePriceId;
 		if (billingInterval === 'annual') {
-			// Antes daqui saía um fallback SILENCIOSO para o preço mensal, com
-			// apenas um `logger.warn`. Quem escolhia "anual" era mandado para
-			// um checkout mensal sem nenhum aviso — e em produção os três
-			// planos estavam sem `annualStripePriceId`, então isso valia para
-			// todo mundo. Quando o que está em jogo é qual valor entra no
-			// cartão de alguém, o certo é falhar alto (TRA-150).
-			if (!plan.annualStripePriceId) {
-				throw new BadRequestException(
-					'Cobrança anual não está disponível para este plano.'
+			if (plan.annualStripePriceId) {
+				priceId = plan.annualStripePriceId;
+			} else {
+				this.logger.warn(
+					`Plano ${plan._id} não tem annualStripePriceId configurado; usando preço mensal como fallback`
 				);
 			}
-			priceId = plan.annualStripePriceId;
-		}
-
-		// Plano pago sem preço no Stripe é configuração incompleta: mandar
-		// `undefined` adiante só troca este erro por um do Stripe, mais opaco.
-		if (!priceId) {
-			throw new BadRequestException(
-				'Plano sem preço configurado no Stripe. Contate o suporte.'
+		} else if (billingInterval !== 'monthly') {
+			this.logger.warn(
+				`billingInterval inválido recebido ("${billingInterval}") para o plano ${plan._id}; usando preço mensal como fallback`
 			);
 		}
 

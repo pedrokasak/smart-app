@@ -1,13 +1,11 @@
 import {
 	Controller,
-	ForbiddenException,
 	Get,
 	Post,
 	Body,
 	Patch,
 	Param,
 	Delete,
-	Req,
 	UseGuards,
 	UsePipes,
 	HttpException,
@@ -29,26 +27,6 @@ import {
 	ApiResponse,
 	ApiTags,
 } from '@nestjs/swagger';
-
-/**
- * Rotas de usuário por id só podem alcançar a PRÓPRIA conta — admin é a
- * única exceção (TRA-89). Fica aqui, e não num guard genérico, porque a
- * regra depende de qual parâmetro da rota carrega o id do dono.
- */
-function assertSelfOrAdmin(req: any, targetUserId: string): void {
-	const requesterId = String(req?.user?.userId ?? req?.user?.sub ?? '');
-	const role = req?.user?.role;
-
-	if (!requesterId) {
-		throw new ForbiddenException('Usuário não autenticado.');
-	}
-	if (role === Role.Admin) {
-		return;
-	}
-	if (requesterId !== String(targetUserId)) {
-		throw new ForbiddenException('Acesso negado a dados de outro usuário.');
-	}
-}
 
 @Controller('users')
 @ApiTags('users')
@@ -117,32 +95,23 @@ export class UsersController {
 
 	@Get(':id')
 	@UseGuards(JwtAuthGuard)
-	@ApiOperation({ summary: 'Retorna um usuário pelo ID (o próprio ou admin)' })
+	@ApiOperation({ summary: 'Retorna um usuário pelo ID' })
 	@ApiResponse({
 		status: 200,
 		description: 'Retorna um usuário pelo ID',
 	})
-	findOne(@Param('id') id: string, @Req() req: any) {
-		assertSelfOrAdmin(req, id);
+	findOne(@Param('id') id: string) {
 		return this.usersService.findOne(id);
 	}
 
 	@Patch('update/:id')
 	@UseGuards(JwtAuthGuard)
-	@ApiOperation({ summary: 'Atualiza um usuário pelo ID (o próprio ou admin)' })
+	@ApiOperation({ summary: 'Atualiza um usuário pelo ID' })
 	@ApiResponse({
 		status: 200,
 		description: 'Usuário atualizado com sucesso',
 	})
-	update(
-		@Param('id') id: string,
-		@Body() updateUserDto: UpdateUserDto,
-		@Req() req: any
-	) {
-		// Sem esta checagem qualquer usuário autenticado alterava o e-mail de
-		// outra conta e depois a tomava pelo fluxo de recuperação de senha
-		// (TRA-89).
-		assertSelfOrAdmin(req, id);
+	update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
 		return this.usersService.update(id, updateUserDto);
 	}
 

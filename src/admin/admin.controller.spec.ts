@@ -16,9 +16,6 @@ describe('AdminController', () => {
 		deactivatePlan: jest.fn(),
 		updateUserRoleByEmail: jest.fn(),
 		grantSubscriptionByEmail: jest.fn(),
-		listManualGrants: jest.fn(),
-		getWebhookStatus: jest.fn(),
-		listWebhookEvents: jest.fn(),
 	};
 
 	beforeEach(async () => {
@@ -113,9 +110,7 @@ describe('AdminController', () => {
 		const body = {
 			email: 'user@example.com',
 			planId: 'plan-1',
-			grantType: ManualGrantType.Trial,
-			trialDurationDays: 14,
-			discountPercent: 10,
+			grantType: ManualGrantType.Trial7Days,
 			notes: 'Cortesia',
 		};
 
@@ -126,57 +121,5 @@ describe('AdminController', () => {
 			'admin-1',
 			body
 		);
-	});
-
-	it('lists manual grant history with pagination', async () => {
-		const response = {
-			items: [
-				{
-					id: 'grant-1',
-					userEmail: 'user@example.com',
-					planId: 'plan-1',
-					planName: 'Pro',
-					grantType: ManualGrantType.Trial,
-					trialDurationDays: 14,
-					discountPercent: 10,
-					performedByEmail: 'admin@example.com',
-					createdAt: new Date('2026-01-01'),
-				},
-			],
-			page: 1,
-			limit: 20,
-			total: 1,
-		};
-		service.listManualGrants.mockResolvedValue(response);
-
-		await expect(
-			controller.listGrants({ page: 1, limit: 20 })
-		).resolves.toEqual(response);
-		expect(service.listManualGrants).toHaveBeenCalledWith({
-			page: 1,
-			limit: 20,
-		});
-	});
-
-	it('returns the webhook status', async () => {
-		service.getWebhookStatus.mockReturnValue({ configured: true });
-
-		expect(controller.getWebhookStatus()).toEqual({ configured: true });
-		expect(service.getWebhookStatus).toHaveBeenCalled();
-	});
-
-	it('lists recent webhook events with a parsed limit', async () => {
-		const events = [{ id: 'evt_1', type: 'invoice.paid' }];
-		service.listWebhookEvents.mockResolvedValue(events);
-
-		await expect(controller.listWebhookEvents('10')).resolves.toEqual(events);
-		expect(service.listWebhookEvents).toHaveBeenCalledWith(10);
-	});
-
-	it('lists recent webhook events with default limit when not provided', async () => {
-		service.listWebhookEvents.mockResolvedValue([]);
-
-		await expect(controller.listWebhookEvents()).resolves.toEqual([]);
-		expect(service.listWebhookEvents).toHaveBeenCalledWith(undefined);
 	});
 });

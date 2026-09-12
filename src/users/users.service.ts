@@ -1,7 +1,6 @@
 import {
 	BadRequestException,
 	HttpException,
-	Inject,
 	HttpStatus,
 	Injectable,
 	Logger,
@@ -16,11 +15,6 @@ import { Role } from 'src/auth/enums/role.enum';
 import { EmailService } from 'src/notifications/email/email.service';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 import { INITIAL_ADMIN_EMAIL } from 'src/admin/constants/admin.constants';
-import {
-	RAG_ERASURE,
-	RagErasurePort,
-} from 'src/users/application/rag-erasure.port';
-import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
 
 @Injectable()
 export class UsersService {
@@ -29,10 +23,7 @@ export class UsersService {
 	constructor(
 		private readonly jwtService: JwtService,
 		private readonly emailService: EmailService,
-		private readonly passwordSecurityService: PasswordSecurityService,
-		@Inject(RAG_ERASURE)
-		private readonly ragErasure: RagErasurePort,
-		private readonly breachedPasswordPolicy: BreachedPasswordPolicy
+		private readonly passwordSecurityService: PasswordSecurityService
 	) {}
 	async create(createUserDto: CreateUserDto) {
 		try {
@@ -48,12 +39,6 @@ export class UsersService {
 			if (password !== confirmPassword) {
 				throw AuthErrorService.handleInvalidConfirmPassword();
 			}
-
-			// TRK-012 (ASVS 5.0 6.2.12). Antes do Argon2id de proposito: nao
-			// faz sentido gastar 64 MiB derivando o hash de uma senha que vai
-			// ser recusada. Falha aberta se a checagem nao concluir — ver
-			// `BreachedPasswordPolicy`.
-			await this.breachedPasswordPolicy.assertNotBreached(password);
 
 			const hashedPassword =
 				await this.passwordSecurityService.hashPassword(password);
@@ -133,23 +118,7 @@ export class UsersService {
 	}
 
 	async delete(id: string) {
-		const deleted = await UserModel.findByIdAndDelete(id);
-		if (!deleted) return deleted;
-
-		// LGPD (TRA-78): o RAG mantem uma copia do dado financeiro do usuario
-		// num Postgres separado. Apagar so o registro transacional deixaria
-		// essa copia viva indefinidamente.
-		//
-		// Roda DEPOIS da exclusao no Mongo, e nao antes, porque a ordem
-		// inversa apagaria os embeddings de um usuario que talvez continuasse
-		// existindo se o delete do Mongo falhasse.
-		//
-		// Nao lanca: o adapter ja registra ERROR e faz retry. Recusar a
-		// exclusao da conta porque um servico secundario esta fora negaria ao
-		// usuario o proprio direito que esta rotina existe pra atender.
-		await this.ragErasure.eraseUserData(id);
-
-		return deleted;
+		return await UserModel.findByIdAndDelete(id);
 	}
 
 	async updateUserRole(id: string, role: Role) {

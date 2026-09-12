@@ -4,7 +4,6 @@ import {
 	B3MarketDataProviderPort,
 } from 'src/market-data/application/b3-market-data-provider.port';
 import {
-	DailyClose,
 	MarketAssetSnapshot,
 	MarketAssetType,
 	MarketDataProviderPort,
@@ -45,27 +44,6 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 		return snapshots.filter(
 			(snapshot): snapshot is MarketAssetSnapshot => !!snapshot
 		);
-	}
-
-	/**
-	 * Fechamentos diários, para beta e tracking error (TRA-141).
-	 *
-	 * Devolve `[]` em qualquer falha — a fonte é rate-limited e uma métrica
-	 * indisponível é melhor que uma exceção derrubando a rota de retornos.
-	 */
-	async getDailyCloses(
-		symbol: string,
-		range: string,
-		assetType: MarketAssetType = 'stock'
-	): Promise<DailyClose[]> {
-		try {
-			return await this.stockService.getDailyCloses(symbol, range, assetType);
-		} catch (error: any) {
-			this.logger.warn(
-				`getDailyCloses(${symbol}, ${range}) falhou: ${error?.message || 'unknown_error'}`
-			);
-			return [];
-		}
 	}
 
 	async getAssetSnapshot(symbol: string): Promise<MarketAssetSnapshot | null> {
@@ -125,7 +103,6 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 							fallbackSources: Array.from(
 								new Set([...(b3Snapshot.metadata.fallbackSources || []), 'b3'])
 							),
-							asOf: b3Snapshot.metadata.asOf ?? new Date().toISOString(),
 						},
 					};
 				}
@@ -180,7 +157,6 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 					fallbackUsed: true,
 					partial: true,
 					fallbackSources: ['fundamentus'],
-					asOf: new Date().toISOString(),
 				},
 			};
 		} catch (error) {
@@ -222,9 +198,6 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 				fallbackUsed: fallbackSources.length > 0,
 				partial,
 				fallbackSources,
-				// Carimbo da leitura, nao do pregao: e o instante em que a fonte
-				// respondeu. Ver a nota em `market-data-provider.port.ts`.
-				asOf: new Date().toISOString(),
 			},
 		};
 	}

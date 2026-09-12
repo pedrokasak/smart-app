@@ -3,10 +3,10 @@ import {
 	Injectable,
 	NotFoundException,
 	Logger,
-	ServiceUnavailableException,
 } from '@nestjs/common';
 import { BrokerConnectionModel } from './schema/broker-connection.model';
 import { BrokerConnectDto } from './dto/broker-connect.dto';
+import * as crypto from 'crypto';
 import { Types } from 'mongoose';
 import * as ccxt from 'ccxt';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
@@ -14,20 +14,10 @@ import { AssetsService } from 'src/assets/assets.service';
 import { UserModel } from 'src/users/schema/user.model';
 import { ProviderRegistry } from 'src/broker-sync/providers/provider-registry';
 import { SubscriptionService } from 'src/subscription/subscription.service';
-import { createBrokerCredentialCipher } from 'src/broker-sync/security/credential-cipher.factory';
-import {
-	BrokerCipherUnavailableError,
-	BrokerCredentialCipher,
-	BrokerCredentialDecryptionError,
-} from 'src/broker-sync/security/broker-credential-cipher';
-import {
-	brokerSyncErrorMessage,
-	isBrokerSyncErrorCategory,
-} from 'src/broker-sync/domain/broker-sync-error';
-import {
-	brokerErrorLogLabel,
-	classifyBrokerError,
-} from 'src/broker-sync/providers/ccxt-error-classifier';
+
+const ENCRYPTION_KEY =
+	process.env.BROKER_ENCRYPTION_KEY || '0123456789abcdef0123456789abcdef'; // 32 bytes
+const IV_LENGTH = 16;
 
 @Injectable()
 export class BrokerSyncService {
@@ -40,16 +30,6 @@ export class BrokerSyncService {
 	private readonly logger = new Logger(BrokerSyncService.name);
 
 	private readonly providerRegistry = new ProviderRegistry();
-
-	/**
-	 * Campo, e nao dependencia de construtor, pelo mesmo motivo do
-	 * `providerRegistry` acima: a cifra nao tem dependencia de container e
-	 * injeta-la exigiria mudar todos os call sites de teste do servico.
-	 * A unidade em si (`AesGcmCredentialCipher`) recebe as chaves por
-	 * construtor e e testada isolada, sem `process.env`.
-	 */
-	private readonly cipher: BrokerCredentialCipher =
-		createBrokerCredentialCipher();
 	private readonly fiatSymbols = new Set([
 		'BRL',
 		'USD',
@@ -106,41 +86,29 @@ export class BrokerSyncService {
 		return out;
 	}
 
-	/**
-	 * Adaptador fino sobre a porta de cifragem: traduz os erros de dominio da
-	 * cifra em excecoes HTTP. Nenhuma logica de criptografia mora aqui.
-	 *
-	 * Falta de configuracao vira 503 (problema do servidor, e o operador tem a
-	 * mensagem exata), nunca gravacao sob chave conhecida.
-	 */
 	private encrypt(text: string): string {
-		try {
-			return this.cipher.encrypt(text);
-		} catch (error) {
-			if (error instanceof BrokerCipherUnavailableError) {
-				throw new ServiceUnavailableException(error.message);
-			}
-			throw error;
-		}
+		const iv = crypto.randomBytes(IV_LENGTH);
+		const cipher = crypto.createCipheriv(
+			'aes-256-cbc',
+			Buffer.from(ENCRYPTION_KEY),
+			iv
+		);
+		let encrypted = cipher.update(text, 'utf8', 'hex');
+		encrypted += cipher.final('hex');
+		return iv.toString('hex') + ':' + encrypted;
 	}
 
-	/**
-	 * Adulteracao, chave trocada ou valor legado sem chave antiga viram 400 com
-	 * instrucao de reconectar — o usuario consegue agir. Nenhuma mensagem
-	 * carrega o valor cifrado nem o valor em claro.
-	 */
 	private decrypt(text: string): string {
-		try {
-			return this.cipher.decrypt(text);
-		} catch (error) {
-			if (error instanceof BrokerCipherUnavailableError) {
-				throw new ServiceUnavailableException(error.message);
-			}
-			if (error instanceof BrokerCredentialDecryptionError) {
-				throw new BadRequestException(error.message);
-			}
-			throw error;
-		}
+		const [ivHex, encrypted] = text.split(':');
+		const iv = Buffer.from(ivHex, 'hex');
+		const decipher = crypto.createDecipheriv(
+			'aes-256-cbc',
+			Buffer.from(ENCRYPTION_KEY),
+			iv
+		);
+		let decrypted = decipher.update(encrypted, 'hex', 'utf8');
+		decrypted += decipher.final('utf8');
+		return decrypted;
 	}
 
 	async getConnections(userId: string) {
@@ -148,33 +116,14 @@ export class BrokerSyncService {
 			{ userId: new Types.ObjectId(userId) },
 			{ apiKeyEncrypted: 0, apiSecretEncrypted: 0 }
 		);
-		return connections.map((c) => {
-			// Linha gravada ANTES da TRK-011 tem `lastError` com o texto cru da
-			// corretora e nenhum `lastErrorCode`. Devolver esse texto é
-			// exatamente o vazamento que esta issue fecha, então a ausência do
-			// código é tratada como "não classificado" e a mensagem genérica
-			// entra no lugar. Isso apaga a exposição das linhas antigas sem
-			// precisar de migração — a próxima sincronização reescreve o par
-			// com a categoria certa.
-			const category = isBrokerSyncErrorCategory(c.lastErrorCode)
-				? c.lastErrorCode
-				: null;
-			const hadError = !!category || !!c.lastError;
-
-			return {
-				id: c._id,
-				provider: c.provider,
-				status: c.status,
-				lastSync: c.lastSync,
-				hasCpf: !!c.cpf,
-				// Contrato mantido: o `web` já lê `lastError` como string ou null.
-				lastError: hadError
-					? brokerSyncErrorMessage(category ?? 'unknown')
-					: null,
-				lastErrorCode: category,
-				lastErrorStatus: c.lastErrorStatus ?? null,
-			};
-		});
+		return connections.map((c) => ({
+			id: c._id,
+			provider: c.provider,
+			status: c.status,
+			lastSync: c.lastSync,
+			hasCpf: !!c.cpf,
+			lastError: c.lastError || null,
+		}));
 	}
 
 	async connect(userId: string, dto: BrokerConnectDto) {
@@ -188,8 +137,6 @@ export class BrokerSyncService {
 			provider: dto.provider,
 			status: 'connected',
 			lastError: null,
-			lastErrorCode: null,
-			lastErrorStatus: null,
 		};
 
 		if (dto.apiKey) payload.apiKeyEncrypted = this.encrypt(dto.apiKey.trim());
@@ -254,15 +201,9 @@ export class BrokerSyncService {
 		try {
 			exchange = providerImpl.createClient({ apiKey, secret, password });
 		} catch (error) {
-			// Mesma regra do catch da sincronização (TRK-011): é aqui que a
-			// Private Key da Coinbase fora do PEM costuma estourar, e a
-			// mensagem do `crypto` já chegou a ecoar material da chave.
-			const sanitized = classifyBrokerError(error);
-			this.logger.warn(
-				`Falha ao instanciar cliente de ${provider}: ` +
-					brokerErrorLogLabel(error, sanitized)
+			throw new BadRequestException(
+				`Erro ao instanciar corretora: ${error.message}`
 			);
-			throw new BadRequestException(sanitized.message);
 		}
 
 		try {
@@ -281,8 +222,7 @@ export class BrokerSyncService {
 						}
 					} catch (e) {
 						this.logger.warn(
-							`Erro ao buscar balance ${type} na Binance: ` +
-								brokerErrorLogLabel(e, classifyBrokerError(e))
+							`Erro ao buscar balance ${type} na Binance: ${e.message}`
 						);
 					}
 				}
@@ -299,8 +239,7 @@ export class BrokerSyncService {
 						}
 					} catch (e) {
 						this.logger.warn(
-							`Erro no fallback fetchBalance() da Binance: ` +
-								brokerErrorLogLabel(e, classifyBrokerError(e))
+							`Erro no fallback fetchBalance() da Binance: ${e.message}`
 						);
 					}
 				}
@@ -408,8 +347,6 @@ export class BrokerSyncService {
 			connection.lastSync = new Date();
 			connection.status = 'connected';
 			connection.lastError = null;
-			connection.lastErrorCode = null;
-			connection.lastErrorStatus = null;
 			await connection.save();
 
 			return {
@@ -420,27 +357,23 @@ export class BrokerSyncService {
 				failedAssetsDetails: failedAssets.slice(0, 5),
 			};
 		} catch (error) {
-			// TRK-011: o texto da corretora morre aqui. Algumas exchanges ecoam
-			// a URL da requisição dentro da mensagem de erro, e a URL carrega a
-			// API key — persistir isso colocava a credencial em claro no mesmo
-			// banco onde ela está cifrada. O que sai daqui é categoria +
-			// status, nada do provedor.
-			const sanitized = classifyBrokerError(error);
-
+			const reason =
+				(error as any)?.response?.data?.msg ||
+				(error as any)?.response?.data?.message ||
+				(error as any)?.message ||
+				'Erro desconhecido na sincronização';
+			const normalizedReason =
+				provider === 'coinbase' &&
+				(String(reason).includes('Illegal character at offset') ||
+					String(reason).includes('Unsupported key format'))
+					? 'Formato de chave da Coinbase inválido. Use API Key + Private Key no formato PEM (com BEGIN/END), e informe passphrase se a sua chave exigir.'
+					: String(reason);
 			connection.status = 'error';
-			connection.lastError = sanitized.message;
-			connection.lastErrorCode = sanitized.category;
-			connection.lastErrorStatus = sanitized.statusCode ?? null;
+			connection.lastError = normalizedReason;
 			await connection.save();
-
-			// Log com tipo e status, sem a mensagem: log é mais um lugar onde
-			// uma API key ecoada não deveria parar.
-			this.logger.warn(
-				`Falha ao sincronizar ${provider} para usuário ${userId}: ` +
-					brokerErrorLogLabel(error, sanitized)
+			throw new BadRequestException(
+				`Erro na sincronização: ${normalizedReason}`
 			);
-
-			throw new BadRequestException(sanitized.message);
 		}
 	}
 

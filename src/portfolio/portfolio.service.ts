@@ -2,10 +2,9 @@ import {
 	Injectable,
 	ForbiddenException,
 	NotFoundException,
-	Logger,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model, Types } from 'mongoose';
+import { Model } from 'mongoose';
 import { CreateAssetDto } from 'src/assets/dto/create-asset.dto';
 import { Asset } from 'src/assets/schema/assets.model';
 import { CreatePortfolioDto } from 'src/portfolio/dto/create-portfolio.dto';
@@ -13,13 +12,9 @@ import { UpdatePortfolioDto } from 'src/portfolio/dto/update-portfolio.dto';
 import { PortfolioEnrichService } from 'src/portfolio/portfolio-enrich.service';
 import { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import { PortfolioHistory } from 'src/portfolio/schema/portfolio-history.model';
-import { computePortfolioSnapshot } from 'src/portfolio/history/compute-snapshot';
-import { nonTradingReason } from 'src/portfolio/history/trading-calendar';
 
 @Injectable()
 export class PortfolioService {
-	private readonly logger = new Logger(PortfolioService.name);
-
 	constructor(
 		@InjectModel('Portfolio') private portfolioModel: Model<Portfolio>,
 		@InjectModel('PortfolioHistory')
@@ -32,91 +27,11 @@ export class PortfolioService {
 		return this.portfolioModel.findById(portfolioId).populate('assets');
 	}
 
-	/**
-	 * Carrega o portfólio garantindo que ele pertence ao usuário do token
-	 * (TRA-89).
-	 *
-	 * Antes disso `GET /portfolio/:id` só recebia o id: qualquer usuário
-	 * autenticado lia a carteira inteira de qualquer outro. Autorização é
-	 * decidida aqui e não no controller pra não depender de cada rota nova
-	 * lembrar de repetir a checagem.
-	 *
-	 * Portfólio inexistente e portfólio alheio devolvem o MESMO erro de
-	 * propósito: distinguir os dois transforma o endpoint num oráculo de
-	 * existência de ids.
-	 */
-	async findOwnedPortfolioById(userId: string, portfolioId: string) {
-		if (!userId) {
-			throw new ForbiddenException('Usuário não autenticado.');
-		}
-		if (!Types.ObjectId.isValid(portfolioId)) {
-			throw new NotFoundException('Carteira não encontrada.');
-		}
-
-		const portfolio = await this.portfolioModel
-			.findOne({ _id: portfolioId, userId })
-			.populate('assets');
-
-		if (!portfolio) {
-			throw new NotFoundException('Carteira não encontrada.');
-		}
-
-		return portfolio;
-	}
-
-	/** Igual a `findOwnedPortfolioById`, mas sem carregar os ativos. */
-	async assertPortfolioOwnership(
-		userId: string,
-		portfolioId: string
-	): Promise<void> {
-		if (!userId) {
-			throw new ForbiddenException('Usuário não autenticado.');
-		}
-		if (!Types.ObjectId.isValid(portfolioId)) {
-			throw new NotFoundException('Carteira não encontrada.');
-		}
-
-		const exists = await this.portfolioModel.exists({
-			_id: portfolioId,
-			userId,
-		});
-
-		if (!exists) {
-			throw new NotFoundException('Carteira não encontrada.');
-		}
-	}
-
 	async getPortfolioHistory(portfolioId: string) {
 		return this.portfolioHistoryModel
 			.find({ portfolioId })
 			.sort({ date: 1 })
 			.exec();
-	}
-
-	/**
-	 * Histórico somado entre TODOS os portfólios do usuário, por dia —
-	 * diferente de getPortfolioHistory, que é escopado a um portfólio só.
-	 * Usuário com mais de um portfólio (raro, mas possível) tem os
-	 * totalValue do mesmo dia somados numa única série.
-	 */
-	async getUserPortfolioHistory(
-		userId: string,
-		fromDate: string,
-		toDate: string
-	): Promise<Array<{ date: string; totalValue: number }>> {
-		const rows = await this.portfolioHistoryModel
-			.find({ userId, date: { $gte: fromDate, $lte: toDate } })
-			.sort({ date: 1 })
-			.exec();
-
-		const byDate = new Map<string, number>();
-		for (const row of rows) {
-			byDate.set(row.date, (byDate.get(row.date) || 0) + row.totalValue);
-		}
-
-		return Array.from(byDate.entries())
-			.map(([date, totalValue]) => ({ date, totalValue }))
-			.sort((a, b) => a.date.localeCompare(b.date));
 	}
 
 	async recordHistorySnapshot(portfolioId: string, date?: string) {
@@ -126,67 +41,61 @@ export class PortfolioService {
 		if (!portfolio) return;
 
 		const assets = portfolio.assets as unknown as Asset[];
-
-		// Antes: `assets.reduce((acc, a) => acc + (a.total || 0), 0)`.
-		// `asset.total` é `quantity * costBasis`, não valor de mercado — a série
-		// gravava custo todo dia e por isso saía reta (TRA-143). O resto do
-		// código já valorizava por `currentPrice`; só o snapshot não.
-		const snapshot = computePortfolioSnapshot(assets);
+		const totalValue = assets.reduce(
+			(acc, asset) => acc + (asset.total || 0),
+			0
+		);
 
 		const snapshotDate = date || new Date().toISOString().split('T')[0];
-
-		// Fim de semana e feriado geram snapshot igual ao do pregão anterior.
-		// Marcar permite ao gráfico manter a linha contínua e ao cálculo de
-		// volatilidade/beta usar só os pregões (TRA-143).
-		const reason = nonTradingReason(snapshotDate);
 
 		await this.portfolioHistoryModel.findOneAndUpdate(
 			{ portfolioId, date: snapshotDate },
 			{
 				userId: portfolio.userId,
-				totalValue: snapshot.totalValue,
-				investedValue: snapshot.investedValue,
-				stale: snapshot.stale,
-				staleSymbols: snapshot.staleSymbols,
-				tradingDay: reason === null,
-				nonTradingReason: reason ?? undefined,
+				totalValue,
 			},
 			{ upsert: true, new: true }
 		);
-
-		if (snapshot.stale) {
-			this.logger.warn(
-				`Snapshot ${snapshotDate} do portfólio ${portfolioId} sem cotação para: ${snapshot.staleSymbols.join(', ')}`
-			);
-		}
 	}
 
 	/**
-	 * Grava um snapshot com um valor conhecido numa data específica — o caso
-	 * do relatório importado, que afirma quanto a carteira valia naquele dia.
-	 *
-	 * Substitui o antigo `backfillHistorySnapshots`, que repetia esse mesmo
-	 * valor em todos os dias até hoje. Aquilo não era estimativa: afirmava um
-	 * valor exato para dias em que ninguém sabe quanto a carteira valeu, e a
-	 * série constante resultante zerava qualquer variação percentual no
-	 * gráfico. Um ponto verdadeiro vale mais que uma curva inventada.
+	 * Backfill contínuo dia-a-dia (forward-fill) do `fromDate` até hoje:
+	 * grava o MESMO `totalValue` do relatório importado em todos os dias
+	 * corridos do intervalo (upsert por portfolioId+date, preserva datas já
+	 * existentes). Valores intermediários são estimados (não mark-to-market
+	 * real) — serve para o gráfico de período mostrar uma linha contínua a
+	 * partir da data do relatório compartado com os snapshots diários futuros.
 	 */
-	async recordHistorySnapshotWithValue(
+	async backfillHistorySnapshots(
 		portfolioId: string,
-		date: string,
+		fromDate: string,
 		totalValue: number
 	) {
 		const portfolio = await this.portfolioModel.findById(portfolioId).lean();
 		if (!portfolio) return;
 
-		const parsed = new Date(date);
-		if (Number.isNaN(parsed.getTime())) return;
+		const start = new Date(fromDate);
+		if (Number.isNaN(start.getTime())) return;
+		start.setUTCHours(0, 0, 0, 0);
 
-		await this.portfolioHistoryModel.findOneAndUpdate(
-			{ portfolioId, date },
-			{ userId: portfolio.userId, totalValue },
-			{ upsert: true, new: true }
-		);
+		const today = new Date();
+		today.setUTCHours(0, 0, 0, 0);
+
+		for (
+			let cursor = new Date(start);
+			cursor <= today;
+			cursor.setUTCDate(cursor.getUTCDate() + 1)
+		) {
+			const dateStr = cursor.toISOString().split('T')[0];
+			await this.portfolioHistoryModel.findOneAndUpdate(
+				{ portfolioId, date: dateStr },
+				{
+					userId: portfolio.userId,
+					totalValue,
+				},
+				{ upsert: true, new: true }
+			);
+		}
 	}
 
 	async getAllPortfolioIds(): Promise<string[]> {
@@ -203,13 +112,8 @@ export class PortfolioService {
 	}
 
 	async findPortfolioByName(userId: string, name: string) {
-		// O nome é texto do usuário e ia cru para dentro de um RegExp: um nome
-		// como `(a+)+$` gera backtracking catastrófico (ReDoS) e metacaracteres
-		// mudam silenciosamente o que a busca casa. Escapar mantém a intenção
-		// original — comparação exata, sem diferenciar maiúsculas (TRA-89).
-		const escaped = String(name || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 		return this.portfolioModel
-			.findOne({ userId, name: new RegExp(`^${escaped}$`, 'i') })
+			.findOne({ userId, name: new RegExp(`^${name}$`, 'i') })
 			.populate('assets');
 	}
 
@@ -222,6 +126,16 @@ export class PortfolioService {
 		createDto: CreatePortfolioDto,
 		userPlan: string = 'free'
 	) {
+		const existingPortfoliosCount = await this.portfolioModel.countDocuments({
+			userId,
+		});
+
+		if (userPlan === 'free' && existingPortfoliosCount >= 1) {
+			throw new ForbiddenException(
+				'Limite de portfólios atingido. Faça upgrade para o plano Premium para criar mais portfólios.'
+			);
+		}
+
 		const portfolio = await this.portfolioModel.create({
 			userId,
 			name: createDto.name,
@@ -231,23 +145,6 @@ export class PortfolioService {
 			assets: [],
 			plan: userPlan,
 		});
-
-		// Limite conferido DEPOIS de gravar, e desfeito se estourou (TRA-89).
-		//
-		// A ordem anterior era `countDocuments` e então `create`: duas
-		// requisições simultâneas contavam zero antes de qualquer uma gravar,
-		// e as duas passavam — plano free terminava com N carteiras. Contar
-		// depois da escrita faz a corrida ser observável: quem criou a
-		// segunda enxerga as duas e desfaz a própria.
-		if (userPlan === 'free') {
-			const count = await this.portfolioModel.countDocuments({ userId });
-			if (count > 1) {
-				await this.portfolioModel.deleteOne({ _id: portfolio._id });
-				throw new ForbiddenException(
-					'Limite de portfólios atingido. Faça upgrade para o plano Premium para criar mais portfólios.'
-				);
-			}
-		}
 
 		return portfolio;
 	}

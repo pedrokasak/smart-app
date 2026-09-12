@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { SubscriptionService } from './subscription.service';
 import { WebhooksService } from 'src/subscription/webhooks.service';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { getModelToken } from '@nestjs/mongoose';
 import { StripeService } from 'src/subscription/stripe.service';
 import { SubscriptionController } from 'src/subscription/subscription.controller';
@@ -109,8 +109,6 @@ describe('SubscriptionService', () => {
 	describe('createCheckoutSession — billing interval', () => {
 		const plan = {
 			_id: 'plan_1',
-			price: 149,
-			isActive: true,
 			stripePriceId: 'price_monthly_123',
 			annualStripePriceId: 'price_annual_123',
 		};
@@ -156,134 +154,50 @@ describe('SubscriptionService', () => {
 			);
 		});
 
-		/**
-		 * TRA-150. O comportamento anterior era cair no preço MENSAL quando o
-		 * plano não tinha preço anual, emitindo apenas um `logger.warn`. Isso
-		 * cobrava um ciclo diferente do que o usuário escolheu, e ninguém via —
-		 * em produção os três planos estavam sem `annualStripePriceId`, então
-		 * todo checkout "anual" virava mensal em silêncio. Falhar alto é o
-		 * único comportamento defensável quando o que está em jogo é qual
-		 * valor entra no cartão de alguém.
-		 */
-		it('rejects annual checkout when annualStripePriceId is not configured', async () => {
+		it('falls back to stripePriceId when billingInterval is annual but annualStripePriceId is not configured', async () => {
 			mockSubscriptionModel.findById.mockResolvedValue({
 				...plan,
 				annualStripePriceId: undefined,
 			});
 
-			await expect(
-				service.createCheckoutSession(
-					'user_1',
-					'plan_1',
-					'https://ok',
-					'https://cancel',
-					'annual'
-				)
-			).rejects.toThrow(BadRequestException);
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel',
+				'annual'
+			);
 
-			expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
+			expect(mockStripeService.createCheckoutSession).toHaveBeenCalledWith(
+				'user_1',
+				'price_monthly_123',
+				'https://ok',
+				'https://cancel'
+			);
 		});
 
-		it('rejects an invalid billingInterval instead of silently charging monthly', async () => {
-			await expect(
-				service.createCheckoutSession(
-					'user_1',
-					'plan_1',
-					'https://ok',
-					'https://cancel',
-					'yearly' as any
-				)
-			).rejects.toThrow(BadRequestException);
+		it('falls back to stripePriceId and logs a warning when an invalid billingInterval reaches the service directly', async () => {
+			const warnSpy = jest
+				.spyOn((service as any).logger, 'warn')
+				.mockImplementation(() => undefined);
 
-			expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
-		});
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel',
+				'yearly' as any
+			);
 
-		/**
-		 * Plano gratuito não tem o que cobrar. Em produção o plano Free tinha
-		 * um `stripePriceId` órfão e o checkout devolvia 400 do próprio Stripe
-		 * ("No such price"), o que expõe erro de integração ao usuário em vez
-		 * de tratar a regra de negócio aqui (TRA-150).
-		 */
-		it('rejects checkout for a free plan (price 0) without calling Stripe', async () => {
-			mockSubscriptionModel.findById.mockResolvedValue({
-				...plan,
-				price: 0,
-			});
-
-			await expect(
-				service.createCheckoutSession(
-					'user_1',
-					'plan_1',
-					'https://ok',
-					'https://cancel'
-				)
-			).rejects.toThrow(BadRequestException);
-
-			expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
-		});
-
-		/**
-		 * CLAUDE.md §6.2: o frontend só melhora UX, quem decide é o backend. A
-		 * landing já esconde plano "em breve", mas esconder não é impedir.
-		 */
-		it('rejects checkout for a coming-soon plan', async () => {
-			mockSubscriptionModel.findById.mockResolvedValue({
-				...plan,
-				isComingSoon: true,
-			});
-
-			await expect(
-				service.createCheckoutSession(
-					'user_1',
-					'plan_1',
-					'https://ok',
-					'https://cancel'
-				)
-			).rejects.toThrow(BadRequestException);
-
-			expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
-		});
-
-		/**
-		 * `removeSubscription` aposenta plano por soft-delete (`isActive =
-		 * false`) e a listagem pública já filtra por `isActive: true`. Sem esta
-		 * checagem o plano some da vitrine mas continua contratável por quem
-		 * ainda tem o ID — o caso simétrico do `isComingSoon`.
-		 */
-		it('rejects checkout for an inactive (retired) plan', async () => {
-			mockSubscriptionModel.findById.mockResolvedValue({
-				...plan,
-				isActive: false,
-			});
-
-			await expect(
-				service.createCheckoutSession(
-					'user_1',
-					'plan_1',
-					'https://ok',
-					'https://cancel'
-				)
-			).rejects.toThrow(BadRequestException);
-
-			expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
-		});
-
-		it('rejects a paid plan with no stripePriceId configured', async () => {
-			mockSubscriptionModel.findById.mockResolvedValue({
-				...plan,
-				stripePriceId: undefined,
-			});
-
-			await expect(
-				service.createCheckoutSession(
-					'user_1',
-					'plan_1',
-					'https://ok',
-					'https://cancel'
-				)
-			).rejects.toThrow(BadRequestException);
-
-			expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
+			expect(mockStripeService.createCheckoutSession).toHaveBeenCalledWith(
+				'user_1',
+				'price_monthly_123',
+				'https://ok',
+				'https://cancel'
+			);
+			expect(warnSpy).toHaveBeenCalledWith(
+				expect.stringContaining('billingInterval inválido')
+			);
 		});
 	});
 });
