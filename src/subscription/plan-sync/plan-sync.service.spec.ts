@@ -77,7 +77,7 @@ describe('PlanSyncService', () => {
 		const proDoc = plans.find((p) => p.name === 'Pro');
 		expect(proDoc).toMatchObject({
 			name: 'Pro',
-			price: 149,
+			price: 14.9,
 			annualPrice: 1490,
 			stripeProductId: 'prod_pro_live',
 			stripePriceId: 'price_pro_monthly_live',
@@ -132,7 +132,7 @@ describe('PlanSyncService', () => {
 		const updated = plans.find((p) => p._id === 'legacy_pro_1');
 		expect(updated).toMatchObject({
 			name: 'Pro',
-			price: 149,
+			price: 14.9,
 			stripeProductId: 'prod_pro_live',
 			stripePriceId: 'price_pro_monthly_live',
 			annualStripePriceId: 'price_pro_annual_live',
