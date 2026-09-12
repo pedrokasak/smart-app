@@ -53,9 +53,13 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 	 * Devolve `[]` em qualquer falha — a fonte é rate-limited e uma métrica
 	 * indisponível é melhor que uma exceção derrubando a rota de retornos.
 	 */
-	async getDailyCloses(symbol: string, range: string): Promise<DailyClose[]> {
+	async getDailyCloses(
+		symbol: string,
+		range: string,
+		assetType: MarketAssetType = 'stock'
+	): Promise<DailyClose[]> {
 		try {
-			return await this.stockService.getDailyCloses(symbol, range);
+			return await this.stockService.getDailyCloses(symbol, range, assetType);
 		} catch (error: any) {
 			this.logger.warn(
 				`getDailyCloses(${symbol}, ${range}) falhou: ${error?.message || 'unknown_error'}`

@@ -231,9 +231,11 @@ describe('ChatOrchestratorService', () => {
 				'ITUB4',
 				'XPLG11',
 			]);
+			// O tipo vai junto: cripto precisa virar par em reais (TRA-141).
 			expect(mockMarketDataProvider.getDailyCloses).toHaveBeenCalledWith(
 				'ITUB4',
-				'1y'
+				'1y',
+				'stock'
 			);
 		});
 

@@ -970,16 +970,18 @@ export class ChatOrchestratorService {
 
 		// Análises do prompt avançado do Copiloto no handoff (TRA-141).
 		if (intent === 'correlation_matrix' || intent === 'return_attribution') {
-			// Só ativos listados na B3: `getDailyCloses` normaliza o símbolo como
-			// ação no Yahoo, o que daria série errada para cripto. As maiores
-			// posições primeiro, com teto — a fonte é rate-limited e uma matriz
-			// com dezenas de linhas não é legível.
+			// Ativos com série diária: B3 e cripto. Cripto entrou quando
+			// `getDailyCloses` passou a receber o tipo e normalizar o par em
+			// reais (BTC-BRL) — antes o símbolo virava ação e a série vinha
+			// errada. Renda fixa e fundos seguem fora: não têm cotação diária.
+			// As maiores posições primeiro, com teto — a fonte é rate-limited e
+			// uma matriz com dezenas de linhas não é legível.
 			const MAX_ANALYTIC_SYMBOLS = 12;
 			const listed = positions
 				.filter(
 					(position) =>
 						position.quantity > 0 &&
-						['stock', 'fii', 'etf'].includes(position.assetType)
+						['stock', 'fii', 'etf', 'crypto'].includes(position.assetType)
 				)
 				.map((position) => ({
 					...position,
@@ -1003,7 +1005,8 @@ export class ChatOrchestratorService {
 							position.symbol,
 							await this.marketDataProvider.getDailyCloses(
 								position.symbol,
-								'1y'
+								'1y',
+								position.assetType
 							),
 						] as const
 				)
