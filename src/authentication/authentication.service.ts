@@ -1,5 +1,6 @@
 import {
 	Injectable,
+	Logger,
 	UnauthorizedException,
 	NotFoundException,
 	InternalServerErrorException,
@@ -75,6 +76,8 @@ type GoogleTokenInfoResponse = {
 
 @Injectable()
 export class AuthenticationService {
+	private readonly logger = new Logger(AuthenticationService.name);
+
 	constructor(
 		private jwtService: JwtService,
 		private tokenBlacklistService: TokenBlacklistService,
@@ -452,11 +455,25 @@ export class AuthenticationService {
 		user.resetPasswordExpires = resetPasswordExpires;
 		await user.save();
 
-		// Send email (safe fallback: avoid exposing provider failures to users)
+		// A resposta segue genérica mesmo quando o envio falha: variar o retorno
+		// entre "enviado" e "erro" revelaria quais e-mails existem, porque o
+		// caminho de e-mail inexistente retorna antes daqui e nunca falharia.
+		//
+		// O que estava errado era o `catch` VAZIO (TRA-151): uma queda total do
+		// provedor não deixava rastro nenhum no ponto de negócio, e recuperação
+		// de senha — o único caminho de volta de quem perdeu o acesso — falhava
+		// em silêncio. Resposta genérica para o usuário, ERROR para quem opera.
+		//
+		// Loga `user._id` em vez do e-mail: log de erro não precisa carregar
+		// dado pessoal para ser acionável (CLAUDE.md §8).
 		try {
 			await this.emailService.sendPasswordResetEmail(user.email, resetToken);
-		} catch (_error) {
-			// Keep deterministic generic response to avoid user/email enumeration.
+		} catch (error) {
+			this.logger.error(
+				`Falha ao enviar e-mail de recuperação de senha (userId=${user._id}): ` +
+					`${(error as Error)?.message ?? 'erro desconhecido'}. ` +
+					`O usuário recebeu a resposta genérica e NÃO tem como redefinir a senha.`
+			);
 		}
 
 		return {
