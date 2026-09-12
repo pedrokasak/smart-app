@@ -87,6 +87,20 @@ export class EventQueueWorker
 			void this.onFailed(job, err);
 		});
 
+		// O `Worker` do BullMQ e um EventEmitter, e EventEmitter que emite
+		// 'error' sem nenhum listener registrado lanca ERR_UNHANDLED_ERROR e
+		// DERRUBA O PROCESSO. O handler da conexao acima nao cobre isto: sao
+		// emissores diferentes — um e o socket do ioredis, o outro e o worker.
+		//
+		// Foi exatamente o que tirou producao do ar por ~25 minutos no deploy
+		// do v1.6.0 (TRA-153): nao existe Redis na infra, `REDIS_HOST` caiu no
+		// default `localhost`, o BullMQ emitiu 'error' no worker e o processo
+		// morreu em loop. Sem Redis o worker nao tem o que fazer, mas isso e
+		// estado degradado — a API precisa continuar respondendo o resto.
+		this.worker.on('error', (err) => {
+			this.logger.warn(`Worker de eventos: ${err.message}`);
+		});
+
 		this.logger.log(
 			`Worker de eventos ativo em '${this.config.queueName}' ` +
 				`(concorrencia=${this.config.concurrency}, ` +
