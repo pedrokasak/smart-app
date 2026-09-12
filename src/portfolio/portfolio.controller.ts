@@ -13,6 +13,7 @@ import {
 	UseGuards,
 	UseInterceptors,
 	UploadedFile,
+	Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -30,6 +31,7 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
+import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
@@ -60,13 +62,16 @@ function resolveUserId(req: any): string {
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard)
 export class PortfolioController {
+	private readonly logger = new Logger(PortfolioController.name);
+
 	constructor(
 		private portfolioService: PortfolioService,
 		private assetService: AssetsService,
 		private subscriptionService: SubscriptionService,
 		private portfolioReturnsService: PortfolioReturnsService,
 		private portfolioCompositionService: PortfolioCompositionService,
-		private portfolioRiskContributionService: PortfolioRiskContributionService
+		private portfolioRiskContributionService: PortfolioRiskContributionService,
+		private portfolioHistoryBackfillService: PortfolioHistoryBackfillService
 	) {}
 
 	@Post('create')
@@ -301,6 +306,21 @@ export class PortfolioController {
 	 * Contribuição de risco por ativo (TRA-141): card da tela Portfólio do
 	 * handoff. Antes de `@Get(':id')`, pelo mesmo motivo de ordem de rotas.
 	 */
+	/**
+	 * Reconstrói o histórico diário a partir das negociações já importadas
+	 * (TRA-141). O import novo já dispara sozinho; esta rota atende quem
+	 * importou antes de a reconstrução existir.
+	 */
+	@Post(':id/history/backfill')
+	async backfillHistory(@Param('id') id: string, @Req() req: any) {
+		const userId = resolveUserId(req);
+		await this.portfolioService.assertPortfolioOwnership(userId, id);
+		return this.portfolioHistoryBackfillService.backfill({
+			userId,
+			portfolioId: id,
+		});
+	}
+
 	@Get('risk-contribution')
 	async getRiskContribution(@Req() req: any) {
 		const userId = resolveUserId(req);
@@ -830,6 +850,17 @@ export class PortfolioController {
 
 		if (docs.length) {
 			await TradeModel.insertMany(docs, { ordered: false });
+			// Reconstrói o histórico diário com as negociações recém-importadas
+			// (TRA-141). Fire-and-forget: buscar um ano de fechamentos de cada
+			// símbolo leva segundos, e a importação não deve esperar por isso.
+			// Falhar aqui não invalida a importação, que já foi gravada.
+			void this.portfolioHistoryBackfillService
+				.backfill({ userId, portfolioId })
+				.catch((error) =>
+					this.logger.warn(
+						`Backfill do histórico falhou após importar B3: ${error?.message || error}`
+					)
+				);
 		}
 
 		return {
