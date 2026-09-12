@@ -12,8 +12,35 @@ export class ResendEmailAdapter implements EmailSender, OnModuleInit {
 		this.client = apiKey ? new Resend(apiKey) : null;
 	}
 
+	/**
+	 * Teto de espera da checagem de domínio na subida. O `try/catch` de
+	 * `checkSenderDomain` cobre falha rápida, mas não cobre LENTIDÃO: o SDK do
+	 * Resend usa `fetch` sem timeout, e o Nest aguarda `onModuleInit` resolver
+	 * antes de dar o módulo por pronto. Com a API do Resend degradada, a
+	 * conexão ficaria aberta, o boot nunca terminaria e o container nunca
+	 * ficaria healthy — pendurado em silêncio, que é pior que quebrar.
+	 */
+	private static readonly DOMAIN_CHECK_TIMEOUT_MS = 5_000;
+
 	async onModuleInit(): Promise<void> {
-		await this.checkSenderDomain();
+		await Promise.race([this.checkSenderDomain(), this.checkTimeout()]);
+	}
+
+	private checkTimeout(): Promise<void> {
+		return new Promise<void>((resolve) => {
+			const timer = setTimeout(() => {
+				this.logger.warn(
+					`Checagem do domínio do remetente passou de ` +
+						`${ResendEmailAdapter.DOMAIN_CHECK_TIMEOUT_MS}ms e foi abandonada. ` +
+						`A subida segue normalmente; o envio não foi validado.`
+				);
+				resolve();
+			}, ResendEmailAdapter.DOMAIN_CHECK_TIMEOUT_MS);
+
+			// Não segura o event loop: se a checagem responder antes, o processo
+			// não precisa esperar este timer para poder encerrar.
+			timer.unref?.();
+		});
 	}
 
 	/**
@@ -54,7 +81,19 @@ export class ResendEmailAdapter implements EmailSender, OnModuleInit {
 			// dependência transforme esta checagem num falso positivo.
 			const domains: any[] =
 				response?.data?.data ?? response?.data ?? response ?? [];
-			if (!Array.isArray(domains)) return;
+			if (!Array.isArray(domains)) {
+				// Retornar em silêncio aqui transformaria esta checagem num
+				// no-op permanente: a próxima configuração errada de
+				// `RESEND_FROM` voltaria a ser descoberta pelo primeiro usuário
+				// que tentasse recuperar a senha, com a falsa sensação de estar
+				// coberta. Se o formato mudar, isso tem que aparecer.
+				this.logger.warn(
+					'Resposta inesperada de domains.list() no Resend; a checagem ' +
+						'do domínio do remetente foi pulada. Provável mudança de ' +
+						'formato do SDK — revisar.'
+				);
+				return;
+			}
 
 			const match = domains.find(
 				(item) => String(item?.name ?? '').toLowerCase() === domain
