@@ -1,6 +1,5 @@
 import {
 	Controller,
-	ForbiddenException,
 	Get,
 	Body,
 	Patch,
@@ -14,18 +13,9 @@ import {
 	UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
-import { memoryStorage } from 'multer';
-import { join } from 'path';
-import { writeFile } from 'fs/promises';
-import { mkdirSync } from 'fs';
+import { diskStorage } from 'multer';
+import { extname, join } from 'path';
 import * as crypto from 'crypto';
-import { Roles } from 'src/auth/decorators/roles.decorator';
-import { RolesGuard } from 'src/auth/guards/roles.guard';
-import { Role } from 'src/auth/enums/role.enum';
-import {
-	detectImageKind,
-	extensionForImageKind,
-} from 'src/profile/security/avatar-file.validator';
 import { UserModel } from 'src/users/schema/user.model';
 import { ProfileService } from './profile.service';
 import { CreateProfileDto } from './dto/create-profile.dto';
@@ -40,37 +30,6 @@ import {
 import { ProfileResponseDto } from 'src/profile/dto/profile-response.dto';
 import { ProfileMapper } from 'src/profile/mappers/profile.mapper';
 
-/**
- * Perfil só é acessível pelo próprio dono — admin é a única exceção
- * (TRA-89). Antes disso todas as rotas `:id` aceitavam qualquer JWT válido,
- * o que expunha (e permitia alterar e apagar) o perfil de qualquer usuário.
- *
- * Cuidado ao mexer: `:id` é o id do USUÁRIO em `GET /profile/:id` e o id do
- * PERFIL em `PATCH`/`DELETE`. Por isso são duas checagens diferentes, e não
- * uma só reaproveitada.
- */
-function requesterId(req: any): string {
-	return String(req?.user?.userId ?? req?.user?.sub ?? '');
-}
-
-function isAdmin(req: any): boolean {
-	return req?.user?.role === Role.Admin;
-}
-
-function assertSelfOrAdmin(req: any, targetUserId: string): void {
-	const id = requesterId(req);
-
-	if (!id) {
-		throw new ForbiddenException('Usuário não autenticado.');
-	}
-	if (isAdmin(req)) {
-		return;
-	}
-	if (id !== String(targetUserId)) {
-		throw new ForbiddenException('Acesso negado a dados de outro usuário.');
-	}
-}
-
 @Controller('profile')
 @ApiTags('profile')
 @ApiBearerAuth('access-token')
@@ -81,32 +40,32 @@ export class ProfileController {
 	@Post('avatar')
 	@UseGuards(JwtAuthGuard)
 	@UseInterceptors(
-		// Vai pra memória, não direto pro disco: só depois de conferir os magic
-		// bytes o arquivo é gravado, e com a extensão derivada do conteúdo real
-		// em vez do nome enviado pelo cliente (TRA-89).
 		FileInterceptor('file', {
-			storage: memoryStorage(),
+			storage: diskStorage({
+				destination: join(process.cwd(), 'uploads', 'avatars'),
+				filename: (_req, file, cb) => {
+					const uniqueName = `${crypto.randomUUID()}${extname(file.originalname)}`;
+					cb(null, uniqueName);
+				},
+			}),
+			fileFilter: (_req, file, cb) => {
+				if (!file.mimetype.match(/\/(jpg|jpeg|png|webp)$/)) {
+					return cb(
+						new BadRequestException(
+							'Apenas imagens JPG, PNG ou WebP são permitidas.'
+						),
+						false
+					);
+				}
+				cb(null, true);
+			},
 			limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
 		})
 	)
 	async uploadAvatar(@UploadedFile() file: any, @Request() req: any) {
 		if (!file) throw new BadRequestException('Arquivo não enviado.');
-
-		const buffer = Buffer.from(file.buffer || '');
-		const kind = detectImageKind(buffer);
-		if (kind === 'unknown') {
-			throw new BadRequestException(
-				'Apenas imagens JPG, PNG ou WebP são permitidas.'
-			);
-		}
-
-		const fileName = `${crypto.randomUUID()}${extensionForImageKind(kind)}`;
-		const destination = join(process.cwd(), 'uploads', 'avatars');
-		mkdirSync(destination, { recursive: true });
-		await writeFile(join(destination, fileName), buffer);
-
 		const userId = req.user?.userId || req.user?.sub;
-		const avatarUrl = `/uploads/avatars/${fileName}`;
+		const avatarUrl = `/uploads/avatars/${file.filename}`;
 		await UserModel.findByIdAndUpdate(userId, { avatar: avatarUrl });
 		return { avatarUrl };
 	}
@@ -119,10 +78,8 @@ export class ProfileController {
 	@ApiResponse({ status: 200, description: 'Ok.' })
 	create(
 		@Param('id') userId: string,
-		@Body() createProfileDto: CreateProfileDto,
-		@Request() req: any
+		@Body() createProfileDto: CreateProfileDto
 	) {
-		assertSelfOrAdmin(req, userId);
 		if (!createProfileDto.userId) {
 			throw new BadRequestException('userId é obrigatório');
 		}
@@ -143,8 +100,7 @@ export class ProfileController {
 	}
 
 	@Get()
-	@UseGuards(JwtAuthGuard, RolesGuard)
-	@Roles(Role.Admin)
+	@UseGuards(JwtAuthGuard)
 	@ApiResponse({ status: 403, description: 'Forbidden.' })
 	@ApiResponse({ status: 401, description: 'Unauthorized.' })
 	@ApiResponse({ status: 200, description: 'Ok.' })
@@ -159,11 +115,7 @@ export class ProfileController {
 	@ApiResponse({ status: 403, description: 'Forbidden.' })
 	@ApiResponse({ status: 401, description: 'Unauthorized.' })
 	@ApiResponse({ status: 200, description: 'Ok.' })
-	async findOne(
-		@Param('id') id: string,
-		@Request() req: any
-	): Promise<ProfileResponseDto> {
-		assertSelfOrAdmin(req, id);
+	async findOne(@Param('id') id: string): Promise<ProfileResponseDto> {
 		const profile = await this.profileService.findOne(id);
 		return ProfileMapper.toResponseDto(profile);
 	}
@@ -174,18 +126,7 @@ export class ProfileController {
 	@ApiResponse({ status: 403, description: 'Forbidden.' })
 	@ApiResponse({ status: 401, description: 'Unauthorized.' })
 	@ApiResponse({ status: 200, description: 'Ok.' })
-	async update(
-		@Param('id') id: string,
-		@Body() updateProfileDto: UpdateProfileDto,
-		@Request() req: any
-	) {
-		// Aqui `:id` é o id do PERFIL, não o do usuário — a posse só dá pra
-		// decidir carregando o documento.
-		await this.profileService.assertProfileOwnership(
-			id,
-			requesterId(req),
-			isAdmin(req)
-		);
+	update(@Param('id') id: string, @Body() updateProfileDto: UpdateProfileDto) {
 		return this.profileService.update(id, updateProfileDto);
 	}
 
@@ -196,12 +137,18 @@ export class ProfileController {
 	@ApiResponse({ status: 403, description: 'Forbidden.' })
 	@ApiResponse({ status: 401, description: 'Unauthorized.' })
 	@ApiResponse({ status: 200, description: 'Ok.' })
-	async remove(@Param('id') id: string, @Request() req: any) {
-		await this.profileService.assertProfileOwnership(
-			id,
-			requesterId(req),
-			isAdmin(req)
-		);
+	remove(@Param('id') id: string) {
 		return this.profileService.remove(id);
+	}
+
+	@Delete('remove/all')
+	@UseGuards(JwtAuthGuard)
+	@ApiOkResponse({ type: CreateProfileDto, description: 'Success' })
+	@ApiResponse({ status: 404, description: 'Not Found.' })
+	@ApiResponse({ status: 403, description: 'Forbidden.' })
+	@ApiResponse({ status: 401, description: 'Unauthorized.' })
+	@ApiResponse({ status: 200, description: 'Ok.' })
+	removeAll() {
+		return this.profileService.removeAll();
 	}
 }

@@ -152,7 +152,11 @@ describe('ProfileService', () => {
 		});
 	});
 
-	// `removeAll` foi removido junto com a rota `DELETE /profile/remove/all`,
-	// que apagava todos os perfis da base exigindo apenas um JWT válido
-	// (TRA-89). Nada consumia o endpoint.
+	describe('removeAll', () => {
+		it('should delete all profiles', async () => {
+			mockProfileModel.deleteMany.mockResolvedValue({ deletedCount: 5 });
+			await service.removeAll();
+			expect(mockProfileModel.deleteMany).toHaveBeenCalled();
+		});
+	});
 });

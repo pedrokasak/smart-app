@@ -8,9 +8,6 @@ export class AssetMapper {
 			portfolioId: asset.portfolioId.toString(),
 			symbol: asset.symbol,
 			name: (asset as any).name ?? undefined,
-			// Sem repassar aqui, o setor persistido nunca chega ao front — que já
-			// agrupa a exposição por `a.sector` (TRA-144).
-			sector: asset.sector ?? null,
 			type: asset.type,
 			quantity: asset.quantity,
 			price: asset.price,

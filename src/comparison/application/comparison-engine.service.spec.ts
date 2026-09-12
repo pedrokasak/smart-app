@@ -36,7 +36,6 @@ describe('ComparisonEngineService', () => {
 	it('compares owned and non-owned assets with summary ranking', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([
 				makeSnapshot('ITUB4', {
 					dividendYield: 0.08,
@@ -100,7 +99,6 @@ describe('ComparisonEngineService', () => {
 	it('keeps fundamentus fallback metadata and handles partial data safely', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([
 				makeSnapshot('PETR4', {
 					fundamentals: {
@@ -152,7 +150,6 @@ describe('ComparisonEngineService', () => {
 	it('returns unavailable symbols when provider has no data', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([]),
 		};
 
@@ -172,7 +169,6 @@ describe('ComparisonEngineService', () => {
 	it('continues comparison with partial metrics from primary provider', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([
 				makeSnapshot('AAPL', {
 					performance: { changePercent: null },
@@ -228,7 +224,6 @@ describe('ComparisonEngineService', () => {
 	it('returns fit as bom when candidate can improve portfolio diversification', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([
 				makeSnapshot('BTC', {
 					assetType: 'crypto',
@@ -272,7 +267,6 @@ describe('ComparisonEngineService', () => {
 	it('returns fit as ruim when candidate worsens concentration', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([
 				makeSnapshot('PRIO3', {
 					assetType: 'stock',
@@ -318,7 +312,6 @@ describe('ComparisonEngineService', () => {
 	it('degrades fit safely when candidate has incomplete metadata', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([
 				makeSnapshot('ABCD3', {
 					assetType: 'stock',
@@ -358,7 +351,6 @@ describe('ComparisonEngineService', () => {
 	it('keeps fit usable when compared asset is already in portfolio', async () => {
 		const marketDataProvider: MarketDataProviderPort = {
 			getAssetSnapshot: jest.fn(),
-			getDailyCloses: jest.fn().mockResolvedValue([]),
 			getManyAssetSnapshots: jest.fn().mockResolvedValue([
 				makeSnapshot('ITUB4', {
 					assetType: 'stock',

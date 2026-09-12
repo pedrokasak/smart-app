@@ -2,7 +2,6 @@ import {
 	Body,
 	Controller,
 	Get,
-	Logger,
 	Post,
 	Query,
 	Req,
@@ -153,20 +152,22 @@ export class FiscalController {
 			.sort((a: any, b: any) => b.taxSaved - a.taxSaved)
 			.slice(0, 5);
 
-		// A explicação abaixo é determinística de propósito.
-		//
-		// Aqui havia uma chamada a `aiService.simulate()` com o payload
-		// `{ type: 'fiscal_optimizer_explain', ... }`, mas `/api/simulate` é o
-		// simulador de projeção de aportes — exige `monthly_investment`,
-		// `years` e `current_portfolio_value`. O trackerr-ia respondia 422 em
-		// toda chamada, e o `catch` vazio engolia o erro sem registrar nada, o
-		// que fazia parecer que a explicação vinha da IA quando na prática
-		// sempre veio do texto fixo.
-		//
-		// Explicar tax-loss harvesting não precisa de LLM: o conceito é
-		// estável e o texto abaixo já o cobre. Uma explicação personalizada
-		// exigiria um endpoint próprio, não reaproveitar o simulador.
-		const aiExplanation: string | null = null;
+		let aiExplanation: string | null = null;
+		try {
+			const aiResponse = await this.aiService.simulate({
+				type: 'fiscal_optimizer_explain',
+				year: yearNum,
+				accumulatedLoss: losses.total,
+				topOpportunity: opportunities[0] || null,
+			});
+			aiExplanation =
+				aiResponse?.summary ||
+				aiResponse?.message ||
+				aiResponse?.insight ||
+				null;
+		} catch {
+			aiExplanation = null;
+		}
 
 		return {
 			year: yearNum,
@@ -439,24 +440,15 @@ export class FiscalController {
 		]);
 		const portfolioValue = Number(totalPortfolioValue?.[0]?.total || 0);
 
-		// Setor persistido primeiro (TRA-144). A busca ao vivo com `catch {}`
-		// vazio transformava falha de cotação em "setor não identificado"
-		// exibido como se fosse dado. Ela fica só como fallback para ativo que o
-		// backfill diário ainda não alcançou — e a falha agora é registrada.
-		let sector = asset?.sector || 'setor não identificado';
-		if (!asset?.sector) {
-			try {
-				const quote = await this.stockService.getNationalQuote(symbol, {
-					fundamental: true,
-					dividends: false,
-				});
-				sector = quote?.results?.[0]?.sector || sector;
-			} catch (error: any) {
-				Logger.warn(
-					`Setor de ${symbol} indisponível no sale-preview: ${error?.message || 'unknown_error'}`,
-					'FiscalController'
-				);
-			}
+		let sector = 'setor não identificado';
+		try {
+			const quote = await this.stockService.getNationalQuote(symbol, {
+				fundamental: true,
+				dividends: false,
+			});
+			sector = quote?.results?.[0]?.sector || sector;
+		} catch {
+			// best effort
 		}
 
 		const now = new Date();

@@ -89,23 +89,30 @@ export class WebhooksService {
 		subscription: Stripe.Subscription
 	): Promise<void> {
 		try {
-			// Resolve o plano tanto pelo preco MENSAL quanto pelo ANUAL: o
-			// checkout anual usa annualStripePriceId, entao um assinante anual
-			// chega aqui com um price.id que NAO esta em stripePriceId. Sem o
-			// $or, a assinatura anual nao encontrava o plano e o UserSubscription
-			// nunca era criado — usuario pagava e continuava 'free'.
-			const priceId = subscription.items.data[0].price.id;
+			const userSubscription = await this.userSubscriptionModel.findOne({
+				stripeSubscriptionId: subscription.id,
+			});
+
+			if (userSubscription) {
+				this.logger.log(`Assinatura já existe: ${subscription.id}`);
+				return;
+			}
+
 			const plan = await this.subscriptionModel.findOne({
-				$or: [{ stripePriceId: priceId }, { annualStripePriceId: priceId }],
+				stripePriceId: subscription.items.data[0].price.id,
 			});
 
 			if (!plan) {
-				this.logger.error(`Plano não encontrado para price ID: ${priceId}`);
+				this.logger.error(
+					`Plano não encontrado para price ID: ${subscription.items.data[0].price.id}`
+				);
 				return;
 			}
 
 			const stripeCustomerId = subscription.customer as string;
+			console.log('=== customer chegando no webhook:', stripeCustomerId);
 			const user = await this.userModel.findOne({ stripeCustomerId });
+			console.log('=== user encontrado:', user?._id);
 
 			if (!user) {
 				this.logger.error(
@@ -114,46 +121,25 @@ export class WebhooksService {
 				return;
 			}
 
-			const period = this.resolvePeriod(subscription);
+			const newUserSubscription = new this.userSubscriptionModel({
+				user: user._id,
+				plan: plan._id,
+				stripeSubscriptionId: subscription.id,
+				stripeCustomerId: subscription.customer as string,
+				status: subscription.status,
+				currentPeriodStart: this.resolvePeriod(subscription).start,
+				currentPeriodEnd: this.resolvePeriod(subscription).end,
+				cancelAtPeriodEnd: subscription.cancel_at_period_end,
+				trialStart: (subscription as any).trial_start
+					? new Date((subscription as any).trial_start * 1000)
+					: undefined,
+				trialEnd: (subscription as any).trial_end
+					? new Date((subscription as any).trial_end * 1000)
+					: undefined,
+				quantity: subscription.items.data[0].quantity || 1,
+			});
 
-			// Upsert atômico em vez de `findOne` seguido de `save` (TRA-89):
-			// o Stripe reentrega e paraleliza eventos, e a checagem de
-			// existência separada da escrita deixava duas entregas do mesmo
-			// evento criarem dois UserSubscription pro mesmo
-			// stripeSubscriptionId. `upsert` resolve isso no banco, sem trava
-			// aplicativa. `$setOnInsert` porque este handler descreve a
-			// CRIAÇÃO: se o documento já existe, quem manda no estado atual é
-			// o `customer.subscription.updated`, não uma reentrega tardia
-			// deste evento.
-			const result = await this.userSubscriptionModel.updateOne(
-				{ stripeSubscriptionId: subscription.id },
-				{
-					$setOnInsert: {
-						user: user._id,
-						plan: plan._id,
-						stripeSubscriptionId: subscription.id,
-						stripeCustomerId: subscription.customer as string,
-						status: subscription.status,
-						currentPeriodStart: period.start,
-						currentPeriodEnd: period.end,
-						cancelAtPeriodEnd: subscription.cancel_at_period_end,
-						trialStart: (subscription as any).trial_start
-							? new Date((subscription as any).trial_start * 1000)
-							: undefined,
-						trialEnd: (subscription as any).trial_end
-							? new Date((subscription as any).trial_end * 1000)
-							: undefined,
-						quantity: subscription.items.data[0].quantity || 1,
-					},
-				},
-				{ upsert: true }
-			);
-
-			if (result.upsertedCount === 0) {
-				this.logger.log(`Assinatura já existe: ${subscription.id}`);
-				return;
-			}
-
+			await newUserSubscription.save();
 			this.logger.log(`Assinatura criada: ${subscription.id}`);
 		} catch (error) {
 			this.logger.error('Erro ao processar assinatura criada:', error);
@@ -252,24 +238,8 @@ export class WebhooksService {
 				return;
 			}
 
-			// Webhook do Stripe não tem ordem garantida: um
-			// `invoice.payment_succeeded` atrasado chegando depois do
-			// cancelamento ressuscitava uma assinatura encerrada e devolvia
-			// acesso pago a quem já tinha saído (TRA-89). Estado terminal não
-			// volta atrás por evento antigo — só o período é atualizado.
-			const isTerminal =
-				userSubscription.status === 'canceled' || !!userSubscription.endedAt;
-
-			if (isTerminal) {
-				this.logger.warn(
-					`Invoice ${invoice.id} paga para assinatura já encerrada ` +
-						`(${subscriptionId}, status ${userSubscription.status}). ` +
-						'Status preservado; apenas o período foi atualizado.'
-				);
-			} else {
-				userSubscription.status = 'active';
-			}
-
+			// Atualiza as informações com base na fatura paga
+			userSubscription.status = 'active'; // Garante que está ativa
 			userSubscription.currentPeriodStart = new Date(
 				invoice.period_start * 1000
 			);

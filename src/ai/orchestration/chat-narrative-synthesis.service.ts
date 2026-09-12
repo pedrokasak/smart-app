@@ -44,7 +44,7 @@ export class ChatNarrativeSynthesisService {
 				options?.enableNarrativeForDeterministic &&
 				this.narrativeSynthesizer
 			) {
-				const synthesized = await this.safeSynthesize(orchestration, userId);
+				const synthesized = await this.safeSynthesize(orchestration);
 				if (synthesized) {
 					return {
 						orchestration,
@@ -79,7 +79,7 @@ export class ChatNarrativeSynthesisService {
 		}
 
 		try {
-			const synthesisInput = this.toSynthesisInput(orchestration, userId);
+			const synthesisInput = this.toSynthesisInput(orchestration);
 			const synthesized =
 				await this.narrativeSynthesizer.synthesize(synthesisInput);
 			return {
@@ -105,15 +105,13 @@ export class ChatNarrativeSynthesisService {
 	}
 
 	private toSynthesisInput(
-		orchestration: ChatOrchestratorResponse,
-		userId: string
+		orchestration: ChatOrchestratorResponse
 	): ChatNarrativeSynthesisInput {
 		const facts = this.extractFacts(orchestration);
 		const externalData = this.extractExternalData(orchestration);
 		const estimates = this.extractEstimates(orchestration);
 
 		return {
-			userId,
 			intent: orchestration.intent,
 			question: orchestration.question,
 			facts,
@@ -260,12 +258,11 @@ export class ChatNarrativeSynthesisService {
 	}
 
 	private async safeSynthesize(
-		orchestration: ChatOrchestratorResponse,
-		userId: string
+		orchestration: ChatOrchestratorResponse
 	): Promise<ChatNarrativeSynthesisOutput | null> {
 		if (!this.narrativeSynthesizer) return null;
 		try {
-			const synthesisInput = this.toSynthesisInput(orchestration, userId);
+			const synthesisInput = this.toSynthesisInput(orchestration);
 			return await this.narrativeSynthesizer.synthesize(synthesisInput);
 		} catch (_error) {
 			return null;

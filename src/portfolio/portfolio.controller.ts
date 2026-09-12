@@ -1,6 +1,4 @@
 import {
-	BadRequestException,
-	NotFoundException,
 	Body,
 	Controller,
 	Get,
@@ -8,12 +6,10 @@ import {
 	Post,
 	Put,
 	Delete,
-	Query,
 	Req,
 	UseGuards,
 	UseInterceptors,
 	UploadedFile,
-	Logger,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -28,50 +24,22 @@ import { UpdatePortfolioDto } from 'src/portfolio/dto/update-portfolio.dto';
 import { PortfolioResponseDto } from 'src/portfolio/dto/portfolio-response.dto';
 import { PortfolioWithAssetsDto } from 'src/portfolio/dto/portfolio-with-assets.dto';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
-import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
-import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
-import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
-import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
-import { withDerivedAveragePrice } from 'src/portfolio/derive-average-price';
-import { buildDataHealthReport } from 'src/portfolio/portfolio-data-health';
-import { buildHistoryFromTrades } from 'src/portfolio/history-from-trades';
 import { Types } from 'mongoose';
 import * as xlsx from 'xlsx';
-import { validateUploadFile } from 'src/broker-sync/security/upload-file.validator';
-
-/**
- * Planilha da B3 é pequena; o limite existe pra impedir que um upload
- * arbitrariamente grande seja carregado inteiro em memória antes do parse.
- * Mesmo teto do upload de nota de corretagem.
- */
-const MAX_IMPORT_FILE_BYTES = 10 * 1024 * 1024;
-
-/** O payload do JWT variou entre versões; aceita as formas já emitidas. */
-function resolveUserId(req: any): string {
-	return String(
-		req?.user?.userId ?? req?.user?.sub ?? req?.user?._id ?? req?.user?.id ?? ''
-	);
-}
 
 @Controller('portfolio')
 @ApiTags('Portfolio')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard)
 export class PortfolioController {
-	private readonly logger = new Logger(PortfolioController.name);
-
 	constructor(
 		private portfolioService: PortfolioService,
 		private assetService: AssetsService,
-		private subscriptionService: SubscriptionService,
-		private portfolioReturnsService: PortfolioReturnsService,
-		private portfolioCompositionService: PortfolioCompositionService,
-		private portfolioRiskContributionService: PortfolioRiskContributionService,
-		private portfolioHistoryBackfillService: PortfolioHistoryBackfillService
+		private subscriptionService: SubscriptionService
 	) {}
 
 	@Post('create')
@@ -108,19 +76,7 @@ export class PortfolioController {
 			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
 		const portfolios = await this.portfolioService.getUserPortfolios(userId);
 		const assets = portfolios.flatMap((p) => (p.assets as any) || []);
-
-		// O preço médio pode não estar gravado no ativo — o import de extrato
-		// B3 insere as negociações sem calculá-lo. Derivar na leitura mantém
-		// uma única regra e conserta quem importou antes desta correção.
-		const trades = await TradeModel.find({ userId })
-			.select('symbol side quantity price fees date')
-			.lean();
-		const withAverage = withDerivedAveragePrice(
-			AssetMapper.toResponseDtoArray(assets),
-			trades as any
-		);
-
-		return withAverage;
+		return AssetMapper.toResponseDtoArray(assets);
 	}
 
 	@Get('transactions')
@@ -205,21 +161,7 @@ export class PortfolioController {
 			const asset = ((p.assets as any) || []).find(
 				(a: any) => a._id?.toString() === assetId
 			);
-			if (!asset) continue;
-
-			// Esta rota é a da página de detalhe do ativo e era a única das
-			// três que devolvia o ativo cru: `/portfolio/assets` e
-			// `/portfolio/:id` já derivavam o preço médio das negociações,
-			// esta não. Por isso a tela de detalhe mostrava preço médio e
-			// P&L errados enquanto a listagem mostrava o valor certo.
-			const trades = await TradeModel.find({ userId })
-				.select('symbol side quantity price fees date')
-				.lean();
-			const [withAverage] = withDerivedAveragePrice(
-				[AssetMapper.toResponseDto(asset)],
-				trades as any
-			);
-			return withAverage;
+			if (asset) return AssetMapper.toResponseDto(asset);
 		}
 		return null;
 	}
@@ -227,24 +169,8 @@ export class PortfolioController {
 	@Put('assets/:assetId')
 	async updateAsset(
 		@Param('assetId') assetId: string,
-		@Body() updateAssetDto: UpdateAssetDto,
-		@Req() req: any
+		@Body() updateAssetDto: UpdateAssetDto
 	): Promise<AssetResponseDto | null> {
-		// O ativo é endereçado direto pelo id, sem passar pela carteira: sem
-		// esta checagem qualquer usuário autenticado editava quantidade e
-		// preço médio do ativo de outro (TRA-89). Segue o mesmo caminho do
-		// `findAssetById` logo acima, que já resolvia pelo dono.
-		const userId = resolveUserId(req);
-		const portfolios = await this.portfolioService.getUserPortfolios(userId);
-		const owned = portfolios.some((portfolio: any) =>
-			((portfolio.assets as any) || []).some(
-				(asset: any) => String(asset._id) === String(assetId)
-			)
-		);
-		if (!owned) {
-			throw new NotFoundException('Ativo não encontrado.');
-		}
-
 		const updated = await this.assetService.update(assetId, updateAssetDto);
 		return updated ? AssetMapper.toResponseDto(updated as any) : null;
 	}
@@ -266,269 +192,37 @@ export class PortfolioController {
 		};
 	}
 
-	/**
-	 * GET /portfolio/returns
-	 *
-	 * Responde "fui bem, ou só coloquei mais dinheiro?" — pergunta que o P&L a
-	 * custo médio nunca respondeu (TRA-146).
-	 *
-	 * Declarada ANTES de `@Get(':id')` de propósito: o Nest casa por ordem, e
-	 * `:id` engoliria `/returns`.
-	 */
-	@Get('returns')
-	async getReturns(
-		@Req() req: any,
-		@Query('from') from?: string,
-		@Query('to') to?: string
-	) {
-		const userId = resolveUserId(req);
-		return this.portfolioReturnsService.getReturns(userId, { from, to });
-	}
-
-	/**
-	 * GET /portfolio/composition
-	 *
-	 * Retrato da carteira hoje: quanto rende sobre o que foi pago (yield on
-	 * cost) e quão longe está da política-alvo (TRA-141).
-	 *
-	 * Separada de `/returns` porque aquilo é rentabilidade no tempo — juntar
-	 * faria uma resposta que muda por dois motivos independentes.
-	 *
-	 * Também antes de `@Get(':id')`, pelo mesmo motivo de ordem de rotas.
-	 */
-	@Get('composition')
-	async getComposition(@Req() req: any) {
-		const userId = resolveUserId(req);
-		return this.portfolioCompositionService.getComposition(userId);
-	}
-
-	/**
-	 * Contribuição de risco por ativo (TRA-141): card da tela Portfólio do
-	 * handoff. Antes de `@Get(':id')`, pelo mesmo motivo de ordem de rotas.
-	 */
-	/**
-	 * Reconstrói o histórico diário a partir das negociações já importadas
-	 * (TRA-141). O import novo já dispara sozinho; esta rota atende quem
-	 * importou antes de a reconstrução existir.
-	 */
-	@Post(':id/history/backfill')
-	async backfillHistory(@Param('id') id: string, @Req() req: any) {
-		const userId = resolveUserId(req);
-		await this.portfolioService.assertPortfolioOwnership(userId, id);
-		return this.portfolioHistoryBackfillService.backfill({
-			userId,
-			portfolioId: id,
-		});
-	}
-
-	@Get('risk-contribution')
-	async getRiskContribution(@Req() req: any) {
-		const userId = resolveUserId(req);
-		return this.portfolioRiskContributionService.getRiskContribution(userId);
-	}
-
 	@Get(':id')
-	async findById(
-		@Param('id') id: string,
-		@Req() req: any
-	): Promise<PortfolioWithAssetsDto> {
-		const userId = resolveUserId(req);
-		const portfolio = await this.portfolioService.findOwnedPortfolioById(
-			userId,
-			id
-		);
-
-		// Mesma correção de GET /portfolio/assets (findAllAssets acima): o
-		// import de extrato B3 grava as negociações sem calcular avgPrice, e
-		// esta rota nunca recebeu a derivação — só a de "todas as carteiras".
-		// Quem tem uma única carteira (o caso comum) cai sempre aqui e nunca
-		// via a rota já corrigida, então P&L ficava "—" mesmo com meses de
-		// negociação importada.
-		const trades = await TradeModel.find({ userId })
-			.select('symbol side quantity price fees date')
-			.lean();
-
-		// Deriva sobre o DTO já pronto, nunca sobre o documento do Mongoose.
-		//
-		// A ordem inversa quebrava a rota inteira: `withDerivedAveragePrice`
-		// devolve `{ ...asset }` quando recalcula, e espalhar um documento do
-		// Mongoose copia as propriedades internas (`$__`, `_doc`), não os
-		// campos — o mapper seguinte recebia objetos sem `_id` nem `symbol` e
-		// a carteira voltava zerada. Só acontecia quando alguma derivação de
-		// fato ocorria, que é justamente o caso de quem importou pelo
-		// relatório consolidado; por isso "todas as carteiras" (que já
-		// mapeava primeiro) mostrava os valores e a carteira específica não.
-		const dto = PortfolioMapper.toResponseDtoWithAssets(
-			portfolio,
-			portfolio.assets as any
-		);
-
-		return {
-			...dto,
-			assets: withDerivedAveragePrice(dto.assets, trades as any),
-		};
-	}
-
-	/**
-	 * Diagnóstico dos dados da carteira. Só leitura.
-	 *
-	 * As correções de importação pararam as escritas erradas mas não
-	 * reescrevem o que já foi gravado, e a única forma de conferir era abrir
-	 * a tela e julgar no olho — foi assim que os defeitos passaram
-	 * despercebidos por meses. Aqui cada achado vem com o motivo e o que
-	 * fazer para resolver.
-	 */
-	@Get(':id/data-health')
-	async getDataHealth(@Param('id') id: string, @Req() req: any) {
-		const userId = resolveUserId(req);
-		const portfolio = await this.portfolioService.findOwnedPortfolioById(
-			userId,
-			id
-		);
-
-		const trades = await TradeModel.find({ userId })
-			.select('symbol side quantity price fees date')
-			.lean();
-
-		// Avalia o que está gravado, não o que a leitura já corrige: é o
-		// estado real do banco que precisa ser diagnosticado.
-		const storedAssets = ((portfolio.assets as any) || []).map(
-			(asset: any) => ({
-				symbol: asset.symbol,
-				avgPrice: asset.avgPrice,
-				price: asset.price,
-				quantity: asset.quantity,
-				source: asset.source,
-				dividendHistory: asset.dividendHistory,
-			})
-		);
-
-		const history = await this.portfolioService.getPortfolioHistory(id);
-		const report = buildDataHealthReport(storedAssets, history as any);
-
-		return {
-			...report,
-			tradesOnRecord: trades.length,
-		};
+	async findById(@Param('id') id: string): Promise<PortfolioWithAssetsDto> {
+		const portfolio = await this.portfolioService.findPortfolioById(id);
+		// portfolio já vem com assets populados!
+		return PortfolioMapper.toResponseDtoWithAssets(portfolio, portfolio.assets);
 	}
 
 	@Get(':id/history')
-	async getHistory(@Param('id') id: string, @Req() req: any) {
-		const userId = resolveUserId(req);
-		await this.portfolioService.assertPortfolioOwnership(userId, id);
-
-		const snapshots = await this.portfolioService.getPortfolioHistory(id);
-
-		// Os snapshots diários gravam `quantidade × preço`, e o preço fica
-		// parado enquanto não há fonte de cotação — então gravam o mesmo
-		// número todo dia e a curva sai reta em qualquer período.
-		//
-		// Quem importou o extrato de negociação tem dado para uma curva real:
-		// a posição em cada data, valorizada ao último preço efetivamente
-		// negociado. Não é marcação a mercado (entre duas negociações o preço
-		// não se move), mas é histórico verdadeiro em vez de linha reta, e
-		// faz 7D/1M/1A finalmente diferirem entre si.
-		const valores = snapshots
-			.map((row: any) => Number(row?.totalValue))
-			.filter((value: number) => Number.isFinite(value));
-		const snapshotsSemMovimento =
-			valores.length < 2 || Math.max(...valores) - Math.min(...valores) < 1e-9;
-
-		if (!snapshotsSemMovimento) return snapshots;
-
-		const trades = await TradeModel.find({ userId })
-			.select('symbol side quantity price date')
-			.lean();
-		const derived = buildHistoryFromTrades(trades as any);
-
-		// Só troca se a série derivada realmente tiver movimento; caso
-		// contrário devolve os snapshots e o frontend avisa que falta dado.
-		if (derived.length < 2) return snapshots;
-		const derivados = derived.map((point) => point.totalValue);
-		if (Math.max(...derivados) - Math.min(...derivados) < 1e-9) {
-			return snapshots;
-		}
-
-		return derived.map((point) => ({
-			date: point.date,
-			totalValue: point.totalValue,
-			investedValue: point.investedValue,
-			source: 'trades' as const,
-		}));
+	async getHistory(@Param('id') id: string) {
+		return this.portfolioService.getPortfolioHistory(id);
 	}
 
 	@Post(':id/import-b3')
-	@UseInterceptors(
-		FileInterceptor('file', {
-			limits: { fileSize: MAX_IMPORT_FILE_BYTES },
-		})
-	)
+	@UseInterceptors(FileInterceptor('file'))
 	async importB3Report(
 		@Param('id') id: string,
-		@UploadedFile() file: any,
-		@Req() req: any
+		@UploadedFile() file: any
 	): Promise<any> {
 		if (!file) {
-			throw new BadRequestException('Arquivo não enviado');
+			throw new Error('Arquivo não enviado');
 		}
 
-		// Importação escreve na carteira: sem esta checagem qualquer usuário
-		// autenticado sobrescrevia os ativos da carteira de outro (TRA-89).
-		await this.portfolioService.assertPortfolioOwnership(
-			resolveUserId(req),
-			id
-		);
-
-		const buffer = Buffer.from(file.buffer || '');
-		const validation = validateUploadFile({
-			buffer,
-			fileName: file.originalname || '',
-			mimeType: file.mimetype || '',
-		});
-		if (!validation.ok) {
-			throw new BadRequestException(validation.reason);
-		}
-
-		const workbook = xlsx.read(buffer, { type: 'buffer' });
+		const workbook = xlsx.read(file.buffer, { type: 'buffer' });
 		const reportDate = resolveReportDate(file?.originalname);
-		const {
-			assets: parsedAssets,
-			dividendsBySymbol,
-			hasDatedDividends,
-		} = parseB3Workbook(workbook, reportDate);
+		const { assets: parsedAssets, dividendsBySymbol } = parseB3Workbook(
+			workbook,
+			reportDate
+		);
 		const importedAssets = [];
 		let assetsCreated = 0;
 		let assetsUpdated = 0;
-		const matchedDividendSymbols = new Set<string>();
-		let dividendsAttachedToExisting = 0;
-
-		// O extrato de movimentação é uma afirmação completa sobre o período
-		// que cobre, então os proventos dele substituem o que já existe
-		// naquela janela em vez de somar. É o que permite consertar um
-		// histórico com datas erradas: sem substituir, reimportar duplicaria
-		// os valores em vez de corrigi-los. O consolidado anual não entra
-		// aqui — sem data por evento, ele não delimita janela nenhuma.
-		const dividendDates = hasDatedDividends
-			? [...dividendsBySymbol.values()]
-					.flat()
-					.map((event) => event.eventDate.getTime())
-					.filter((time) => Number.isFinite(time))
-			: [];
-		// A janela termina hoje, não no último evento do arquivo. O extrato
-		// acabou de ser baixado, então ele é o registro completo da B3 até
-		// agora — e é justamente o intervalo entre o último provento e hoje
-		// que guarda as entradas carimbadas com a data do upload pelo
-		// importador antigo. Fechar a janela no último evento deixaria essas
-		// entradas de fora e a reimportação não consertaria nada.
-		const dividendReplaceRange = dividendDates.length
-			? {
-					from: new Date(Math.min(...dividendDates)),
-					to: new Date(Math.max(Math.max(...dividendDates), Date.now())),
-				}
-			: undefined;
-		const dividendUpsertOptions = dividendReplaceRange
-			? { replaceRange: dividendReplaceRange }
-			: undefined;
 
 		for (const assetData of parsedAssets) {
 			const existingAsset =
@@ -542,17 +236,11 @@ export class PortfolioController {
 			if (existingAsset) {
 				// Para importação B3 de posição consolidada, a posição do relatório é a fonte da verdade.
 				// Portanto, atualizamos o ativo existente com quantidade/preço atuais, sem duplicar registros.
-				//
-				// `avgPrice` fica de fora de propósito: o relatório consolidado
-				// traz "Preço de Fechamento" (cotação de mercado), nunca o custo
-				// de aquisição. Gravá-lo como preço médio zerava o P&L por
-				// construção — custo igual ao valor de mercado — e ainda
-				// sobrescrevia um preço médio real vindo de nota de negociação
-				// ou digitado à mão. Sem custo, o P&L fica "—", que é a verdade.
 				asset =
 					(await this.assetService.update(existingAsset._id.toString(), {
 						quantity: assetData.quantity,
 						price: assetData.price,
+						avgPrice: assetData.price,
 						name: assetData.name,
 					})) || existingAsset;
 				assetsUpdated += 1;
@@ -573,10 +261,8 @@ export class PortfolioController {
 				assetsCreated += 1;
 			}
 
-			const dividendKey = assetData.symbol.toUpperCase();
-			const dividendEvents = dividendsBySymbol.get(dividendKey) ?? [];
+			const dividendEvents = dividendsBySymbol.get(assetData.symbol) ?? [];
 			if (asset && dividendEvents.length > 0 && assetData.quantity > 0) {
-				matchedDividendSymbols.add(dividendKey);
 				const newEntries = dividendEvents
 					.filter((event) => Number(event.totalValue || 0) > 0)
 					.map((event) => ({
@@ -587,117 +273,29 @@ export class PortfolioController {
 
 				await this.assetService.upsertDividendHistoryEntries(
 					asset._id.toString(),
-					newEntries,
-					dividendUpsertOptions
+					newEntries
 				);
 			}
 			importedAssets.push(AssetMapper.toResponseDto(asset));
 		}
 
-		// O extrato de movimentação não traz abas de posição — só os eventos.
-		// Sem este passo, subir só o extrato importaria zero proventos, porque
-		// o laço acima percorre apenas os ativos vindos do próprio arquivo.
-		// Aqui os proventos restantes procuram um ativo que já exista na
-		// carteira (de um consolidado ou de negociações importadas antes).
-		for (const [symbol, events] of dividendsBySymbol.entries()) {
-			if (matchedDividendSymbols.has(symbol)) continue;
-
-			const existingAsset =
-				await this.assetService.findAssetBySymbolAndPortfolio(id, symbol);
-			const quantity = Number((existingAsset as any)?.quantity || 0);
-			if (!existingAsset || quantity <= 0) continue;
-
-			const newEntries = events
-				.filter((event) => Number(event.totalValue || 0) > 0)
-				.map((event) => ({
-					date: event.eventDate || reportDate,
-					value: event.totalValue / quantity,
-					paymentType: event.paymentType,
-				}));
-			if (!newEntries.length) continue;
-
-			await this.assetService.upsertDividendHistoryEntries(
-				(existingAsset as any)._id.toString(),
-				newEntries,
-				dividendUpsertOptions
-			);
-			matchedDividendSymbols.add(symbol);
-			dividendsAttachedToExisting += 1;
-		}
-
-		// Proventos que o relatório pagou mas cujo papel não está na carteira —
-		// vendido durante o ano, vencido ou renomeado. Não viram posição (o
-		// usuário não tem mais o ativo), mas hoje somem do total de proventos
-		// sem nenhum aviso: num relatório real isso chegou a 43% do valor
-		// recebido no ano.
-		const unmatchedDividends: { symbol: string; totalValue: number }[] = [];
-		for (const [symbol, events] of dividendsBySymbol.entries()) {
-			if (matchedDividendSymbols.has(symbol)) continue;
-			const totalValue = events.reduce(
-				(sum, event) => sum + Number(event.totalValue || 0),
-				0
-			);
-			if (totalValue > 0) unmatchedDividends.push({ symbol, totalValue });
-		}
-		unmatchedDividends.sort((a, b) => b.totalValue - a.totalValue);
-
 		await this.portfolioService.recordHistorySnapshot(id);
 
-		// O relatório afirma o valor da carteira numa data — grava só essa.
-		//
-		// Antes daqui saía um forward-fill que repetia o MESMO totalValue em
-		// todos os dias entre a data do relatório e hoje. Aquilo não era
-		// estimativa, era invenção: afirmava que a carteira valeu exatamente
-		// aquilo todo dia de um período em que preço e composição mudaram.
-		// E a série constante that produzia era o motivo de o gráfico mostrar
-		// 0,00% em qualquer janela e de 7D/1M/1A parecerem não fazer nada —
-		// todo recorte de uma constante é igual.
-		//
-		// Histórico real vem do snapshot diário que CleanupService já roda
-		// (`recordDailyPortfolioSnapshots`, 00:30). Enquanto ele não acumula
-		// pontos, o gráfico avisa que falta histórico — que é a verdade.
-		//
-		// Esses snapshots só variam quando a cotação varia; sem as APIs de
-		// mercado assinadas, `asset.price` fica parado e a curva fica plana
-		// por falta de dado, não por causa deste código.
+		// Backfill contínuo (forward-fill) entre a data do relatório e hoje,
+		// para o gráfico de período mostrar curva contínua a partir do upload.
+		// O totalValue é a soma das posições importadas (quantity * price do
+		// relatório, que é a "fonte da verdade" da consolidação B3). Snapshots
+		// de datas já existentes são preservados (upsert).
 		const reportTotalValue = parsedAssets.reduce(
 			(acc, a) => acc + (a.quantity || 0) * (a.price || 0),
 			0
 		);
 		if (reportDate && reportTotalValue > 0) {
-			await this.portfolioService.recordHistorySnapshotWithValue(
+			const reportDateStr = reportDate.toISOString().split('T')[0];
+			await this.portfolioService.backfillHistorySnapshots(
 				id,
-				reportDate.toISOString().split('T')[0],
+				reportDateStr,
 				reportTotalValue
-			);
-		}
-
-		const warnings: string[] = [];
-
-		// O relatório anual consolidado traz "Produto / Tipo de Evento / Valor
-		// líquido" — sem data de pagamento. Todo provento do ano acaba na data
-		// de referência do relatório, então o gráfico mensal mostra um pico
-		// único em dezembro em vez da distribuição real.
-		if (dividendsBySymbol.size > 0 && !hasDatedDividends) {
-			warnings.push(
-				`O relatório consolidado não informa a data de pagamento dos proventos. ` +
-					`Todos foram registrados em ${reportDate.toISOString().slice(0, 10)} ` +
-					`(fim do período do relatório), então a distribuição mês a mês não reflete ` +
-					`quando cada provento caiu. Para isso, importe o extrato de movimentação da B3.`
-			);
-		}
-
-		if (unmatchedDividends.length > 0) {
-			const totalUnmatched = unmatchedDividends.reduce(
-				(sum, item) => sum + item.totalValue,
-				0
-			);
-			warnings.push(
-				`${unmatchedDividends.length} papel(is) receberam proventos mas não constam ` +
-					`na posição atual (vendidos, vencidos ou renomeados) e ficaram de fora do ` +
-					`total: ${unmatchedDividends
-						.map((item) => `${item.symbol} (${item.totalValue.toFixed(2)})`)
-						.join(', ')} — total R$ ${totalUnmatched.toFixed(2)}.`
 			);
 		}
 
@@ -705,20 +303,6 @@ export class PortfolioController {
 			message: 'Relatório importado com sucesso',
 			fiscalWarning:
 				'Este importador da B3 consolida posições/dividendos e não importa notas de negociação para apuração fiscal.',
-			// O relatório consolidado traz "Preço de Fechamento" (cotação), não o
-			// custo de aquisição — por isso o P&L continua indisponível até que
-			// uma nota de negociação ou um preço médio manual entre.
-			costBasisAvailable: false,
-			// true quando os proventos vieram do extrato de movimentação, que
-			// traz a data real de cada pagamento. false no consolidado anual,
-			// onde a data não existe e tudo cai na data de referência.
-			dividendsHaveDates: hasDatedDividends,
-			// Papéis que já estavam na carteira e receberam proventos deste
-			// arquivo — é o caminho do extrato de movimentação, que não traz
-			// aba de posição e por isso não cria ativo nenhum.
-			dividendsAttachedToExistingAssets: dividendsAttachedToExisting,
-			warnings,
-			unmatchedDividends,
 			tradesImported: 0,
 			assetsImported: importedAssets.length,
 			assetsCreated,
@@ -728,30 +312,25 @@ export class PortfolioController {
 	}
 
 	@Post(':id/import-b3-transactions')
-	@UseInterceptors(
-		FileInterceptor('file', {
-			limits: { fileSize: MAX_IMPORT_FILE_BYTES },
-		})
-	)
+	@UseInterceptors(FileInterceptor('file'))
 	async importB3Transactions(
 		@Param('id') portfolioId: string,
 		@UploadedFile() file: any,
 		@Req() req: any
 	) {
 		if (!file) {
-			throw new BadRequestException('Arquivo não enviado');
+			throw new Error('Arquivo não enviado');
 		}
 
-		const userId = resolveUserId(req);
-		await this.portfolioService.assertPortfolioOwnership(userId, portfolioId);
-
-		const validation = validateUploadFile({
-			buffer: Buffer.from(file.buffer || ''),
-			fileName: file.originalname || '',
-			mimeType: file.mimetype || '',
-		});
-		if (!validation.ok) {
-			throw new BadRequestException(validation.reason);
+		const userId =
+			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
+		const userPortfolios =
+			await this.portfolioService.getUserPortfolios(userId);
+		const selected = userPortfolios.find(
+			(portfolio: any) => String(portfolio._id || portfolio.id) === portfolioId
+		);
+		if (!selected) {
+			throw new Error('Carteira não encontrada para o usuário');
 		}
 
 		const fileName = String(file.originalname || '').toLowerCase();
@@ -850,17 +429,6 @@ export class PortfolioController {
 
 		if (docs.length) {
 			await TradeModel.insertMany(docs, { ordered: false });
-			// Reconstrói o histórico diário com as negociações recém-importadas
-			// (TRA-141). Fire-and-forget: buscar um ano de fechamentos de cada
-			// símbolo leva segundos, e a importação não deve esperar por isso.
-			// Falhar aqui não invalida a importação, que já foi gravada.
-			void this.portfolioHistoryBackfillService
-				.backfill({ userId, portfolioId })
-				.catch((error) =>
-					this.logger.warn(
-						`Backfill do histórico falhou após importar B3: ${error?.message || error}`
-					)
-				);
 		}
 
 		return {
@@ -874,13 +442,8 @@ export class PortfolioController {
 	@Post(':portfolioId/asset')
 	async addAsset(
 		@Param('portfolioId') portfolioId: string,
-		@Body() createAssetDto: CreateAssetDto,
-		@Req() req: any
+		@Body() createAssetDto: CreateAssetDto
 	): Promise<AssetResponseDto> {
-		await this.portfolioService.assertPortfolioOwnership(
-			resolveUserId(req),
-			portfolioId
-		);
 		const asset = await this.portfolioService.addAssetToPortfolio(
 			portfolioId,
 			createAssetDto
@@ -891,13 +454,8 @@ export class PortfolioController {
 	@Put(':id')
 	async update(
 		@Param('id') id: string,
-		@Body() updatePortfolioDto: UpdatePortfolioDto,
-		@Req() req: any
+		@Body() updatePortfolioDto: UpdatePortfolioDto
 	): Promise<PortfolioResponseDto> {
-		await this.portfolioService.assertPortfolioOwnership(
-			resolveUserId(req),
-			id
-		);
 		const portfolio = await this.portfolioService.updatePortfolio(
 			id,
 			updatePortfolioDto
@@ -906,11 +464,7 @@ export class PortfolioController {
 	}
 
 	@Delete(':id')
-	async delete(@Param('id') id: string, @Req() req: any): Promise<void> {
-		await this.portfolioService.assertPortfolioOwnership(
-			resolveUserId(req),
-			id
-		);
+	async delete(@Param('id') id: string): Promise<void> {
 		await this.portfolioService.deletePortfolio(id);
 	}
 }
@@ -932,7 +486,7 @@ type ParsedB3Transaction = {
 	date: Date;
 };
 
-type SheetKind = 'stock' | 'etf' | 'fii' | 'lca' | 'dividend' | 'movement';
+type SheetKind = 'stock' | 'etf' | 'fii' | 'lca' | 'dividend';
 type DividendPaymentType = 'JCP' | 'DIVIDEND' | 'RENDIMENTO' | 'OTHER';
 type ParsedDividendEvent = {
 	paymentType: DividendPaymentType;
@@ -953,25 +507,6 @@ const COLUMN_LCA_PRICE_MTM = 'Preço Atualizado MTM';
 const COLUMN_DIVIDEND_SYMBOL = 'Produto';
 const COLUMN_DIVIDEND_EVENT_TYPE = 'Tipo de Evento';
 const COLUMN_DIVIDEND_VALUE = 'Valor líquido';
-
-/**
- * Extrato de movimentação da B3 — a única exportação que traz a data de
- * pagamento de cada provento. O relatório consolidado anual só tem
- * "Produto / Tipo de Evento / Valor líquido", sem data alguma, então
- * proventos importados por ele empilham todos no fim do período.
- */
-const COLUMN_MOVEMENT_DIRECTION = 'Entrada/Saída';
-const COLUMN_MOVEMENT_TYPE = 'Movimentação';
-const COLUMN_MOVEMENT_DATE = 'Data';
-const COLUMN_MOVEMENT_SYMBOL = 'Produto';
-const COLUMN_MOVEMENT_VALUE = 'Valor da Operação';
-
-/** Tipos de movimentação que representam provento em dinheiro. */
-const MOVEMENT_DIVIDEND_TYPES = new Set([
-	'dividendo',
-	'juros sobre capital proprio',
-	'rendimento',
-]);
 const DIVIDEND_DATE_COLUMNS = [
 	'Data de pagamento',
 	'Data pagamento',
@@ -1083,13 +618,6 @@ const detectSheetKind = (headers: string[]): SheetKind | null => {
 	if (headerSet.has('Tipo de Evento') && headerSet.has('Valor líquido')) {
 		return 'dividend';
 	}
-	// Extrato de movimentação: traz a data real de cada provento.
-	if (
-		headerSet.has(COLUMN_MOVEMENT_TYPE) &&
-		headerSet.has(COLUMN_MOVEMENT_DIRECTION)
-	) {
-		return 'movement';
-	}
 	if (headerSet.has('Emissor') && headerSet.has('Indexador')) return 'lca';
 	if (headerSet.has('CNPJ da Empresa')) return 'stock';
 	if (headerSet.has('Administrador')) return 'fii';
@@ -1097,18 +625,12 @@ const detectSheetKind = (headers: string[]): SheetKind | null => {
 	return null;
 };
 
-export const parseB3Workbook = (
+const parseB3Workbook = (
 	workbook: xlsx.WorkBook,
 	reportDate: Date
 ): {
 	assets: ParsedAsset[];
 	dividendsBySymbol: Map<string, ParsedDividendEvent[]>;
-	/**
-	 * true quando os proventos vieram do extrato de movimentação, que traz a
-	 * data real de cada pagamento. false quando vieram do consolidado anual,
-	 * onde a data não existe e todos caem na data de referência.
-	 */
-	hasDatedDividends: boolean;
 } => {
 	void reportDate;
 	const assetsByKey = new Map<
@@ -1123,7 +645,6 @@ export const parseB3Workbook = (
 	>();
 	const dividendsBySymbol = new Map<string, ParsedDividendEvent[]>();
 	const quantityBySymbol = new Map<string, number>();
-	let hasDatedDividends = false;
 
 	for (const sheetName of workbook.SheetNames) {
 		const sheet = workbook.Sheets[sheetName];
@@ -1146,54 +667,6 @@ export const parseB3Workbook = (
 
 		for (const row of rows) {
 			if (!row || isTotalRow(row)) continue;
-
-			// Extrato de movimentação: só as linhas de provento em dinheiro
-			// interessam aqui. Compra, venda, transferência e atualização são
-			// tratadas pelo importador de negociações, não por este.
-			if (kind === 'movement') {
-				const movementType = normalizeHeaderKey(
-					String(row[COLUMN_MOVEMENT_TYPE] ?? '')
-				);
-				if (!MOVEMENT_DIVIDEND_TYPES.has(movementType)) continue;
-
-				// "Debito" num provento é estorno; só crédito entra.
-				const direction = normalizeHeaderKey(
-					String(row[COLUMN_MOVEMENT_DIRECTION] ?? '')
-				);
-				if (direction && direction !== 'credito') continue;
-
-				const symbol = normalizeSymbol(row[COLUMN_MOVEMENT_SYMBOL]);
-				if (!symbol || symbol.toLowerCase() === 'total') continue;
-
-				const value = normalizeNumber(row[COLUMN_MOVEMENT_VALUE]);
-				if (!value || value <= 0) continue;
-
-				const eventDate = parseSpreadsheetDate(row[COLUMN_MOVEMENT_DATE]);
-				if (!eventDate) continue;
-				hasDatedDividends = true;
-
-				const paymentType = normalizeDividendPaymentType(
-					row[COLUMN_MOVEMENT_TYPE]
-				);
-				const eventDateKey = eventDate.toISOString().slice(0, 10);
-				const key = symbol.toUpperCase();
-				const current = dividendsBySymbol.get(key) ?? [];
-				const existingIndex = current.findIndex(
-					(item) =>
-						item.paymentType === paymentType &&
-						item.eventDate.toISOString().slice(0, 10) === eventDateKey
-				);
-				if (existingIndex >= 0) {
-					current[existingIndex] = {
-						...current[existingIndex],
-						totalValue: current[existingIndex].totalValue + value,
-					};
-				} else {
-					current.push({ paymentType, totalValue: value, eventDate });
-				}
-				dividendsBySymbol.set(key, current);
-				continue;
-			}
 
 			if (kind === 'dividend') {
 				const rawSymbol = row[COLUMN_DIVIDEND_SYMBOL];
@@ -1305,14 +778,12 @@ export const parseB3Workbook = (
 		price: asset.total / asset.quantity,
 	}));
 
-	// Só descarta provento sem valor. O corte por "não tem posição neste
-	// arquivo" saiu daqui: ele apagava, antes do controller ver, tanto os
-	// proventos de papéis vendidos no ano (que precisam ser reportados) quanto
-	// TODOS os proventos do extrato de movimentação, que não traz aba de
-	// posição alguma — era por isso que o extrato importava zero. Quem decide
-	// o destino de um provento sem posição é o controller, que enxerga a
-	// carteira inteira e não apenas este arquivo.
+	// Ajusta dividendos para ativos que existam no relatório
 	for (const [symbol, events] of dividendsBySymbol.entries()) {
+		if (!quantityBySymbol.has(symbol)) {
+			dividendsBySymbol.delete(symbol);
+			continue;
+		}
 		const hasValidAmount = events.some(
 			(event) => Number(event.totalValue || 0) > 0
 		);
@@ -1320,9 +791,8 @@ export const parseB3Workbook = (
 			dividendsBySymbol.delete(symbol);
 		}
 	}
-	void quantityBySymbol;
 
-	return { assets, dividendsBySymbol, hasDatedDividends };
+	return { assets, dividendsBySymbol };
 };
 
 const normalizeHeaderKey = (value: string) =>
@@ -1501,21 +971,10 @@ const parseB3NegotiationWorkbook = (
 	return transactions;
 };
 
-/**
- * Data de referência do relatório, extraída do nome do arquivo
- * ("relatorio-consolidado-anual-2025.xlsx" -> 31/12/2025).
- *
- * O padrão era `/(19|20)\\d{2}/` — dentro de um literal de regex, `\\d`
- * casa uma barra invertida literal seguida da letra "d", não um dígito.
- * Nenhum nome de arquivo real casava, então todo relatório caía no
- * `new Date()` e os proventos do ano inteiro eram carimbados com o dia
- * do upload: o relatório de 2025 importado em agosto de 2026 empilhava
- * tudo em agosto/2026.
- */
-export const resolveReportDate = (fileName?: string): Date => {
+const resolveReportDate = (fileName?: string): Date => {
 	if (!fileName) return new Date();
 
-	const match = fileName.match(/(19|20)\d{2}/);
+	const match = fileName.match(/(19|20)\\d{2}/);
 	if (match) {
 		const year = Number(match[0]);
 		return new Date(Date.UTC(year, 11, 31));

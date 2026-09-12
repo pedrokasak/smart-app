@@ -1,8 +1,6 @@
 import { ChatOrchestratorIntent } from 'src/ai/orchestration/chat-orchestrator.types';
 
 export interface ChatNarrativeSynthesisInput {
-	/** Escopo obrigatorio pro RAG: retrieval e SEMPRE filtrado por usuario. */
-	userId: string;
 	intent: ChatOrchestratorIntent;
 	question: string;
 	facts: Record<string, unknown> | null;

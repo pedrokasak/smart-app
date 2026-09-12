@@ -2,7 +2,6 @@ import {
 	Body,
 	BadRequestException,
 	Controller,
-	Inject,
 	Get,
 	NotFoundException,
 	Param,
@@ -19,10 +18,6 @@ import {
 	RiDocumentType,
 } from 'src/ri-intelligence/domain/ri-document.types';
 import { CANONICAL_RI_DOCUMENT_TYPES } from 'src/ri-intelligence/domain/ri-document-classifier';
-import {
-	RI_DOCUMENT_CONTENT,
-	RiDocumentContentPort,
-} from 'src/ri-intelligence/application/ri-document-content.port';
 
 interface RiSummaryBody {
 	document?: RiDocumentRecord;
@@ -33,9 +28,7 @@ interface RiSummaryBody {
 export class RiIntelligenceController {
 	constructor(
 		private readonly catalogService: RiDocumentCatalogService,
-		private readonly summaryService: RiDocumentSummaryService,
-		@Inject(RI_DOCUMENT_CONTENT)
-		private readonly documentContent: RiDocumentContentPort
+		private readonly summaryService: RiDocumentSummaryService
 	) {}
 
 	@Get('autocomplete')
@@ -89,24 +82,9 @@ export class RiIntelligenceController {
 	@Post('summary')
 	async summarize(@Body() body: RiSummaryBody) {
 		if (!body?.document) throw new BadRequestException('ri_document_required');
-
-		// Conteudo pode vir do cliente, mas na pratica o web nao consegue
-		// buscar o PDF do site de RI (CORS externo), entao a extracao acontece
-		// aqui, server-side (TRA-85). Se o cliente ja mandou content, respeita.
-		let content = body.content || null;
-		if (!content && body.document.source?.type === 'url') {
-			const fetched = await this.documentContent.fetchTextContent(
-				body.document.source.value
-			);
-			content = fetched.text;
-			if (content) {
-				body.document = { ...body.document, contentStatus: 'extracted' };
-			}
-		}
-
 		return this.summaryService.summarize({
 			document: body.document,
-			content,
+			content: body.content || null,
 		});
 	}
 
