@@ -99,7 +99,13 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 		name: 'Pro',
 		description:
 			'Para o investidor que já tem carteira montada em mais de uma corretora.',
-		monthlyPrice: 149,
+		// Espelha o produto "Investidor Pro" no Stripe: R$ 14,90/mês e
+		// R$ 149,00/ano. Estes números vinham como 149 no mensal — que é o
+		// preço ANUAL do mesmo produto — e o `sync` grava `monthlyPrice` no
+		// campo `price` exibido na vitrine. Rodar o sync assim publicaria
+		// R$ 149 numa assinatura que o Stripe cobra R$ 14,90 (TRA-150).
+		monthlyPrice: 14.9,
+		annualPrice: 149,
 		currency: 'brl',
 		interval: 'month',
 		intervalCount: 1,
@@ -123,7 +129,11 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 		name: 'Wealth Premium',
 		description:
 			'Multi-carteira com risco quantitativo e política de investimento.',
-		monthlyPrice: 389,
+		// Espelha o produto "Premium" no Stripe: R$ 24,90/mês e R$ 249,00/ano
+		// (TRA-150). O valor anterior, 389, não corresponde a nenhum preço
+		// existente na conta.
+		monthlyPrice: 24.9,
+		annualPrice: 249,
 		currency: 'brl',
 		interval: 'month',
 		intervalCount: 1,
