@@ -1,6 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import {
 	MARKET_DATA_PROVIDER,
+	type MarketAssetType,
 	type MarketDataProviderPort,
 } from 'src/market-data/application/market-data-provider.port';
 import {
@@ -13,14 +14,15 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
  * Contribuição de risco por ativo da carteira do usuário (TRA-141), para o
  * card da tela Portfólio do handoff.
  *
- * Só ativos listados na B3 (ação, FII, ETF): `getDailyCloses` normaliza o
- * símbolo como ação no Yahoo, e cripto viria com série errada. O que fica de
+ * Entram ação, FII, ETF e cripto — esta última desde que `getDailyCloses`
+ * passou a receber o tipo e normalizar o par em reais (BTC-BRL). O que fica de
  * fora é devolvido em `missingSymbols` e `excludedValuePct`, para a tela dizer.
  */
 
 /** A fonte é rate-limited; acima disso a lista também deixa de ser legível. */
 const MAX_SYMBOLS = 15;
-const LISTED_TYPES = new Set(['stock', 'fii', 'etf']);
+/** Tipos com fechamento diário disponível. Renda fixa e fundo não têm. */
+const PRICED_TYPES = new Set(['stock', 'fii', 'etf', 'crypto']);
 
 export interface PortfolioRiskContributionOutput extends RiskContributionResult {
 	/** Posições acima do teto, somadas em "Demais". */
@@ -60,7 +62,7 @@ export class PortfolioRiskContributionService {
 		const ranked = [...bySymbol.entries()]
 			.map(([symbol, entry]) => ({ symbol, ...entry }))
 			.sort((a, b) => b.marketValue - a.marketValue);
-		const listed = ranked.filter((entry) => LISTED_TYPES.has(entry.type));
+		const listed = ranked.filter((entry) => PRICED_TYPES.has(entry.type));
 		const selected = listed.slice(0, MAX_SYMBOLS);
 
 		const closesEntries = await Promise.all(
@@ -68,7 +70,11 @@ export class PortfolioRiskContributionService {
 				async (entry) =>
 					[
 						entry.symbol,
-						await this.marketData.getDailyCloses(entry.symbol, '1y'),
+						await this.marketData.getDailyCloses(
+							entry.symbol,
+							'1y',
+							entry.type as MarketAssetType
+						),
 					] as const
 			)
 		);

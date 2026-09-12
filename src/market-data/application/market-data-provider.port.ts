@@ -64,8 +64,16 @@ export interface MarketDataProviderPort {
 	 * Devolve `[]` quando a fonte não tem o símbolo ou está indisponível: quem
 	 * consome decide se a métrica fica indisponível, em vez de receber exceção
 	 * no meio de um cálculo.
+	 *
+	 * `assetType` define como o símbolo é normalizado na fonte: ação e FII
+	 * ganham `.SA`, cripto vira par em reais (BTC-BRL). Omitir trata como ação,
+	 * que é o comportamento anterior — índice (`^BVSP`) segue intocado.
 	 */
-	getDailyCloses(symbol: string, range: string): Promise<DailyClose[]>;
+	getDailyCloses(
+		symbol: string,
+		range: string,
+		assetType?: MarketAssetType
+	): Promise<DailyClose[]>;
 }
 
 export const MARKET_DATA_PROVIDER = Symbol('MARKET_DATA_PROVIDER');

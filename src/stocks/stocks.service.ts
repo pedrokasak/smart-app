@@ -7,6 +7,7 @@ import { CvmOpenDataAdapter } from 'src/stocks/adapter/cvm-open-data.adapter';
 import { YahooFinanceAdapter } from 'src/market-data/infrastructure/yahoo-finance.adapter';
 import { isRangeSupportedByBrapi } from 'src/stocks/range-support';
 import axios from 'axios';
+import { MarketAssetType } from 'src/market-data/application/market-data-provider.port';
 
 @Injectable()
 export class StockService implements StockRepository {
@@ -37,9 +38,10 @@ export class StockService implements StockRepository {
 	 */
 	async getDailyCloses(
 		symbol: string,
-		range: string
+		range: string,
+		assetType: MarketAssetType = 'stock'
 	): Promise<{ date: string; close: number }[]> {
-		const points = await this.yahooFinance.getHistory(symbol, 'stock', range);
+		const points = await this.yahooFinance.getHistory(symbol, assetType, range);
 		return (points || [])
 			.filter((point) => Number.isFinite(point?.close) && point.close > 0)
 			.map((point) => ({
