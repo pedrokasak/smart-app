@@ -33,6 +33,7 @@ import {
 	RISK_FREE_RATE_PROVIDER,
 	type RiskFreeRatePort,
 } from './risk-free-rate.port';
+import { PortfolioService } from 'src/portfolio/portfolio.service';
 
 /**
  * Monta os retornos da carteira a partir da série diária e das negociações
@@ -62,6 +63,8 @@ export interface PortfolioReturnsOutput {
 	 */
 	benchmark: {
 		symbol: string;
+		/** Nome do índice para a tela: `IBOV`, `IFIX`. */
+		label: string;
 		beta: number | null;
 		trackingError: number | null;
 		correlation: number | null;
@@ -90,8 +93,20 @@ export interface PortfolioReturnsOutput {
 	staleDays: number;
 }
 
-/** Índice de referência do mercado brasileiro no Yahoo. */
-const BENCHMARK_SYMBOL = '^BVSP';
+/**
+ * Índices de referência no Yahoo, por perfil de carteira (TRA-141).
+ *
+ * Beta contra o IBOV engana quem tem muito FII: fundo imobiliário segue o
+ * IFIX e a curva de juros, não a bolsa. Uma carteira 60% FII exibia beta
+ * baixo e passava a impressão de "defensiva", quando o risco era de juros.
+ *
+ * A escolha é pelo que domina a carteira, e o índice usado vai no payload —
+ * a tela mostra o nome, em vez de assumir IBOV.
+ */
+const IBOV = { symbol: '^BVSP', label: 'IBOV' } as const;
+const IFIX = { symbol: '^IFIX', label: 'IFIX' } as const;
+/** Acima disto o FII manda na carteira e o IBOV deixa de ser referência. */
+const FII_DOMINANCE_PCT = 50;
 /** Janela pedida ao provedor. Um ano cobre os 252 pregões da anualização. */
 const BENCHMARK_RANGE = '1y';
 
@@ -107,8 +122,67 @@ export class PortfolioReturnsService {
 		@Inject(MARKET_DATA_PROVIDER)
 		private readonly marketData: MarketDataProviderPort,
 		@Inject(RISK_FREE_RATE_PROVIDER)
-		private readonly riskFreeRate: RiskFreeRatePort
+		private readonly riskFreeRate: RiskFreeRatePort,
+		private readonly portfolioService: PortfolioService
 	) {}
+
+	/** Peso de FII na carteira, a valor de mercado. 0 quando não dá pra saber. */
+	private async fiiSharePct(userId: string): Promise<number> {
+		try {
+			const portfolios = await this.portfolioService.getUserPortfolios(userId);
+			const assets = (portfolios || []).flatMap((portfolio: any) =>
+				Array.isArray(portfolio?.assets) ? portfolio.assets : []
+			);
+			let total = 0;
+			let fii = 0;
+			for (const asset of assets) {
+				const quantity = Number(asset?.quantity) || 0;
+				const price = Number(asset?.currentPrice) || Number(asset?.price) || 0;
+				const value = quantity * price;
+				if (!(value > 0)) continue;
+				total += value;
+				if (String(asset?.type) === 'fii') fii += value;
+			}
+			return total > 0 ? (fii / total) * 100 : 0;
+		} catch (error) {
+			this.logger.warn(
+				`Não foi possível medir a fatia de FII: ${(error as Error)?.message || error}`
+			);
+			return 0;
+		}
+	}
+
+	/**
+	 * Escolhe o índice e busca a série. Se o índice preferido não vier (o
+	 * provedor pode não ter o IFIX), cai para o IBOV e avisa — nunca devolve
+	 * beta contra um índice que não foi o usado.
+	 */
+	private async resolveBenchmark(userId: string): Promise<{
+		symbol: string;
+		label: string;
+		closes: { date: string; close: number }[];
+		fallback: boolean;
+	}> {
+		const fiiShare = await this.fiiSharePct(userId);
+		const preferred = fiiShare > FII_DOMINANCE_PCT ? IFIX : IBOV;
+
+		const closes = await this.marketData.getDailyCloses(
+			preferred.symbol,
+			BENCHMARK_RANGE
+		);
+		if (closes.length || preferred.symbol === IBOV.symbol) {
+			return { ...preferred, closes, fallback: false };
+		}
+
+		this.logger.warn(
+			`Série de ${preferred.label} indisponível; usando ${IBOV.label} como referência.`
+		);
+		const ibovCloses = await this.marketData.getDailyCloses(
+			IBOV.symbol,
+			BENCHMARK_RANGE
+		);
+		return { ...IBOV, closes: ibovCloses, fallback: true };
+	}
 
 	/** CDI diário em fração, para o período dos retornos. Falha vira série vazia. */
 	private async fetchRiskFreeDaily(
@@ -244,16 +318,19 @@ export class PortfolioReturnsService {
 			series,
 			flows: flows.byDay,
 		});
-		const [benchmarkCloses, riskFreeDaily] = await Promise.all([
-			this.marketData.getDailyCloses(BENCHMARK_SYMBOL, BENCHMARK_RANGE),
+		const [benchmark, riskFreeDaily] = await Promise.all([
+			this.resolveBenchmark(userId),
 			this.fetchRiskFreeDaily(
 				portfolioReturns[0]?.date,
 				portfolioReturns[portfolioReturns.length - 1]?.date
 			),
 		]);
+		if (benchmark.fallback) {
+			unavailable.push('benchmark_preferred_index_unavailable');
+		}
 		const benchmarkMetrics = computeBenchmarkMetrics(
 			portfolioReturns,
-			closesToReturns(benchmarkCloses)
+			closesToReturns(benchmark.closes)
 		);
 		if (benchmarkMetrics.unavailable) {
 			unavailable.push(`benchmark_${benchmarkMetrics.unavailable}`);
@@ -280,7 +357,8 @@ export class PortfolioReturnsService {
 			},
 			irr,
 			benchmark: {
-				symbol: BENCHMARK_SYMBOL,
+				symbol: benchmark.symbol,
+				label: benchmark.label,
 				beta: benchmarkMetrics.beta,
 				trackingError: benchmarkMetrics.trackingError,
 				correlation: benchmarkMetrics.correlation,
