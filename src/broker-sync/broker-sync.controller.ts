@@ -28,6 +28,7 @@ import { FiscalService } from 'src/fiscal/fiscal.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
 import { validateUploadFile } from 'src/broker-sync/security/upload-file.validator';
+import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 
 type ParsedTrade = {
 	assetSymbol: string;
@@ -47,7 +48,8 @@ export class BrokerSyncController {
 		private readonly brokerSyncService: BrokerSyncService,
 		private readonly fiscalService: FiscalService,
 		private readonly portfolioService: PortfolioService,
-		private readonly assetsService: AssetsService
+		private readonly assetsService: AssetsService,
+		private readonly portfolioHistoryBackfillService: PortfolioHistoryBackfillService
 	) {}
 
 	@Get('connections')
@@ -364,6 +366,20 @@ export class BrokerSyncController {
 					date: t.date,
 				}))
 			);
+
+			// Histórico diário reconstruído com as operações da nota (TRA-141):
+			// sem isso, Sharpe, beta e VaR ficariam indisponíveis por semanas
+			// mesmo com um ano de notas importado. Não bloqueia o processamento.
+			void this.portfolioHistoryBackfillService
+				.backfill({
+					userId: params.userId,
+					portfolioId: String(portfolio._id),
+				})
+				.catch((error) =>
+					this.logger.warn(
+						`Backfill do histórico falhou após importar nota: ${error?.message || error}`
+					)
+				);
 
 			const bySymbol = new Map<string, typeof trades>();
 			for (const t of trades) {

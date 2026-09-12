@@ -7,6 +7,7 @@ import { SubscriptionService } from 'src/subscription/subscription.service';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
+import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 
 jest.mock('src/authentication/jwt-auth.guard', () => ({
@@ -56,6 +57,10 @@ describe('PortfolioController', () => {
 		getRiskContribution: jest.fn(),
 	};
 
+	const mockPortfolioHistoryBackfillService = {
+		backfill: jest.fn(),
+	};
+
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
 			controllers: [PortfolioController],
@@ -84,11 +89,34 @@ describe('PortfolioController', () => {
 					provide: PortfolioRiskContributionService,
 					useValue: mockPortfolioRiskContributionService,
 				},
+				{
+					provide: PortfolioHistoryBackfillService,
+					useValue: mockPortfolioHistoryBackfillService,
+				},
 			],
 		}).compile();
 
 		controller = module.get<PortfolioController>(PortfolioController);
 		portfolioService = module.get<PortfolioService>(PortfolioService);
+	});
+
+	// Quem importou notas antes de a reconstrução existir precisa de um
+	// gatilho manual; a rota exige ser dono do portfólio.
+	it('reconstrói o histórico do portfólio do dono', async () => {
+		const payload = { covered: true, written: 180 };
+		mockPortfolioHistoryBackfillService.backfill.mockResolvedValue(payload);
+
+		await expect(
+			controller.backfillHistory('p1', reqFor('user7'))
+		).resolves.toBe(payload);
+		expect(mockPortfolioService.assertPortfolioOwnership).toHaveBeenCalledWith(
+			'user7',
+			'p1'
+		);
+		expect(mockPortfolioHistoryBackfillService.backfill).toHaveBeenCalledWith({
+			userId: 'user7',
+			portfolioId: 'p1',
+		});
 	});
 
 	it('entrega a contribuição de risco do usuário autenticado', async () => {

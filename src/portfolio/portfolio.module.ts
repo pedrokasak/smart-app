@@ -25,6 +25,7 @@ import { RISK_FREE_RATE_PROVIDER } from 'src/portfolio/returns/risk-free-rate.po
 import { StockModule } from 'src/stocks/stocks.module';
 import { StockService } from 'src/stocks/stocks.service';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
+import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 
 @Module({
 	imports: [
@@ -74,6 +75,7 @@ import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-r
 		PortfolioCompositionService,
 		{ provide: RISK_FREE_RATE_PROVIDER, useExisting: StockService },
 		PortfolioRiskContributionService,
+		PortfolioHistoryBackfillService,
 
 		// Schedulers
 		// Backfill diário do setor dos ativos existentes (TRA-144): o
@@ -86,6 +88,7 @@ import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-r
 		PortfolioIntelligenceService,
 		PortfolioReturnsService,
 		PortfolioCompositionService,
+		PortfolioHistoryBackfillService,
 	],
 })
 export class PortfolioModule {}
