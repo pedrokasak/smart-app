@@ -483,6 +483,46 @@ describe('AuthenticationService', () => {
 			);
 		});
 
+		/**
+		 * TRA-151. O `catch` aqui era vazio: uma queda total do provedor de
+		 * e-mail não deixava rastro nenhum, e a recuperação de senha — único
+		 * caminho de volta de quem perdeu o acesso — falhava em silêncio.
+		 */
+		it('logs an error when the reset email fails, keeping the generic response', async () => {
+			const save = jest.fn().mockResolvedValue(undefined);
+			(UserModel.findOne as jest.Mock).mockResolvedValue({
+				_id: 'user_123',
+				email: 'test@example.com',
+				save,
+			});
+			mockEmailService.sendPasswordResetEmail.mockRejectedValueOnce(
+				new Error('Email send failed')
+			);
+			const errorSpy = jest
+				.spyOn((service as any).logger, 'error')
+				.mockImplementation(() => undefined);
+
+			const result = await service.forgotPassword({
+				email: 'test@example.com',
+			});
+
+			// Resposta segue idêntica ao caminho de sucesso: variar aqui
+			// revelaria quais e-mails existem.
+			expect(result.message).toBe(
+				'If the email is valid, a password reset link has been sent'
+			);
+			expect(errorSpy).toHaveBeenCalledWith(
+				expect.stringContaining('Falha ao enviar e-mail de recuperação')
+			);
+			// Log de erro não carrega dado pessoal (CLAUDE.md §8).
+			expect(errorSpy).toHaveBeenCalledWith(
+				expect.stringContaining('userId=user_123')
+			);
+			expect(errorSpy).toHaveBeenCalledWith(
+				expect.not.stringContaining('test@example.com')
+			);
+		});
+
 		it('should return generic response for unknown email without leaking info', async () => {
 			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
 
