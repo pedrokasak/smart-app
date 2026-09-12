@@ -21,8 +21,8 @@ import { loadSystemThresholdPolicy } from './infrastructure/thresholds.config';
  * primeiro consumidor da decisao — um painel de alertas ou um digest
  * semanal usariam o mesmo motor sem passar por canal nenhum.
  *
- * Nao exporta os adaptadores: quem consome ve `ThresholdEngineService` e
- * mais nada.
+ * Nao exporta os adaptadores: quem consome ve `ThresholdEngineService` e a
+ * politica do sistema (`THRESHOLD_SYSTEM_POLICY`), que e configuracao.
  */
 @Module({
 	imports: [
@@ -48,6 +48,12 @@ import { loadSystemThresholdPolicy } from './infrastructure/thresholds.config';
 		{ provide: THRESHOLD_SYSTEM_POLICY, useFactory: loadSystemThresholdPolicy },
 		ThresholdEngineService,
 	],
-	exports: [ThresholdEngineService],
+	// `THRESHOLD_SYSTEM_POLICY` sai junto porque `QuoteFreshnessScheduler`
+	// (QuoteStalenessModule) le o `quoteStaleAfterMinutes` direto da politica.
+	// Sem este export o modulo importava ThresholdsModule mas nao enxergava o
+	// token, e o AppModule nao subia — foi o crash-loop do deploy do v1.6.0
+	// (TRA-154). A politica e valor de configuracao, nao adaptador: expo-la
+	// nao vaza a infraestrutura do motor.
+	exports: [ThresholdEngineService, THRESHOLD_SYSTEM_POLICY],
 })
 export class ThresholdsModule {}
