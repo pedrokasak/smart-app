@@ -3,8 +3,12 @@ name: Test and Lint
 on:
   push:
     branches: [main, develop]
+  # develop entra aqui porque e onde as features sao mergeadas. Sem isso, PR
+  # para develop rodava so lint/type-check/build (ci.yml) e os testes so
+  # executavam DEPOIS do merge — foi assim que dois providers nao exportados
+  # (TRA-154) chegaram ao release do v1.6.0 e derrubaram o deploy.
   pull_request:
-    branches: [main]
+    branches: [main, develop]
 
 jobs:
   test:
