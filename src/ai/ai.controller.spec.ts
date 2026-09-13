@@ -1,8 +1,18 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AiController } from './ai.controller';
 import { AiService } from './ai.service';
+import { RagColdStartService } from 'src/ai/rag-ingestion/application/rag-cold-start.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
+import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
+import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
+import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
+import { PortfolioErrorRadarService } from 'src/intelligence/application/portfolio-error-radar.service';
+import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
+import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
+import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { USER_PLAN_RESOLVER } from 'src/subscription/application/user-plan.types';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -26,6 +36,41 @@ const mockTrackerrScoreService = {
 	getScoreForUser: jest.fn(),
 };
 
+const mockUnifiedIntelligenceFacade = {
+	simulateFuture: jest.fn(),
+	detectOpportunities: jest.fn(),
+};
+
+const mockUserPlanResolver = {
+	resolve: jest.fn(),
+};
+
+const mockPortfolioScoreService = {
+	compute: jest.fn(),
+};
+
+const mockAssetOpinionService = {
+	getOpinion: jest.fn(),
+};
+
+const mockPortfolioErrorRadarService = {
+	detect: jest.fn(),
+};
+
+const mockPortfolioService = {
+	getUserPortfolios: jest.fn(),
+};
+
+const mockInvestorProfileService = {
+	getEffectiveProfile: jest.fn(),
+	setOverride: jest.fn(),
+};
+
+const mockChatHistoryService = {
+	listByUser: jest.fn(),
+	append: jest.fn(),
+};
+
 describe('AiController', () => {
 	let controller: AiController;
 
@@ -41,6 +86,42 @@ describe('AiController', () => {
 				{
 					provide: TrackerrScoreService,
 					useValue: mockTrackerrScoreService,
+				},
+				{
+					provide: UnifiedIntelligenceFacade,
+					useValue: mockUnifiedIntelligenceFacade,
+				},
+				{
+					provide: PortfolioScoreService,
+					useValue: mockPortfolioScoreService,
+				},
+				{
+					provide: AssetOpinionService,
+					useValue: mockAssetOpinionService,
+				},
+				{
+					provide: PortfolioErrorRadarService,
+					useValue: mockPortfolioErrorRadarService,
+				},
+				{
+					provide: PortfolioService,
+					useValue: mockPortfolioService,
+				},
+				{
+					provide: RagColdStartService,
+					useValue: { trigger: jest.fn() },
+				},
+				{
+					provide: InvestorProfileService,
+					useValue: mockInvestorProfileService,
+				},
+				{
+					provide: ChatHistoryService,
+					useValue: mockChatHistoryService,
+				},
+				{
+					provide: USER_PLAN_RESOLVER,
+					useValue: mockUserPlanResolver,
 				},
 			],
 		}).compile();
@@ -150,9 +231,12 @@ describe('AiController', () => {
 		};
 		mockAiService.chat.mockResolvedValue(fakeChat);
 
+		// `profile_plan` saiu do contrato (TRA-89): era enviado pelo cliente e
+		// usado do outro lado pra decidir a profundidade da análise — bastava
+		// declarar-se premium. O ValidationPipe global rejeita a propriedade
+		// agora, então o DTO não a aceita nem aqui.
 		const result = await controller.chat({
 			question: 'Minha carteira está muito arriscada?',
-			profile_plan: 'pro',
 			context: { portfolioSummary: { totalValue: 10000 } },
 		});
 
@@ -189,6 +273,12 @@ describe('AiController', () => {
 
 		expect(response.intent).toBe('portfolio_summary');
 		expect(response.data?.portfolioSummary?.totalValue).toBe(1000);
+		// Resposta determinística sem lacuna: confiança alta, base declarada.
+		expect(response.confidence).toEqual({
+			score: 0.95,
+			basis: 'deterministic',
+		});
+		expect(response.sources).toEqual([]);
 		expect(mockChatOrchestratorService.orchestrate).toHaveBeenCalledWith(
 			'user-123',
 			'Resumo da carteira',
@@ -382,5 +472,364 @@ describe('AiController', () => {
 		expect(response.message).toContain('Destaque positivo: ITUB4');
 		expect(response.message).toContain('Atenção: BEEF3');
 		expect(response.message).toContain('Prioridade da semana');
+	});
+
+	describe('POST /ai/future-simulator', () => {
+		it('builds positions from the user portfolio and forwards horizon/monthlyContribution to the facade', async () => {
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						{ symbol: 'PETR4', type: 'stock', quantity: 100, price: 30 },
+						{ symbol: '', type: 'stock', quantity: 10, price: 10 },
+					],
+				},
+			]);
+			const fakeOutput = {
+				modelVersion: 'future_simulator_v1',
+				horizon: '5y',
+				months: 60,
+				currentPortfolioValue: 3000,
+				monthlyContribution: 500,
+				scenarios: {},
+				assumptions: {},
+				dividendProjection: {},
+				limitations: [],
+				confidence: 'high',
+			};
+			mockUnifiedIntelligenceFacade.simulateFuture.mockReturnValue(fakeOutput);
+
+			const response = await controller.futureSimulator(
+				{ user: { userId: 'user-123' } },
+				{ horizon: '5y', monthlyContribution: 500 }
+			);
+
+			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
+				'user-123'
+			);
+			// O ativo sem symbol e descartado (mesma regra de
+			// ChatOrchestratorService.toPositions).
+			expect(mockUnifiedIntelligenceFacade.simulateFuture).toHaveBeenCalledWith(
+				{
+					positions: [
+						expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
+					],
+					horizon: '5y',
+					monthlyContribution: 500,
+				}
+			);
+			expect(response).toBe(fakeOutput);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.futureSimulator({ user: {} }, { horizon: '1y' })
+			).rejects.toThrow('User ID ausente no token');
+		});
+	});
+
+	describe('GET /ai/portfolio-score', () => {
+		it('builds positions from the user portfolio and returns the service output', async () => {
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						{ symbol: 'PETR4', type: 'stock', quantity: 100, price: 30 },
+						{ symbol: '', type: 'stock', quantity: 10, price: 10 },
+					],
+				},
+			]);
+			const fakeOutput = {
+				modelVersion: 'portfolio_score_v1',
+				overall: 62.5,
+				status: 'ok',
+				dimensions: [],
+				diversificationStatus: 'moderate',
+				riskLevel: 'medium',
+				flags: [],
+				positionsCount: 1,
+			};
+			mockPortfolioScoreService.compute.mockReturnValue(fakeOutput);
+
+			const response = await controller.portfolioScore({
+				user: { userId: 'user-123' },
+			});
+
+			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
+				'user-123'
+			);
+			// Ativo sem symbol e descartado, mesma regra do toPositions.
+			expect(mockPortfolioScoreService.compute).toHaveBeenCalledWith([
+				expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
+			]);
+			expect(response).toBe(fakeOutput);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(controller.portfolioScore({ user: {} })).rejects.toThrow(
+				'User ID ausente no token'
+			);
+		});
+	});
+
+	describe('POST /ai/asset-opinion', () => {
+		it('repassa userId do JWT e symbol do body para o service', async () => {
+			const fakeOutput = {
+				symbol: 'PETR4',
+				summary: 'x',
+				strength: 'y',
+				attention: 'z',
+				tags: ['score_72'],
+				scoreOverall: 72,
+				status: 'ok',
+			};
+			mockAssetOpinionService.getOpinion.mockResolvedValue(fakeOutput);
+
+			const response = await controller.assetOpinion(
+				{ user: { userId: 'user-123' } },
+				{ symbol: 'PETR4' }
+			);
+
+			expect(mockAssetOpinionService.getOpinion).toHaveBeenCalledWith(
+				'user-123',
+				'PETR4'
+			);
+			expect(response).toBe(fakeOutput);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.assetOpinion({ user: {} }, { symbol: 'PETR4' })
+			).rejects.toThrow('User ID ausente no token');
+		});
+	});
+
+	describe('GET /ai/error-radar', () => {
+		it('builds positions from the user portfolio and returns the service output', async () => {
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						{ symbol: 'PETR4', type: 'stock', quantity: 100, price: 30 },
+						{ symbol: '', type: 'stock', quantity: 10, price: 10 },
+					],
+				},
+			]);
+			const fakeOutput = {
+				modelVersion: 'portfolio_error_radar_v1',
+				status: 'ok',
+				riskLevel: 'high',
+				alerts: [
+					{
+						code: 'ASSET_CONCENTRATION_HIGH',
+						type: 'concentration',
+						severity: 'high',
+						message: 'PETR4 representa 100.0% da carteira.',
+						symbol: 'PETR4',
+					},
+				],
+				positionsCount: 1,
+			};
+			mockPortfolioErrorRadarService.detect.mockReturnValue(fakeOutput);
+
+			const response = await controller.errorRadar({
+				user: { userId: 'user-123' },
+			});
+
+			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
+				'user-123'
+			);
+			expect(mockPortfolioErrorRadarService.detect).toHaveBeenCalledWith([
+				expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
+			]);
+			expect(response).toBe(fakeOutput);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(controller.errorRadar({ user: {} })).rejects.toThrow(
+				'User ID ausente no token'
+			);
+		});
+	});
+
+	describe('POST /ai/opportunity-radar', () => {
+		afterEach(() => mockUserPlanResolver.resolve.mockReset());
+
+		it('builds positions from the user portfolio and forwards body filters to the facade', async () => {
+			mockUserPlanResolver.resolve.mockResolvedValue('premium');
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						{ symbol: 'PETR4', type: 'stock', quantity: 100, price: 30 },
+					],
+				},
+			]);
+			const fakeOutput = {
+				modelVersion: 'opportunity_radar_v1',
+				opportunities: [],
+				underallocatedSectors: [],
+				signals: [],
+				unavailableSymbols: [],
+				warnings: [],
+			};
+			mockUnifiedIntelligenceFacade.detectOpportunities.mockResolvedValue(
+				fakeOutput
+			);
+
+			const response = await controller.opportunityRadar(
+				{ user: { userId: 'user-123' } },
+				{ candidateSymbols: ['VALE3'], watchlistSymbols: ['ITUB4'] }
+			);
+
+			expect(mockUserPlanResolver.resolve).toHaveBeenCalledWith('user-123');
+			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
+				'user-123'
+			);
+			expect(
+				mockUnifiedIntelligenceFacade.detectOpportunities
+			).toHaveBeenCalledWith(
+				expect.objectContaining({
+					portfolioPositions: [
+						expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
+					],
+					candidateSymbols: ['VALE3'],
+					watchlistSymbols: ['ITUB4'],
+				})
+			);
+			expect(response).toBe(fakeOutput);
+		});
+
+		it('throws Forbidden when the user plan is below premium', async () => {
+			mockUserPlanResolver.resolve.mockResolvedValue('free');
+
+			await expect(
+				controller.opportunityRadar({ user: { userId: 'user-123' } }, {})
+			).rejects.toThrow(ForbiddenException);
+			expect(mockPortfolioService.getUserPortfolios).not.toHaveBeenCalled();
+			expect(
+				mockUnifiedIntelligenceFacade.detectOpportunities
+			).not.toHaveBeenCalled();
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.opportunityRadar({ user: {} }, {})
+			).rejects.toThrow(UnauthorizedException);
+		});
+	});
+
+	describe('GET /ai/chat/history', () => {
+		it('devolve o historico do usuario autenticado', async () => {
+			const fakeMessages = [
+				{ userId: 'user-123', clientId: 'u-1', role: 'user', text: 'oi' },
+			];
+			mockChatHistoryService.listByUser.mockResolvedValue(fakeMessages);
+
+			const response = await controller.getChatHistory({
+				user: { userId: 'user-123' },
+			});
+
+			expect(mockChatHistoryService.listByUser).toHaveBeenCalledWith(
+				'user-123'
+			);
+			expect(response).toBe(fakeMessages);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(controller.getChatHistory({ user: {} })).rejects.toThrow(
+				'User ID ausente no token'
+			);
+		});
+	});
+
+	describe('POST /ai/chat/history', () => {
+		it('persiste a mensagem associada ao usuario autenticado', async () => {
+			const body = {
+				clientId: 'u-1',
+				role: 'user' as const,
+				text: 'Minha carteira está concentrada?',
+			};
+			const fakeCreated = { ...body, userId: 'user-123' };
+			mockChatHistoryService.append.mockResolvedValue(fakeCreated);
+
+			const response = await controller.appendChatHistory(
+				{ user: { userId: 'user-123' } },
+				body
+			);
+
+			expect(mockChatHistoryService.append).toHaveBeenCalledWith(
+				'user-123',
+				body
+			);
+			expect(response).toBe(fakeCreated);
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.appendChatHistory(
+					{ user: {} },
+					{ clientId: 'u-1', role: 'user', text: 'oi' }
+				)
+			).rejects.toThrow('User ID ausente no token');
+		});
+	});
+
+	describe('GET /ai/investor-profile', () => {
+		it('devolve o perfil efetivo do usuario autenticado', async () => {
+			const req = { user: { userId: 'u1' } };
+			(
+				mockInvestorProfileService.getEffectiveProfile as jest.Mock
+			).mockResolvedValue({
+				sophistication: 'experienced',
+				riskTolerance: 'aggressive',
+				confidence: 0.9,
+				signals: {},
+				source: 'inferred',
+			});
+
+			const result = await controller.investorProfile(req as any);
+
+			expect(
+				mockInvestorProfileService.getEffectiveProfile
+			).toHaveBeenCalledWith('u1');
+			expect(result.sophistication).toBe('experienced');
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(controller.investorProfile({ user: {} })).rejects.toThrow(
+				'User ID ausente no token'
+			);
+		});
+	});
+
+	describe('PUT /ai/investor-profile', () => {
+		it('grava override e devolve o perfil atualizado', async () => {
+			const req = { user: { userId: 'u1' } };
+			(mockInvestorProfileService.setOverride as jest.Mock).mockResolvedValue({
+				sophistication: 'experienced',
+				riskTolerance: 'moderate',
+				confidence: 0.7,
+				signals: {},
+				source: 'user_override',
+			});
+
+			const result = await controller.updateInvestorProfile(req as any, {
+				sophistication: 'experienced',
+			});
+
+			expect(mockInvestorProfileService.setOverride).toHaveBeenCalledWith(
+				'u1',
+				{
+					sophistication: 'experienced',
+				}
+			);
+			expect(result.source).toBe('user_override');
+		});
+
+		it('throws Unauthorized when the JWT has no userId', async () => {
+			await expect(
+				controller.updateInvestorProfile(
+					{ user: {} },
+					{ sophistication: 'experienced' }
+				)
+			).rejects.toThrow('User ID ausente no token');
+		});
 	});
 });

@@ -18,10 +18,16 @@ describe('PortfolioService', () => {
 		findByIdAndUpdate: jest.fn(),
 		findByIdAndDelete: jest.fn(),
 		countDocuments: jest.fn(),
+		deleteOne: jest.fn(),
+		exists: jest.fn(),
 	};
 
 	const mockAssetModel = {
 		create: jest.fn(),
+	};
+
+	const mockPortfolioHistoryModel = {
+		find: jest.fn(),
 	};
 
 	const mockPortfolioEnrichService = {
@@ -38,7 +44,7 @@ describe('PortfolioService', () => {
 				},
 				{
 					provide: getModelToken('PortfolioHistory'),
-					useValue: {},
+					useValue: mockPortfolioHistoryModel,
 				},
 				{
 					provide: getModelToken('Asset'),
@@ -67,7 +73,9 @@ describe('PortfolioService', () => {
 		};
 
 		it('should create a portfolio if user is free and has 0 portfolios', async () => {
-			mockPortfolioModel.countDocuments.mockResolvedValue(0);
+			// A contagem acontece DEPOIS da escrita: com uma carteira só, é a
+			// que acabou de ser criada.
+			mockPortfolioModel.countDocuments.mockResolvedValue(1);
 			mockPortfolioModel.create.mockResolvedValue({ id: '1', ...createDto });
 
 			const result = await service.createPortfolio('user1', createDto, 'free');
@@ -76,11 +84,35 @@ describe('PortfolioService', () => {
 		});
 
 		it('should throw ForbiddenException if user is free and has 1 or more portfolios', async () => {
-			mockPortfolioModel.countDocuments.mockResolvedValue(1);
+			mockPortfolioModel.create.mockResolvedValue({
+				_id: 'nova',
+				...createDto,
+			});
+			// Já existia uma; com a recém-criada são duas.
+			mockPortfolioModel.countDocuments.mockResolvedValue(2);
 
 			await expect(
 				service.createPortfolio('user1', createDto, 'free')
 			).rejects.toThrow(ForbiddenException);
+		});
+
+		it('desfaz a carteira que estourou o limite numa corrida (TRA-89)', async () => {
+			// Duas requisições simultâneas contavam zero antes de qualquer uma
+			// gravar e as duas passavam. Contando depois da escrita, a segunda
+			// enxerga as duas e remove a própria.
+			mockPortfolioModel.create.mockResolvedValue({
+				_id: 'nova',
+				...createDto,
+			});
+			mockPortfolioModel.countDocuments.mockResolvedValue(2);
+
+			await expect(
+				service.createPortfolio('user1', createDto, 'free')
+			).rejects.toThrow(ForbiddenException);
+
+			expect(mockPortfolioModel.deleteOne).toHaveBeenCalledWith({
+				_id: 'nova',
+			});
 		});
 
 		it('should create a portfolio if user is premium and has multiple portfolios', async () => {
@@ -136,6 +168,62 @@ describe('PortfolioService', () => {
 			await expect(service.deletePortfolio('invalid_id')).rejects.toThrow(
 				NotFoundException
 			);
+		});
+	});
+
+	describe('getUserPortfolioHistory', () => {
+		function mockFindResult(rows: Array<{ date: string; totalValue: number }>) {
+			mockPortfolioHistoryModel.find.mockReturnValue({
+				sort: jest.fn().mockReturnValue({
+					exec: jest.fn().mockResolvedValue(rows),
+				}),
+			});
+		}
+
+		it('soma totalValue de portfólios diferentes no mesmo dia', async () => {
+			mockFindResult([
+				{ date: '2026-08-10', totalValue: 1000 },
+				{ date: '2026-08-10', totalValue: 500 },
+				{ date: '2026-08-11', totalValue: 1600 },
+			]);
+
+			const result = await service.getUserPortfolioHistory(
+				'user-1',
+				'2026-08-10',
+				'2026-08-11'
+			);
+
+			expect(result).toEqual([
+				{ date: '2026-08-10', totalValue: 1500 },
+				{ date: '2026-08-11', totalValue: 1600 },
+			]);
+		});
+
+		it('devolve array vazio quando não há snapshot no período', async () => {
+			mockFindResult([]);
+
+			const result = await service.getUserPortfolioHistory(
+				'user-1',
+				'2026-08-10',
+				'2026-08-11'
+			);
+
+			expect(result).toEqual([]);
+		});
+
+		it('filtra por userId e pela janela de datas via query', async () => {
+			mockFindResult([]);
+
+			await service.getUserPortfolioHistory(
+				'user-9',
+				'2026-08-01',
+				'2026-08-07'
+			);
+
+			expect(mockPortfolioHistoryModel.find).toHaveBeenCalledWith({
+				userId: 'user-9',
+				date: { $gte: '2026-08-01', $lte: '2026-08-07' },
+			});
 		});
 	});
 });

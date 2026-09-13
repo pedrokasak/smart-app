@@ -1,5 +1,29 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { EMAIL_SENDER, EmailSender } from './ports/email-sender.port';
+import { PortfolioDigestFacts } from 'src/notifications/portfolio-digest/domain/portfolio-digest.types';
+import { DigestNotificationsSummary } from 'src/notifications/portfolio-digest/domain/digest-notification.types';
+
+// Mesma frase de web/src/components/ui/ai-generated-notice.tsx. Duplicada
+// de proposito: o e-mail e backend, repo separado, e servir a string do
+// server pro web (ou vice-versa) custaria mais que manter as duas em
+// sincronia manualmente — mudam raramente e juntas.
+const AI_GENERATED_NOTICE_TEXT =
+	'Esse texto foi gerado com o auxílio de inteligência artificial.';
+
+/**
+ * Escapa texto antes de interpolar no HTML do e-mail. Usado na seção de
+ * avisos da semana (TRA-136, fase 7), cujo texto pode vir de payload com
+ * campo livre (`AiInsightHigh.title`/`summary`) ou de `aiSummary`. Nada
+ * que atravessou o trackerr-ia entra cru no corpo do e-mail.
+ */
+function escapeHtml(value: string): string {
+	return String(value ?? '')
+		.replace(/&/g, '&amp;')
+		.replace(/</g, '&lt;')
+		.replace(/>/g, '&gt;')
+		.replace(/"/g, '&quot;')
+		.replace(/'/g, '&#39;');
+}
 
 @Injectable()
 export class EmailService {
@@ -109,6 +133,209 @@ export class EmailService {
 				'Se você não solicitou este contato, pode ignorar este e-mail com segurança.',
 		});
 		const text = `Interesse registrado: ${planName}\n\nRecebemos seu interesse no plano ${planName}. Você vai receber um e-mail assim que seu acesso estiver liberado.`;
+
+		await this.sender.send({
+			to: email,
+			subject,
+			html,
+			text,
+		});
+	}
+
+	async sendPortfolioDigestEmail(
+		email: string,
+		params: {
+			facts: PortfolioDigestFacts;
+			/** null = fallback determinístico. Nunca anuncia AiGeneratedNotice nesse caso. */
+			narrative: string | null;
+			/**
+			 * "O que avisamos nesta semana" (TRA-136, fase 7). Bloco
+			 * DETERMINISTICO: o texto vem dos mesmos templates do centro in-app
+			 * e nunca passa pelo narrador. Ausente/vazio = a seção some do
+			 * e-mail, sem título órfão.
+			 */
+			weekNotifications?: DigestNotificationsSummary;
+			unsubscribeUrl: string;
+			firstName?: string;
+		}
+	): Promise<void> {
+		const { facts, narrative, unsubscribeUrl, firstName } = params;
+		const weekNotifications = params.weekNotifications ?? {
+			items: [],
+			omitted: 0,
+		};
+		const safeName = String(firstName || 'Investidor').trim();
+		const subject = 'Seu resumo semanal de carteira — Trakker';
+
+		const money = (value: number | null) =>
+			value === null
+				? '—'
+				: new Intl.NumberFormat('pt-BR', {
+						style: 'currency',
+						currency: 'BRL',
+					}).format(value);
+
+		const changeLabel =
+			facts.periodChangePct === null
+				? null
+				: `${facts.periodChangePct >= 0 ? '+' : ''}${facts.periodChangePct.toFixed(2)}%`;
+		const changeColor =
+			facts.periodChangePct === null
+				? '#9ca3af'
+				: facts.periodChangePct >= 0
+					? '#4ade80'
+					: '#fb7185';
+
+		const moversRow = (
+			label: string,
+			movers: PortfolioDigestFacts['topGainers']
+		) =>
+			movers.length === 0
+				? ''
+				: `<p style="margin:0 0 6px 0;color:#d1d5db;font-size:13px;">
+					<strong style="color:#f9fafb;">${label}:</strong>
+					${movers
+						.map(
+							(m) =>
+								`${m.symbol} (${m.changePercent >= 0 ? '+' : ''}${m.changePercent.toFixed(2)}%)`
+						)
+						.join(', ')}
+				</p>`;
+
+		const watchItemsHtml = facts.watchItems
+			.map(
+				(item) =>
+					`<li style="margin:0 0 6px 0;color:#d1d5db;font-size:13px;">${item.detail}</li>`
+			)
+			.join('');
+
+		const narrativeHtml = narrative
+			? `<p style="margin:0 0 4px 0;color:#e5e7eb;font-size:14px;line-height:1.6;">${narrative}</p>
+				<p style="margin:0 0 20px 0;color:#9ca3af;font-size:11px;">${AI_GENERATED_NOTICE_TEXT}</p>`
+			: '';
+
+		const omittedLine =
+			weekNotifications.omitted > 0
+				? `E mais ${weekNotifications.omitted} aviso${
+						weekNotifications.omitted === 1 ? '' : 's'
+					} no período — veja todos no seu centro de notificações.`
+				: '';
+
+		/**
+		 * Bloco deterministico, renderizado DEPOIS da narrativa: o que a IA
+		 * escreveu fica claramente delimitado acima, e esta lista abaixo é
+		 * template puro. O aviso de texto gerado por IA não se estende até
+		 * aqui — `aiSummary`, quando usado, já veio marcado como tal no
+		 * momento em que foi gerado, e o item continua sendo um fato ("nós te
+		 * avisamos isto"), não prosa nova.
+		 */
+		const weekNotificationsHtml =
+			weekNotifications.items.length === 0
+				? ''
+				: `<div style="margin:20px 0 0 0;padding:16px;background:#0b1220;border:1px solid #1f2937;border-radius:12px;">
+						<p style="margin:0 0 10px 0;color:#f9fafb;font-size:13px;font-weight:700;">O que avisamos nesta semana</p>
+						<ul style="margin:0;padding-left:18px;">
+							${weekNotifications.items
+								.map(
+									(item) =>
+										`<li style="margin:0 0 8px 0;color:#d1d5db;font-size:13px;line-height:1.5;">
+											<strong style="color:#f9fafb;">${escapeHtml(item.title)}</strong>${
+												item.body ? `<br />${escapeHtml(item.body)}` : ''
+											}
+										</li>`
+								)
+								.join('')}
+						</ul>
+						${
+							omittedLine
+								? `<p style="margin:8px 0 0 0;color:#9ca3af;font-size:12px;">${escapeHtml(omittedLine)}</p>`
+								: ''
+						}
+					</div>`;
+
+		const html = `
+			<div style="margin:0;padding:24px;background:#0b1220;font-family:Arial,sans-serif;color:#e5e7eb;">
+				<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;margin:0 auto;background:#111827;border:1px solid #1f2937;border-radius:16px;overflow:hidden;">
+					<tr>
+						<td style="padding:28px 28px 12px 28px;background:linear-gradient(135deg,#16a34a,#2563eb);">
+							<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#dcfce7;font-weight:700;">Trakker</div>
+							<h1 style="margin:10px 0 0 0;color:#ffffff;font-size:22px;line-height:1.3;">Resumo semanal da sua carteira</h1>
+						</td>
+					</tr>
+					<tr>
+						<td style="padding:24px 28px;">
+							<p style="margin:0 0 20px 0;color:#d1d5db;font-size:14px;">Olá, ${safeName}. Aqui está o que aconteceu de ${facts.periodStart} a ${facts.periodEnd}.</p>
+
+							<div style="margin:0 0 20px 0;padding:16px;background:#0b1220;border:1px solid #1f2937;border-radius:12px;">
+								<div style="font-size:11px;color:#9ca3af;text-transform:uppercase;letter-spacing:1px;">Patrimônio atual</div>
+								<div style="font-size:26px;font-weight:700;color:#f9fafb;margin-top:4px;">${money(facts.portfolioValue)}</div>
+								${changeLabel ? `<div style="font-size:13px;color:${changeColor};margin-top:4px;">${changeLabel} no período</div>` : ''}
+							</div>
+
+							${narrativeHtml}
+
+							${moversRow('Altas do dia', facts.topGainers)}
+							${moversRow('Baixas do dia', facts.topLosers)}
+
+							${
+								facts.watchItems.length > 0
+									? `<div style="margin:16px 0;">
+										<p style="margin:0 0 8px 0;color:#f9fafb;font-size:13px;font-weight:700;">Pontos de atenção</p>
+										<ul style="margin:0;padding-left:18px;">${watchItemsHtml}</ul>
+									</div>`
+									: ''
+							}
+
+							${
+								facts.dividendsReceived !== null && facts.dividendsReceived > 0
+									? `<p style="margin:16px 0 0 0;color:#d1d5db;font-size:13px;">Dividendos recebidos no período: <strong style="color:#f9fafb;">${money(facts.dividendsReceived)}</strong></p>`
+									: ''
+							}
+
+							${weekNotificationsHtml}
+
+							<p style="margin:28px 0 0 0;color:#6b7280;font-size:11px;line-height:1.5;">
+								Você recebe este e-mail porque ativou o resumo semanal.
+								<a href="${unsubscribeUrl}" style="color:#9ca3af;text-decoration:underline;">Cancelar envio</a>
+							</p>
+						</td>
+					</tr>
+				</table>
+			</div>
+		`;
+
+		const text = [
+			`Resumo semanal da carteira — ${facts.periodStart} a ${facts.periodEnd}`,
+			`Patrimônio atual: ${money(facts.portfolioValue)}${changeLabel ? ` (${changeLabel} no período)` : ''}`,
+			narrative ? `\n${narrative}\n(${AI_GENERATED_NOTICE_TEXT})` : '',
+			facts.topGainers.length > 0
+				? `Altas do dia: ${facts.topGainers.map((m) => `${m.symbol} (${m.changePercent.toFixed(2)}%)`).join(', ')}`
+				: '',
+			facts.topLosers.length > 0
+				? `Baixas do dia: ${facts.topLosers.map((m) => `${m.symbol} (${m.changePercent.toFixed(2)}%)`).join(', ')}`
+				: '',
+			facts.watchItems.length > 0
+				? `Pontos de atenção: ${facts.watchItems.map((w) => w.detail).join(' | ')}`
+				: '',
+			facts.dividendsReceived !== null && facts.dividendsReceived > 0
+				? `Dividendos recebidos: ${money(facts.dividendsReceived)}`
+				: '',
+			weekNotifications.items.length > 0
+				? [
+						'',
+						'O que avisamos nesta semana:',
+						...weekNotifications.items.map((item) =>
+							item.body ? `- ${item.title}: ${item.body}` : `- ${item.title}`
+						),
+						omittedLine,
+					]
+						.filter(Boolean)
+						.join('\n')
+				: '',
+			`\nCancelar envio: ${unsubscribeUrl}`,
+		]
+			.filter(Boolean)
+			.join('\n');
 
 		await this.sender.send({
 			to: email,

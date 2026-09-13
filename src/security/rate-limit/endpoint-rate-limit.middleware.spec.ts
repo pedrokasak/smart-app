@@ -2,7 +2,7 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 import { EndpointRateLimitMiddleware } from 'src/security/rate-limit/endpoint-rate-limit.middleware';
 
 describe('EndpointRateLimitMiddleware', () => {
-	it('allows requests below the configured limit', () => {
+	it('allows requests below the configured limit', async () => {
 		const middleware = new EndpointRateLimitMiddleware();
 		const req: any = {
 			method: 'POST',
@@ -18,13 +18,13 @@ describe('EndpointRateLimitMiddleware', () => {
 		const next = jest.fn();
 
 		for (let i = 0; i < 12; i += 1) {
-			middleware.use(req, res, next);
+			await middleware.use(req, res, next);
 		}
 
 		expect(next).toHaveBeenCalledTimes(12);
 	});
 
-	it('blocks when requests exceed route+fingerprint limit', () => {
+	it('blocks when requests exceed route+fingerprint limit', async () => {
 		const middleware = new EndpointRateLimitMiddleware();
 		const req: any = {
 			method: 'POST',
@@ -40,12 +40,12 @@ describe('EndpointRateLimitMiddleware', () => {
 		const next = jest.fn();
 
 		for (let i = 0; i < 12; i += 1) {
-			middleware.use(req, res, next);
+			await middleware.use(req, res, next);
 		}
 
 		let thrown: unknown;
 		try {
-			middleware.use(req, res, next);
+			await middleware.use(req, res, next);
 		} catch (error) {
 			thrown = error;
 		}
@@ -59,7 +59,7 @@ describe('EndpointRateLimitMiddleware', () => {
 		);
 	});
 
-	it('keeps independent buckets for different fingerprints', () => {
+	it('keeps independent buckets for different fingerprints', async () => {
 		const middleware = new EndpointRateLimitMiddleware();
 		const reqA: any = {
 			method: 'POST',
@@ -79,12 +79,12 @@ describe('EndpointRateLimitMiddleware', () => {
 		const next = jest.fn();
 
 		for (let i = 0; i < 12; i += 1) {
-			middleware.use(reqA, res, next);
+			await middleware.use(reqA, res, next);
 		}
 
 		let thrown: unknown;
 		try {
-			middleware.use(reqA, res, next);
+			await middleware.use(reqA, res, next);
 		} catch (error) {
 			thrown = error;
 		}
@@ -92,10 +92,10 @@ describe('EndpointRateLimitMiddleware', () => {
 		expect((thrown as HttpException).getStatus()).toBe(
 			HttpStatus.TOO_MANY_REQUESTS
 		);
-		expect(() => middleware.use(reqB, res, next)).not.toThrow();
+		await expect(middleware.use(reqB, res, next)).resolves.toBeUndefined();
 	});
 
-	it('applies a tight limit to POST:/leads/purchase-intent', () => {
+	it('applies a tight limit to POST:/leads/purchase-intent', async () => {
 		const middleware = new EndpointRateLimitMiddleware();
 		const req: any = {
 			method: 'POST',
@@ -111,14 +111,14 @@ describe('EndpointRateLimitMiddleware', () => {
 		const next = jest.fn();
 
 		for (let i = 0; i < 5; i += 1) {
-			middleware.use(req, res, next);
+			await middleware.use(req, res, next);
 		}
 
 		expect(next).toHaveBeenCalledTimes(5);
 
 		let thrown: unknown;
 		try {
-			middleware.use(req, res, next);
+			await middleware.use(req, res, next);
 		} catch (error) {
 			thrown = error;
 		}

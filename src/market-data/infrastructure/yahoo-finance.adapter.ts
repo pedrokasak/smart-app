@@ -3,6 +3,11 @@ import yahooFinance from 'yahoo-finance2';
 import { MarketAssetType } from 'src/market-data/application/market-data-provider.port';
 import { normalizeTickerForProvider } from 'src/market-data/infrastructure/ticker-normalizer';
 
+export interface YahooHistoryPoint {
+	date: number; // epoch em SEGUNDOS, igual ao historicalDataPrice do brapi
+	close: number;
+}
+
 export interface YahooFundamentalsSnapshot {
 	price: number | null;
 	dividendYield: number | null;
@@ -16,12 +21,21 @@ export interface YahooFundamentalsSnapshot {
 	marketCap: number | null;
 }
 
+export interface YahooPayoutInputs {
+	payoutRatio: number | null;
+	dividendsPaid: number | null;
+	netIncome: number | null;
+	fiscalPeriod: string | null;
+}
+
 const QUOTE_SUMMARY_MODULES = [
 	'price',
 	'summaryDetail',
 	'defaultKeyStatistics',
 	'financialData',
 	'summaryProfile',
+	'cashflowStatementHistory',
+	'incomeStatementHistory',
 ] as const;
 
 @Injectable()
@@ -35,7 +49,27 @@ export class YahooFinanceAdapter {
 		string,
 		Promise<YahooFundamentalsSnapshot | null>
 	>();
+	private static readonly historyCache = new Map<
+		string,
+		{ expiresAt: number; data: YahooHistoryPoint[] }
+	>();
+	private static readonly historyInflight = new Map<
+		string,
+		Promise<YahooHistoryPoint[]>
+	>();
+	private static readonly payoutCache = new Map<
+		string,
+		{ expiresAt: number; data: YahooPayoutInputs }
+	>();
+	private static readonly payoutInflight = new Map<
+		string,
+		Promise<YahooPayoutInputs>
+	>();
 	private static readonly CACHE_TTL_MS = 10 * 60 * 1000;
+	// Spec 6: fundamentos mudam por trimestre. Payout vem de demonstracao
+	// anual, entao 12h e folgado e ainda assim reduz 20 chamadas de um refresh
+	// de carteira a 20 uma unica vez por meio dia.
+	private static readonly PAYOUT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
 	private static readonly NEGATIVE_CACHE_TTL_MS = 3 * 60 * 1000;
 	private static readonly FETCH_TIMEOUT_MS = 8000;
 	private static readonly RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
@@ -106,14 +140,70 @@ export class YahooFinanceAdapter {
 		}
 	}
 
-	private async fetchSnapshot(
-		yahooSymbol: string
-	): Promise<YahooFundamentalsSnapshot | null> {
+	// O yahoo pede uma data inicial, não um range nomeado. Estes são os
+	// mesmos rótulos que a UI usa.
+	private rangeToPeriod1(range: string): Date {
+		const days: Record<string, number> = {
+			'1d': 2,
+			'5d': 7,
+			'1mo': 31,
+			'3mo': 93,
+			'6mo': 186,
+			'1y': 366,
+			'2y': 731,
+			'5y': 1827,
+			'10y': 3653,
+		};
+		const span = days[range.trim().toLowerCase()] ?? 366;
+		const start = new Date();
+		start.setDate(start.getDate() - span);
+		return start;
+	}
+
+	async getHistory(
+		symbol: string,
+		assetType: MarketAssetType,
+		range: string
+	): Promise<YahooHistoryPoint[]> {
+		const yahooSymbol = normalizeTickerForProvider(symbol, 'yahoo', assetType);
+		const cacheKey = `${yahooSymbol}:${range.trim().toLowerCase()}`;
+		const now = Date.now();
+
+		// Cache curto por symbol+range: sem ele, cada clique nos botões de
+		// período do gráfico bate no Yahoo de novo, e um 429 no histórico
+		// derruba o cooldown compartilhado que também protege os fundamentos.
+		const cached = YahooFinanceAdapter.historyCache.get(cacheKey);
+		if (cached && cached.expiresAt > now) {
+			return cached.data;
+		}
+
+		if (YahooFinanceAdapter.rateLimitedUntil > now) {
+			return [];
+		}
+
+		const existingRequest = YahooFinanceAdapter.historyInflight.get(cacheKey);
+		if (existingRequest) return existingRequest;
+
+		const request = this.fetchHistory(yahooSymbol, range, cacheKey);
+		YahooFinanceAdapter.historyInflight.set(cacheKey, request);
 		try {
-			const raw = await yahooFinance.quoteSummary(
+			return await request;
+		} finally {
+			YahooFinanceAdapter.historyInflight.delete(cacheKey);
+		}
+	}
+
+	private async fetchHistory(
+		yahooSymbol: string,
+		range: string,
+		cacheKey: string
+	): Promise<YahooHistoryPoint[]> {
+		try {
+			const result = await (yahooFinance as any).chart(
 				yahooSymbol,
 				{
-					modules: [...QUOTE_SUMMARY_MODULES],
+					period1: this.rangeToPeriod1(range),
+					interval: '1d',
 				},
 				{
 					fetchOptions: {
@@ -121,6 +211,163 @@ export class YahooFinanceAdapter {
 					},
 				}
 			);
+
+			const quotes: Array<{ date?: Date; close?: number | null }> =
+				result?.quotes ?? [];
+
+			const points = quotes
+				.filter(
+					(quote) =>
+						quote?.date instanceof Date &&
+						typeof quote.close === 'number' &&
+						Number.isFinite(quote.close)
+				)
+				.map((quote) => ({
+					date: Math.floor(quote.date!.getTime() / 1000),
+					close: quote.close as number,
+				}));
+
+			YahooFinanceAdapter.historyCache.set(cacheKey, {
+				expiresAt: Date.now() + YahooFinanceAdapter.CACHE_TTL_MS,
+				data: points,
+			});
+			return points;
+		} catch (error) {
+			if (this.isRateLimitError(error)) {
+				this.triggerRateLimitCooldown();
+				return [];
+			}
+
+			this.logger.warn(
+				`Falha ao buscar histórico no Yahoo Finance para ${yahooSymbol}: ${error?.message || error}`
+			);
+			return [];
+		}
+	}
+
+	private async fetchQuoteSummary(yahooSymbol: string): Promise<any> {
+		return yahooFinance.quoteSummary(
+			yahooSymbol,
+			{
+				modules: [...QUOTE_SUMMARY_MODULES],
+			},
+			{
+				fetchOptions: {
+					signal: AbortSignal.timeout(YahooFinanceAdapter.FETCH_TIMEOUT_MS),
+				},
+			}
+		);
+	}
+
+	private fiscalYear(date: unknown): string | null {
+		if (!date) return null;
+		const parsed = date instanceof Date ? date : new Date(String(date));
+		return Number.isNaN(parsed.getTime())
+			? null
+			: String(parsed.getUTCFullYear());
+	}
+
+	private statementTime(date: unknown): number | null {
+		if (!date) return null;
+		const parsed = date instanceof Date ? date : new Date(String(date));
+		return Number.isNaN(parsed.getTime()) ? null : parsed.getTime();
+	}
+
+	// Cooldown compartilhado entre getHistory, fetchSnapshot e
+	// fetchPayoutInputs: um 429 em qualquer um dos tres pausa todos por
+	// igual, e o aviso so e logado uma vez por janela de cooldown.
+	private triggerRateLimitCooldown(): void {
+		const now = Date.now();
+		const alreadyRateLimited = YahooFinanceAdapter.rateLimitedUntil > now;
+		YahooFinanceAdapter.rateLimitedUntil =
+			now + YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS;
+		if (!alreadyRateLimited) {
+			this.logger.warn(
+				`Yahoo Finance retornou rate limit (429). Pausando consultas por ${YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS / 1000}s.`
+			);
+		}
+	}
+
+	/**
+	 * O simbolo TEM que ser normalizado aqui, como `getSnapshot` ja fazia. Um
+	 * ticker B3 cru nao resolve no Yahoo — e o modo de falhar barulhento. O
+	 * silencioso e pior: um ticker de 4 letras da B3 pode colidir com uma
+	 * listagem estrangeira sem relacao e devolver um payout bem formado da
+	 * empresa errada, passando por todas as guardas de null.
+	 */
+	async getPayoutInputs(
+		symbol: string,
+		assetType: MarketAssetType = 'stock'
+	): Promise<YahooPayoutInputs> {
+		const empty: YahooPayoutInputs = {
+			payoutRatio: null,
+			dividendsPaid: null,
+			netIncome: null,
+			fiscalPeriod: null,
+		};
+
+		const yahooSymbol = normalizeTickerForProvider(symbol, 'yahoo', assetType);
+		const now = Date.now();
+
+		const cached = YahooFinanceAdapter.payoutCache.get(yahooSymbol);
+		if (cached && cached.expiresAt > now) return cached.data;
+
+		if (YahooFinanceAdapter.rateLimitedUntil > now) {
+			return empty;
+		}
+
+		const existingRequest = YahooFinanceAdapter.payoutInflight.get(yahooSymbol);
+		if (existingRequest) return existingRequest;
+
+		const request = this.fetchPayoutInputs(yahooSymbol, empty);
+		YahooFinanceAdapter.payoutInflight.set(yahooSymbol, request);
+		try {
+			return await request;
+		} finally {
+			YahooFinanceAdapter.payoutInflight.delete(yahooSymbol);
+		}
+	}
+
+	private async fetchPayoutInputs(
+		yahooSymbol: string,
+		empty: YahooPayoutInputs
+	): Promise<YahooPayoutInputs> {
+		try {
+			const raw = await this.fetchQuoteSummary(yahooSymbol);
+			const cash = raw?.cashflowStatementHistory?.cashflowStatements?.[0];
+			const income = raw?.incomeStatementHistory?.incomeStatementHistory?.[0];
+
+			const cashTime = this.statementTime(cash?.endDate);
+			const incomeTime = this.statementTime(income?.endDate);
+			const samePeriod =
+				cashTime !== null && incomeTime !== null && cashTime === incomeTime;
+
+			const inputs: YahooPayoutInputs = {
+				payoutRatio: this.toNullableNumber(raw?.summaryDetail?.payoutRatio),
+				dividendsPaid: this.toNullableNumber(cash?.dividendsPaid),
+				netIncome: this.toNullableNumber(income?.netIncome),
+				fiscalPeriod: samePeriod ? this.fiscalYear(cash?.endDate) : null,
+			};
+
+			// So resposta boa entra no cache. Falha nao vira 12h de payout nulo.
+			YahooFinanceAdapter.payoutCache.set(yahooSymbol, {
+				expiresAt: Date.now() + YahooFinanceAdapter.PAYOUT_CACHE_TTL_MS,
+				data: inputs,
+			});
+			return inputs;
+		} catch (error) {
+			if (this.isRateLimitError(error)) {
+				this.triggerRateLimitCooldown();
+			}
+			return empty;
+		}
+	}
+
+	private async fetchSnapshot(
+		yahooSymbol: string
+	): Promise<YahooFundamentalsSnapshot | null> {
+		try {
+			const raw = await this.fetchQuoteSummary(yahooSymbol);
 
 			const snapshot: YahooFundamentalsSnapshot = {
 				price: this.toNullableNumber(raw?.price?.regularMarketPrice),
@@ -152,15 +399,7 @@ export class YahooFinanceAdapter {
 			return snapshot;
 		} catch (error) {
 			if (this.isRateLimitError(error)) {
-				const now = Date.now();
-				const alreadyRateLimited = YahooFinanceAdapter.rateLimitedUntil > now;
-				YahooFinanceAdapter.rateLimitedUntil =
-					now + YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS;
-				if (!alreadyRateLimited) {
-					this.logger.warn(
-						`Yahoo Finance retornou rate limit (429). Pausando consultas por ${YahooFinanceAdapter.RATE_LIMIT_COOLDOWN_MS / 1000}s.`
-					);
-				}
+				this.triggerRateLimitCooldown();
 				return null;
 			}
 

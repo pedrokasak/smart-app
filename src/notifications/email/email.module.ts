@@ -8,6 +8,9 @@ import { ResendEmailAdapter } from './adapters/resend-email.adapter';
 		EmailService,
 		{ provide: EMAIL_SENDER, useClass: ResendEmailAdapter },
 	],
-	exports: [EmailService],
+	// `EMAIL_SENDER` e exportado porque `EmailNotificationChannel`
+	// (NotificationsModule) envia pela porta direto, sem passar pelo
+	// EmailService. Sem o export o AppModule nao subia (TRA-154).
+	exports: [EmailService, EMAIL_SENDER],
 })
 export class EmailModule {}

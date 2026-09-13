@@ -121,4 +121,35 @@ describe('ChatNarrativeSynthesisService', () => {
 			expect.arrayContaining(['narrative_synthesis_failed'])
 		);
 	});
+
+	it('threads the userId into the synthesizer input (RAG isolation, TRA-76)', async () => {
+		// A propriedade de seguranca do RAG e o filtro por usuario. Se o userId
+		// nao chegar no synthesizer, o adapter nao tem como escopar o retrieval.
+		// Este teste existe pra isso quebrar se alguem parar de passar o userId.
+		const synthesisRequiredOrchestration = {
+			...baseComparisonOrchestration,
+			intent: 'narrative_synthesis',
+			route: {
+				type: 'synthesis_required',
+				llmEligible: true,
+				reason: 'narrative_requested',
+			},
+		};
+		const orchestrator = {
+			orchestrate: jest.fn().mockResolvedValue(synthesisRequiredOrchestration),
+		} as unknown as ChatOrchestratorService;
+		const synthesizer = {
+			synthesize: jest.fn().mockResolvedValue({ text: 'narrativa' }),
+		} as unknown as ChatNarrativeSynthesizerPort;
+
+		const service = new ChatNarrativeSynthesisService(
+			orchestrator,
+			synthesizer
+		);
+		await service.respond('user-42', 'Analise minha carteira');
+
+		expect(synthesizer.synthesize).toHaveBeenCalledTimes(1);
+		const input = (synthesizer.synthesize as jest.Mock).mock.calls[0][0];
+		expect(input.userId).toBe('user-42');
+	});
 });

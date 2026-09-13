@@ -5,9 +5,21 @@ import { AssetsService } from 'src/assets/assets.service';
 import { BrokerConnectionModel } from './schema/broker-connection.model';
 import { Types } from 'mongoose';
 import { SubscriptionService } from 'src/subscription/subscription.service';
+import * as ccxt from 'ccxt';
+import { brokerSyncErrorMessage } from 'src/broker-sync/domain/broker-sync-error';
 
+/**
+ * O mock agora parte do modulo REAL (`requireActual`) e so troca os
+ * construtores de exchange. Antes ele devolvia um objeto com apenas
+ * `binance` e `coinbase`, o que deixava as classes de erro da CCXT
+ * (`AuthenticationError` e companhia) indefinidas — e a classificacao de
+ * erro da TRK-011 e feita justamente sobre elas. Nenhum teste existente
+ * depende da ausencia dessas classes.
+ */
 jest.mock('ccxt', () => {
+	const actual = jest.requireActual('ccxt');
 	return {
+		...actual,
 		binance: jest.fn().mockImplementation(() => {
 			return {
 				fetchBalance: jest.fn().mockResolvedValue({
@@ -20,6 +32,7 @@ jest.mock('ccxt', () => {
 			};
 		}),
 		coinbase: jest.fn(),
+		bitso: jest.fn(),
 	};
 });
 
@@ -168,5 +181,105 @@ describe('BrokerSyncService', () => {
 		expect(extracted.SOL).toBe(3.5);
 		expect(extracted.ETH).toBeUndefined();
 		expect(extracted.USDT).toBeUndefined();
+	});
+
+	describe('erro da corretora nao e persistido cru (TRK-011)', () => {
+		const API_KEY = 'AKIAVAZAMENTO1234567890';
+
+		// `bitso`, nao `binance`: o caminho da Binance engole a falha de cada
+		// carteira de proposito (spot/funding/margin) e cai no fallback, entao
+		// ele nunca chega ao catch que grava o erro. Qualquer outro provider
+		// usa o `fetchBalance()` direto, que e o caminho sob teste aqui.
+		it('grava categoria e mensagem propria, nunca o texto da exchange', async () => {
+			const userId = new Types.ObjectId().toString();
+			const provider = 'bitso';
+
+			const mockConnection: any = {
+				userId: new Types.ObjectId(userId),
+				provider,
+				apiKeyEncrypted: 'iv:encryptedKey',
+				apiSecretEncrypted: 'iv:encryptedSecret',
+				status: 'connected',
+				save: jest.fn().mockResolvedValue(true),
+			};
+
+			jest.spyOn(service as any, 'decrypt').mockReturnValue('decryptedValue');
+			mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+				status: 'active',
+			});
+
+			const selectSpy = jest.fn().mockResolvedValue(mockConnection);
+			jest.spyOn(BrokerConnectionModel, 'findOne').mockReturnValue({
+				select: selectSpy,
+			} as any);
+
+			// A exchange ecoa a URL da requisicao — e a URL carrega a API key.
+			const erroDaExchange: any = new ccxt.AuthenticationError(
+				`bitso GET https://api.bitso.com/v3/balance?apiKey=${API_KEY} 401 Invalid API-key`
+			);
+			erroDaExchange.httpStatus = 401;
+			(ccxt.bitso as unknown as jest.Mock).mockImplementation(() => ({
+				fetchBalance: jest.fn().mockRejectedValue(erroDaExchange),
+			}));
+
+			await expect(service.syncConnection(userId, provider)).rejects.toThrow(
+				brokerSyncErrorMessage('invalid_credentials')
+			);
+
+			expect(mockConnection.save).toHaveBeenCalled();
+			expect(mockConnection.status).toBe('error');
+			expect(mockConnection.lastErrorCode).toBe('invalid_credentials');
+			expect(mockConnection.lastErrorStatus).toBe(401);
+			expect(mockConnection.lastError).toBe(
+				brokerSyncErrorMessage('invalid_credentials')
+			);
+
+			// O teste que importa: nada do texto original encostou no documento.
+			const persistido = JSON.stringify(mockConnection);
+			expect(persistido).not.toContain(API_KEY);
+			expect(persistido).not.toContain('api.bitso.com');
+			expect(persistido).not.toContain('Invalid API-key');
+		});
+
+		it('nao devolve o texto cru de linhas gravadas antes da correcao', async () => {
+			const userId = new Types.ObjectId().toString();
+
+			jest.spyOn(BrokerConnectionModel, 'find').mockResolvedValue([
+				{
+					_id: new Types.ObjectId(),
+					provider: 'binance',
+					status: 'error',
+					lastSync: null,
+					cpf: null,
+					// Linha legada: texto cru, sem categoria ao lado.
+					lastError: `binance GET https://api.binance.com/api/v3/account?apiKey=${API_KEY} 401 Invalid API-key`,
+				},
+			] as any);
+
+			const [conexao] = await service.getConnections(userId);
+
+			expect(conexao.lastError).toBe(brokerSyncErrorMessage('unknown'));
+			expect(conexao.lastErrorCode).toBeNull();
+			expect(JSON.stringify(conexao)).not.toContain(API_KEY);
+		});
+
+		it('conexao sem erro continua devolvendo lastError null', async () => {
+			const userId = new Types.ObjectId().toString();
+
+			jest.spyOn(BrokerConnectionModel, 'find').mockResolvedValue([
+				{
+					_id: new Types.ObjectId(),
+					provider: 'binance',
+					status: 'connected',
+					lastSync: new Date(),
+					cpf: null,
+				},
+			] as any);
+
+			const [conexao] = await service.getConnections(userId);
+
+			expect(conexao.lastError).toBeNull();
+			expect(conexao.lastErrorCode).toBeNull();
+		});
 	});
 });

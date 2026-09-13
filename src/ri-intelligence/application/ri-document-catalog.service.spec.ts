@@ -220,6 +220,32 @@ describe('RiDocumentCatalogService', () => {
 		expect(output.warnings).toContain('ri_no_valid_documents_found');
 	});
 
+	// TRA-92: "ri_no_valid_documents_found" era uma caixa-preta — o discovery
+	// achava N documentos, a validação rejeitava todos, e nada dizia por quê.
+	// Sem isto era impossível diagnosticar à distância; o único jeito era
+	// testar a URL na mão.
+	it('4b) logs the rejection reason per document instead of failing silently', async () => {
+		const { service } = makeService({
+			resolve: jest.fn().mockResolvedValue({
+				isValid: false,
+				resolvedUrl: null,
+				statusCode: 403,
+				contentType: null,
+				rejectionReason: 'invalid_http_status',
+			}),
+		});
+		const warnSpy = jest
+			.spyOn((service as any).logger, 'warn')
+			.mockImplementation(() => undefined);
+
+		await service.search({ query: 'BBDC4' });
+
+		expect(warnSpy).toHaveBeenCalledWith(
+			expect.stringContaining('motivo=invalid_http_status')
+		);
+		expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('status=403'));
+	});
+
 	it('5) rejects links containing /error/404', async () => {
 		const { service } = makeService({
 			resolve: jest.fn().mockResolvedValue({

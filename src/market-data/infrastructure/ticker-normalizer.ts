@@ -14,6 +14,10 @@ const B3_TICKER_PATTERN = /^[A-Z]{2,4}\d{1,2}$/;
 /**
  * Yahoo Finance requires a `.SA` suffix for B3-listed tickers (e.g. PETR4.SA).
  * B3 recognition relies on both asset type and ticker format heuristic.
+ *
+ * Cripto vira par contra o REAL (BTC-BRL), não contra o dólar: a carteira é em
+ * reais e o resto das séries também. Usar BTC-USD misturaria a variação do
+ * câmbio na correlação e na contribuição de risco (TRA-141).
  */
 export function normalizeTickerForProvider(
 	ticker: string,
@@ -25,6 +29,12 @@ export function normalizeTickerForProvider(
 		.toUpperCase();
 
 	if (provider !== 'yahoo') return clean;
+
+	if (assetType === 'crypto') {
+		// Já veio como par (BTC-BRL, BTC-USD): respeita o que o chamador pediu.
+		return clean.includes('-') ? clean : `${clean}-BRL`;
+	}
+
 	if (!B3_ASSET_TYPES.has(assetType)) return clean;
 	if (clean.endsWith('.SA')) return clean;
 
