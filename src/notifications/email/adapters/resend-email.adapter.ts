@@ -23,12 +23,9 @@ export class ResendEmailAdapter implements EmailSender, OnModuleInit {
 	private static readonly DOMAIN_CHECK_TIMEOUT_MS = 5_000;
 
 	async onModuleInit(): Promise<void> {
-		await Promise.race([this.checkSenderDomain(), this.checkTimeout()]);
-	}
-
-	private checkTimeout(): Promise<void> {
-		return new Promise<void>((resolve) => {
-			const timer = setTimeout(() => {
+		let timer: ReturnType<typeof setTimeout> | undefined;
+		const timeout = new Promise<void>((resolve) => {
+			timer = setTimeout(() => {
 				this.logger.warn(
 					`Checagem do domínio do remetente passou de ` +
 						`${ResendEmailAdapter.DOMAIN_CHECK_TIMEOUT_MS}ms e foi abandonada. ` +
@@ -37,10 +34,19 @@ export class ResendEmailAdapter implements EmailSender, OnModuleInit {
 				resolve();
 			}, ResendEmailAdapter.DOMAIN_CHECK_TIMEOUT_MS);
 
-			// Não segura o event loop: se a checagem responder antes, o processo
-			// não precisa esperar este timer para poder encerrar.
+			// Não segura o event loop enquanto a checagem está em andamento.
 			timer.unref?.();
 		});
+
+		try {
+			await Promise.race([this.checkSenderDomain(), timeout]);
+		} finally {
+			// Sem este clear o timer disparava mesmo quando a checagem tinha
+			// terminado antes: em produção o log dizia "domínio verificado" e,
+			// segundos depois, "passou de 5000ms e foi abandonada" — o aviso
+			// contradizendo o que acabara de acontecer.
+			clearTimeout(timer);
+		}
 	}
 
 	/**
