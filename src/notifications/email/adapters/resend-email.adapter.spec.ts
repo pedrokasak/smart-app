@@ -159,6 +159,29 @@ describe('ResendEmailAdapter — checagem do domínio do remetente', () => {
 		expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('abandonada'));
 	});
 
+	/**
+	 * Em produção o log mostrou "usa domínio verificado" e, 4s depois,
+	 * "passou de 5000ms e foi abandonada" — para a MESMA checagem. O timer do
+	 * teto não era cancelado quando a checagem terminava primeiro, então o
+	 * aviso de timeout saía sempre, dizendo o contrário do que aconteceu.
+	 */
+	it('não avisa timeout quando a checagem termina antes do teto', async () => {
+		jest.useFakeTimers();
+		process.env.RESEND_FROM = 'no-reply@trackerr.com.br';
+		listMock.mockResolvedValue({
+			data: [{ name: 'trackerr.com.br', status: 'verified' }],
+		});
+
+		const { adapter, warnSpy, logSpy } = buildAdapter();
+		await adapter.onModuleInit();
+		jest.advanceTimersByTime(10_000);
+
+		expect(logSpy).toHaveBeenCalledWith(
+			expect.stringContaining('domínio verificado')
+		);
+		expect(warnSpy).not.toHaveBeenCalled();
+	});
+
 	it('avisa quando o formato da resposta do SDK não é reconhecido', async () => {
 		process.env.RESEND_FROM = 'no-reply@trackerr.com.br';
 		listMock.mockResolvedValue({ data: { formatoNovo: true } });
