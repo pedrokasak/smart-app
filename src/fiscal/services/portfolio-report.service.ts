@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import puppeteer from 'puppeteer';
+import { renderHtmlToPdf } from 'src/common/pdf/render-html-to-pdf';
 import { Asset } from 'src/assets/schema/assets.model';
 import { FiscalService } from 'src/fiscal/fiscal.service';
 import { TradeDocument } from 'src/fiscal/schema/trade.model';
@@ -300,23 +300,6 @@ export class PortfolioReportService {
 	}
 
 	async renderPdf(data: any): Promise<Buffer> {
-		const browser = await puppeteer.launch({
-			headless: true,
-			args: ['--no-sandbox', '--disable-setuid-sandbox'],
-		});
-		try {
-			const page = await browser.newPage();
-			await page.setContent(this.renderHtml(data), {
-				waitUntil: 'networkidle0',
-			});
-			const pdf = await page.pdf({
-				format: 'A4',
-				printBackground: true,
-				margin: { top: '20px', right: '20px', bottom: '20px', left: '20px' },
-			});
-			return Buffer.from(pdf);
-		} finally {
-			await browser.close();
-		}
+		return renderHtmlToPdf(this.renderHtml(data));
 	}
 }

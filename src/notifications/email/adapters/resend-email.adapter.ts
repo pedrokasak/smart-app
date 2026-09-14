@@ -173,6 +173,7 @@ export class ResendEmailAdapter implements EmailSender, OnModuleInit {
 			html: string;
 			text?: string;
 			replyTo?: string;
+			attachments?: { filename: string; content: Buffer }[];
 		} = {
 			from,
 			to: message.to,
@@ -182,6 +183,7 @@ export class ResendEmailAdapter implements EmailSender, OnModuleInit {
 		};
 
 		if (message.replyTo) payload.replyTo = message.replyTo;
+		if (message.attachments?.length) payload.attachments = message.attachments;
 
 		const { data, error } = await this.client.emails.send(payload);
 

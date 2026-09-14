@@ -5,6 +5,7 @@ export type EmailMessage = {
 	text?: string;
 	from?: string;
 	replyTo?: string;
+	attachments?: { filename: string; content: Buffer }[];
 };
 
 export interface EmailSender {
