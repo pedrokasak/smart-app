@@ -36,6 +36,7 @@ import { PushModule } from './notifications/push/push.module';
 import { PortfolioEvaluationModule } from './portfolio/evaluation/portfolio-evaluation.module';
 import { PrivacyModule } from './privacy/privacy.module';
 import { InvestmentPolicyModule } from './investment-policy/investment-policy.module';
+import { ReportsModule } from './reports/reports.module';
 import { EventsModule } from './events/events.module';
 import { QuoteStalenessModule } from './market-data/quote-staleness/quote-staleness.module';
 
@@ -69,6 +70,7 @@ import { QuoteStalenessModule } from './market-data/quote-staleness/quote-stalen
 		PushModule,
 		PrivacyModule,
 		InvestmentPolicyModule,
+		ReportsModule,
 	],
 	controllers: [AppController],
 	providers: [

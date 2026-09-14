@@ -118,6 +118,35 @@ export class EmailService {
 		});
 	}
 
+	async sendScheduledReportEmail(
+		email: string,
+		params: {
+			reportTitle: string;
+			periodLabel: string;
+			attachment: { filename: string; content: Buffer };
+		}
+	): Promise<void> {
+		const reportsLink = `${this.getAppBaseUrl()}/reports`;
+		const html = this.getBaseTemplate({
+			title: `${escapeHtml(params.reportTitle)} · ${escapeHtml(params.periodLabel)}`,
+			hero: 'Seu relatório agendado chegou',
+			description: `O arquivo ${escapeHtml(params.attachment.filename)} está em anexo, gerado com os dados da sua conta.`,
+			ctaLabel: 'Gerenciar agendamentos',
+			ctaUrl: reportsLink,
+			footerNote:
+				'Você recebe este e-mail porque agendou o relatório no Trakker. Pause ou apague o agendamento na tela Relatórios.',
+		});
+		const text = `${params.reportTitle} (${params.periodLabel}) em anexo.\nGerencie seus agendamentos: ${reportsLink}`;
+
+		await this.sender.send({
+			to: email,
+			subject: `${params.reportTitle} · ${params.periodLabel} — Trakker`,
+			html,
+			text,
+			attachments: [params.attachment],
+		});
+	}
+
 	async sendPurchaseIntentConfirmationEmail(
 		email: string,
 		planName: string

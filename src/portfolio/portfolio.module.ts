@@ -96,6 +96,7 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		PortfolioReturnsService,
 		PortfolioCompositionService,
 		PortfolioHistoryBackfillService,
+		PortfolioRiskContributionService,
 	],
 })
 export class PortfolioModule {}

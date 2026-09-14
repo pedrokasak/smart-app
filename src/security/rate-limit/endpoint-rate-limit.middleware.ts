@@ -71,6 +71,13 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 			pattern: /^\/portfolio\/[^/]+\/import-b3(?:-auto|-transactions)?\/?$/,
 			rule: { limit: 20, windowMs: 10 * 60_000 },
 		},
+		{
+			// Cada relatório com PDF abre um Chromium no servidor.
+			key: 'GET:/reports/:kind/download',
+			method: 'GET',
+			pattern: /^\/reports\/[^/]+\/download\/?$/,
+			rule: { limit: 20, windowMs: 10 * 60_000 },
+		},
 	];
 
 	private readonly store: RateLimitStore;
