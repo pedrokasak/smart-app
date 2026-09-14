@@ -1,5 +1,5 @@
 import * as xlsx from 'xlsx';
-import { parseB3Workbook } from './portfolio.controller';
+import { hasB3ReportSheet, parseB3Workbook } from './portfolio.controller';
 
 /**
  * Extrato de movimentação da B3 — a única exportação com data de pagamento
@@ -245,5 +245,98 @@ describe('importação do extrato de movimentação', () => {
 		expect(
 			dividendsBySymbol.get('BBAS3')![0].eventDate.toISOString().slice(0, 10)
 		).toBe('2025-12-31');
+	});
+});
+
+/**
+ * `import-b3-auto` escolhe o importador por `hasB3ReportSheet`: posição,
+ * provento ou movimentação → importador de relatório; nada disso → extrato
+ * de negociação. A tela "Adicionar ativo" manda os três arquivos da B3 por
+ * essa porta.
+ */
+describe('hasB3ReportSheet', () => {
+	const workbookFrom = (sheetName: string, rows: any[][]) => {
+		const workbook = xlsx.utils.book_new();
+		xlsx.utils.book_append_sheet(
+			workbook,
+			xlsx.utils.aoa_to_sheet(rows),
+			sheetName
+		);
+		return workbook;
+	};
+
+	it('is false for the "Negociação" export, so it goes to the transactions importer', () => {
+		const workbook = workbookFrom('Negociação', [
+			[
+				'Data do Negócio',
+				'Tipo de Movimentação',
+				'Mercado',
+				'Prazo/Vencimento',
+				'Instituição',
+				'Código de Negociação',
+				'Quantidade',
+				'Preço',
+				'Valor',
+			],
+			[
+				'14/08/2026',
+				'Compra',
+				'Mercado Fracionário',
+				'-',
+				'BTG',
+				'SAPR4F',
+				5,
+				6.5,
+				32.5,
+			],
+		]);
+
+		expect(hasB3ReportSheet(workbook)).toBe(false);
+	});
+
+	it('is true for the "Movimentação" export', () => {
+		expect(
+			hasB3ReportSheet(
+				buildMovementWorkbook([
+					[
+						'Credito',
+						'10/08/2026',
+						'Dividendo',
+						'BBAS3 - BANCO DO BRASIL',
+						'BTG',
+						69,
+						0.2,
+						13.8,
+					],
+				])
+			)
+		).toBe(true);
+	});
+
+	it('is true for the annual consolidated report', () => {
+		const workbook = workbookFrom('Posição - Ações', [
+			[
+				'Produto',
+				'Instituição',
+				'Conta',
+				'Código de Negociação',
+				'CNPJ da Empresa',
+				'Quantidade',
+				'Preço de Fechamento',
+				'Valor Atualizado',
+			],
+			[
+				'BBAS3 - BCO BRASIL S.A.',
+				'BTG',
+				'1',
+				'BBAS3',
+				'00000000000191',
+				69,
+				21.92,
+				1512.48,
+			],
+		]);
+
+		expect(hasB3ReportSheet(workbook)).toBe(true);
 	});
 });
