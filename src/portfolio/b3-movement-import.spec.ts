@@ -1,5 +1,10 @@
 import * as xlsx from 'xlsx';
-import { hasB3ReportSheet, parseB3Workbook } from './portfolio.controller';
+import {
+	hasB3ReportSheet,
+	hasB3UpcomingEventsSheet,
+	parseB3UpcomingEvents,
+	parseB3Workbook,
+} from './portfolio.controller';
 
 /**
  * Extrato de movimentação da B3 — a única exportação com data de pagamento
@@ -338,5 +343,91 @@ describe('hasB3ReportSheet', () => {
 		]);
 
 		expect(hasB3ReportSheet(workbook)).toBe(true);
+	});
+});
+
+/**
+ * Relatório "Eventos" da B3 — aba "Proventos a Receber". Cabeçalhos copiados
+ * do arquivo real exportado pela B3.
+ */
+describe('relatório de Eventos (proventos a receber)', () => {
+	const buildEventsWorkbook = (rows: any[][]) => {
+		const workbook = xlsx.utils.book_new();
+		xlsx.utils.book_append_sheet(
+			workbook,
+			xlsx.utils.aoa_to_sheet([
+				[
+					'Produto',
+					'Tipo',
+					'Tipo de Evento',
+					'Previsão de pagamento',
+					'Instituição',
+					'Conta',
+					'Quantidade',
+					'Preço unitário',
+					'Valor líquido',
+				],
+				...rows,
+			]),
+			'Proventos a Receber'
+		);
+		return workbook;
+	};
+
+	const events = buildEventsWorkbook([
+		[
+			'BMGB4 - BANCO BMG S/A',
+			'PN',
+			'JUROS SOBRE CAPITAL PRÓPRIO',
+			'04/09/2026',
+			'BTG',
+			'1',
+			'25',
+			0.1,
+			2.07,
+		],
+		[
+			'MOVI3 - MOVIDA',
+			'ON',
+			'DIVIDENDO',
+			'11/09/2026',
+			'BTG',
+			'1',
+			'32',
+			0.53,
+			14.39,
+		],
+		['XPTO3 - SEM DATA', 'ON', 'DIVIDENDO', '', 'BTG', '1', '10', 1, 10],
+	]);
+
+	// Regressão: com "Tipo de Evento" + "Valor líquido" a aba era lida como
+	// proventos RECEBIDOS, e cada pagamento previsto virava histórico pago.
+	it('never turns pending events into received dividends', () => {
+		const { dividendsBySymbol, assets } = parseB3Workbook(events, REPORT_DATE);
+
+		expect(dividendsBySymbol.size).toBe(0);
+		expect(assets).toHaveLength(0);
+		expect(hasB3ReportSheet(events)).toBe(false);
+		expect(hasB3UpcomingEventsSheet(events)).toBe(true);
+	});
+
+	it('parses each pending payment with its expected date, type and net value', () => {
+		const parsed = parseB3UpcomingEvents(events);
+
+		expect(parsed).toHaveLength(2);
+		expect(parsed[0]).toMatchObject({
+			symbol: 'BMGB4',
+			paymentType: 'JCP',
+			quantity: 25,
+			unitValue: 0.1,
+			netValue: 2.07,
+		});
+		expect(parsed[0].expectedPaymentDate.toISOString().slice(0, 10)).toBe(
+			'2026-09-04'
+		);
+		expect(parsed[1]).toMatchObject({
+			symbol: 'MOVI3',
+			paymentType: 'DIVIDEND',
+		});
 	});
 });

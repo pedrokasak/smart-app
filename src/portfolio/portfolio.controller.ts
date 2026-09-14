@@ -42,6 +42,7 @@ import { buildHistoryFromTrades } from 'src/portfolio/history-from-trades';
 import { Types } from 'mongoose';
 import * as xlsx from 'xlsx';
 import { validateUploadFile } from 'src/broker-sync/security/upload-file.validator';
+import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
 
 /**
  * Planilha da B3 é pequena; o limite existe pra impedir que um upload
@@ -71,7 +72,8 @@ export class PortfolioController {
 		private portfolioReturnsService: PortfolioReturnsService,
 		private portfolioCompositionService: PortfolioCompositionService,
 		private portfolioRiskContributionService: PortfolioRiskContributionService,
-		private portfolioHistoryBackfillService: PortfolioHistoryBackfillService
+		private portfolioHistoryBackfillService: PortfolioHistoryBackfillService,
+		private upcomingDividendsService: UpcomingDividendsService
 	) {}
 
 	@Post('create')
@@ -193,6 +195,22 @@ export class PortfolioController {
 				date: trade.date,
 			})),
 		};
+	}
+
+	/**
+	 * Proventos anunciados e ainda não pagos (relatório de Eventos da B3),
+	 * de todas as carteiras do usuário. Antes de `@Get(':id')` pela ordem
+	 * de rotas do Nest.
+	 */
+	@Get('upcoming-dividends')
+	async findUpcomingDividends(@Req() req: any, @Query('days') days?: string) {
+		const userId = resolveUserId(req);
+		const portfolios = await this.portfolioService.getUserPortfolios(userId);
+		return this.upcomingDividendsService.listUpcoming(
+			userId,
+			portfolios.map((portfolio: any) => String(portfolio._id)),
+			Number(days) || 45
+		);
 	}
 
 	@Get('assets/:assetId')
@@ -502,14 +520,32 @@ export class PortfolioController {
 			);
 		}
 
-		// Reaproveita o mesmo `detectSheetKind` que parseB3Workbook usa: se
-		// alguma aba é reconhecida como posição/provento/movimentação, o
-		// arquivo é do importador de relatório; senão é extrato de negociação.
+		// Reaproveita o mesmo `detectSheetKind` que parseB3Workbook usa: Eventos
+		// (proventos a receber) → lista de previstos; posição/provento/
+		// movimentação → importador de relatório; senão, extrato de negociação.
+		const workbook =
+			validation.detectedKind === 'csv'
+				? null
+				: xlsx.read(file.buffer, { type: 'buffer' });
+
+		if (workbook && hasB3UpcomingEventsSheet(workbook)) {
+			const events = parseB3UpcomingEvents(workbook);
+			const result = await this.upcomingDividendsService.replaceForPortfolio(
+				resolveUserId(req),
+				id,
+				events
+			);
+			return {
+				kind: 'upcoming' as const,
+				message: events.length
+					? 'Proventos a receber atualizados.'
+					: 'Nenhum provento previsto encontrado no relatório de Eventos.',
+				...result,
+			};
+		}
+
 		const kind =
-			validation.detectedKind !== 'csv' &&
-			hasB3ReportSheet(xlsx.read(file.buffer, { type: 'buffer' }))
-				? 'report'
-				: 'transactions';
+			workbook && hasB3ReportSheet(workbook) ? 'report' : 'transactions';
 
 		const result =
 			kind === 'transactions'
@@ -994,7 +1030,14 @@ type ParsedB3Transaction = {
 	date: Date;
 };
 
-type SheetKind = 'stock' | 'etf' | 'fii' | 'lca' | 'dividend' | 'movement';
+type SheetKind =
+	| 'stock'
+	| 'etf'
+	| 'fii'
+	| 'lca'
+	| 'dividend'
+	| 'movement'
+	| 'upcoming';
 type DividendPaymentType = 'JCP' | 'DIVIDEND' | 'RENDIMENTO' | 'OTHER';
 type ParsedDividendEvent = {
 	paymentType: DividendPaymentType;
@@ -1139,9 +1182,19 @@ const isTotalRow = (row: Record<string, any>): boolean =>
 		return value.trim().toLowerCase() === 'total';
 	});
 
+/** Relatório "Eventos" da B3 (aba "Proventos a Receber"). */
+const COLUMN_UPCOMING_PAYMENT_DATE = 'Previsão de pagamento';
+
 const detectSheetKind = (headers: string[]): SheetKind | null => {
 	const headerSet = new Set(headers.map((h) => h.trim()));
 
+	// Precisa vir antes de 'dividend': o relatório de Eventos também tem
+	// "Tipo de Evento" e "Valor líquido", mas lista proventos AINDA NÃO
+	// pagos. Caindo em 'dividend', cada pagamento previsto era gravado como
+	// provento recebido na data de referência do arquivo.
+	if (headerSet.has(COLUMN_UPCOMING_PAYMENT_DATE)) {
+		return 'upcoming';
+	}
 	if (headerSet.has('Tipo de Evento') && headerSet.has('Valor líquido')) {
 		return 'dividend';
 	}
@@ -1167,11 +1220,77 @@ const readSheetHeaders = (sheet: xlsx.WorkSheet): string[] => {
 	return (headerRows[0] || []).map((value: any) => String(value ?? '').trim());
 };
 
-export const hasB3ReportSheet = (workbook: xlsx.WorkBook): boolean =>
-	workbook.SheetNames.some((sheetName) => {
+const workbookSheetKinds = (workbook: xlsx.WorkBook): SheetKind[] =>
+	workbook.SheetNames.flatMap((sheetName) => {
 		const sheet = workbook.Sheets[sheetName];
-		return !!sheet && detectSheetKind(readSheetHeaders(sheet)) !== null;
+		const kind = sheet ? detectSheetKind(readSheetHeaders(sheet)) : null;
+		return kind ? [kind] : [];
 	});
+
+export const hasB3ReportSheet = (workbook: xlsx.WorkBook): boolean =>
+	workbookSheetKinds(workbook).some((kind) => kind !== 'upcoming');
+
+export const hasB3UpcomingEventsSheet = (workbook: xlsx.WorkBook): boolean =>
+	workbookSheetKinds(workbook).includes('upcoming');
+
+export type ParsedUpcomingDividend = {
+	symbol: string;
+	name?: string;
+	paymentType: DividendPaymentType;
+	expectedPaymentDate: Date;
+	quantity: number;
+	unitValue: number;
+	netValue: number;
+	institution?: string;
+};
+
+/**
+ * Relatório "Eventos" da B3: proventos anunciados e ainda não pagos. Linhas
+ * sem previsão de pagamento ou sem valor são ignoradas — não há como mostrar
+ * "quando" nem "quanto", e inventar data seria pior que omitir.
+ */
+export const parseB3UpcomingEvents = (
+	workbook: xlsx.WorkBook
+): ParsedUpcomingDividend[] => {
+	const events: ParsedUpcomingDividend[] = [];
+
+	for (const sheetName of workbook.SheetNames) {
+		const sheet = workbook.Sheets[sheetName];
+		if (!sheet || detectSheetKind(readSheetHeaders(sheet)) !== 'upcoming') {
+			continue;
+		}
+
+		const rows = xlsx.utils.sheet_to_json(sheet, { defval: null }) as Record<
+			string,
+			any
+		>[];
+		for (const row of rows) {
+			if (!row || isTotalRow(row)) continue;
+
+			const symbol = normalizeSymbol(row[COLUMN_DIVIDEND_SYMBOL]);
+			const expectedPaymentDate = parseSpreadsheetDate(
+				row[COLUMN_UPCOMING_PAYMENT_DATE]
+			);
+			const netValue = normalizeNumber(row[COLUMN_DIVIDEND_VALUE]) ?? 0;
+			if (!symbol || !expectedPaymentDate || netValue <= 0) continue;
+
+			events.push({
+				symbol,
+				name: normalizeAssetName(row[COLUMN_DIVIDEND_SYMBOL]),
+				paymentType: normalizeDividendPaymentType(
+					row[COLUMN_DIVIDEND_EVENT_TYPE]
+				),
+				expectedPaymentDate,
+				quantity: normalizeNumber(row[COLUMN_QUANTITY]) ?? 0,
+				unitValue: normalizeNumber(row['Preço unitário']) ?? 0,
+				netValue,
+				institution: normalizeAssetName(row['Instituição']),
+			});
+		}
+	}
+
+	return events;
+};
 
 export const parseB3Workbook = (
 	workbook: xlsx.WorkBook,
@@ -1206,7 +1325,7 @@ export const parseB3Workbook = (
 		if (!sheet) continue;
 
 		const kind = detectSheetKind(readSheetHeaders(sheet));
-		if (!kind) continue;
+		if (!kind || kind === 'upcoming') continue;
 
 		const rows = xlsx.utils.sheet_to_json(sheet, { defval: null }) as Record<
 			string,
