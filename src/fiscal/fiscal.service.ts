@@ -20,7 +20,18 @@ export interface MonthlyTaxSummary {
 	cryptoTax: number;
 	totalTax: number;
 	stockExempt: boolean;
+	/** Prejuízo anterior de ações abatido do ganho tributável do mês. */
+	stockCompensatedLoss: number;
+	stockTaxableBase: number;
+	fiiSales: number;
+	cryptoSales: number;
+	cryptoExempt: boolean;
+	/** Prejuízo ainda a compensar ao fim do mês (ações + FIIs + cripto), positivo. */
+	accumulatedLoss: number;
 }
+
+export const STOCK_MONTHLY_EXEMPTION_LIMIT = 20000;
+export const CRYPTO_MONTHLY_EXEMPTION_LIMIT = 35000;
 
 type FiscalCategory = 'stock' | 'fii' | 'crypto';
 type PositionState = { qty: number; totalCost: number };
@@ -218,7 +229,9 @@ export class FiscalService {
 				month: number;
 				stockSales: number;
 				stockProfit: number;
+				fiiSales: number;
 				fiiProfit: number;
+				cryptoSales: number;
 				cryptoProfit: number;
 			}
 		>();
@@ -254,7 +267,9 @@ export class FiscalService {
 				month,
 				stockSales: 0,
 				stockProfit: 0,
+				fiiSales: 0,
 				fiiProfit: 0,
+				cryptoSales: 0,
 				cryptoProfit: 0,
 			};
 
@@ -262,8 +277,14 @@ export class FiscalService {
 				acc.stockSales += t.price * t.quantity;
 				acc.stockProfit += pnl;
 			}
-			if (category === 'fii') acc.fiiProfit += pnl;
-			if (category === 'crypto') acc.cryptoProfit += pnl;
+			if (category === 'fii') {
+				acc.fiiSales += t.price * t.quantity;
+				acc.fiiProfit += pnl;
+			}
+			if (category === 'crypto') {
+				acc.cryptoSales += t.price * t.quantity;
+				acc.cryptoProfit += pnl;
+			}
 
 			monthAcc.set(key, acc);
 		}
@@ -277,22 +298,23 @@ export class FiscalService {
 		);
 
 		return months.map((m) => {
-			const stockExempt = m.stockSales <= 20000;
-			const stockBase = m.stockProfit + carryStock;
-			const fiiBase = m.fiiProfit + carryFii;
-			const cryptoBase = m.cryptoProfit + carryCrypto;
+			const stockExempt = m.stockSales <= STOCK_MONTHLY_EXEMPTION_LIMIT;
+			const cryptoExempt = m.cryptoSales <= CRYPTO_MONTHLY_EXEMPTION_LIMIT;
 
-			const stockTaxableBase = stockExempt ? 0 : Math.max(stockBase, 0);
-			const fiiTaxableBase = Math.max(fiiBase, 0);
-			const cryptoTaxableBase = Math.max(cryptoBase, 0);
+			const stock = applyMonthResult(m.stockProfit, carryStock, stockExempt);
+			const fii = applyMonthResult(m.fiiProfit, carryFii, false);
+			const crypto = applyMonthResult(
+				m.cryptoProfit,
+				carryCrypto,
+				cryptoExempt
+			);
+			carryStock = stock.carry;
+			carryFii = fii.carry;
+			carryCrypto = crypto.carry;
 
-			const stockTax = stockTaxableBase * 0.15;
-			const fiiTax = fiiTaxableBase * 0.2;
-			const cryptoTax = cryptoTaxableBase * 0.15;
-
-			carryStock = stockBase < 0 ? stockBase : 0;
-			carryFii = fiiBase < 0 ? fiiBase : 0;
-			carryCrypto = cryptoBase < 0 ? cryptoBase : 0;
+			const stockTax = stock.taxableBase * 0.15;
+			const fiiTax = fii.taxableBase * 0.2;
+			const cryptoTax = crypto.taxableBase * 0.15;
 
 			return {
 				year: m.year,
@@ -306,6 +328,12 @@ export class FiscalService {
 				cryptoTax,
 				totalTax: stockTax + fiiTax + cryptoTax,
 				stockExempt,
+				stockCompensatedLoss: stock.compensated,
+				stockTaxableBase: stock.taxableBase,
+				fiiSales: m.fiiSales,
+				cryptoSales: m.cryptoSales,
+				cryptoExempt,
+				accumulatedLoss: Math.abs(carryStock + carryFii + carryCrypto),
 			};
 		});
 	}
@@ -476,4 +504,26 @@ export class FiscalService {
 		const month = date.getUTCMonth() + 1;
 		return `${year}-${String(month).padStart(2, '0')}`;
 	}
+}
+
+/**
+ * Aplica o resultado de um mês ao prejuízo a compensar (`carry`, sempre <= 0).
+ *
+ * Prejuízo sempre acumula, inclusive em mês isento. Ganho de mês isento não
+ * consome o prejuízo acumulado: só ganho tributável é compensado.
+ */
+function applyMonthResult(
+	profit: number,
+	carry: number,
+	exempt: boolean
+): { taxableBase: number; compensated: number; carry: number } {
+	if (profit < 0)
+		return { taxableBase: 0, compensated: 0, carry: carry + profit };
+	if (exempt) return { taxableBase: 0, compensated: 0, carry };
+	const compensated = Math.min(profit, -carry);
+	return {
+		taxableBase: profit - compensated,
+		compensated,
+		carry: carry + compensated,
+	};
 }

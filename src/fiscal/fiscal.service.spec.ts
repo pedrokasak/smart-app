@@ -76,4 +76,79 @@ describe('FiscalService', () => {
 		expect(drivers[0].estimatedTax).toBe(0);
 		expect(drivers[0].reason).toContain('isenção');
 	});
+	describe('calculateMonthlyTaxSummary', () => {
+		const trade = (
+			side: 'buy' | 'sell',
+			quantity: number,
+			price: number,
+			date: string,
+			assetSymbol = 'PETR4'
+		) => ({
+			assetSymbol,
+			side,
+			quantity,
+			price,
+			fees: 0,
+			date: new Date(date),
+		});
+
+		it('compensates a previous stock loss before taxing and reports the breakdown', () => {
+			const [loss, gain] = service.calculateMonthlyTaxSummary(
+				[
+					trade('buy', 1000, 50, '2026-01-02T12:00:00Z'),
+					trade('sell', 500, 44, '2026-01-10T12:00:00Z'), // -3.000, vendas 22.000
+					trade('sell', 500, 60, '2026-02-10T12:00:00Z'), // +5.000, vendas 30.000
+				],
+				{ PETR4: 'stock' }
+			);
+
+			expect(loss).toMatchObject({ stockTax: 0, accumulatedLoss: 3000 });
+			expect(gain).toMatchObject({
+				stockCompensatedLoss: 3000,
+				stockTaxableBase: 2000,
+				stockTax: 300,
+				accumulatedLoss: 0,
+			});
+		});
+
+		it('keeps the carried loss when the gain happens in an exempt month', () => {
+			const [, exemptGain] = service.calculateMonthlyTaxSummary(
+				[
+					trade('buy', 1000, 50, '2026-01-02T12:00:00Z'),
+					trade('sell', 500, 44, '2026-01-10T12:00:00Z'), // -3.000
+					trade('sell', 100, 60, '2026-02-10T12:00:00Z'), // +1.000, vendas 6.000
+				],
+				{ PETR4: 'stock' }
+			);
+
+			expect(exemptGain).toMatchObject({
+				stockExempt: true,
+				stockTax: 0,
+				stockCompensatedLoss: 0,
+				accumulatedLoss: 3000,
+			});
+		});
+
+		it('exempts crypto gains when monthly crypto sales stay under R$ 35 mil', () => {
+			const [under, over] = service.calculateMonthlyTaxSummary(
+				[
+					trade('buy', 2, 20000, '2026-01-02T12:00:00Z', 'BTC'),
+					trade('sell', 1, 30000, '2026-01-10T12:00:00Z', 'BTC'),
+					trade('sell', 1, 40000, '2026-02-10T12:00:00Z', 'BTC'),
+				],
+				{ BTC: 'crypto' }
+			);
+
+			expect(under).toMatchObject({
+				cryptoSales: 30000,
+				cryptoExempt: true,
+				cryptoTax: 0,
+			});
+			expect(over).toMatchObject({
+				cryptoSales: 40000,
+				cryptoExempt: false,
+				cryptoTax: 3000,
+			});
+		});
+	});
 });
