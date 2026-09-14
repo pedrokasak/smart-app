@@ -1,9 +1,4 @@
-import {
-	Inject,
-	Injectable,
-	Logger,
-	OnApplicationBootstrap,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { DomainEvent } from 'src/events/domain/domain-event';
 import { EventConsumer } from 'src/events/application/ports/event-consumer.port';
 import { EventConsumerRegistry } from 'src/events/application/event-consumer.registry';
@@ -67,9 +62,7 @@ export const NOTIFICATION_EVENT_DEDUPE_PREFIX = 'event';
  * null e o evento e ignorado.
  */
 @Injectable()
-export class NotificationEventConsumer
-	implements EventConsumer, OnApplicationBootstrap
-{
+export class NotificationEventConsumer implements EventConsumer, OnModuleInit {
 	readonly name = 'notifications';
 	readonly pattern = '**';
 
@@ -83,7 +76,18 @@ export class NotificationEventConsumer
 		private readonly summaries: NotificationSummaryProvider
 	) {}
 
-	onApplicationBootstrap(): void {
+	/**
+	 * `onModuleInit`, e nao `onApplicationBootstrap`, de proposito (TRA-155).
+	 *
+	 * O Nest roda TODOS os `onModuleInit` antes de QUALQUER
+	 * `onApplicationBootstrap`. O `EventQueueWorker` cria o `Worker` do BullMQ
+	 * no `onApplicationBootstrap`, e o Worker ja nasce puxando jobs. Registrando
+	 * tambem no bootstrap, o consumidor entrava DEPOIS do worker: job processado
+	 * nessa janela nao achava consumidor e era concluido em silencio. Como o
+	 * Redis persiste a fila, isso atingia justamente os jobs pendentes de todo
+	 * deploy ou restart.
+	 */
+	onModuleInit(): void {
 		this.registry.register(this);
 	}
 

@@ -66,7 +66,7 @@ describe('NotificationEventConsumer', () => {
 		});
 
 	it('se registra no bootstrap para que o worker o encontre', () => {
-		consumer.onApplicationBootstrap();
+		consumer.onModuleInit();
 
 		expect(
 			registry.forEventType(DOMAIN_EVENT_TYPES.DividendReceived)

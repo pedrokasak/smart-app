@@ -124,7 +124,7 @@ describe('produtor -> barramento -> fila -> notificacao (TRA-136)', () => {
 				}),
 			} as any,
 			{ summarize: jest.fn().mockResolvedValue(null) }
-		).onApplicationBootstrap();
+		).onModuleInit();
 
 		producer = new DividendReceivedProducer(
 			bus,
