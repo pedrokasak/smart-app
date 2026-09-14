@@ -205,3 +205,55 @@ describe('BrokerSyncController - parsePositionsFromXlsx', () => {
 		expect(parsePositions(buffer)).toHaveLength(0);
 	});
 });
+
+describe('BrokerSyncController - resolveImportPortfolio', () => {
+	// Regressão: a carteira era criada com o slug cru do provider ("b3"), e
+	// Portfolio.name exige no mínimo 3 caracteres — todo upload de nota da B3
+	// falhava com "Portfolio validation failed: name ... shorter than the
+	// minimum allowed length (3)".
+	it('creates the import portfolio with a display name that satisfies the 3-char minimum', async () => {
+		const portfolioService = {
+			findPortfolioByName: jest.fn().mockResolvedValue(null),
+			createPortfolio: jest.fn().mockResolvedValue({ _id: 'p1' }),
+		};
+		const controller = new BrokerSyncController(
+			{} as any,
+			{} as any,
+			portfolioService as any,
+			{} as any,
+			{} as any
+		);
+
+		await (controller as any).resolveImportPortfolio('user-1', 'b3');
+
+		const [, dto] = portfolioService.createPortfolio.mock.calls[0];
+		expect(dto.name).toBe('Carteira B3');
+		expect(dto.name.length).toBeGreaterThanOrEqual(3);
+	});
+
+	it('reuses an existing portfolio instead of creating a duplicate', async () => {
+		const existing = { _id: 'existing' };
+		const portfolioService = {
+			findPortfolioByName: jest
+				.fn()
+				.mockResolvedValueOnce(null)
+				.mockResolvedValueOnce(existing),
+			createPortfolio: jest.fn(),
+		};
+		const controller = new BrokerSyncController(
+			{} as any,
+			{} as any,
+			portfolioService as any,
+			{} as any,
+			{} as any
+		);
+
+		const result = await (controller as any).resolveImportPortfolio(
+			'user-1',
+			'b3'
+		);
+
+		expect(result).toBe(existing);
+		expect(portfolioService.createPortfolio).not.toHaveBeenCalled();
+	});
+});

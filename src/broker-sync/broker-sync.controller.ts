@@ -183,6 +183,29 @@ export class BrokerSyncController {
 		};
 	}
 
+	/**
+	 * Carteira que recebe o que veio de um upload de nota. O nome costumava
+	 * ser o slug cru do provider ("b3", "xp") — e `Portfolio.name` exige no
+	 * mínimo 3 caracteres, então todo upload de provider com slug curto
+	 * falhava com "Portfolio validation failed: name ... shorter than the
+	 * minimum allowed length (3)" antes de gravar qualquer coisa. Procura
+	 * primeiro pelo nome antigo, pra reaproveitar carteiras de provider com
+	 * slug longo que já existem, e só cria com o nome de exibição.
+	 */
+	private async resolveImportPortfolio(userId: string, provider: string) {
+		const displayName = `Carteira ${String(provider || '').toUpperCase()}`;
+		const existing =
+			(await this.portfolioService.findPortfolioByName(userId, provider)) ||
+			(await this.portfolioService.findPortfolioByName(userId, displayName));
+		if (existing) return existing;
+
+		return this.portfolioService.createPortfolio(userId, {
+			name: displayName,
+			ownerType: 'self',
+			ownerName: 'Brokerage Note Import',
+		} as any);
+	}
+
 	private inferType(symbol: string) {
 		if (/^\w{2,10}$/.test(symbol) && !/\d/.test(symbol)) return 'crypto';
 		if (/11$/.test(symbol)) return 'fii';
@@ -448,17 +471,10 @@ export class BrokerSyncController {
 				return;
 			}
 
-			let portfolio = await this.portfolioService.findPortfolioByName(
+			const portfolio = await this.resolveImportPortfolio(
 				params.userId,
 				params.provider
 			);
-			if (!portfolio) {
-				portfolio = await this.portfolioService.createPortfolio(params.userId, {
-					name: params.provider,
-					ownerType: 'self',
-					ownerName: 'Brokerage Note Import',
-				} as any);
-			}
 
 			await TradeModel.insertMany(
 				trades.map((t) => ({
@@ -576,17 +592,7 @@ export class BrokerSyncController {
 		upload: InstanceType<typeof BrokerageNoteUploadModel>
 	) {
 		try {
-			let portfolio = await this.portfolioService.findPortfolioByName(
-				userId,
-				provider
-			);
-			if (!portfolio) {
-				portfolio = await this.portfolioService.createPortfolio(userId, {
-					name: provider,
-					ownerType: 'self',
-					ownerName: 'Brokerage Note Import',
-				} as any);
-			}
+			const portfolio = await this.resolveImportPortfolio(userId, provider);
 
 			let updatedAssets = 0;
 			for (const position of positions) {

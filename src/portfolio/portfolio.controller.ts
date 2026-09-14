@@ -457,6 +457,68 @@ export class PortfolioController {
 		}));
 	}
 
+	/**
+	 * Porta única para os arquivos que a B3 exporta: decide pelo conteúdo se
+	 * é extrato de Negociação (→ operações) ou consolidado/Movimentação
+	 * (→ posição e proventos) e delega ao importador existente, sem duplicar
+	 * regra nenhuma. É o que a tela "Adicionar ativo" usa — antes ela mandava
+	 * tudo pro upload genérico de nota de corretagem, que não entende
+	 * proventos nem posição e criava uma carteira separada chamada "b3".
+	 */
+	@Post(':id/import-b3-auto')
+	@UseInterceptors(
+		FileInterceptor('file', {
+			limits: { fileSize: MAX_IMPORT_FILE_BYTES },
+		})
+	)
+	async importB3Auto(
+		@Param('id') id: string,
+		@UploadedFile() file: any,
+		@Req() req: any
+	) {
+		if (!file) {
+			throw new BadRequestException('Arquivo não enviado');
+		}
+
+		// Checa posse antes de abrir a planilha — os importadores delegados
+		// checam de novo, mas não há motivo pra parsear arquivo de carteira
+		// alheia.
+		await this.portfolioService.assertPortfolioOwnership(
+			resolveUserId(req),
+			id
+		);
+
+		const validation = validateUploadFile({
+			buffer: Buffer.from(file.buffer || ''),
+			fileName: file.originalname || '',
+			mimeType: file.mimetype || '',
+		});
+		if (!validation.ok) {
+			throw new BadRequestException(validation.reason);
+		}
+		if (validation.detectedKind === 'pdf') {
+			throw new BadRequestException(
+				'PDF não é um arquivo da B3 — use o upload de nota de corretagem.'
+			);
+		}
+
+		// Reaproveita o mesmo `detectSheetKind` que parseB3Workbook usa: se
+		// alguma aba é reconhecida como posição/provento/movimentação, o
+		// arquivo é do importador de relatório; senão é extrato de negociação.
+		const kind =
+			validation.detectedKind !== 'csv' &&
+			hasB3ReportSheet(xlsx.read(file.buffer, { type: 'buffer' }))
+				? 'report'
+				: 'transactions';
+
+		const result =
+			kind === 'transactions'
+				? await this.importB3Transactions(id, file, req)
+				: await this.importB3Report(id, file, req);
+
+		return { kind, ...result };
+	}
+
 	@Post(':id/import-b3')
 	@UseInterceptors(
 		FileInterceptor('file', {
@@ -1097,6 +1159,20 @@ const detectSheetKind = (headers: string[]): SheetKind | null => {
 	return null;
 };
 
+const readSheetHeaders = (sheet: xlsx.WorkSheet): string[] => {
+	const headerRows = xlsx.utils.sheet_to_json(sheet, {
+		header: 1,
+		defval: null,
+	}) as any[];
+	return (headerRows[0] || []).map((value: any) => String(value ?? '').trim());
+};
+
+export const hasB3ReportSheet = (workbook: xlsx.WorkBook): boolean =>
+	workbook.SheetNames.some((sheetName) => {
+		const sheet = workbook.Sheets[sheetName];
+		return !!sheet && detectSheetKind(readSheetHeaders(sheet)) !== null;
+	});
+
 export const parseB3Workbook = (
 	workbook: xlsx.WorkBook,
 	reportDate: Date
@@ -1129,14 +1205,7 @@ export const parseB3Workbook = (
 		const sheet = workbook.Sheets[sheetName];
 		if (!sheet) continue;
 
-		const headerRows = xlsx.utils.sheet_to_json(sheet, {
-			header: 1,
-			defval: null,
-		}) as any[];
-		const headers = (headerRows[0] || []).map((value: any) =>
-			String(value ?? '').trim()
-		);
-		const kind = detectSheetKind(headers);
+		const kind = detectSheetKind(readSheetHeaders(sheet));
 		if (!kind) continue;
 
 		const rows = xlsx.utils.sheet_to_json(sheet, { defval: null }) as Record<
