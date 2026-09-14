@@ -52,6 +52,27 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		'POST:/ai/analyze': { limit: 20, windowMs: 60_000 },
 	};
 
+	/**
+	 * Rotas com parâmetro no caminho não casam com a chave exata acima.
+	 * A chave do contador vira o padrão (não o caminho real): senão trocar
+	 * o `:id` da carteira abriria um balde novo a cada requisição. Import
+	 * de planilha é caro — parse inteiro em memória — então fica no mesmo
+	 * teto do upload de nota.
+	 */
+	private readonly patternRules: {
+		key: string;
+		method: string;
+		pattern: RegExp;
+		rule: RateLimitRule;
+	}[] = [
+		{
+			key: 'POST:/portfolio/:id/import-b3*',
+			method: 'POST',
+			pattern: /^\/portfolio\/[^/]+\/import-b3(?:-auto|-transactions)?\/?$/,
+			rule: { limit: 20, windowMs: 10 * 60_000 },
+		},
+	];
+
 	private readonly store: RateLimitStore;
 
 	/**
@@ -77,8 +98,12 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 	 * header `Retry-After` continuam idênticos.
 	 */
 	async use(req: Request, res: Response, next: NextFunction): Promise<void> {
-		const routeKey = `${req.method.toUpperCase()}:${req.path}`;
-		const rule = this.rules[routeKey] || this.defaultRule;
+		const method = req.method.toUpperCase();
+		const patternMatch = this.patternRules.find(
+			(entry) => entry.method === method && entry.pattern.test(req.path)
+		);
+		const routeKey = patternMatch?.key ?? `${method}:${req.path}`;
+		const rule = patternMatch?.rule || this.rules[routeKey] || this.defaultRule;
 		const fingerprint = this.buildFingerprint(req);
 		const key = `${routeKey}:${fingerprint}`;
 
