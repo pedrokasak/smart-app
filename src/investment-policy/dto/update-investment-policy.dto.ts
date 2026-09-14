@@ -6,7 +6,11 @@ import {
 	InvestmentPolicy,
 } from 'src/investment-policy/domain/investment-policy';
 
-const PERCENT_OPTIONS = { allowNaN: false, allowInfinity: false, maxDecimalPlaces: 2 };
+const PERCENT_OPTIONS = {
+	allowNaN: false,
+	allowInfinity: false,
+	maxDecimalPlaces: 2,
+};
 
 export class UpdateInvestmentPolicyDto implements InvestmentPolicy {
 	@ApiProperty({ example: 8 })

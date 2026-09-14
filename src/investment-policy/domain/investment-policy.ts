@@ -39,7 +39,9 @@ export const INVESTMENT_POLICY_HISTORY_LIMIT = 20;
  * Regras que atravessam campos (as de faixa ficam no DTO). Devolve a
  * mensagem do primeiro problema ou `null`.
  */
-export function findPolicyInconsistency(policy: InvestmentPolicy): string | null {
+export function findPolicyInconsistency(
+	policy: InvestmentPolicy
+): string | null {
 	if (policy.maxAssetWeightPct > policy.maxSectorWeightPct) {
 		return 'O limite por ativo não pode ser maior que o limite por setor.';
 	}

@@ -258,7 +258,10 @@ const userSchema = new Schema<User>(
 
 		// Sem default pelo mesmo motivo do thresholdPolicy. O histórico fica
 		// fora das leituras comuns do usuário (`select: false`).
-		investmentPolicy: { type: investmentPolicyVersionSchema, default: undefined },
+		investmentPolicy: {
+			type: investmentPolicyVersionSchema,
+			default: undefined,
+		},
 		investmentPolicyHistory: {
 			type: [investmentPolicyVersionSchema],
 			default: undefined,

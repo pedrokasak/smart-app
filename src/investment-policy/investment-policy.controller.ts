@@ -33,13 +33,17 @@ export class InvestmentPolicyController {
 	}
 
 	@Put()
-	@ApiOperation({ summary: 'Salva uma nova versão da política de investimento' })
+	@ApiOperation({
+		summary: 'Salva uma nova versão da política de investimento',
+	})
 	save(@Req() req: any, @Body() dto: UpdateInvestmentPolicyDto) {
 		return this.service.save(requireUserId(req), dto);
 	}
 
 	@Get('versions')
-	@ApiOperation({ summary: 'Versões anteriores da política (mais recente primeiro)' })
+	@ApiOperation({
+		summary: 'Versões anteriores da política (mais recente primeiro)',
+	})
 	versions(@Req() req: any) {
 		return this.service.listVersions(requireUserId(req));
 	}

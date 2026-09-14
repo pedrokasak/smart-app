@@ -43,7 +43,11 @@ export class InvestmentPolicyService {
 
 		const current = user.investmentPolicy;
 		if (!current) {
-			return { policy: DEFAULT_INVESTMENT_POLICY, isDefault: true, savedAt: null };
+			return {
+				policy: DEFAULT_INVESTMENT_POLICY,
+				isDefault: true,
+				savedAt: null,
+			};
 		}
 		return {
 			policy: toPolicy(current),

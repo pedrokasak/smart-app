@@ -10,15 +10,16 @@ export interface InvestmentPolicyVersion extends InvestmentPolicy {
 
 const percent = { type: Number, required: true, min: 0, max: 100 };
 
-export const investmentPolicyVersionSchema = new Schema<InvestmentPolicyVersion>(
-	{
-		maxAssetWeightPct: percent,
-		maxSectorWeightPct: percent,
-		fixedIncomeTargetPct: percent,
-		brStocksTargetPct: percent,
-		maxCryptoPct: percent,
-		benchmark: { type: String, enum: INVESTMENT_BENCHMARKS, required: true },
-		savedAt: { type: Date, required: true },
-	},
-	{ _id: false }
-);
+export const investmentPolicyVersionSchema =
+	new Schema<InvestmentPolicyVersion>(
+		{
+			maxAssetWeightPct: percent,
+			maxSectorWeightPct: percent,
+			fixedIncomeTargetPct: percent,
+			brStocksTargetPct: percent,
+			maxCryptoPct: percent,
+			benchmark: { type: String, enum: INVESTMENT_BENCHMARKS, required: true },
+			savedAt: { type: Date, required: true },
+		},
+		{ _id: false }
+	);

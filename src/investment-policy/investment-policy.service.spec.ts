@@ -7,7 +7,9 @@ import {
 } from './domain/investment-policy';
 
 const lean = (value: unknown) => ({
-	select: jest.fn().mockReturnValue({ lean: jest.fn().mockResolvedValue(value) }),
+	select: jest
+		.fn()
+		.mockReturnValue({ lean: jest.fn().mockResolvedValue(value) }),
 });
 
 describe('InvestmentPolicyService', () => {
@@ -66,7 +68,10 @@ describe('InvestmentPolicyService', () => {
 	});
 
 	it('pushes the replaced version to the top of a capped history', async () => {
-		const previous = { ...DEFAULT_INVESTMENT_POLICY, savedAt: new Date('2026-01-01') };
+		const previous = {
+			...DEFAULT_INVESTMENT_POLICY,
+			savedAt: new Date('2026-01-01'),
+		};
 		userModel.findById.mockReturnValue(lean({ investmentPolicy: previous }));
 
 		await service.save('u1', policy);
