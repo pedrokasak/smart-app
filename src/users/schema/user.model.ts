@@ -1,5 +1,9 @@
 import { Schema, Types, model } from 'mongoose';
 import { Role } from 'src/auth/enums/role.enum';
+import {
+	InvestmentPolicyVersion,
+	investmentPolicyVersionSchema,
+} from 'src/investment-policy/infrastructure/investment-policy.schema';
 
 export interface User extends Document {
 	_id?: Types.ObjectId;
@@ -72,6 +76,9 @@ export interface User extends Document {
 		cooldownHours?: number;
 		quoteStaleAfterMinutes?: number;
 	};
+	/** Política de investimento definida em Configurações (TRA-175). */
+	investmentPolicy?: InvestmentPolicyVersion;
+	investmentPolicyHistory?: InvestmentPolicyVersion[];
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -247,6 +254,15 @@ const userSchema = new Schema<User>(
 			scoreDropPoints: { type: Number, default: undefined },
 			cooldownHours: { type: Number, default: undefined },
 			quoteStaleAfterMinutes: { type: Number, default: undefined },
+		},
+
+		// Sem default pelo mesmo motivo do thresholdPolicy. O histórico fica
+		// fora das leituras comuns do usuário (`select: false`).
+		investmentPolicy: { type: investmentPolicyVersionSchema, default: undefined },
+		investmentPolicyHistory: {
+			type: [investmentPolicyVersionSchema],
+			default: undefined,
+			select: false,
 		},
 	},
 	{
