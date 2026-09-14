@@ -26,6 +26,8 @@ import { StockModule } from 'src/stocks/stocks.module';
 import { StockService } from 'src/stocks/stocks.service';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
+import { upcomingDividendSchema } from 'src/portfolio/upcoming-dividends/upcoming-dividend.model';
+import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
 
 @Module({
 	imports: [
@@ -44,6 +46,10 @@ import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio
 			{
 				name: 'Trade',
 				schema: tradeSchema,
+			},
+			{
+				name: 'UpcomingDividend',
+				schema: upcomingDividendSchema,
 			},
 		]),
 		HttpModule,
@@ -76,6 +82,7 @@ import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio
 		{ provide: RISK_FREE_RATE_PROVIDER, useExisting: StockService },
 		PortfolioRiskContributionService,
 		PortfolioHistoryBackfillService,
+		UpcomingDividendsService,
 
 		// Schedulers
 		// Backfill diário do setor dos ativos existentes (TRA-144): o

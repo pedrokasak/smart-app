@@ -8,7 +8,9 @@ import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns
 import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
+import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
+import * as xlsx from 'xlsx';
 
 jest.mock('src/authentication/jwt-auth.guard', () => ({
 	JwtAuthGuard: jest.fn().mockImplementation(() => true),
@@ -61,6 +63,11 @@ describe('PortfolioController', () => {
 		backfill: jest.fn(),
 	};
 
+	const mockUpcomingDividendsService = {
+		replaceForPortfolio: jest.fn(),
+		listUpcoming: jest.fn(),
+	};
+
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
 			controllers: [PortfolioController],
@@ -92,6 +99,10 @@ describe('PortfolioController', () => {
 				{
 					provide: PortfolioHistoryBackfillService,
 					useValue: mockPortfolioHistoryBackfillService,
+				},
+				{
+					provide: UpcomingDividendsService,
+					useValue: mockUpcomingDividendsService,
 				},
 			],
 		}).compile();
@@ -315,6 +326,80 @@ describe('PortfolioController', () => {
 				NotFoundException
 			);
 			expect(mockPortfolioService.deletePortfolio).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('import-b3-auto', () => {
+		const xlsxUpload = (sheetName: string, rows: any[][]) => {
+			const workbook = xlsx.utils.book_new();
+			xlsx.utils.book_append_sheet(
+				workbook,
+				xlsx.utils.aoa_to_sheet(rows),
+				sheetName
+			);
+			return {
+				originalname: 'eventos-2026-09-14-09-56-05.xlsx',
+				mimetype:
+					'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+				buffer: xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' }),
+			};
+		};
+
+		it('routes the B3 "Eventos" report to the pending-dividends list, never to the received-dividends importer', async () => {
+			const file = xlsxUpload('Proventos a Receber', [
+				[
+					'Produto',
+					'Tipo',
+					'Tipo de Evento',
+					'Previsão de pagamento',
+					'Instituição',
+					'Conta',
+					'Quantidade',
+					'Preço unitário',
+					'Valor líquido',
+				],
+				[
+					'MOVI3 - MOVIDA',
+					'ON',
+					'DIVIDENDO',
+					'11/09/2026',
+					'BTG',
+					'1',
+					'32',
+					0.53,
+					14.39,
+				],
+			]);
+			mockUpcomingDividendsService.replaceForPortfolio.mockResolvedValue({
+				eventsImported: 1,
+				totalNetValue: 14.39,
+				nextPaymentDate: new Date('2026-09-11'),
+			});
+			const reportSpy = jest.spyOn(controller, 'importB3Report');
+			const transactionsSpy = jest.spyOn(controller, 'importB3Transactions');
+
+			const result: any = await controller.importB3Auto(
+				'507f1f77bcf86cd799439012',
+				file,
+				reqFor('507f1f77bcf86cd799439011')
+			);
+
+			expect(
+				mockPortfolioService.assertPortfolioOwnership
+			).toHaveBeenCalledWith(
+				'507f1f77bcf86cd799439011',
+				'507f1f77bcf86cd799439012'
+			);
+			expect(result).toMatchObject({ kind: 'upcoming', eventsImported: 1 });
+			const [userId, portfolioId, events] =
+				mockUpcomingDividendsService.replaceForPortfolio.mock.calls[0];
+			expect([userId, portfolioId]).toEqual([
+				'507f1f77bcf86cd799439011',
+				'507f1f77bcf86cd799439012',
+			]);
+			expect(events[0]).toMatchObject({ symbol: 'MOVI3', netValue: 14.39 });
+			expect(reportSpy).not.toHaveBeenCalled();
+			expect(transactionsSpy).not.toHaveBeenCalled();
 		});
 	});
 });
