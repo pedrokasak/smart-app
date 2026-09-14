@@ -361,18 +361,55 @@ export class AdminService implements OnModuleInit {
 			this.manualGrantAuditModel.countDocuments(),
 		]);
 
-		const items = records.map((record: any) => ({
-			id: String(record._id),
-			userEmail: record.userEmail,
-			planId: String(record.plan?._id ?? record.plan),
-			planName: record.plan?.name ?? 'Plano removido',
-			grantType: record.grantType,
-			trialDurationDays: record.trialDurationDays,
-			discountPercent: record.discountPercent,
-			notes: record.notes,
-			performedByEmail: record.performedByEmail,
-			createdAt: record.createdAt,
-		}));
+		// O registro de auditoria é só a concessão em si — não guarda status,
+		// porque a assinatura resultante pode mudar depois (renovar, cancelar,
+		// virar paga via Stripe). "Ativo"/"Expirado" no handoff reflete o
+		// estado ATUAL, então busca a assinatura vigente de cada usuário
+		// envolvido numa única query em lote, não uma por linha.
+		//
+		// `Types.ObjectId.isValid` filtra registros legados/corrompidos sem
+		// `user` válido antes de construir a query — um único hex inválido
+		// aqui derrubaria a página inteira do histórico de concessões com um
+		// erro 500 em vez de só deixar aquele registro sem status calculado.
+		const userIds = [
+			...new Set(
+				records
+					.map((record: any) => String(record.user))
+					.filter((id) => Types.ObjectId.isValid(id))
+			),
+		];
+		const subscriptions = userIds.length
+			? await this.userSubscriptionModel
+					.find({ user: { $in: userIds.map((id) => new Types.ObjectId(id)) } })
+					.select('user status currentPeriodEnd')
+					.lean()
+			: [];
+		const subscriptionByUserId = new Map(
+			subscriptions.map((sub: any) => [String(sub.user), sub])
+		);
+
+		const now = new Date();
+		const items = records.map((record: any) => {
+			const subscription = subscriptionByUserId.get(String(record.user));
+			const isActive =
+				!!subscription &&
+				['active', 'trialing'].includes(subscription.status) &&
+				new Date(subscription.currentPeriodEnd) > now;
+
+			return {
+				id: String(record._id),
+				userEmail: record.userEmail,
+				planId: String(record.plan?._id ?? record.plan),
+				planName: record.plan?.name ?? 'Plano removido',
+				grantType: record.grantType,
+				trialDurationDays: record.trialDurationDays,
+				discountPercent: record.discountPercent,
+				notes: record.notes,
+				performedByEmail: record.performedByEmail,
+				createdAt: record.createdAt,
+				status: (isActive ? 'active' : 'expired') as 'active' | 'expired',
+			};
+		});
 
 		return { items, page, limit, total };
 	}

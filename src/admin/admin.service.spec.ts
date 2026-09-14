@@ -326,11 +326,18 @@ describe('AdminService — grantSubscriptionByEmail', () => {
 describe('AdminService — listManualGrants', () => {
 	let service: AdminService;
 	let mockManualGrantAuditModel: any;
+	let mockUserSubscriptionModel: any;
 
 	beforeEach(async () => {
 		mockManualGrantAuditModel = {
 			find: jest.fn(),
 			countDocuments: jest.fn(),
+		};
+		mockUserSubscriptionModel = {
+			find: jest.fn().mockReturnValue({
+				select: jest.fn().mockReturnThis(),
+				lean: jest.fn().mockResolvedValue([]),
+			}),
 		};
 
 		const module: TestingModule = await Test.createTestingModule({
@@ -338,7 +345,10 @@ describe('AdminService — listManualGrants', () => {
 				AdminService,
 				{ provide: getModelToken('User'), useValue: {} },
 				{ provide: getModelToken('Subscription'), useValue: {} },
-				{ provide: getModelToken('UserSubscription'), useValue: {} },
+				{
+					provide: getModelToken('UserSubscription'),
+					useValue: mockUserSubscriptionModel,
+				},
 				{
 					provide: getModelToken('ManualGrantAudit'),
 					useValue: mockManualGrantAuditModel,
@@ -353,6 +363,7 @@ describe('AdminService — listManualGrants', () => {
 	it('returns paginated grant history ordered by most recent', async () => {
 		const record = {
 			_id: 'grant-1',
+			user: '507f1f77bcf86cd799439099',
 			userEmail: 'user@example.com',
 			plan: { _id: 'plan-1', name: 'Pro' },
 			grantType: ManualGrantType.Trial,
@@ -382,6 +393,114 @@ describe('AdminService — listManualGrants', () => {
 			userEmail: 'user@example.com',
 			planName: 'Pro',
 			discountPercent: 10,
+			status: 'expired',
 		});
+	});
+
+	it('marks the grant as "active" when the user has a current active/trialing subscription that has not expired', async () => {
+		const userId = '507f1f77bcf86cd799439099';
+		const record = {
+			_id: 'grant-1',
+			user: userId,
+			userEmail: 'user@example.com',
+			plan: { _id: 'plan-1', name: 'Pro' },
+			grantType: ManualGrantType.Permanent,
+			performedByEmail: 'admin@example.com',
+			createdAt: new Date('2026-01-01'),
+		};
+
+		const query = {
+			find: jest.fn().mockReturnThis(),
+			sort: jest.fn().mockReturnThis(),
+			skip: jest.fn().mockReturnThis(),
+			limit: jest.fn().mockReturnThis(),
+			populate: jest.fn().mockReturnThis(),
+			lean: jest.fn().mockResolvedValue([record]),
+		};
+		mockManualGrantAuditModel.find.mockReturnValue(query);
+		mockManualGrantAuditModel.countDocuments.mockResolvedValue(1);
+		mockUserSubscriptionModel.find.mockReturnValue({
+			select: jest.fn().mockReturnThis(),
+			lean: jest.fn().mockResolvedValue([
+				{
+					user: userId,
+					status: 'active',
+					currentPeriodEnd: new Date('2099-12-31'),
+				},
+			]),
+		});
+
+		const result = await service.listManualGrants({ page: 1, limit: 20 });
+
+		expect(result.items[0].status).toBe('active');
+	});
+
+	it('marks the grant as "expired" when the matching subscription period has already ended', async () => {
+		const userId = '507f1f77bcf86cd799439099';
+		const record = {
+			_id: 'grant-1',
+			user: userId,
+			userEmail: 'user@example.com',
+			plan: { _id: 'plan-1', name: 'Pro' },
+			grantType: ManualGrantType.Trial,
+			performedByEmail: 'admin@example.com',
+			createdAt: new Date('2026-01-01'),
+		};
+
+		const query = {
+			find: jest.fn().mockReturnThis(),
+			sort: jest.fn().mockReturnThis(),
+			skip: jest.fn().mockReturnThis(),
+			limit: jest.fn().mockReturnThis(),
+			populate: jest.fn().mockReturnThis(),
+			lean: jest.fn().mockResolvedValue([record]),
+		};
+		mockManualGrantAuditModel.find.mockReturnValue(query);
+		mockManualGrantAuditModel.countDocuments.mockResolvedValue(1);
+		mockUserSubscriptionModel.find.mockReturnValue({
+			select: jest.fn().mockReturnThis(),
+			lean: jest.fn().mockResolvedValue([
+				{
+					user: userId,
+					status: 'trialing',
+					currentPeriodEnd: new Date('2020-01-01'),
+				},
+			]),
+		});
+
+		const result = await service.listManualGrants({ page: 1, limit: 20 });
+
+		expect(result.items[0].status).toBe('expired');
+	});
+
+	// Regressão: um registro de auditoria com `user` ausente/corrompido
+	// virava `new Types.ObjectId(String(undefined))` — lançava e derrubava a
+	// página inteira do histórico com 500, não só aquele registro.
+	it('does not throw when a grant record has a missing/invalid user id — falls back to "expired" for that record', async () => {
+		const record = {
+			_id: 'grant-1',
+			user: undefined,
+			userEmail: 'user@example.com',
+			plan: { _id: 'plan-1', name: 'Pro' },
+			grantType: ManualGrantType.Trial,
+			performedByEmail: 'admin@example.com',
+			createdAt: new Date('2026-01-01'),
+		};
+
+		const query = {
+			find: jest.fn().mockReturnThis(),
+			sort: jest.fn().mockReturnThis(),
+			skip: jest.fn().mockReturnThis(),
+			limit: jest.fn().mockReturnThis(),
+			populate: jest.fn().mockReturnThis(),
+			lean: jest.fn().mockResolvedValue([record]),
+		};
+		mockManualGrantAuditModel.find.mockReturnValue(query);
+		mockManualGrantAuditModel.countDocuments.mockResolvedValue(1);
+
+		const result = await service.listManualGrants({ page: 1, limit: 20 });
+
+		expect(result.items[0].status).toBe('expired');
+		expect(mockUserSubscriptionModel.find).not.toHaveBeenCalled();
 	});
 });

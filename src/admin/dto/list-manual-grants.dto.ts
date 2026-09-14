@@ -30,6 +30,10 @@ export type ManualGrantHistoryItem = {
 	notes?: string;
 	performedByEmail: string;
 	createdAt: Date;
+	/** Status da assinatura atual do usuário no momento da consulta —
+	 * 'active'/'trialing' com currentPeriodEnd no futuro, ou 'expired'
+	 * (sem assinatura ativa, cancelada, ou período expirado). */
+	status: 'active' | 'expired';
 };
 
 export type ListManualGrantsResponse = {
