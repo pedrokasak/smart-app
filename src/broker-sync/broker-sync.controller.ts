@@ -209,7 +209,22 @@ export class BrokerSyncController {
 			excelEpoch.setUTCDate(excelEpoch.getUTCDate() + Math.floor(value));
 			return Number.isNaN(excelEpoch.getTime()) ? null : excelEpoch;
 		}
-		const parsed = new Date(String(value || ''));
+		const text = String(value || '').trim();
+		if (!text) return null;
+		// B3 exporta datas como DD/MM/AAAA. `new Date(string)` assume o
+		// formato americano MM/DD/AAAA: para qualquer dia > 12 isso já
+		// retornava Invalid Date (a nota inteira era descartada), e para
+		// dia <= 12 invertia mês e dia silenciosamente. Precisa ser
+		// interpretado explicitamente antes de cair no parser genérico.
+		const brDateMatch = text.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/);
+		if (brDateMatch) {
+			const [, day, month, year] = brDateMatch;
+			const date = new Date(
+				Date.UTC(Number(year), Number(month) - 1, Number(day))
+			);
+			return Number.isNaN(date.getTime()) ? null : date;
+		}
+		const parsed = new Date(text);
 		if (Number.isNaN(parsed.getTime())) return null;
 		return parsed;
 	}
@@ -227,6 +242,11 @@ export class BrokerSyncController {
 			>[];
 
 			for (const row of rows) {
+				const hasExplicitTickerColumn =
+					row['Código de Negociação'] !== undefined ||
+					row['Código'] !== undefined ||
+					row['Ativo'] !== undefined ||
+					row['Ticker'] !== undefined;
 				const symbolRaw =
 					row['Código de Negociação'] ||
 					row['Código'] ||
@@ -245,10 +265,14 @@ export class BrokerSyncController {
 				if (quantity <= 0) continue;
 
 				let price = this.normalizeNumber(
-					row['Preço'] || row['Preço de Fechamento'] || row['price']
+					row['Preço'] ||
+						row['Preço unitário'] ||
+						row['Preço de Fechamento'] ||
+						row['price']
 				);
 				const totalValue = this.normalizeNumber(
 					row['Valor'] ||
+						row['Valor da Operação'] ||
 						row['Valor Atualizado'] ||
 						row['Valor Atualizado CURVA'] ||
 						row['Valor Atualizado MTM']
@@ -258,17 +282,41 @@ export class BrokerSyncController {
 				}
 				if (price <= 0) continue;
 
+				// A exportação "Negociação" da B3 usa "Tipo de Movimentação"
+				// (não "Tipo") — nunca bate com C/V ou Compra/Venda, que não
+				// existem nos relatórios reais da B3. "Movimentação" só é
+				// confiável quando a linha também tem um código de ticker
+				// explícito: sem isso ela mistura Tesouro Direto e outros
+				// eventos cujo "Produto" (ex. "Tesouro IPCA+ 2032") não é um
+				// ticker e viraria um ativo inventado no portfólio.
 				const sideValue =
-					row['C/V'] || row['Tipo'] || row['Compra/Venda'] || row['side'];
+					row['C/V'] ||
+					row['Tipo de Movimentação'] ||
+					(hasExplicitTickerColumn ? row['Movimentação'] : undefined) ||
+					row['Tipo'] ||
+					row['Compra/Venda'] ||
+					row['side'];
 				if (!sideValue) continue;
 				const sideRaw = String(sideValue).toUpperCase().trim();
-				const side: 'buy' | 'sell' =
-					sideRaw.startsWith('V') || sideRaw.includes('VENDA') ? 'sell' : 'buy';
+				const isBuy = sideRaw === 'COMPRA' || sideRaw === 'C';
+				const isSell = sideRaw === 'VENDA' || sideRaw === 'V';
+				if (!isBuy && !isSell) {
+					// Linha de movimentação que não é compra/venda (dividendo,
+					// bonificação, transferência, atualização, etc.) — não é
+					// uma negociação e não deve virar trade.
+					continue;
+				}
+				const side: 'buy' | 'sell' = isSell ? 'sell' : 'buy';
 
 				const fees = this.normalizeNumber(
 					row['Taxas'] || row['Corretagem'] || row['fees']
 				);
-				const dateValue = row['Data'] || row['Data Negócio'] || row['date'];
+				// A exportação "Negociação" da B3 usa "Data do Negócio", não "Data".
+				const dateValue =
+					row['Data'] ||
+					row['Data do Negócio'] ||
+					row['Data Negócio'] ||
+					row['date'];
 				if (!dateValue) continue;
 				const date = this.parseDate(dateValue);
 				if (!date) continue;
@@ -285,6 +333,51 @@ export class BrokerSyncController {
 		}
 
 		return trades;
+	}
+
+	// O "Relatório consolidado" da B3 não lista negociações — só a posição
+	// atual (planilhas "Posição - Ações/ETF/Fundos"), sem preço de custo.
+	// parseTradesFromXlsx sempre retorna 0 trades para esse arquivo, o que é
+	// correto; sem este caminho separado, porém, o relatório nunca sincroniza
+	// nada, mesmo sendo um dos 3 arquivos que a B3 disponibiliza para o
+	// usuário exportar. Aqui a carteira é ajustada direto para a posição
+	// informada (melhor aproximação possível sem histórico de negociações).
+	private parsePositionsFromXlsx(
+		buffer: Buffer
+	): { symbol: string; quantity: number; price: number }[] {
+		const workbook = xlsx.read(buffer, { type: 'buffer' });
+		const positions: { symbol: string; quantity: number; price: number }[] = [];
+
+		for (const sheetName of workbook.SheetNames) {
+			if (!sheetName.toLowerCase().startsWith('posição')) continue;
+			const sheet = workbook.Sheets[sheetName];
+			if (!sheet) continue;
+			const rows = xlsx.utils.sheet_to_json(sheet, { defval: null }) as Record<
+				string,
+				unknown
+			>[];
+
+			for (const row of rows) {
+				const symbolRaw = row['Código de Negociação'] || row['Código'];
+				const symbol = String(symbolRaw || '')
+					.toUpperCase()
+					.trim()
+					.match(/[A-Z]{4}\d{1,2}|[A-Z]{2,10}/)?.[0];
+				if (!symbol) continue;
+
+				const quantity = this.normalizeNumber(
+					row['Quantidade Disponível'] ?? row['Quantidade']
+				);
+				if (quantity <= 0) continue;
+
+				const price = this.normalizeNumber(row['Preço de Fechamento']);
+				if (price <= 0) continue;
+
+				positions.push({ symbol, quantity, price });
+			}
+		}
+
+		return positions;
 	}
 
 	private async processUploadAsync(params: {
@@ -330,10 +423,25 @@ export class BrokerSyncController {
 				trades = this.parseTradesFromXlsx(params.buffer);
 			}
 
+			// O relatório consolidado nunca produz trades (não tem negociações,
+			// só posição atual) — cai aqui em vez de "falhou".
+			if (!trades.length && params.isXlsx && params.isB3Report) {
+				const positions = this.parsePositionsFromXlsx(params.buffer);
+				if (positions.length) {
+					await this.applyPositionsSnapshot(
+						params.userId,
+						params.provider,
+						positions,
+						upload
+					);
+					return;
+				}
+			}
+
 			if (!trades.length) {
 				upload.status = 'failed';
 				upload.errorMessage = params.isB3Report
-					? 'Não foi possível extrair operações deste relatório B3 automaticamente. Envie planilha XLSX/CSV para importação completa.'
+					? 'Não foi possível extrair operações nem posições deste relatório B3 automaticamente.'
 					: 'Não foi possível extrair operações do arquivo enviado.';
 				upload.processedAt = new Date();
 				await upload.save();
@@ -456,6 +564,71 @@ export class BrokerSyncController {
 			);
 			upload.status = 'failed';
 			upload.errorMessage = error?.message || 'Falha ao processar arquivo';
+			upload.processedAt = new Date();
+			await upload.save();
+		}
+	}
+
+	private async applyPositionsSnapshot(
+		userId: string,
+		provider: string,
+		positions: { symbol: string; quantity: number; price: number }[],
+		upload: InstanceType<typeof BrokerageNoteUploadModel>
+	) {
+		try {
+			let portfolio = await this.portfolioService.findPortfolioByName(
+				userId,
+				provider
+			);
+			if (!portfolio) {
+				portfolio = await this.portfolioService.createPortfolio(userId, {
+					name: provider,
+					ownerType: 'self',
+					ownerName: 'Brokerage Note Import',
+				} as any);
+			}
+
+			let updatedAssets = 0;
+			for (const position of positions) {
+				const existing = await this.assetsService.findAssetBySymbolAndPortfolio(
+					portfolio._id.toString(),
+					position.symbol
+				);
+				if (existing) {
+					await this.assetsService.update(existing._id.toString(), {
+						quantity: position.quantity,
+						avgPrice: position.price,
+						price: position.price,
+					} as any);
+				} else {
+					await this.portfolioService.addAssetToPortfolio(
+						portfolio._id.toString(),
+						{
+							symbol: position.symbol,
+							type: this.inferType(position.symbol) as any,
+							quantity: position.quantity,
+							price: position.price,
+						} as any
+					);
+				}
+				updatedAssets++;
+			}
+
+			upload.status = 'processed';
+			upload.processedAt = new Date();
+			upload.stats = {
+				tradesImported: 0,
+				assetsUpdated: updatedAssets,
+				portfolioId: String(portfolio._id),
+			};
+			await upload.save();
+		} catch (error) {
+			this.logger.error(
+				`Falha ao aplicar posições do relatório consolidado: ${error?.message || error}`
+			);
+			upload.status = 'failed';
+			upload.errorMessage =
+				error?.message || 'Falha ao processar posições do relatório';
 			upload.processedAt = new Date();
 			await upload.save();
 		}
