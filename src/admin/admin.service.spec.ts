@@ -472,4 +472,35 @@ describe('AdminService — listManualGrants', () => {
 
 		expect(result.items[0].status).toBe('expired');
 	});
+
+	// Regressão: um registro de auditoria com `user` ausente/corrompido
+	// virava `new Types.ObjectId(String(undefined))` — lançava e derrubava a
+	// página inteira do histórico com 500, não só aquele registro.
+	it('does not throw when a grant record has a missing/invalid user id — falls back to "expired" for that record', async () => {
+		const record = {
+			_id: 'grant-1',
+			user: undefined,
+			userEmail: 'user@example.com',
+			plan: { _id: 'plan-1', name: 'Pro' },
+			grantType: ManualGrantType.Trial,
+			performedByEmail: 'admin@example.com',
+			createdAt: new Date('2026-01-01'),
+		};
+
+		const query = {
+			find: jest.fn().mockReturnThis(),
+			sort: jest.fn().mockReturnThis(),
+			skip: jest.fn().mockReturnThis(),
+			limit: jest.fn().mockReturnThis(),
+			populate: jest.fn().mockReturnThis(),
+			lean: jest.fn().mockResolvedValue([record]),
+		};
+		mockManualGrantAuditModel.find.mockReturnValue(query);
+		mockManualGrantAuditModel.countDocuments.mockResolvedValue(1);
+
+		const result = await service.listManualGrants({ page: 1, limit: 20 });
+
+		expect(result.items[0].status).toBe('expired');
+		expect(mockUserSubscriptionModel.find).not.toHaveBeenCalled();
+	});
 });
