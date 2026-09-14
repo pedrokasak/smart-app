@@ -127,4 +127,33 @@ describe('EndpointRateLimitMiddleware', () => {
 			HttpStatus.TOO_MANY_REQUESTS
 		);
 	});
+
+	// Import de planilha da B3 tem :id no caminho; sem regra por padrão caía
+	// no default de 300/min, e trocar o id abria um balde novo a cada chamada.
+	it('limits B3 spreadsheet imports to 20 per 10 minutes, sharing one bucket across portfolio ids and routes', async () => {
+		const middleware = new EndpointRateLimitMiddleware();
+		const res: any = { setHeader: jest.fn() };
+		const next = jest.fn();
+		const reqFor = (path: string): any => ({
+			method: 'POST',
+			path,
+			ip: '10.0.0.9',
+			headers: { 'user-agent': 'jest', 'accept-language': 'pt-BR' },
+			socket: { remoteAddress: '10.0.0.9' },
+		});
+		const paths = [
+			'/portfolio/aaa/import-b3-auto',
+			'/portfolio/bbb/import-b3',
+			'/portfolio/ccc/import-b3-transactions',
+		];
+
+		for (let i = 0; i < 20; i += 1) {
+			await middleware.use(reqFor(paths[i % paths.length]), res, next);
+		}
+		expect(next).toHaveBeenCalledTimes(20);
+
+		await expect(
+			middleware.use(reqFor('/portfolio/zzz/import-b3-auto'), res, next)
+		).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
+	});
 });
