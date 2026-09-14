@@ -1,6 +1,6 @@
 import * as crypto from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
-import { UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { authenticator } from 'otplib';
 import { TwoFactorService } from './two-factor.service';
@@ -108,6 +108,31 @@ describe('TwoFactorService', () => {
 	afterEach(() => {
 		jest.clearAllMocks();
 		mockTokenBlacklistService.isBlacklisted.mockResolvedValue(false);
+	});
+
+	describe('setupTwoFactor', () => {
+		it('refuses to overwrite the secret while 2FA is active', async () => {
+			(UserModel.findById as jest.Mock).mockResolvedValue(buildUser());
+
+			await expect(service.setupTwoFactor('u1')).rejects.toThrow(
+				BadRequestException
+			);
+			expect(UserModel.findByIdAndUpdate).not.toHaveBeenCalled();
+		});
+
+		it('stores a new pending secret when 2FA is off', async () => {
+			(UserModel.findById as jest.Mock).mockResolvedValue({
+				...buildUser(),
+				twoFactorEnabled: false,
+			});
+
+			const result = await service.setupTwoFactor('u1');
+
+			expect(result.qrCodeDataUrl).toMatch(/^data:image\/png;base64,/);
+			expect(UserModel.findByIdAndUpdate).toHaveBeenCalledWith('u1', {
+				$set: { twoFactorSecret: result.secret, twoFactorEnabled: false },
+			});
+		});
 	});
 
 	describe('authenticateWithTwoFactor', () => {

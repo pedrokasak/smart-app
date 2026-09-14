@@ -48,6 +48,13 @@ export class TwoFactorService {
 	): Promise<{ secret: string; qrCodeDataUrl: string }> {
 		const user = await UserModel.findById(userId);
 		if (!user) throw new BadRequestException('Usuário não encontrado.');
+		// Gravar um segredo novo zera `twoFactorEnabled`: sem esta trava, só uma
+		// sessão válida (sem o código TOTP) bastava para desligar o 2FA.
+		if (user.twoFactorEnabled) {
+			throw new BadRequestException(
+				'2FA já está ativo. Desative com o código atual antes de configurar de novo.'
+			);
+		}
 
 		const secret = authenticator.generateSecret();
 		const appName = 'Trackerr';
