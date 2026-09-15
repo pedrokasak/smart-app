@@ -97,13 +97,20 @@ export class PlanSyncService implements OnApplicationBootstrap {
 	 * chave (teste ou live), sem depender de script manual. Falha aqui não
 	 * derruba a API: a vitrine só fica com o que já estava no banco.
 	 */
-	async onApplicationBootstrap() {
+	onApplicationBootstrap() {
 		if (
 			process.env.NODE_ENV === 'test' ||
 			process.env.PLAN_SYNC_ON_BOOT === 'false'
 		) {
 			return;
 		}
+		// Sem await: o hook roda ANTES do app começar a escutar. Uma chamada
+		// lenta ao Mongo ou ao Stripe aqui deixaria a API inteira fora do ar
+		// enquanto não respondesse.
+		void this.runBootstrapSync();
+	}
+
+	private async runBootstrapSync() {
 		try {
 			const report = await this.syncCanonicalPlans({ deactivateLegacy: false });
 			for (const entry of report.plans) {
@@ -138,11 +145,15 @@ export class PlanSyncService implements OnApplicationBootstrap {
 		if (!needsLookup || !this.stripe) return ids;
 
 		const lookup = lookupKeysForSlug(canonical.slug);
-		const { data } = await this.stripe.prices.list({
-			lookup_keys: [lookup.monthly, lookup.annual],
-			active: true,
-			limit: 2,
-		});
+		const { data } = await this.stripe.prices.list(
+			{
+				lookup_keys: [lookup.monthly, lookup.annual],
+				active: true,
+				limit: 2,
+			},
+			// Stripe fora do ar não pode deixar o sync pendurado.
+			{ timeout: 10_000, maxNetworkRetries: 1 }
+		);
 		const monthly = data.find((p) => p.lookup_key === lookup.monthly);
 		const annual = data.find((p) => p.lookup_key === lookup.annual);
 		const productOf = (price?: Stripe.Price) =>
