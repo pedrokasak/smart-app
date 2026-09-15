@@ -53,12 +53,13 @@ describe('CreateCheckoutDto', () => {
 		expect(errors.some((e) => e.property === 'billingInterval')).toBe(true);
 	});
 
-	it('rejects a missing userId', async () => {
+	// O usuário vem do token; o corpo não precisa (nem deve) informar.
+	it('accepts a payload without userId', async () => {
 		const dto = plainToInstance(CreateCheckoutDto, {
 			successUrl: 'https://ok',
 			cancelUrl: 'https://cancel',
 		});
 		const errors = await validate(dto);
-		expect(errors.some((e) => e.property === 'userId')).toBe(true);
+		expect(errors).toHaveLength(0);
 	});
 });
