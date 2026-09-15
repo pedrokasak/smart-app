@@ -224,6 +224,8 @@ export class StripeService {
 					},
 				],
 				mode: 'subscription',
+				// Cupons criados no Stripe (ex.: cobrança de teste) entram no checkout.
+				allow_promotion_codes: true,
 				success_url: successUrl,
 				cancel_url: cancelUrl,
 			});

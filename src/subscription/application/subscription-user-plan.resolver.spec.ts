@@ -24,6 +24,14 @@ describe('SubscriptionUserPlanResolver (TRA-79)', () => {
 		).toHaveBeenCalledWith('user-1');
 	});
 
+	it('uses the tier stored on the plan, so renaming the plan keeps the access', async () => {
+		subscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+			plan: { name: 'Plano Ouro', tier: 'premium' },
+		});
+
+		await expect(resolver.resolve('user-1')).resolves.toBe('premium');
+	});
+
 	it('falls back to free when the user has no active subscription', async () => {
 		// findCurrentSubscriptionByUser ja filtra por active/trialing, entao
 		// assinatura cancelada ou vencida chega aqui como null.

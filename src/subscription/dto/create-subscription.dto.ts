@@ -39,6 +39,15 @@ export class CreateSubscriptionDto {
 	@IsNumber()
 	intervalCount?: number;
 
+	@ApiPropertyOptional({
+		description:
+			'Nível de acesso liberado pelo plano. Renomear o plano não muda o acesso.',
+		enum: ['free', 'pro', 'premium', 'global_investor'],
+	})
+	@IsOptional()
+	@IsEnum(['free', 'pro', 'premium', 'global_investor'])
+	tier?: 'free' | 'pro' | 'premium' | 'global_investor';
+
 	@ApiPropertyOptional({ description: 'ID do preço no Stripe' })
 	@IsOptional()
 	@IsString()

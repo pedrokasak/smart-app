@@ -200,6 +200,9 @@ export class AdminService implements OnModuleInit {
 		plan.intervalCount = nextIntervalCount;
 		plan.annualPrice = nextAnnualPrice;
 		plan.annualStripePriceId = nextAnnualStripePriceId;
+		if (dto.tier !== undefined) {
+			plan.tier = dto.tier;
+		}
 		if (dto.features) {
 			plan.features = dto.features;
 		}
