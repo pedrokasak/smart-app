@@ -148,28 +148,9 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 		isComingSoon: false,
 		aliases: ['premium', 'wealth', 'wealth premium', 'plano premium'],
 	},
-	{
-		slug: 'enterprise',
-		kind: 'contact_sales',
-		tier: 'global_investor',
-		name: 'Enterprise',
-		description:
-			'Escritórios, family offices e assessorias com múltiplos titulares.',
-		monthlyPrice: 0,
-		currency: 'brl',
-		interval: 'month',
-		intervalCount: 1,
-		features: [
-			'Usuários e permissões por papel',
-			'SSO/SAML e logs de auditoria',
-			'SLA 99,9% com contrato',
-			'API e integrações dedicadas',
-			'Gerente de conta nomeado',
-		],
-		isFeatured: false,
-		isComingSoon: false,
-		aliases: ['enterprise', 'global investor', 'global_investor'],
-	},
+	// Enterprise (tier global_investor) saiu da vitrine no lançamento: são dois
+	// planos pagos além do gratuito. O tier segue valendo para concessões e
+	// para um plano novo criado no admin.
 ];
 
 /**
@@ -179,6 +160,17 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
  *   - STRIPE_PLAN_PRO_PRICE_ANNUAL_ID
  *   - STRIPE_PLAN_PRO_ANNUAL_AMOUNT   (valor em BRL, opcional, override)
  */
+/**
+ * `lookup_key` dos preços no Stripe. Criar o preço com esta chave basta
+ * para o sync do boot vincular o plano, na conta de teste ou na live.
+ */
+export function lookupKeysForSlug(slug: string) {
+	return {
+		monthly: `trackerr_${slug}_monthly`,
+		annual: `trackerr_${slug}_annual`,
+	};
+}
+
 export function envKeysForSlug(slug: string) {
 	const upper = slug.toUpperCase();
 	return {

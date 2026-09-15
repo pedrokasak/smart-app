@@ -1,4 +1,10 @@
-import { Injectable, Logger } from '@nestjs/common';
+import {
+	Injectable,
+	Logger,
+	OnApplicationBootstrap,
+	Optional,
+} from '@nestjs/common';
+import Stripe from 'stripe';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Subscription, UserSubscription } from 'src/subscription/schema';
@@ -6,6 +12,7 @@ import {
 	CANONICAL_PLANS,
 	CanonicalPlan,
 	envKeysForSlug,
+	lookupKeysForSlug,
 } from './canonical-plans.config';
 
 export interface PlanSyncFieldChange {
@@ -45,6 +52,18 @@ export interface PlanSyncOptions {
 	dryRun?: boolean;
 	/** Fonte de variáveis de ambiente. Injetável para facilitar testes. */
 	env?: NodeJS.ProcessEnv;
+	/**
+	 * Desativa planos fora da lista canônica. O sync automático do boot
+	 * desliga isto para não aposentar planos criados pelo admin.
+	 */
+	deactivateLegacy?: boolean;
+}
+
+interface StripeIds {
+	productId?: string;
+	monthlyPriceId?: string;
+	annualPriceId?: string;
+	annualAmount?: number;
 }
 
 /**
@@ -62,15 +81,81 @@ export interface PlanSyncOptions {
  * Stripe e reexecutar o seed.
  */
 @Injectable()
-export class PlanSyncService {
+export class PlanSyncService implements OnApplicationBootstrap {
 	private readonly logger = new Logger(PlanSyncService.name);
 
 	constructor(
 		@InjectModel('Subscription')
 		private readonly subscriptionModel: Model<Subscription>,
 		@InjectModel('UserSubscription')
-		private readonly userSubscriptionModel: Model<UserSubscription>
+		private readonly userSubscriptionModel: Model<UserSubscription>,
+		@Optional() private readonly stripe?: Stripe
 	) {}
+
+	/**
+	 * Cada deploy reconcilia os planos canônicos com o Stripe da própria
+	 * chave (teste ou live), sem depender de script manual. Falha aqui não
+	 * derruba a API: a vitrine só fica com o que já estava no banco.
+	 */
+	async onApplicationBootstrap() {
+		if (
+			process.env.NODE_ENV === 'test' ||
+			process.env.PLAN_SYNC_ON_BOOT === 'false'
+		) {
+			return;
+		}
+		try {
+			const report = await this.syncCanonicalPlans({ deactivateLegacy: false });
+			for (const entry of report.plans) {
+				this.logger.log(`[plan-sync] ${entry.slug}: ${entry.action}`);
+			}
+			for (const todo of report.todos) this.logger.warn(`[plan-sync] ${todo}`);
+		} catch (error) {
+			this.logger.error(`[plan-sync] falhou no boot: ${error?.message}`);
+		}
+	}
+
+	/**
+	 * IDs do Stripe por plano: variável de ambiente primeiro; sem ela, o
+	 * preço com `lookup_key` `trackerr_<slug>_monthly`/`_annual` na conta da
+	 * chave configurada. Assim os IDs de teste e live nunca se misturam.
+	 */
+	private async resolveStripeIds(
+		canonical: CanonicalPlan,
+		env: NodeJS.ProcessEnv
+	): Promise<StripeIds> {
+		const keys = envKeysForSlug(canonical.slug);
+		const amountRaw = env[keys.annualAmount]?.trim();
+		const ids: StripeIds = {
+			productId: env[keys.productId]?.trim() || undefined,
+			monthlyPriceId: env[keys.monthlyPriceId]?.trim() || undefined,
+			annualPriceId: env[keys.annualPriceId]?.trim() || undefined,
+			annualAmount: amountRaw ? Number(amountRaw) : undefined,
+		};
+		const needsLookup =
+			canonical.kind === 'stripe_subscription' &&
+			(!ids.monthlyPriceId || !ids.annualPriceId);
+		if (!needsLookup || !this.stripe) return ids;
+
+		const lookup = lookupKeysForSlug(canonical.slug);
+		const { data } = await this.stripe.prices.list({
+			lookup_keys: [lookup.monthly, lookup.annual],
+			active: true,
+			limit: 2,
+		});
+		const monthly = data.find((p) => p.lookup_key === lookup.monthly);
+		const annual = data.find((p) => p.lookup_key === lookup.annual);
+		const productOf = (price?: Stripe.Price) =>
+			typeof price?.product === 'string' ? price.product : price?.product?.id;
+
+		ids.monthlyPriceId ??= monthly?.id;
+		ids.annualPriceId ??= annual?.id;
+		ids.productId ??= productOf(monthly) ?? productOf(annual);
+		if (ids.annualAmount === undefined && annual?.unit_amount != null) {
+			ids.annualAmount = annual.unit_amount / 100;
+		}
+		return ids;
+	}
 
 	async syncCanonicalPlans(
 		options: PlanSyncOptions = {}
@@ -94,11 +179,14 @@ export class PlanSyncService {
 			globalTodos.push(...entry.todos.map((t) => `[${entry.slug}] ${t}`));
 		}
 
-		const legacyReports = await this.deactivateLegacyPlans({
-			existingPlans,
-			matchedIds,
-			dryRun,
-		});
+		const legacyReports =
+			options.deactivateLegacy === false
+				? []
+				: await this.deactivateLegacyPlans({
+						existingPlans,
+						matchedIds,
+						dryRun,
+					});
 
 		return {
 			dryRun,
@@ -119,15 +207,12 @@ export class PlanSyncService {
 		}
 	): Promise<PlanSyncEntry> {
 		const envKeys = envKeysForSlug(canonical.slug);
-		const envProductId = ctx.env[envKeys.productId]?.trim() || undefined;
-		const envMonthlyPriceId =
-			ctx.env[envKeys.monthlyPriceId]?.trim() || undefined;
-		const envAnnualPriceId =
-			ctx.env[envKeys.annualPriceId]?.trim() || undefined;
+		const stripeIds = await this.resolveStripeIds(canonical, ctx.env);
+		const envProductId = stripeIds.productId;
+		const envMonthlyPriceId = stripeIds.monthlyPriceId;
+		const envAnnualPriceId = stripeIds.annualPriceId;
 		const envAnnualAmountRaw = ctx.env[envKeys.annualAmount]?.trim();
-		const envAnnualAmount = envAnnualAmountRaw
-			? Number(envAnnualAmountRaw)
-			: undefined;
+		const envAnnualAmount = stripeIds.annualAmount;
 
 		const todos: string[] = [];
 		const warnings: string[] = [];
@@ -165,6 +250,7 @@ export class PlanSyncService {
 			name: canonical.name,
 			description: canonical.description,
 			price: canonical.monthlyPrice,
+			tier: canonical.tier,
 			currency: canonical.currency,
 			interval: canonical.interval,
 			intervalCount: canonical.intervalCount,

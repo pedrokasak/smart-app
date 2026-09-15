@@ -1,4 +1,5 @@
 import { Schema, Document, model } from 'mongoose';
+import type { UserPlanTier } from 'src/subscription/application/user-plan.types';
 
 export interface Subscription extends Document {
 	name: string;
@@ -7,6 +8,8 @@ export interface Subscription extends Document {
 	currency: string;
 	interval: 'month' | 'year' | 'week' | 'day';
 	intervalCount: number;
+	/** Nível de acesso que o plano libera. Independe do nome exibido. */
+	tier?: UserPlanTier;
 	stripePriceId?: string;
 	stripeProductId?: string;
 	annualPrice?: number;
@@ -32,6 +35,10 @@ const subscriptionSchema = new Schema<Subscription>({
 		required: true,
 	},
 	intervalCount: { type: Number, default: 1, required: true },
+	tier: {
+		type: String,
+		enum: ['free', 'pro', 'premium', 'global_investor'],
+	},
 	stripePriceId: { type: String, unique: true, sparse: true },
 	stripeProductId: { type: String, unique: true, sparse: true },
 	annualPrice: { type: Number },

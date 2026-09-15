@@ -33,8 +33,14 @@ export class SubscriptionUserPlanResolver implements UserPlanResolverPort {
 				await this.subscriptionService.findCurrentSubscriptionByUser(userId);
 			if (!subscription) return 'free';
 
-			const plan = (subscription as { plan?: { name?: string } })?.plan;
-			return SubscriptionUserPlanResolver.tierFromPlanName(plan?.name);
+			const plan = (
+				subscription as { plan?: { name?: string; tier?: UserPlanTier } }
+			)?.plan;
+			// O tier gravado no plano manda; o nome só vale para planos antigos
+			// criados antes do campo existir.
+			return (
+				plan?.tier ?? SubscriptionUserPlanResolver.tierFromPlanName(plan?.name)
+			);
 		} catch (error) {
 			// Falha na consulta nao pode virar acesso liberado por acidente.
 			this.logger.warn(

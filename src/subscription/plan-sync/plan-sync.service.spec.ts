@@ -191,4 +191,46 @@ describe('PlanSyncService', () => {
 		expect(subscriptionModel.create).not.toHaveBeenCalled();
 		expect(subscriptionModel.updateOne).not.toHaveBeenCalled();
 	});
+
+	it('vincula os preços pelo lookup_key do Stripe quando não há variável de ambiente', async () => {
+		const stripe = {
+			prices: {
+				list: jest.fn(async ({ lookup_keys }: { lookup_keys: string[] }) => ({
+					data: lookup_keys.map((key) => ({
+						id: `price_${key}`,
+						lookup_key: key,
+						product: `prod_${key.split('_')[1]}`,
+						unit_amount: key.endsWith('annual') ? 14900 : 1490,
+					})),
+				})),
+			},
+		};
+		const withStripe = new PlanSyncService(
+			subscriptionModel,
+			userSubscriptionModel,
+			stripe as any
+		);
+
+		await withStripe.syncCanonicalPlans({ env: {} });
+
+		expect(plans.find((p) => p.name === 'Pro')).toMatchObject({
+			tier: 'pro',
+			stripeProductId: 'prod_pro',
+			stripePriceId: 'price_trackerr_pro_monthly',
+			annualStripePriceId: 'price_trackerr_pro_annual',
+			annualPrice: 149,
+		});
+	});
+
+	it('não desativa planos do admin quando deactivateLegacy é false', async () => {
+		plans.push({ _id: 'custom', name: 'Plano Ouro', isActive: true });
+
+		const report = await service.syncCanonicalPlans({
+			env,
+			deactivateLegacy: false,
+		});
+
+		expect(report.legacy).toEqual([]);
+		expect(plans.find((p) => p._id === 'custom')?.isActive).toBe(true);
+	});
 });
