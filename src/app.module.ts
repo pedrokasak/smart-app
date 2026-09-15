@@ -37,6 +37,7 @@ import { PortfolioEvaluationModule } from './portfolio/evaluation/portfolio-eval
 import { PrivacyModule } from './privacy/privacy.module';
 import { InvestmentPolicyModule } from './investment-policy/investment-policy.module';
 import { ReportsModule } from './reports/reports.module';
+import { FinancialPlanModule } from './financial-plan/financial-plan.module';
 import { EventsModule } from './events/events.module';
 import { QuoteStalenessModule } from './market-data/quote-staleness/quote-staleness.module';
 
@@ -71,6 +72,7 @@ import { QuoteStalenessModule } from './market-data/quote-staleness/quote-stalen
 		PrivacyModule,
 		InvestmentPolicyModule,
 		ReportsModule,
+		FinancialPlanModule,
 	],
 	controllers: [AppController],
 	providers: [
