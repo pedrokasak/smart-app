@@ -395,6 +395,38 @@ export class SubscriptionService {
 		);
 	}
 
+	/**
+	 * Faturas do Stripe para a tela Assinatura. Sem cliente no Stripe (plano
+	 * gratuito ou concessão manual) a lista é vazia, não erro.
+	 */
+	async listUserInvoices(userId: string) {
+		const userSubscription = await this.userSubscriptionModel
+			.findOne({ user: userId, stripeCustomerId: { $exists: true, $ne: null } })
+			.sort({ createdAt: -1 });
+		const customerId = (
+			userSubscription as { stripeCustomerId?: string } | null
+		)?.stripeCustomerId;
+		if (!customerId) return [];
+
+		const invoices = await this.stripeService.listCustomerInvoices(customerId);
+		return invoices.map((invoice) => ({
+			id: invoice.id,
+			number: invoice.number ?? null,
+			status: invoice.status,
+			description: invoice.lines?.data?.[0]?.description ?? null,
+			total: (invoice.total ?? 0) / 100,
+			currency: invoice.currency,
+			createdAt: new Date(invoice.created * 1000).toISOString(),
+			dueDate: invoice.due_date
+				? new Date(invoice.due_date * 1000).toISOString()
+				: null,
+			paidAt: invoice.status_transitions?.paid_at
+				? new Date(invoice.status_transitions.paid_at * 1000).toISOString()
+				: null,
+			pdfUrl: invoice.invoice_pdf ?? null,
+		}));
+	}
+
 	async createPortalSession(userId: string, returnUrl: string) {
 		try {
 			const userSubscription = await this.findUserSubscription(userId);

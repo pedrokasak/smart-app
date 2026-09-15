@@ -2,10 +2,11 @@ import { IsIn, IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateCheckoutDto {
-	@ApiProperty({ description: 'ID do usuário que está assinando' })
+	/** Ignorado: o checkout é sempre do usuário do token. Mantido por compatibilidade. */
+	@ApiPropertyOptional({ deprecated: true })
+	@IsOptional()
 	@IsString()
-	@IsNotEmpty()
-	userId: string;
+	userId?: string;
 
 	@ApiProperty({ description: 'URL de redirecionamento em caso de sucesso' })
 	@IsString()

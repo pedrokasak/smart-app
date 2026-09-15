@@ -235,6 +235,18 @@ export class StripeService {
 		}
 	}
 
+	/** Últimas faturas do cliente, mais recentes primeiro. */
+	async listCustomerInvoices(
+		customerId: string,
+		limit = 12
+	): Promise<Stripe.Invoice[]> {
+		const invoices = await this.stripe.invoices.list({
+			customer: customerId,
+			limit,
+		});
+		return invoices.data;
+	}
+
 	// Criar portal de gerenciamento do cliente
 	async createCustomerPortalSession(
 		customerId: string,

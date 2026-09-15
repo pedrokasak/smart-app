@@ -55,7 +55,12 @@ describe('SubscriptionController', () => {
 		updateSubscription: jest.fn(),
 		removeSubscription: jest.fn(),
 		createCheckoutSession: jest.fn(),
+		createPortalSession: jest.fn(),
+		cancelUserSubscription: jest.fn(),
+		listUserInvoices: jest.fn(),
 	};
+
+	const req = { user: { userId: 'token-user' } };
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
@@ -164,9 +169,11 @@ describe('SubscriptionController', () => {
 
 			mockSubscriptionService.createCheckoutSession.mockResolvedValue(result);
 
-			expect(await controller.createCheckout('sub123', body)).toEqual(result);
+			expect(await controller.createCheckout('sub123', body, req)).toEqual(
+				result
+			);
 			expect(service.createCheckoutSession).toHaveBeenCalledWith(
-				body.userId,
+				'token-user',
 				'sub123',
 				body.successUrl,
 				body.cancelUrl,
@@ -185,14 +192,65 @@ describe('SubscriptionController', () => {
 
 			mockSubscriptionService.createCheckoutSession.mockResolvedValue(result);
 
-			expect(await controller.createCheckout('sub123', body)).toEqual(result);
+			expect(await controller.createCheckout('sub123', body, req)).toEqual(
+				result
+			);
 			expect(service.createCheckoutSession).toHaveBeenCalledWith(
-				body.userId,
+				'token-user',
 				'sub123',
 				body.successUrl,
 				body.cancelUrl,
 				'annual'
 			);
+		});
+	});
+
+	describe('account routes use the token user, never the body', () => {
+		it('opens the billing portal for the token user', async () => {
+			mockSubscriptionService.createPortalSession.mockResolvedValue({
+				url: 'u',
+			});
+			await controller.createPortalSession(
+				{
+					returnUrl: 'https://trackerr.com.br/subscription',
+					userId: 'victim',
+				} as any,
+				req
+			);
+			expect(service.createPortalSession).toHaveBeenCalledWith(
+				'token-user',
+				'https://trackerr.com.br/subscription'
+			);
+		});
+
+		it('cancels only the token user subscription', async () => {
+			await controller.cancelSubscription(req);
+			expect(service.cancelUserSubscription).toHaveBeenCalledWith('token-user');
+		});
+
+		it('ignores a different userId in the checkout body', async () => {
+			await controller.createCheckout(
+				'sub123',
+				{ userId: 'victim', successUrl: 's', cancelUrl: 'c' },
+				req
+			);
+			expect(service.createCheckoutSession).toHaveBeenCalledWith(
+				'token-user',
+				'sub123',
+				's',
+				'c',
+				undefined
+			);
+		});
+
+		it('lists invoices of the token user', async () => {
+			mockSubscriptionService.listUserInvoices.mockResolvedValue([]);
+			await expect(controller.listInvoices(req)).resolves.toEqual([]);
+			expect(service.listUserInvoices).toHaveBeenCalledWith('token-user');
+		});
+
+		it('rejects a request without an authenticated user', () => {
+			expect(() => controller.listInvoices({})).toThrow(ForbiddenException);
 		});
 	});
 
