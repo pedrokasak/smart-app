@@ -55,6 +55,8 @@ describe('SubscriptionUserPlanResolver (TRA-79)', () => {
 			['PRO', 'pro'],
 			['Global Investor', 'global_investor'],
 			['Plano Global', 'global_investor'],
+			['Enterprise', 'global_investor'],
+			['Trackerr Enterprise', 'global_investor'],
 			['Plano Gratuito', 'free'],
 			['', 'free'],
 		])('maps %s to %s', (name, expected) => {

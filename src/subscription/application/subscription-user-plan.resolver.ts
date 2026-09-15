@@ -60,7 +60,13 @@ export class SubscriptionUserPlanResolver implements UserPlanResolverPort {
 			.trim();
 		if (!name) return 'free';
 
-		if (name.includes('global') || name.includes('investor')) {
+		// Enterprise (nome visível do tier global_investor no canonical-plans)
+		// caía em 'free' e perdia todas as features pagas.
+		if (
+			name.includes('enterprise') ||
+			name.includes('global') ||
+			name.includes('investor')
+		) {
 			return 'global_investor';
 		}
 		if (name.includes('premium')) return 'premium';
