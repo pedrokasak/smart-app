@@ -4,6 +4,7 @@ import {
 	Delete,
 	Get,
 	Logger,
+	NotFoundException,
 	Param,
 	Post,
 	Req,
@@ -13,9 +14,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { Types } from 'mongoose';
-// Polyfill de DOM DEVE vir antes de 'pdf-parse' (pdfjs) — ver o módulo.
-import 'src/common/pdf/pdf-node-polyfill';
-import { PDFParse } from 'pdf-parse';
+import { extractPdfText } from 'src/common/pdf/extract-pdf-text';
 import * as xlsx from 'xlsx';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { BrokerSyncService } from './broker-sync.service';
@@ -82,6 +81,24 @@ export class BrokerSyncController {
 			.sort({ createdAt: -1 })
 			.limit(50)
 			.lean();
+	}
+
+	/** Dispensa uma linha de "Importações recentes" (só as do próprio usuário). */
+	@Delete('uploads/:uploadId')
+	async dismissUpload(@Req() req: any, @Param('uploadId') uploadId: string) {
+		if (!Types.ObjectId.isValid(uploadId)) {
+			throw new NotFoundException('Importação não encontrada.');
+		}
+		const userId =
+			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
+		const result = await BrokerageNoteUploadModel.deleteOne({
+			_id: new Types.ObjectId(uploadId),
+			userId: new Types.ObjectId(userId),
+		});
+		if (!result.deletedCount) {
+			throw new NotFoundException('Importação não encontrada.');
+		}
+		return { dismissed: true };
 	}
 
 	@Get('upload-note/:uploadId/status')
@@ -435,11 +452,7 @@ export class BrokerSyncController {
 				: [];
 
 			if (params.isPdf) {
-				const parser = new PDFParse({ data: params.buffer });
-				const parsed = await parser.getText();
-				const text = (parsed as any)?.text || (parsed as any)?.document || '';
-				await parser.destroy();
-				trades = parseTradesFromBtgPdfText(text);
+				trades = parseTradesFromBtgPdfText(await extractPdfText(params.buffer));
 			}
 
 			if (params.isXlsx) {

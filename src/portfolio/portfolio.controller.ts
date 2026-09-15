@@ -14,6 +14,7 @@ import {
 	UseInterceptors,
 	UploadedFile,
 	Logger,
+	UnprocessableEntityException,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -43,6 +44,15 @@ import { Types } from 'mongoose';
 import * as xlsx from 'xlsx';
 import { validateUploadFile } from 'src/broker-sync/security/upload-file.validator';
 import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
+import { extractPdfText } from 'src/common/pdf/extract-pdf-text';
+import {
+	classifyB3PdfText,
+	parseB3NegotiationPdfText,
+} from 'src/portfolio/import/b3-pdf';
+import {
+	BrokerageNoteUploadModel,
+	BrokerageUploadKind,
+} from 'src/broker-sync/schema/brokerage-note-upload.model';
 
 /**
  * Planilha da B3 é pequena; o limite existe pra impedir que um upload
@@ -514,9 +524,37 @@ export class PortfolioController {
 		if (!validation.ok) {
 			throw new BadRequestException(validation.reason);
 		}
+
+		const userId = resolveUserId(req);
+
 		if (validation.detectedKind === 'pdf') {
-			throw new BadRequestException(
-				'PDF não é um arquivo da B3 — use o upload de nota de corretagem.'
+			const text = await extractPdfText(Buffer.from(file.buffer));
+			const pdfKind = classifyB3PdfText(text);
+			if (pdfKind === 'unknown') {
+				// Não é export da B3: o web manda para o parser de nota de corretagem.
+				throw new UnprocessableEntityException({
+					code: 'NOT_B3_PDF',
+					message: 'Este PDF não é um relatório da B3.',
+				});
+			}
+			return this.recordImport(
+				userId,
+				id,
+				file,
+				'b3_transactions',
+				async () => {
+					if (pdfKind !== 'negotiation') {
+						throw new BadRequestException(
+							'Em PDF, a B3 só permite ler o Extrato de Negociação. Baixe a Movimentação, o Consolidado e os Eventos em Excel (.xlsx) na Área do Investidor.'
+						);
+					}
+					const result = await this.persistB3Transactions(
+						userId,
+						id,
+						parseB3NegotiationPdfText(text)
+					);
+					return { kind: 'transactions' as const, ...result };
+				}
 			);
 		}
 
@@ -529,30 +567,91 @@ export class PortfolioController {
 				: xlsx.read(file.buffer, { type: 'buffer' });
 
 		if (workbook && hasB3UpcomingEventsSheet(workbook)) {
-			const events = parseB3UpcomingEvents(workbook);
-			const result = await this.upcomingDividendsService.replaceForPortfolio(
-				resolveUserId(req),
-				id,
-				events
-			);
-			return {
-				kind: 'upcoming' as const,
-				message: events.length
-					? 'Proventos a receber atualizados.'
-					: 'Nenhum provento previsto encontrado no relatório de Eventos.',
-				...result,
-			};
+			return this.recordImport(userId, id, file, 'b3_events', async () => {
+				const events = parseB3UpcomingEvents(workbook);
+				const result = await this.upcomingDividendsService.replaceForPortfolio(
+					userId,
+					id,
+					events
+				);
+				return {
+					kind: 'upcoming' as const,
+					message: events.length
+						? 'Proventos a receber atualizados.'
+						: 'Nenhum provento previsto encontrado no relatório de Eventos.',
+					...result,
+				};
+			});
 		}
 
 		const kind =
 			workbook && hasB3ReportSheet(workbook) ? 'report' : 'transactions';
 
-		const result =
-			kind === 'transactions'
-				? await this.importB3Transactions(id, file, req)
-				: await this.importB3Report(id, file, req);
+		return this.recordImport(
+			userId,
+			id,
+			file,
+			kind === 'report' ? 'b3_report' : 'b3_transactions',
+			async () => {
+				const result =
+					kind === 'transactions'
+						? await this.importB3Transactions(id, file, req)
+						: await this.importB3Report(id, file, req);
+				return { kind, ...result };
+			}
+		);
+	}
 
-		return { kind, ...result };
+	/**
+	 * Registra a importação em "Importações recentes" (mesma coleção das notas
+	 * de corretagem): sucesso e falha ficam visíveis depois de recarregar, e a
+	 * pessoa pode dispensar a linha. O erro original continua subindo.
+	 */
+	private async recordImport<T extends Record<string, any>>(
+		userId: string,
+		portfolioId: string,
+		file: any,
+		kind: BrokerageUploadKind,
+		run: () => Promise<T>
+	): Promise<T> {
+		const base = {
+			userId: new Types.ObjectId(userId),
+			provider: 'b3',
+			originalName: String(file?.originalname || 'arquivo').slice(0, 200),
+			mimeType: file?.mimetype ?? null,
+			size: file?.size ?? null,
+			kind,
+			processedAt: new Date(),
+		};
+		try {
+			const result = await run();
+			await BrokerageNoteUploadModel.create({
+				...base,
+				status: 'processed',
+				stats: {
+					tradesImported: Number(result?.tradesImported ?? 0),
+					assetsUpdated:
+						Number(result?.assetsCreated ?? 0) +
+						Number(result?.assetsUpdated ?? 0) +
+						Number(result?.imported ?? result?.count ?? 0),
+					portfolioId,
+				},
+			}).catch((error) =>
+				this.logger.warn(`Falha ao registrar importação: ${error?.message}`)
+			);
+			return result;
+		} catch (error: any) {
+			const message =
+				error?.response?.message ?? error?.message ?? 'Falha na importação';
+			await BrokerageNoteUploadModel.create({
+				...base,
+				status: 'failed',
+				errorMessage: String(
+					Array.isArray(message) ? message[0] : message
+				).slice(0, 300),
+			}).catch(() => undefined);
+			throw error;
+		}
 	}
 
 	@Post(':id/import-b3')
@@ -873,6 +972,15 @@ export class PortfolioController {
 			parsedTransactions = parseB3NegotiationWorkbook(workbook);
 		}
 
+		return this.persistB3Transactions(userId, portfolioId, parsedTransactions);
+	}
+
+	/** Grava negociações da B3 sem duplicar as já importadas (Excel, CSV ou PDF). */
+	private async persistB3Transactions(
+		userId: string,
+		portfolioId: string,
+		parsedTransactions: ParsedB3Transaction[]
+	) {
 		if (!parsedTransactions.length) {
 			return {
 				message:

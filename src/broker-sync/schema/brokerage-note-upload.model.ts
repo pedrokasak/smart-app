@@ -7,7 +7,12 @@ export type BrokerageNoteStatus =
 	| 'processed'
 	| 'failed';
 
-export type BrokerageUploadKind = 'brokerage_note' | 'b3_report' | 'unknown';
+export type BrokerageUploadKind =
+	| 'brokerage_note'
+	| 'b3_report'
+	| 'b3_transactions'
+	| 'b3_events'
+	| 'unknown';
 
 export interface BrokerageNoteUpload extends Document {
 	userId: Types.ObjectId;
@@ -42,7 +47,13 @@ const brokerageNoteUploadSchema = new Schema<BrokerageNoteUpload>(
 		size: { type: Number, default: null },
 		kind: {
 			type: String,
-			enum: ['brokerage_note', 'b3_report', 'unknown'],
+			enum: [
+				'brokerage_note',
+				'b3_report',
+				'b3_transactions',
+				'b3_events',
+				'unknown',
+			],
 			default: 'unknown',
 		},
 		status: {

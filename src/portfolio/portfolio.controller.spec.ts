@@ -11,9 +11,19 @@ import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio
 import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 import * as xlsx from 'xlsx';
+import { BrokerageNoteUploadModel } from 'src/broker-sync/schema/brokerage-note-upload.model';
+import { extractPdfText } from 'src/common/pdf/extract-pdf-text';
 
 jest.mock('src/authentication/jwt-auth.guard', () => ({
 	JwtAuthGuard: jest.fn().mockImplementation(() => true),
+}));
+
+jest.mock('src/broker-sync/schema/brokerage-note-upload.model', () => ({
+	BrokerageNoteUploadModel: { create: jest.fn().mockResolvedValue({}) },
+}));
+
+jest.mock('src/common/pdf/extract-pdf-text', () => ({
+	extractPdfText: jest.fn(),
 }));
 
 jest.mock('src/fiscal/schema/trade.model', () => ({
@@ -400,6 +410,58 @@ describe('PortfolioController', () => {
 			expect(events[0]).toMatchObject({ symbol: 'MOVI3', netValue: 14.39 });
 			expect(reportSpy).not.toHaveBeenCalled();
 			expect(transactionsSpy).not.toHaveBeenCalled();
+			expect(BrokerageNoteUploadModel.create).toHaveBeenCalledWith(
+				expect.objectContaining({
+					kind: 'b3_events',
+					status: 'processed',
+					originalName: 'eventos-2026-09-14-09-56-05.xlsx',
+				})
+			);
+		});
+
+		const pdfUpload = (name: string) => ({
+			originalname: name,
+			mimetype: 'application/pdf',
+			buffer: Buffer.from(['%PDF-1.7', '%fake'].join(String.fromCharCode(10))),
+			size: 20,
+		});
+
+		it('hands non-B3 PDFs back with NOT_B3_PDF so the web sends them to the note parser', async () => {
+			(extractPdfText as jest.Mock).mockResolvedValue(
+				'NOTA DE NEGOCIAÇÃO BTG PACTUAL'
+			);
+
+			await expect(
+				controller.importB3Auto(
+					'507f1f77bcf86cd799439012',
+					pdfUpload('nota.pdf'),
+					reqFor('507f1f77bcf86cd799439011')
+				)
+			).rejects.toMatchObject({ response: { code: 'NOT_B3_PDF' } });
+		});
+
+		it('records a clear failure for B3 PDFs that only work in Excel', async () => {
+			(extractPdfText as jest.Mock).mockResolvedValue(
+				[
+					'Filtros aplicados',
+					'Extrato de Movimentação',
+					'acesse investidor.B3.com.br',
+				].join(String.fromCharCode(10))
+			);
+
+			await expect(
+				controller.importB3Auto(
+					'507f1f77bcf86cd799439012',
+					pdfUpload('movimentacao.pdf'),
+					reqFor('507f1f77bcf86cd799439011')
+				)
+			).rejects.toThrow(/Excel/);
+			expect(BrokerageNoteUploadModel.create).toHaveBeenCalledWith(
+				expect.objectContaining({
+					status: 'failed',
+					originalName: 'movimentacao.pdf',
+				})
+			);
 		});
 	});
 });
