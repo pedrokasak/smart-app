@@ -4,6 +4,8 @@ WORKDIR /app
 # -------- BUILD --------
 FROM base AS build
 RUN apk add --no-cache python3 make g++ openssl
+# O Chrome que o puppeteer baixaria é glibc e não roda no Alpine (musl).
+ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 COPY . .
 RUN bun install
@@ -13,6 +15,12 @@ RUN bun run build
 FROM base
 
 ENV NODE_ENV=production
+
+# Chromium do Alpine para os relatórios em PDF (puppeteer), com fontes
+# para acentos e símbolos.
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto
+ENV PUPPETEER_SKIP_DOWNLOAD=true
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/bin/chromium-browser
 
 COPY --from=build /app ./
 
