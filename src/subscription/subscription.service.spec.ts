@@ -401,7 +401,11 @@ describe('SubscriptionController', () => {
 			const result = { sessionId: 'sess_123' };
 			mockSubscriptionService.createCheckoutSession.mockResolvedValue(result);
 
-			expect(await controller.createCheckout('sub123', body, { user: { userId: body.userId } })).toEqual(result);
+			expect(
+				await controller.createCheckout('sub123', body, {
+					user: { userId: body.userId },
+				})
+			).toEqual(result);
 			expect(
 				mockSubscriptionService.createCheckoutSession
 			).toHaveBeenCalledWith(
@@ -423,7 +427,11 @@ describe('SubscriptionController', () => {
 			const result = { sessionId: 'sess_123' };
 			mockSubscriptionService.createCheckoutSession.mockResolvedValue(result);
 
-			expect(await controller.createCheckout('sub123', body, { user: { userId: body.userId } })).toEqual(result);
+			expect(
+				await controller.createCheckout('sub123', body, {
+					user: { userId: body.userId },
+				})
+			).toEqual(result);
 			expect(
 				mockSubscriptionService.createCheckoutSession
 			).toHaveBeenCalledWith(
