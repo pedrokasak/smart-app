@@ -1,5 +1,6 @@
 import {
 	BadRequestException,
+	ForbiddenException,
 	Injectable,
 	NotFoundException,
 	Logger,
@@ -14,6 +15,8 @@ import { AssetsService } from 'src/assets/assets.service';
 import { UserModel } from 'src/users/schema/user.model';
 import { ProviderRegistry } from 'src/broker-sync/providers/provider-registry';
 import { SubscriptionService } from 'src/subscription/subscription.service';
+import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
+import { planAtLeast } from 'src/subscription/application/user-plan.types';
 import { createBrokerCredentialCipher } from 'src/broker-sync/security/credential-cipher.factory';
 import {
 	BrokerCipherUnavailableError,
@@ -177,7 +180,25 @@ export class BrokerSyncService {
 		});
 	}
 
+	/**
+	 * Conexão direta com corretora/exchange é do plano Pro para cima. A
+	 * importação de arquivos da B3 fica fora desta trava e vale para todos.
+	 * Qualquer falha ao resolver o plano nega o acesso.
+	 */
+	private async assertBrokerSyncPlan(userId: string): Promise<void> {
+		const subscription = await this.subscriptionService
+			.findCurrentSubscriptionByUser(userId)
+			.catch(() => null);
+		const tier = SubscriptionUserPlanResolver.tierFromPlanName(
+			(subscription as { plan?: { name?: string } } | null)?.plan?.name
+		);
+		if (!subscription || !planAtLeast(tier, 'pro')) {
+			throw new ForbiddenException('PLANO_UPGRADE_NECESSARIO');
+		}
+	}
+
 	async connect(userId: string, dto: BrokerConnectDto) {
+		await this.assertBrokerSyncPlan(userId);
 		const existing = await BrokerConnectionModel.findOne({
 			userId: new Types.ObjectId(userId),
 			provider: dto.provider,
@@ -216,11 +237,7 @@ export class BrokerSyncService {
 	}
 
 	async syncConnection(userId: string, provider: string) {
-		const sub =
-			await this.subscriptionService.findCurrentSubscriptionByUser(userId);
-		if (!sub) {
-			throw new BadRequestException('PLANO_UPGRADE_NECESSARIO');
-		}
+		await this.assertBrokerSyncPlan(userId);
 
 		const connection = await BrokerConnectionModel.findOne({
 			userId: new Types.ObjectId(userId),

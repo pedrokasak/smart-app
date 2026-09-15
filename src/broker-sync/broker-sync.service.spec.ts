@@ -1,3 +1,4 @@
+import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BrokerSyncService } from './broker-sync.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
@@ -107,6 +108,7 @@ describe('BrokerSyncService', () => {
 		// Mock subscription
 		mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
 			status: 'active',
+			plan: { name: 'Pro' },
 		});
 
 		const selectSpy = jest.fn().mockReturnThis();
@@ -206,6 +208,7 @@ describe('BrokerSyncService', () => {
 			jest.spyOn(service as any, 'decrypt').mockReturnValue('decryptedValue');
 			mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
 				status: 'active',
+				plan: { name: 'Pro' },
 			});
 
 			const selectSpy = jest.fn().mockResolvedValue(mockConnection);
@@ -280,6 +283,40 @@ describe('BrokerSyncService', () => {
 
 			expect(conexao.lastError).toBeNull();
 			expect(conexao.lastErrorCode).toBeNull();
+		});
+	});
+	describe('plano Pro para conexão direta', () => {
+		it('recusa conectar e sincronizar no plano gratuito', async () => {
+			const userId = new Types.ObjectId().toString();
+			mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+				status: 'active',
+				plan: { name: 'Essencial' },
+			});
+			const createSpy = jest.spyOn(BrokerConnectionModel, 'create');
+
+			await expect(
+				service.connect(userId, {
+					provider: 'binance',
+					apiKey: 'k',
+					apiSecret: 's',
+				})
+			).rejects.toThrow(ForbiddenException);
+			await expect(service.syncConnection(userId, 'binance')).rejects.toThrow(
+				ForbiddenException
+			);
+			expect(createSpy).not.toHaveBeenCalled();
+		});
+
+		it('nega quando a consulta do plano falha', async () => {
+			mockSubscriptionService.findCurrentSubscriptionByUser.mockRejectedValue(
+				new Error('db down')
+			);
+
+			await expect(
+				service.connect(new Types.ObjectId().toString(), {
+					provider: 'binance',
+				})
+			).rejects.toThrow('PLANO_UPGRADE_NECESSARIO');
 		});
 	});
 });
