@@ -135,8 +135,8 @@ export class PlanSyncService implements OnApplicationBootstrap {
 		const amountRaw = env[keys.annualAmount]?.trim();
 		const ids: StripeIds = {
 			productId: env[keys.productId]?.trim() || undefined,
-			monthlyPriceId: env[keys.monthlyPriceId]?.trim() || undefined,
-			annualPriceId: env[keys.annualPriceId]?.trim() || undefined,
+			monthlyPriceId: await this.keepIfUsable(env[keys.monthlyPriceId]?.trim()),
+			annualPriceId: await this.keepIfUsable(env[keys.annualPriceId]?.trim()),
 			annualAmount: amountRaw ? Number(amountRaw) : undefined,
 		};
 		const needsLookup =
@@ -166,6 +166,28 @@ export class PlanSyncService implements OnApplicationBootstrap {
 			ids.annualAmount = annual.unit_amount / 100;
 		}
 		return ids;
+	}
+
+	/**
+	 * Um ID de preço de outro modo (teste gravado no ambiente de produção,
+	 * por exemplo) não existe para a chave atual: o checkout só descobriria
+	 * isso na hora da compra, com "No such price". Aqui ele é descartado e o
+	 * `lookup_key` assume.
+	 */
+	private async keepIfUsable(priceId?: string): Promise<string | undefined> {
+		if (!priceId || !this.stripe) return priceId;
+		try {
+			const price = await this.stripe.prices.retrieve(priceId, {
+				timeout: 10_000,
+				maxNetworkRetries: 1,
+			});
+			return price.active ? price.id : undefined;
+		} catch (error) {
+			this.logger.warn(
+				`[plan-sync] preço ${priceId} não existe nesta conta Stripe (${error?.message}); usando o lookup_key.`
+			);
+			return undefined;
+		}
 	}
 
 	async syncCanonicalPlans(
@@ -312,6 +334,17 @@ export class PlanSyncService implements OnApplicationBootstrap {
 		ctx.matchedIds.add(String(existing._id));
 		const changes: PlanSyncFieldChange[] = [];
 		const $set: Record<string, unknown> = {};
+		// Preço gravado que não existe mais nesta conta (ex.: ID de teste num
+		// deploy com chave live) sai do plano: mantê-lo só adiaria o erro para
+		// o checkout do cliente.
+		const $unset: Record<string, ''> = {};
+		for (const field of ['stripePriceId', 'annualStripePriceId'] as const) {
+			const stored = (existing as any)[field];
+			if (!stored || target[field]) continue;
+			if (await this.keepIfUsable(stored)) continue;
+			changes.push({ field, from: stored, to: undefined });
+			$unset[field] = '';
+		}
 		for (const [field, to] of Object.entries(target)) {
 			const from = (existing as any)[field];
 			if (!deepEqual(from, to)) {
@@ -335,7 +368,10 @@ export class PlanSyncService implements OnApplicationBootstrap {
 
 		if (!ctx.dryRun) {
 			$set.updatedAt = new Date();
-			await this.subscriptionModel.updateOne({ _id: existing._id }, { $set });
+			await this.subscriptionModel.updateOne(
+				{ _id: existing._id },
+				Object.keys($unset).length ? { $set, $unset } : { $set }
+			);
 		}
 
 		return {
