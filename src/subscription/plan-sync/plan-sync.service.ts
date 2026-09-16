@@ -8,6 +8,7 @@ import Stripe from 'stripe';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Subscription, UserSubscription } from 'src/subscription/schema';
+import { isStripeResourceMissing } from 'src/subscription/stripe.service';
 import {
 	CANONICAL_PLANS,
 	CanonicalPlan,
@@ -134,7 +135,10 @@ export class PlanSyncService implements OnApplicationBootstrap {
 		const keys = envKeysForSlug(canonical.slug);
 		const amountRaw = env[keys.annualAmount]?.trim();
 		const ids: StripeIds = {
-			productId: env[keys.productId]?.trim() || undefined,
+			// A env var também precisa passar pela conta atual: um
+			// `STRIPE_PLAN_<SLUG>_PRODUCT_ID` de teste no ambiente de produção
+			// reintroduziria o ID inválido a cada boot.
+			productId: await this.keepProductIfUsable(env[keys.productId]?.trim()),
 			monthlyPriceId: await this.keepIfUsable(env[keys.monthlyPriceId]?.trim()),
 			annualPriceId: await this.keepIfUsable(env[keys.annualPriceId]?.trim()),
 			annualAmount: amountRaw ? Number(amountRaw) : undefined,
@@ -183,8 +187,47 @@ export class PlanSyncService implements OnApplicationBootstrap {
 			});
 			return price.active ? price.id : undefined;
 		} catch (error) {
+			if (!isStripeResourceMissing(error)) {
+				this.logger.warn(
+					`[plan-sync] não deu para validar o preço ${priceId} (${error?.message}); mantido.`
+				);
+				return priceId;
+			}
 			this.logger.warn(
-				`[plan-sync] preço ${priceId} não existe nesta conta Stripe (${error?.message}); usando o lookup_key.`
+				`[plan-sync] preço ${priceId} não existe nesta conta Stripe; usando o lookup_key.`
+			);
+			return undefined;
+		}
+	}
+
+	/**
+	 * Mesmo problema do preço, com consequência diferente: produto de outro
+	 * modo faz o `products.update` do painel admin responder "No such
+	 * product" e derruba a edição inteira do plano.
+	 *
+	 * Diferente do preço, `active: false` aqui é estado legítimo —
+	 * `deactivatePlan` desativa o produto junto com o plano — então só a
+	 * ausência na conta descarta o vínculo.
+	 */
+	private async keepProductIfUsable(
+		productId?: string
+	): Promise<string | undefined> {
+		if (!productId || !this.stripe) return productId;
+		try {
+			await this.stripe.products.retrieve(productId, {
+				timeout: 10_000,
+				maxNetworkRetries: 1,
+			});
+			return productId;
+		} catch (error) {
+			if (!isStripeResourceMissing(error)) {
+				this.logger.warn(
+					`[plan-sync] não deu para validar o produto ${productId} (${error?.message}); mantido.`
+				);
+				return productId;
+			}
+			this.logger.warn(
+				`[plan-sync] produto ${productId} não existe nesta conta Stripe; vínculo descartado.`
 			);
 			return undefined;
 		}
@@ -334,14 +377,28 @@ export class PlanSyncService implements OnApplicationBootstrap {
 		ctx.matchedIds.add(String(existing._id));
 		const changes: PlanSyncFieldChange[] = [];
 		const $set: Record<string, unknown> = {};
-		// Preço gravado que não existe mais nesta conta (ex.: ID de teste num
+		// ID gravado que não existe mais nesta conta (ex.: ID de teste num
 		// deploy com chave live) sai do plano: mantê-lo só adiaria o erro para
-		// o checkout do cliente.
+		// o checkout do cliente ou para a próxima edição no painel admin.
 		const $unset: Record<string, ''> = {};
-		for (const field of ['stripePriceId', 'annualStripePriceId'] as const) {
+		const staleChecks = [
+			{
+				field: 'stripePriceId',
+				validate: (id: string) => this.keepIfUsable(id),
+			},
+			{
+				field: 'annualStripePriceId',
+				validate: (id: string) => this.keepIfUsable(id),
+			},
+			{
+				field: 'stripeProductId',
+				validate: (id: string) => this.keepProductIfUsable(id),
+			},
+		] as const;
+		for (const { field, validate } of staleChecks) {
 			const stored = (existing as any)[field];
 			if (!stored || target[field]) continue;
-			if (await this.keepIfUsable(stored)) continue;
+			if (await validate(stored)) continue;
 			changes.push({ field, from: stored, to: undefined });
 			$unset[field] = '';
 		}

@@ -234,6 +234,11 @@ describe('PlanSyncService', () => {
 		expect(plans.find((p) => p._id === 'custom')?.isActive).toBe(true);
 	});
 
+	// A Stripe sinaliza ID de outro modo com `code: 'resource_missing'` — é
+	// esse código, e não um erro qualquer, que autoriza descartar o vínculo.
+	const resourceMissing = (message: string) =>
+		Object.assign(new Error(message), { code: 'resource_missing' });
+
 	it('limpa preço gravado que não existe na conta Stripe da chave atual', async () => {
 		plans.push({
 			_id: 'plan_pro',
@@ -244,7 +249,7 @@ describe('PlanSyncService', () => {
 		const stripe = {
 			prices: {
 				retrieve: jest.fn(async () => {
-					throw new Error('No such price');
+					throw resourceMissing('No such price');
 				}),
 				list: jest.fn(async () => ({ data: [] })),
 			},
@@ -263,5 +268,98 @@ describe('PlanSyncService', () => {
 			from: 'price_de_outro_modo',
 			to: undefined,
 		});
+	});
+
+	it('limpa produto gravado que não existe na conta Stripe da chave atual', async () => {
+		// TRA-187: o produto de teste sobrevivia ao deploy e travava a edição
+		// do plano no painel admin com "No such product".
+		plans.push({
+			_id: 'plan_pro',
+			name: 'Pro',
+			stripeProductId: 'prod_de_outro_modo',
+			isActive: true,
+		});
+		const stripe = {
+			prices: { list: jest.fn(async () => ({ data: [] })) },
+			products: {
+				retrieve: jest.fn(async () => {
+					throw resourceMissing('No such product');
+				}),
+			},
+		};
+		const withStripe = new PlanSyncService(
+			subscriptionModel,
+			userSubscriptionModel,
+			stripe as any
+		);
+
+		const report = await withStripe.syncCanonicalPlans({ env: {} });
+
+		const pro = report.plans.find((p) => p.slug === 'pro')!;
+		expect(pro.changes).toContainEqual({
+			field: 'stripeProductId',
+			from: 'prod_de_outro_modo',
+			to: undefined,
+		});
+	});
+
+	it('descarta produto de outro modo vindo da variável de ambiente', async () => {
+		const stripe = {
+			prices: { list: jest.fn(async () => ({ data: [] })) },
+			products: {
+				retrieve: jest.fn(async () => {
+					throw resourceMissing('No such product');
+				}),
+			},
+		};
+		const withStripe = new PlanSyncService(
+			subscriptionModel,
+			userSubscriptionModel,
+			stripe as any
+		);
+
+		await withStripe.syncCanonicalPlans({
+			env: { STRIPE_PLAN_PRO_PRODUCT_ID: 'prod_de_outro_modo' },
+		});
+
+		expect(
+			plans.find((p) => p.name === 'Pro')?.stripeProductId
+		).toBeUndefined();
+	});
+
+	it('mantém os IDs gravados quando o Stripe falha por motivo transitório', async () => {
+		// Instabilidade de rede no boot não pode apagar vínculo válido de
+		// produção: só a ausência confirmada descarta.
+		plans.push({
+			_id: 'plan_pro',
+			name: 'Pro',
+			stripeProductId: 'prod_pro_valido',
+			stripePriceId: 'price_pro_valido',
+			isActive: true,
+		});
+		const stripe = {
+			prices: {
+				retrieve: jest.fn(async () => {
+					throw new Error('Connection timeout');
+				}),
+				list: jest.fn(async () => ({ data: [] })),
+			},
+			products: {
+				retrieve: jest.fn(async () => {
+					throw new Error('Connection timeout');
+				}),
+			},
+		};
+		const withStripe = new PlanSyncService(
+			subscriptionModel,
+			userSubscriptionModel,
+			stripe as any
+		);
+
+		const report = await withStripe.syncCanonicalPlans({ env: {} });
+
+		const pro = report.plans.find((p) => p.slug === 'pro')!;
+		const cleared = pro.changes.filter((c) => c.to === undefined);
+		expect(cleared).toEqual([]);
 	});
 });

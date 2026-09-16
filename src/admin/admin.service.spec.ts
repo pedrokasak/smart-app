@@ -197,6 +197,175 @@ describe('AdminService — updatePlan', () => {
 
 		expect(plan.isFeatured).toBe(false);
 	});
+
+	// TRA-187: banco de produção carregava produto criado em test mode. O
+	// `products.update` respondia `resource_missing` e derrubava a edição
+	// inteira, sem saída pela interface — o campo não é editável no painel.
+	const resourceMissing = () =>
+		Object.assign(
+			new Error(
+				"No such product: 'prod_123'; a similar object exists in test mode, " +
+					'but a live mode key was used to make this request.'
+			),
+			{ code: 'resource_missing' }
+		);
+
+	it('reprovisiona o produto quando o ID gravado não existe na conta Stripe', async () => {
+		const plan = buildPlan();
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+		mockStripeService.updateProduct.mockRejectedValue(resourceMissing());
+		mockStripeService.createProduct = jest
+			.fn()
+			.mockResolvedValue({ id: 'prod_live_novo' });
+
+		await service.updatePlan('plan_1', { name: 'Plano Renomeado' } as any);
+
+		expect(mockStripeService.createProduct).toHaveBeenCalledWith(
+			'Plano Renomeado',
+			'Descrição'
+		);
+		expect(plan.stripeProductId).toBe('prod_live_novo');
+		expect(plan.name).toBe('Plano Renomeado');
+		expect(plan.save).toHaveBeenCalled();
+	});
+
+	it('gera o novo preço no produto reprovisionado', async () => {
+		const plan = buildPlan();
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+		mockStripeService.updateProduct.mockRejectedValue(resourceMissing());
+		mockStripeService.createProduct = jest
+			.fn()
+			.mockResolvedValue({ id: 'prod_live_novo' });
+
+		await service.updatePlan('plan_1', { price: 59 } as any);
+
+		expect(mockStripeService.createPrice).toHaveBeenCalledWith(
+			'prod_live_novo',
+			59,
+			'brl',
+			'month',
+			1
+		);
+		expect(plan.stripePriceId).toBe('price_monthly_new');
+	});
+
+	it('propaga erro do Stripe que não seja produto inexistente', async () => {
+		const plan = buildPlan();
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+		mockStripeService.updateProduct.mockRejectedValue(
+			new Error('Connection timeout')
+		);
+		mockStripeService.createProduct = jest.fn();
+
+		await expect(
+			service.updatePlan('plan_1', { name: 'Outro nome' } as any)
+		).rejects.toThrow('Connection timeout');
+		expect(mockStripeService.createProduct).not.toHaveBeenCalled();
+		expect(plan.save).not.toHaveBeenCalled();
+	});
+
+	// A Stripe recusa string vazia em parâmetro opcional, e o painel manda
+	// `description` sempre — em branco inclusive.
+	it('não envia descrição vazia ao Stripe', async () => {
+		const plan = buildPlan({ description: '' });
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+		await service.updatePlan('plan_1', { name: 'Plano Renomeado' } as any);
+
+		expect(mockStripeService.updateProduct).toHaveBeenCalledWith('prod_123', {
+			name: 'Plano Renomeado',
+			description: undefined,
+			active: true,
+		});
+	});
+
+	it('preserva o produto existente quando ele é válido', async () => {
+		const plan = buildPlan();
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+		mockStripeService.createProduct = jest.fn();
+
+		await service.updatePlan('plan_1', { name: 'Plano Renomeado' } as any);
+
+		expect(mockStripeService.createProduct).not.toHaveBeenCalled();
+		expect(plan.stripeProductId).toBe('prod_123');
+	});
+});
+
+describe('AdminService — deactivatePlan', () => {
+	let service: AdminService;
+	let mockSubscriptionModel: any;
+	let mockStripeService: any;
+
+	function buildPlan(overrides: Record<string, any> = {}) {
+		const plan: any = {
+			_id: 'plan_1',
+			name: 'Plano Mensal',
+			description: 'Descrição',
+			stripeProductId: 'prod_123',
+			isActive: true,
+			...overrides,
+		};
+		plan.save = jest.fn().mockResolvedValue(plan);
+		return plan;
+	}
+
+	beforeEach(async () => {
+		mockSubscriptionModel = { findById: jest.fn() };
+		mockStripeService = {
+			updateProduct: jest.fn().mockResolvedValue({}),
+			createProduct: jest.fn(),
+		};
+
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				AdminService,
+				{ provide: getModelToken('User'), useValue: {} },
+				{
+					provide: getModelToken('Subscription'),
+					useValue: mockSubscriptionModel,
+				},
+				{ provide: getModelToken('UserSubscription'), useValue: {} },
+				{ provide: getModelToken('ManualGrantAudit'), useValue: {} },
+				{ provide: StripeService, useValue: mockStripeService },
+			],
+		}).compile();
+
+		service = module.get<AdminService>(AdminService);
+	});
+
+	it('desativa o produto no Stripe junto com o plano', async () => {
+		const plan = buildPlan();
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+		await service.deactivatePlan('plan_1');
+
+		// Nome e descrição não têm o que mudar numa desativação, e mandá-los
+		// arrastaria o plano para a rejeição de string vazia da Stripe.
+		expect(mockStripeService.updateProduct).toHaveBeenCalledWith('prod_123', {
+			description: undefined,
+			active: false,
+		});
+		expect(plan.isActive).toBe(false);
+		expect(plan.save).toHaveBeenCalled();
+	});
+
+	// Repor um produto só para desativá-lo em seguida deixaria lixo no Stripe.
+	it('limpa o vínculo sem recriar produto quando o ID não existe na conta', async () => {
+		const plan = buildPlan();
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+		mockStripeService.updateProduct.mockRejectedValue(
+			Object.assign(new Error('No such product'), {
+				code: 'resource_missing',
+			})
+		);
+
+		await service.deactivatePlan('plan_1');
+
+		expect(mockStripeService.createProduct).not.toHaveBeenCalled();
+		expect(plan.stripeProductId).toBeUndefined();
+		expect(plan.isActive).toBe(false);
+		expect(plan.save).toHaveBeenCalled();
+	});
 });
 
 describe('AdminService — grantSubscriptionByEmail', () => {

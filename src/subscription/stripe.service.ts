@@ -5,6 +5,17 @@ import { Model } from 'mongoose';
 import { Subscription } from './schema';
 import { User } from 'src/users/schema/user.model';
 
+/**
+ * Objeto que não existe para a chave em uso. O caso comum é ID gravado num
+ * modo e consultado no outro ("a similar object exists in test mode, but a
+ * live mode key was used"), que a Stripe reporta com este mesmo `code`.
+ * Distinguir isso de falha de rede importa: só a ausência confirmada
+ * justifica descartar um vínculo gravado.
+ */
+export function isStripeResourceMissing(error: unknown): boolean {
+	return (error as Stripe.errors.StripeError)?.code === 'resource_missing';
+}
+
 @Injectable()
 export class StripeService {
 	private readonly stripe: Stripe;
