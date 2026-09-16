@@ -87,7 +87,7 @@ describe('PlanSyncService', () => {
 			isActive: true,
 		});
 
-		const premiumDoc = plans.find((p) => p.name === 'Wealth Premium');
+		const premiumDoc = plans.find((p) => p.name === 'Wealth');
 		expect(premiumDoc).toMatchObject({
 			stripeProductId: 'prod_premium_live',
 			stripePriceId: 'price_premium_monthly_live',

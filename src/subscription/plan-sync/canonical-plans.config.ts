@@ -126,7 +126,7 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 		slug: 'premium',
 		kind: 'stripe_subscription',
 		tier: 'premium',
-		name: 'Wealth Premium',
+		name: 'Wealth',
 		description:
 			'Multi-carteira com risco quantitativo e política de investimento.',
 		// Espelha o produto "Premium" no Stripe: R$ 24,90/mês e R$ 249,00/ano
