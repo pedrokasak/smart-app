@@ -23,7 +23,11 @@
  * derrube o gate.
  */
 
-import type { UserPlanTier } from 'src/subscription/application/user-plan.types';
+import {
+	FREE_ACCESS_LEVEL,
+	PREMIUM_ACCESS_LEVEL,
+	PRO_ACCESS_LEVEL,
+} from 'src/subscription/application/user-plan.types';
 
 export type BillingInterval = 'month' | 'year' | 'week' | 'day';
 
@@ -42,7 +46,8 @@ export interface CanonicalPlan {
 	/** Chave interna estável. Nunca renomear sem migração explícita. */
 	slug: string;
 	kind: CanonicalPlanKind;
-	tier: UserPlanTier;
+	/** Nível de acesso (TRA-182) — número livre, sem lista fixa de nomes. */
+	accessLevel: number;
 	name: string;
 	description: string;
 	/** Preço mensal em BRL (ex.: 149 = R$ 149,00). Use 0 para plano gratuito. */
@@ -74,7 +79,7 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 	{
 		slug: 'essencial',
 		kind: 'free',
-		tier: 'free',
+		accessLevel: FREE_ACCESS_LEVEL,
 		name: 'Essencial',
 		description:
 			'Consolidação de até 10 ativos para quem está começando a organizar.',
@@ -95,7 +100,7 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 	{
 		slug: 'pro',
 		kind: 'stripe_subscription',
-		tier: 'pro',
+		accessLevel: PRO_ACCESS_LEVEL,
 		name: 'Pro',
 		description:
 			'Para o investidor que já tem carteira montada em mais de uma corretora.',
@@ -125,7 +130,7 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 		// (tier `premium`), enquanto o nome visível segue o design handoff.
 		slug: 'premium',
 		kind: 'stripe_subscription',
-		tier: 'premium',
+		accessLevel: PREMIUM_ACCESS_LEVEL,
 		name: 'Wealth',
 		description:
 			'Multi-carteira com risco quantitativo e política de investimento.',

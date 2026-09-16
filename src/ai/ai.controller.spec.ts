@@ -12,7 +12,11 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
 import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
-import { USER_PLAN_RESOLVER } from 'src/subscription/application/user-plan.types';
+import {
+	FREE_ACCESS_LEVEL,
+	PREMIUM_ACCESS_LEVEL,
+	USER_PLAN_RESOLVER,
+} from 'src/subscription/application/user-plan.types';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -653,7 +657,7 @@ describe('AiController', () => {
 		afterEach(() => mockUserPlanResolver.resolve.mockReset());
 
 		it('builds positions from the user portfolio and forwards body filters to the facade', async () => {
-			mockUserPlanResolver.resolve.mockResolvedValue('premium');
+			mockUserPlanResolver.resolve.mockResolvedValue(PREMIUM_ACCESS_LEVEL);
 			mockPortfolioService.getUserPortfolios.mockResolvedValue([
 				{
 					assets: [
@@ -697,7 +701,7 @@ describe('AiController', () => {
 		});
 
 		it('throws Forbidden when the user plan is below premium', async () => {
-			mockUserPlanResolver.resolve.mockResolvedValue('free');
+			mockUserPlanResolver.resolve.mockResolvedValue(FREE_ACCESS_LEVEL);
 
 			await expect(
 				controller.opportunityRadar({ user: { userId: 'user-123' } }, {})

@@ -16,7 +16,10 @@ import { UserModel } from 'src/users/schema/user.model';
 import { ProviderRegistry } from 'src/broker-sync/providers/provider-registry';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
-import { planAtLeast } from 'src/subscription/application/user-plan.types';
+import {
+	planAtLeast,
+	PRO_ACCESS_LEVEL,
+} from 'src/subscription/application/user-plan.types';
 import { createBrokerCredentialCipher } from 'src/broker-sync/security/credential-cipher.factory';
 import {
 	BrokerCipherUnavailableError,
@@ -189,10 +192,14 @@ export class BrokerSyncService {
 		const subscription = await this.subscriptionService
 			.findCurrentSubscriptionByUser(userId)
 			.catch(() => null);
-		const tier = SubscriptionUserPlanResolver.tierFromPlanName(
-			(subscription as { plan?: { name?: string } } | null)?.plan?.name
-		);
-		if (!subscription || !planAtLeast(tier, 'pro')) {
+		const plan = (
+			subscription as { plan?: { name?: string; accessLevel?: number } } | null
+		)?.plan;
+		const level =
+			typeof plan?.accessLevel === 'number'
+				? plan.accessLevel
+				: SubscriptionUserPlanResolver.tierFromPlanName(plan?.name);
+		if (!subscription || !planAtLeast(level, PRO_ACCESS_LEVEL)) {
 			throw new ForbiddenException('PLANO_UPGRADE_NECESSARIO');
 		}
 	}

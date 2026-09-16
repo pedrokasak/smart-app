@@ -5,6 +5,8 @@ import {
 	IsBoolean,
 	IsArray,
 	IsEnum,
+	IsInt,
+	Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
@@ -41,12 +43,14 @@ export class CreateSubscriptionDto {
 
 	@ApiPropertyOptional({
 		description:
-			'Nível de acesso liberado pelo plano. Renomear o plano não muda o acesso.',
-		enum: ['free', 'pro', 'premium', 'global_investor'],
+			'Nível de acesso liberado pelo plano — qualquer inteiro >= 0, sem lista fixa. ' +
+			'Renomear o plano não muda o acesso; dois planos podem ter o mesmo nível.',
+		minimum: 0,
 	})
 	@IsOptional()
-	@IsEnum(['free', 'pro', 'premium', 'global_investor'])
-	tier?: 'free' | 'pro' | 'premium' | 'global_investor';
+	@IsInt()
+	@Min(0)
+	accessLevel?: number;
 
 	@ApiPropertyOptional({ description: 'ID do preço no Stripe' })
 	@IsOptional()
