@@ -233,4 +233,35 @@ describe('PlanSyncService', () => {
 		expect(report.legacy).toEqual([]);
 		expect(plans.find((p) => p._id === 'custom')?.isActive).toBe(true);
 	});
+
+	it('limpa preço gravado que não existe na conta Stripe da chave atual', async () => {
+		plans.push({
+			_id: 'plan_pro',
+			name: 'Pro',
+			stripePriceId: 'price_de_outro_modo',
+			isActive: true,
+		});
+		const stripe = {
+			prices: {
+				retrieve: jest.fn(async () => {
+					throw new Error('No such price');
+				}),
+				list: jest.fn(async () => ({ data: [] })),
+			},
+		};
+		const withStripe = new PlanSyncService(
+			subscriptionModel,
+			userSubscriptionModel,
+			stripe as any
+		);
+
+		const report = await withStripe.syncCanonicalPlans({ env: {} });
+
+		const pro = report.plans.find((p) => p.slug === 'pro')!;
+		expect(pro.changes).toContainEqual({
+			field: 'stripePriceId',
+			from: 'price_de_outro_modo',
+			to: undefined,
+		});
+	});
 });
