@@ -50,6 +50,10 @@ async function bootstrap() {
 		'https://trackerr.com.br',
 		'https://www.trackerr.com.br',
 		'https://api.trackerr.com.br',
+		// O painel administrativo roda em host próprio (TRA-176); sem ele aqui
+		// o navegador bloqueia toda chamada à API e o login falha sem motivo
+		// visível.
+		'https://admin.trackerr.com.br',
 		...['3000', '5173', '8080'].flatMap((port) => [
 			`http://localhost:${port}`,
 			`http://127.0.0.1:${port}`,
