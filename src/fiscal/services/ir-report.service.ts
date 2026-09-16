@@ -1,5 +1,8 @@
 import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
-import { planAtLeast } from 'src/subscription/application/user-plan.types';
+import {
+	planAtLeast,
+	PRO_ACCESS_LEVEL,
+} from 'src/subscription/application/user-plan.types';
 import {
 	ForbiddenException,
 	Injectable,
@@ -195,10 +198,10 @@ export class IrReportService {
 			)
 		);
 
-		// Mesmo resolvedor de tier do resto do produto: Pro ou acima libera.
+		// Mesmo resolvedor de nivel do resto do produto: Pro ou acima libera.
 		const premiumByName = planAtLeast(
 			SubscriptionUserPlanResolver.tierFromPlanName(planName),
-			'pro'
+			PRO_ACCESS_LEVEL
 		);
 
 		if (!hasExplicitPremiumFeature && !premiumByName) {

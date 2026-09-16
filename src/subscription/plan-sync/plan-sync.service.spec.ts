@@ -214,7 +214,7 @@ describe('PlanSyncService', () => {
 		await withStripe.syncCanonicalPlans({ env: {} });
 
 		expect(plans.find((p) => p.name === 'Pro')).toMatchObject({
-			tier: 'pro',
+			accessLevel: 10,
 			stripeProductId: 'prod_pro',
 			stripePriceId: 'price_trackerr_pro_monthly',
 			annualStripePriceId: 'price_trackerr_pro_annual',

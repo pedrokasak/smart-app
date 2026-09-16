@@ -60,6 +60,7 @@ import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
 import { OpportunityRadarRequestDto } from './dto/opportunity-radar-request.dto';
 import {
 	planAtLeast,
+	PREMIUM_ACCESS_LEVEL,
 	USER_PLAN_RESOLVER,
 	UserPlanResolverPort,
 } from 'src/subscription/application/user-plan.types';
@@ -403,7 +404,7 @@ export class AiController {
 		}
 
 		const plan = await this.userPlanResolver.resolve(userId);
-		if (!planAtLeast(plan, 'premium')) {
+		if (!planAtLeast(plan, PREMIUM_ACCESS_LEVEL)) {
 			throw new ForbiddenException('FEATURE_PREMIUM_REQUERIDA');
 		}
 

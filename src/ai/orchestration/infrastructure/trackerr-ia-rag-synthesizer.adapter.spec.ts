@@ -2,6 +2,9 @@ import { of, throwError } from 'rxjs';
 import { HttpService } from '@nestjs/axios';
 import { TrackerrIaRagSynthesizerAdapter } from 'src/ai/orchestration/infrastructure/trackerr-ia-rag-synthesizer.adapter';
 import {
+	FREE_ACCESS_LEVEL,
+	PREMIUM_ACCESS_LEVEL,
+	PRO_ACCESS_LEVEL,
 	UserPlanResolverPort,
 	UserPlanTier,
 } from 'src/subscription/application/user-plan.types';
@@ -33,7 +36,7 @@ describe('TrackerrIaRagSynthesizerAdapter (TRA-76)', () => {
 
 	beforeEach(() => {
 		httpService = { post: jest.fn() };
-		planResolver = { resolve: jest.fn().mockResolvedValue('pro') };
+		planResolver = { resolve: jest.fn().mockResolvedValue(PRO_ACCESS_LEVEL) };
 		adapter = new TrackerrIaRagSynthesizerAdapter(
 			httpService as unknown as HttpService,
 			planResolver as unknown as UserPlanResolverPort
@@ -41,7 +44,7 @@ describe('TrackerrIaRagSynthesizerAdapter (TRA-76)', () => {
 	});
 
 	it('returns the RAG answer when the plan qualifies and RAG has context', async () => {
-		withPlan('pro');
+		withPlan(PRO_ACCESS_LEVEL);
 		httpService.post.mockReturnValue(
 			of({
 				data: {
@@ -64,7 +67,7 @@ describe('TrackerrIaRagSynthesizerAdapter (TRA-76)', () => {
 	});
 
 	it('does NOT call RAG for a free plan — pure cost with no access', async () => {
-		withPlan('free');
+		withPlan(FREE_ACCESS_LEVEL);
 
 		const out = await adapter.synthesize(makeInput());
 
@@ -77,9 +80,9 @@ describe('TrackerrIaRagSynthesizerAdapter (TRA-76)', () => {
 			of({ data: { answer: 'resposta', source: 'ai', chunk_count: 1 } })
 		);
 		for (const tier of [
-			'pro',
-			'premium',
-			'global_investor',
+			PRO_ACCESS_LEVEL,
+			PREMIUM_ACCESS_LEVEL,
+			PREMIUM_ACCESS_LEVEL + 10,
 		] as UserPlanTier[]) {
 			httpService.post.mockClear();
 			withPlan(tier);
@@ -89,7 +92,7 @@ describe('TrackerrIaRagSynthesizerAdapter (TRA-76)', () => {
 	});
 
 	it('falls back to empty when RAG has no context for the user', async () => {
-		withPlan('pro');
+		withPlan(PRO_ACCESS_LEVEL);
 		httpService.post.mockReturnValue(
 			of({ data: { answer: '', source: 'no_context', chunk_count: 0 } })
 		);
@@ -100,7 +103,7 @@ describe('TrackerrIaRagSynthesizerAdapter (TRA-76)', () => {
 	});
 
 	it('falls back to empty when the guard rejected the RAG answer', async () => {
-		withPlan('pro');
+		withPlan(PRO_ACCESS_LEVEL);
 		httpService.post.mockReturnValue(
 			of({
 				data: { answer: 'bloqueado', source: 'guard_rejected', chunk_count: 2 },
@@ -113,7 +116,7 @@ describe('TrackerrIaRagSynthesizerAdapter (TRA-76)', () => {
 	});
 
 	it('never throws to the caller on a network error — falls back to empty', async () => {
-		withPlan('pro');
+		withPlan(PRO_ACCESS_LEVEL);
 		httpService.post.mockReturnValue(
 			throwError(() => new Error('ECONNREFUSED'))
 		);

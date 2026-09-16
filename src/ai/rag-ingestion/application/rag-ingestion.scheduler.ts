@@ -7,6 +7,7 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
 import {
 	planAtLeast,
+	PRO_ACCESS_LEVEL,
 	USER_PLAN_RESOLVER,
 	UserPlanResolverPort,
 } from 'src/subscription/application/user-plan.types';
@@ -66,7 +67,7 @@ export class RagIngestionScheduler {
 	/** Retorna true se ingeriu (usuário Pro+ com carteira). Público pra teste. */
 	async ingestForUser(userId: string): Promise<boolean> {
 		const plan = await this.userPlanResolver.resolve(userId);
-		if (!planAtLeast(plan, 'pro')) return false;
+		if (!planAtLeast(plan, PRO_ACCESS_LEVEL)) return false;
 
 		const portfolios = await this.portfolioService.getUserPortfolios(userId);
 		const positions = this.toPositions(portfolios);

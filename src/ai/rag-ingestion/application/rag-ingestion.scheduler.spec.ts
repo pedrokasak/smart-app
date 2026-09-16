@@ -1,4 +1,9 @@
 import { RagIngestionScheduler } from 'src/ai/rag-ingestion/application/rag-ingestion.scheduler';
+import {
+	FREE_ACCESS_LEVEL,
+	PREMIUM_ACCESS_LEVEL,
+	PRO_ACCESS_LEVEL,
+} from 'src/subscription/application/user-plan.types';
 
 describe('RagIngestionScheduler (TRA-84)', () => {
 	let userModel: { find: jest.Mock };
@@ -27,7 +32,7 @@ describe('RagIngestionScheduler (TRA-84)', () => {
 		ingestion = {
 			ingest: jest.fn().mockResolvedValue({ ingested: true, chunksCreated: 1 }),
 		};
-		planResolver = { resolve: jest.fn().mockResolvedValue('pro') };
+		planResolver = { resolve: jest.fn().mockResolvedValue(PRO_ACCESS_LEVEL) };
 		scheduler = new RagIngestionScheduler(
 			userModel as never,
 			portfolioService as never,
@@ -44,7 +49,7 @@ describe('RagIngestionScheduler (TRA-84)', () => {
 	});
 
 	it('SKIPS a free user entirely — no fact build, no ingest (cost gate)', async () => {
-		planResolver.resolve.mockResolvedValue('free');
+		planResolver.resolve.mockResolvedValue(FREE_ACCESS_LEVEL);
 
 		const ok = await scheduler.ingestForUser('user-free');
 
@@ -55,7 +60,7 @@ describe('RagIngestionScheduler (TRA-84)', () => {
 	});
 
 	it('allows premium and global_investor too', async () => {
-		for (const tier of ['premium', 'global_investor']) {
+		for (const tier of [PREMIUM_ACCESS_LEVEL, PREMIUM_ACCESS_LEVEL + 10]) {
 			ingestion.ingest.mockClear();
 			planResolver.resolve.mockResolvedValue(tier);
 			await scheduler.ingestForUser('user-x');

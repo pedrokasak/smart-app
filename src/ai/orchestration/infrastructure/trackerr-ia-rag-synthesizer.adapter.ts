@@ -9,6 +9,7 @@ import {
 } from 'src/ai/orchestration/chat-narrative-synthesizer.port';
 import {
 	planAtLeast,
+	PRO_ACCESS_LEVEL,
 	USER_PLAN_RESOLVER,
 	UserPlanResolverPort,
 } from 'src/subscription/application/user-plan.types';
@@ -61,7 +62,7 @@ export class TrackerrIaRagSynthesizerAdapter implements ChatNarrativeSynthesizer
 		// nao tem acesso ao recurso. O plano vem da assinatura (TRA-79), nao da
 		// carteira.
 		const plan = await this.userPlanResolver.resolve(input.userId);
-		if (!planAtLeast(plan, 'pro')) {
+		if (!planAtLeast(plan, PRO_ACCESS_LEVEL)) {
 			return TrackerrIaRagSynthesizerAdapter.EMPTY;
 		}
 

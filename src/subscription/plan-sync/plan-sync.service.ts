@@ -283,7 +283,7 @@ export class PlanSyncService implements OnApplicationBootstrap {
 			name: canonical.name,
 			description: canonical.description,
 			price: canonical.monthlyPrice,
-			tier: canonical.tier,
+			accessLevel: canonical.accessLevel,
 			currency: canonical.currency,
 			interval: canonical.interval,
 			intervalCount: canonical.intervalCount,
