@@ -8,7 +8,10 @@ import {
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Role } from 'src/auth/enums/role.enum';
-import { StripeService } from 'src/subscription/stripe.service';
+import {
+	isStripeResourceMissing,
+	StripeService,
+} from 'src/subscription/stripe.service';
 import { Subscription, UserSubscription } from 'src/subscription/schema';
 import { CreateSubscriptionDto } from 'src/subscription/dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from 'src/subscription/dto/update-subscription.dto';
@@ -142,25 +145,27 @@ export class AdminService implements OnModuleInit {
 		const nextAnnualStripePriceId =
 			dto.annualStripePriceId ?? plan.annualStripePriceId;
 
-		if (
+		const nextIsActive = dto.isActive ?? plan.isActive;
+		const productChanged =
 			(dto.name && dto.name !== plan.name) ||
 			(dto.description !== undefined && dto.description !== plan.description) ||
-			(dto.isActive !== undefined && dto.isActive !== plan.isActive)
-		) {
-			if (plan.stripeProductId) {
-				await this.stripeService.updateProduct(plan.stripeProductId, {
-					name: nextName,
-					description: nextDescription,
-					active: dto.isActive ?? plan.isActive,
-				});
-			}
-		}
+			(dto.isActive !== undefined && dto.isActive !== plan.isActive);
 
 		const requiresNewPrice =
 			nextPrice !== plan.price ||
 			nextCurrency !== plan.currency ||
 			nextInterval !== plan.interval ||
 			nextIntervalCount !== plan.intervalCount;
+
+		// O preço novo nasce pendurado no produto, então os dois caminhos
+		// precisam de um vínculo que exista de fato nesta conta Stripe.
+		if (productChanged || requiresNewPrice) {
+			plan.stripeProductId = await this.resolveStripeProduct(plan, {
+				name: nextName,
+				description: nextDescription,
+				active: nextIsActive,
+			});
+		}
 
 		if (requiresNewPrice) {
 			if (!plan.stripeProductId) {
@@ -223,6 +228,49 @@ export class AdminService implements OnModuleInit {
 		return plan;
 	}
 
+	/**
+	 * Devolve um `stripeProductId` que existe na conta da chave em uso.
+	 *
+	 * O plano pode carregar um produto criado em outro modo (ID de teste num
+	 * banco que passou a rodar com chave live). Aí o `products.update`
+	 * responde `resource_missing` e derruba a edição inteira — sem nenhuma
+	 * saída pela interface, já que o campo não é editável no painel. Nesse
+	 * caso o vínculo é refeito na conta atual.
+	 *
+	 * Só recria quando o plano fica ativo: repor um produto para em seguida
+	 * desativá-lo deixaria lixo no Stripe.
+	 */
+	private async resolveStripeProduct(
+		plan: Subscription,
+		data: { name?: string; description?: string; active: boolean }
+	): Promise<string | undefined> {
+		// A Stripe recusa string vazia em parâmetro opcional ("we assume empty
+		// values are an attempt to unset"). O painel manda `description` sempre,
+		// inclusive em branco, então aqui vazio vira "não mexe no campo".
+		const payload = { ...data, description: data.description || undefined };
+
+		if (plan.stripeProductId) {
+			try {
+				await this.stripeService.updateProduct(plan.stripeProductId, payload);
+				return plan.stripeProductId;
+			} catch (error) {
+				if (!isStripeResourceMissing(error)) throw error;
+				this.logger.warn(
+					`Produto ${plan.stripeProductId} do plano ${plan._id} não existe na conta Stripe atual; ` +
+						'o vínculo será refeito.'
+				);
+			}
+		}
+
+		if (!data.active || !payload.name) return undefined;
+
+		const created = await this.stripeService.createProduct(
+			payload.name,
+			payload.description
+		);
+		return created.id;
+	}
+
 	async deactivatePlan(id: string) {
 		const plan = await this.subscriptionModel.findById(id);
 		if (!plan) {
@@ -230,12 +278,15 @@ export class AdminService implements OnModuleInit {
 		}
 
 		plan.isActive = false;
+		// Antes o plano era salvo primeiro e o Stripe depois: produto de outro
+		// modo estourava com o banco já desativado, deixando os dois lados
+		// divergentes.
+		// Só o `active`: mandar nome e descrição aqui não muda nada no Stripe e
+		// ainda arrasta o plano para a rejeição de string vazia.
+		plan.stripeProductId = await this.resolveStripeProduct(plan, {
+			active: false,
+		});
 		await plan.save();
-		if (plan.stripeProductId) {
-			await this.stripeService.updateProduct(plan.stripeProductId, {
-				active: false,
-			});
-		}
 
 		return { message: 'Plano desativado com sucesso' };
 	}
