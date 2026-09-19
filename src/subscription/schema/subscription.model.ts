@@ -21,6 +21,16 @@ export interface Subscription extends Document {
 	isActive: boolean;
 	features?: string[];
 	maxUsers?: number;
+	/**
+	 * `true` (padrão): conteúdo do plano (nome, preço, features...) ainda é
+	 * dono do `PlanSyncService` — o seed canônico pode sobrescrever em todo
+	 * boot, igual sempre fez.
+	 * `false`: um admin editou este plano pelo painel — a partir daí o sync
+	 * só preenche campo vazio (backfill) e nunca mais sobrescreve valor já
+	 * definido. Vínculos Stripe (`stripeProductId`/`stripePriceId`/
+	 * `annualStripePriceId`) continuam reconciliando sempre, nos dois casos.
+	 */
+	catalogManaged?: boolean;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -47,6 +57,7 @@ const subscriptionSchema = new Schema<Subscription>({
 	isActive: { type: Boolean, default: true },
 	features: [{ type: String }],
 	maxUsers: { type: Number },
+	catalogManaged: { type: Boolean, default: true },
 	createdAt: { type: Date, default: Date.now },
 	updatedAt: { type: Date, default: Date.now },
 });

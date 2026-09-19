@@ -45,6 +45,7 @@ describe('AdminService — updatePlan', () => {
 		mockStripeService = {
 			updateProduct: jest.fn().mockResolvedValue({}),
 			createPrice: jest.fn().mockResolvedValue({ id: 'price_monthly_new' }),
+			archivePrice: jest.fn().mockResolvedValue({}),
 		};
 
 		const module: TestingModule = await Test.createTestingModule({
@@ -77,21 +78,45 @@ describe('AdminService — updatePlan', () => {
 		).rejects.toThrow(NotFoundException);
 	});
 
-	it('persists annualPrice and annualStripePriceId from the update payload', async () => {
+	// TRA-188: annualStripePriceId nunca mais vem do cliente — é sempre
+	// derivado de annualPrice, igual o preço mensal já é derivado de
+	// price/currency/interval.
+	function mockCreatePriceByInterval() {
+		mockStripeService.createPrice = jest.fn(
+			async (
+				_productId: string,
+				_price: number,
+				_currency: string,
+				interval: string
+			) => ({
+				id: interval === 'year' ? 'price_annual_new' : 'price_monthly_new',
+			})
+		);
+	}
+
+	it('provisiona o preço anual no Stripe e ignora annualStripePriceId vindo do cliente', async () => {
 		const plan = buildPlan();
 		mockSubscriptionModel.findById.mockResolvedValue(plan);
+		mockCreatePriceByInterval();
 
 		const result = await service.updatePlan('plan_1', {
-			annualPrice: 411.6,
-			annualStripePriceId: 'price_annual_new',
+			annualPrice: 149,
+			annualStripePriceId: 'price_deveria_ser_ignorado',
 		} as any);
 
-		expect(result.annualPrice).toBe(411.6);
+		expect(mockStripeService.createPrice).toHaveBeenCalledWith(
+			'prod_123',
+			149,
+			'brl',
+			'year',
+			1
+		);
+		expect(result.annualPrice).toBe(149);
 		expect(result.annualStripePriceId).toBe('price_annual_new');
 		expect(plan.save).toHaveBeenCalled();
 	});
 
-	it('keeps existing annual fields untouched when not present in the update payload', async () => {
+	it('mantém o preço anual intacto quando o payload não envia annualPrice', async () => {
 		const plan = buildPlan({
 			annualPrice: 400,
 			annualStripePriceId: 'price_annual_existing',
@@ -104,54 +129,83 @@ describe('AdminService — updatePlan', () => {
 
 		expect(result.annualPrice).toBe(400);
 		expect(result.annualStripePriceId).toBe('price_annual_existing');
+		expect(mockStripeService.createPrice).not.toHaveBeenCalled();
 	});
 
-	it('logs a warning when a monthly price change leaves an existing annualStripePriceId unexamined', async () => {
+	it('gera preço anual novo e arquiva o antigo quando annualPrice muda', async () => {
 		const plan = buildPlan({
 			annualPrice: 400,
-			annualStripePriceId: 'price_annual_existing',
+			annualStripePriceId: 'price_annual_old',
 		});
 		mockSubscriptionModel.findById.mockResolvedValue(plan);
-		const warnSpy = jest
-			.spyOn((service as any).logger, 'warn')
-			.mockImplementation(() => undefined);
+		mockCreatePriceByInterval();
 
-		await service.updatePlan('plan_1', { price: 59 } as any);
+		const result = await service.updatePlan('plan_1', {
+			annualPrice: 450,
+		} as any);
 
-		expect(mockStripeService.createPrice).toHaveBeenCalled();
-		expect(warnSpy).toHaveBeenCalledWith(
-			expect.stringContaining('annualStripePriceId')
+		expect(result.annualStripePriceId).toBe('price_annual_new');
+		expect(mockStripeService.archivePrice).toHaveBeenCalledWith(
+			'price_annual_old'
 		);
 	});
 
-	it('does not warn when the update payload also updates annualStripePriceId alongside a monthly price change', async () => {
+	it('trocar só o preço mensal não mexe no preço anual já vinculado', async () => {
 		const plan = buildPlan({
 			annualPrice: 400,
 			annualStripePriceId: 'price_annual_existing',
 		});
 		mockSubscriptionModel.findById.mockResolvedValue(plan);
-		const warnSpy = jest
-			.spyOn((service as any).logger, 'warn')
-			.mockImplementation(() => undefined);
-
-		await service.updatePlan('plan_1', {
-			price: 59,
-			annualStripePriceId: 'price_annual_new',
-		} as any);
-
-		expect(warnSpy).not.toHaveBeenCalled();
-	});
-
-	it('does not warn when there is no pre-existing annualStripePriceId to desync', async () => {
-		const plan = buildPlan();
-		mockSubscriptionModel.findById.mockResolvedValue(plan);
-		const warnSpy = jest
-			.spyOn((service as any).logger, 'warn')
-			.mockImplementation(() => undefined);
 
 		await service.updatePlan('plan_1', { price: 59 } as any);
 
-		expect(warnSpy).not.toHaveBeenCalled();
+		expect(mockStripeService.createPrice).toHaveBeenCalledTimes(1);
+		expect(mockStripeService.createPrice).toHaveBeenCalledWith(
+			'prod_123',
+			59,
+			'brl',
+			'month',
+			1
+		);
+	});
+
+	it('arquiva o preço mensal antigo ao gerar um novo', async () => {
+		const plan = buildPlan();
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+		await service.updatePlan('plan_1', { price: 59 } as any);
+
+		expect(mockStripeService.archivePrice).toHaveBeenCalledWith(
+			'price_monthly_old'
+		);
+	});
+
+	it('não falha a troca de preço quando arquivar o preço antigo dá erro', async () => {
+		const plan = buildPlan();
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+		mockStripeService.archivePrice.mockRejectedValue(new Error('rate limited'));
+		const warnSpy = jest
+			.spyOn((service as any).logger, 'warn')
+			.mockImplementation(() => undefined);
+
+		const result = await service.updatePlan('plan_1', { price: 59 } as any);
+
+		expect(result.stripePriceId).toBe('price_monthly_new');
+		expect(plan.save).toHaveBeenCalled();
+		expect(warnSpy).toHaveBeenCalledWith(
+			expect.stringContaining('price_monthly_old')
+		);
+	});
+
+	it('marca o plano como gerenciado pelo admin ao salvar qualquer edição', async () => {
+		const plan = buildPlan({ catalogManaged: true });
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+		await service.updatePlan('plan_1', {
+			description: 'nova descrição',
+		} as any);
+
+		expect(plan.catalogManaged).toBe(false);
 	});
 
 	it('persists isFeatured and isComingSoon when provided', async () => {
@@ -291,6 +345,118 @@ describe('AdminService — updatePlan', () => {
 	});
 });
 
+describe('AdminService — createPlan', () => {
+	let service: AdminService;
+	let mockSubscriptionModel: any;
+	let mockStripeService: any;
+
+	beforeEach(async () => {
+		mockSubscriptionModel = { create: jest.fn(async (doc) => doc) };
+		mockStripeService = {
+			createProduct: jest.fn().mockResolvedValue({ id: 'prod_new' }),
+			createPrice: jest.fn(
+				async (
+					_productId: string,
+					_price: number,
+					_currency: string,
+					interval: string
+				) => ({
+					id: interval === 'year' ? 'price_annual_new' : 'price_monthly_new',
+				})
+			),
+		};
+
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				AdminService,
+				{ provide: getModelToken('User'), useValue: {} },
+				{
+					provide: getModelToken('Subscription'),
+					useValue: mockSubscriptionModel,
+				},
+				{ provide: getModelToken('UserSubscription'), useValue: {} },
+				{ provide: getModelToken('ManualGrantAudit'), useValue: {} },
+				{ provide: StripeService, useValue: mockStripeService },
+			],
+		}).compile();
+
+		service = module.get<AdminService>(AdminService);
+	});
+
+	it('cria produto, preço mensal e preço anual no Stripe quando annualPrice é informado', async () => {
+		const created = await service.createPlan({
+			name: 'Plano Novo',
+			description: 'Descrição',
+			price: 49,
+			currency: 'brl',
+			interval: 'month',
+			intervalCount: 1,
+			annualPrice: 490,
+		} as any);
+
+		expect(mockStripeService.createProduct).toHaveBeenCalledWith(
+			'Plano Novo',
+			'Descrição'
+		);
+		expect(mockStripeService.createPrice).toHaveBeenCalledWith(
+			'prod_new',
+			49,
+			'brl',
+			'month',
+			1
+		);
+		expect(mockStripeService.createPrice).toHaveBeenCalledWith(
+			'prod_new',
+			490,
+			'brl',
+			'year',
+			1
+		);
+		expect(created.stripeProductId).toBe('prod_new');
+		expect(created.stripePriceId).toBe('price_monthly_new');
+		expect(created.annualStripePriceId).toBe('price_annual_new');
+	});
+
+	it('não cria preço anual quando annualPrice não é informado', async () => {
+		const created = await service.createPlan({
+			name: 'Plano Sem Anual',
+			price: 19.9,
+			currency: 'brl',
+			interval: 'month',
+			intervalCount: 1,
+		} as any);
+
+		expect(mockStripeService.createPrice).toHaveBeenCalledTimes(1);
+		expect(created.annualStripePriceId).toBeUndefined();
+	});
+
+	it('ignora annualStripePriceId vindo do cliente e deriva sempre de annualPrice', async () => {
+		const created = await service.createPlan({
+			name: 'Plano Novo',
+			price: 49,
+			currency: 'brl',
+			interval: 'month',
+			intervalCount: 1,
+			annualPrice: 490,
+			annualStripePriceId: 'price_deveria_ser_ignorado',
+		} as any);
+
+		expect(created.annualStripePriceId).toBe('price_annual_new');
+	});
+
+	it('marca o plano como gerenciado pelo admin desde a criação', async () => {
+		const created = await service.createPlan({
+			name: 'Plano Novo',
+			price: 49,
+			currency: 'brl',
+			interval: 'month',
+			intervalCount: 1,
+		} as any);
+
+		expect(created.catalogManaged).toBe(false);
+	});
+});
+
 describe('AdminService — deactivatePlan', () => {
 	let service: AdminService;
 	let mockSubscriptionModel: any;
@@ -365,6 +531,19 @@ describe('AdminService — deactivatePlan', () => {
 		expect(plan.stripeProductId).toBeUndefined();
 		expect(plan.isActive).toBe(false);
 		expect(plan.save).toHaveBeenCalled();
+	});
+
+	// TRA-188: sem isto, um plano ainda catalogManaged:true (nunca editado
+	// pelo painel antes) voltava a isActive:true no próximo boot — o
+	// plan-sync grava isActive:true incondicionalmente em todo plano que
+	// ainda não é dono do admin.
+	it('marca o plano como gerenciado pelo admin para a desativação sobreviver ao próximo sync', async () => {
+		const plan = buildPlan({ catalogManaged: true });
+		mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+		await service.deactivatePlan('plan_1');
+
+		expect(plan.catalogManaged).toBe(false);
 	});
 });
 

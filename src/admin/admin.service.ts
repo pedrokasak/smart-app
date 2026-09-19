@@ -83,12 +83,33 @@ export class AdminService implements OnModuleInit {
 			stripePriceId = price.id;
 		}
 
+		// Plano com preço anual já sobe provisionado no Stripe — sem isso o
+		// admin precisaria copiar o ID do preço anual do dashboard na mão
+		// (TRA-188). `annualStripePriceId` do payload é ignorado: o vínculo é
+		// sempre derivado do valor de `annualPrice`, nunca colado.
+		let annualStripePriceId: string | undefined;
+		if (dto.annualPrice) {
+			const annualStripePrice = await this.stripeService.createPrice(
+				stripeProductId,
+				dto.annualPrice,
+				dto.currency || 'brl',
+				'year',
+				1
+			);
+			annualStripePriceId = annualStripePrice.id;
+		}
+
 		const created = await this.subscriptionModel.create({
 			...dto,
 			currency: dto.currency || 'brl',
 			intervalCount: dto.intervalCount || 1,
 			stripeProductId,
 			stripePriceId,
+			annualStripePriceId,
+			// Plano nasceu no painel, não no seed canônico: o admin já é dono
+			// do conteúdo desde a criação — o próximo boot do plan-sync não
+			// deve sobrescrever nada aqui (TRA-188).
+			catalogManaged: false,
 		});
 
 		return created;
@@ -142,8 +163,7 @@ export class AdminService implements OnModuleInit {
 		const nextInterval = dto.interval ?? plan.interval;
 		const nextIntervalCount = dto.intervalCount ?? plan.intervalCount;
 		const nextAnnualPrice = dto.annualPrice ?? plan.annualPrice;
-		const nextAnnualStripePriceId =
-			dto.annualStripePriceId ?? plan.annualStripePriceId;
+		let nextAnnualStripePriceId = plan.annualStripePriceId;
 
 		const nextIsActive = dto.isActive ?? plan.isActive;
 		const productChanged =
@@ -157,9 +177,20 @@ export class AdminService implements OnModuleInit {
 			nextInterval !== plan.interval ||
 			nextIntervalCount !== plan.intervalCount;
 
-		// O preço novo nasce pendurado no produto, então os dois caminhos
+		// `annualStripePriceId` nunca vem do cliente (TRA-188) — é sempre
+		// derivado de `annualPrice`, igual o mensal já é derivado de
+		// price/currency/interval. Um ID colado à mão era a única forma de os
+		// dois preços ficarem consistentes; agora os dois nascem do mesmo
+		// fluxo automático.
+		const requiresNewAnnualPrice =
+			nextAnnualPrice !== undefined &&
+			(nextAnnualPrice !== plan.annualPrice ||
+				nextCurrency !== plan.currency ||
+				!plan.annualStripePriceId);
+
+		// O preço novo nasce pendurado no produto, então os três caminhos
 		// precisam de um vínculo que exista de fato nesta conta Stripe.
-		if (productChanged || requiresNewPrice) {
+		if (productChanged || requiresNewPrice || requiresNewAnnualPrice) {
 			plan.stripeProductId = await this.resolveStripeProduct(plan, {
 				name: nextName,
 				description: nextDescription,
@@ -180,20 +211,32 @@ export class AdminService implements OnModuleInit {
 				nextInterval,
 				nextIntervalCount
 			);
+			const oldMonthlyPriceId = plan.stripePriceId;
 			plan.stripePriceId = stripePrice.id;
+			// Best-effort: o preço substituído fica órfão e ativo na conta se
+			// não for arquivado, mas isso nunca deve travar a troca de preço.
+			if (oldMonthlyPriceId && oldMonthlyPriceId !== stripePrice.id) {
+				await this.archiveStripePriceQuietly(oldMonthlyPriceId);
+			}
+		}
 
-			// O novo preço mensal não tem relação automática com o preço anual
-			// já configurado. Se o admin não atualizar annualStripePriceId
-			// nesta mesma requisição, os dois preços podem ficar dessincronizados.
-			const annualUnchanged =
-				dto.annualStripePriceId === undefined ||
-				dto.annualStripePriceId === plan.annualStripePriceId;
-			if (plan.annualStripePriceId && annualUnchanged) {
-				this.logger.warn(
-					`Plano ${plan._id} teve o preço mensal alterado (novo stripePriceId: ${stripePrice.id}), ` +
-						`mas annualStripePriceId (${plan.annualStripePriceId}) não foi atualizado junto. ` +
-						'Verifique manualmente se os preços mensal e anual ainda estão consistentes.'
+		if (requiresNewAnnualPrice) {
+			if (!plan.stripeProductId) {
+				throw new BadRequestException(
+					'Plano sem vínculo Stripe. Não é possível gerar novo preço anual.'
 				);
+			}
+			const annualStripePrice = await this.stripeService.createPrice(
+				plan.stripeProductId,
+				nextAnnualPrice,
+				nextCurrency,
+				'year',
+				1
+			);
+			const oldAnnualPriceId = plan.annualStripePriceId;
+			nextAnnualStripePriceId = annualStripePrice.id;
+			if (oldAnnualPriceId && oldAnnualPriceId !== annualStripePrice.id) {
+				await this.archiveStripePriceQuietly(oldAnnualPriceId);
 			}
 		}
 
@@ -223,9 +266,29 @@ export class AdminService implements OnModuleInit {
 		if (dto.isComingSoon !== undefined) {
 			plan.isComingSoon = dto.isComingSoon;
 		}
+		// Toda edição pelo painel tira o plano do piloto automático do seed
+		// canônico (TRA-188) — sem isso o próximo boot do plan-sync reverteria
+		// exatamente o que acabou de ser salvo aqui.
+		plan.catalogManaged = false;
 		await plan.save();
 
 		return plan;
+	}
+
+	/**
+	 * Arquiva (`active: false`) um preço substituído no Stripe. Falha aqui
+	 * nunca derruba a troca de preço em si — só deixa um preço órfão ativo
+	 * na conta, que é recuperável manualmente; travar o admin por causa disso
+	 * seria pior que o problema que resolve.
+	 */
+	private async archiveStripePriceQuietly(priceId: string): Promise<void> {
+		try {
+			await this.stripeService.archivePrice(priceId);
+		} catch (error) {
+			this.logger.warn(
+				`Não foi possível arquivar o preço antigo ${priceId} no Stripe (${error?.message}).`
+			);
+		}
 	}
 
 	/**
@@ -286,6 +349,11 @@ export class AdminService implements OnModuleInit {
 		plan.stripeProductId = await this.resolveStripeProduct(plan, {
 			active: false,
 		});
+		// Sem isto, um plano ainda `catalogManaged: true` (nunca editado pelo
+		// painel antes) volta a `isActive: true` no próximo boot — o
+		// plan-sync grava `isActive: true` incondicionalmente em todo plano
+		// que ainda não é dono do admin (TRA-188).
+		plan.catalogManaged = false;
 		await plan.save();
 
 		return { message: 'Plano desativado com sucesso' };
