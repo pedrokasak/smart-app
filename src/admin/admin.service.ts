@@ -14,6 +14,7 @@ import {
 	StripeService,
 } from 'src/subscription/stripe.service';
 import { Subscription, UserSubscription } from 'src/subscription/schema';
+import { EmailService } from 'src/notifications/email/email.service';
 import { CreateSubscriptionDto } from 'src/subscription/dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from 'src/subscription/dto/update-subscription.dto';
 import { User } from 'src/users/schema/user.model';
@@ -44,7 +45,8 @@ export class AdminService implements OnModuleInit {
 		private readonly userSubscriptionModel: Model<UserSubscription>,
 		@InjectModel('ManualGrantAudit')
 		private readonly manualGrantAuditModel: Model<ManualGrantAudit>,
-		private readonly stripeService: StripeService
+		private readonly stripeService: StripeService,
+		private readonly emailService: EmailService
 	) {}
 
 	async onModuleInit() {
@@ -465,6 +467,22 @@ export class AdminService implements OnModuleInit {
 			performedByEmail: adminUser.email,
 			notes: dto.notes?.trim() || undefined,
 		});
+
+		// A concessão manual não passa pelo Stripe, então não existe recibo
+		// nem webhook avisando o usuário (TRA-186). Falha de e-mail não
+		// desfaz a concessão — o acesso já está gravado e é o que importa.
+		try {
+			await this.emailService.sendPlanGrantedEmail({
+				email: user.email,
+				firstName: (user as { firstName?: string }).firstName,
+				planName: plan.name,
+				trialDurationDays: isTrial ? dto.trialDurationDays : undefined,
+			});
+		} catch (error) {
+			this.logger.warn(
+				`Concessão aplicada para ${user.email}, mas o aviso por e-mail falhou (${error?.message}).`
+			);
+		}
 
 		return {
 			message: 'Concessão manual aplicada com sucesso',

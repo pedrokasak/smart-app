@@ -59,7 +59,7 @@ export class AsaasService {
 			nextDueDate: dueDate || new Date().toISOString().split('T')[0],
 			value,
 			cycle,
-			description: 'Assinatura automática via Trakker',
+			description: 'Assinatura automática via Trackerr',
 			discount: trialDays
 				? {
 						value: value,

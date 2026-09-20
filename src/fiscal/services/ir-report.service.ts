@@ -595,7 +595,7 @@ export class IrReportService {
 				<body>
 					<div class="hero">
 						<h1>Relatório Executivo de Imposto de Renda ${report.year}</h1>
-						<p class="sub">Gerado em ${this.escapeHtml(generatedAt)} • Trakker</p>
+						<p class="sub">Gerado em ${this.escapeHtml(generatedAt)} • Trackerr</p>
 					</div>
 
 					<div class="summary">
@@ -663,7 +663,7 @@ export class IrReportService {
 						<ul>${guideRows}</ul>
 					</div>
 
-					<div class="footer">Documento de apoio para declaração IRPF • Trakker</div>
+					<div class="footer">Documento de apoio para declaração IRPF • Trackerr</div>
 				</body>
 			</html>
 		`;

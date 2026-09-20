@@ -3,11 +3,15 @@ import { getModelToken } from '@nestjs/mongoose';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AdminService } from './admin.service';
 import { StripeService } from 'src/subscription/stripe.service';
+import { EmailService } from 'src/notifications/email/email.service';
 import { ManualGrantType } from './constants/admin.constants';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
 }));
+
+/** Envio de e-mail é efeito colateral: os testes só precisam que não exploda. */
+const mockEmailService = { sendPlanGrantedEmail: jest.fn() };
 
 describe('AdminService — updatePlan', () => {
 	let service: AdminService;
@@ -65,6 +69,7 @@ describe('AdminService — updatePlan', () => {
 					useValue: mockManualGrantAuditModel,
 				},
 				{ provide: StripeService, useValue: mockStripeService },
+				{ provide: EmailService, useValue: mockEmailService },
 			],
 		}).compile();
 
@@ -377,6 +382,7 @@ describe('AdminService — createPlan', () => {
 				{ provide: getModelToken('UserSubscription'), useValue: {} },
 				{ provide: getModelToken('ManualGrantAudit'), useValue: {} },
 				{ provide: StripeService, useValue: mockStripeService },
+				{ provide: EmailService, useValue: mockEmailService },
 			],
 		}).compile();
 
@@ -493,6 +499,7 @@ describe('AdminService — deactivatePlan', () => {
 				{ provide: getModelToken('UserSubscription'), useValue: {} },
 				{ provide: getModelToken('ManualGrantAudit'), useValue: {} },
 				{ provide: StripeService, useValue: mockStripeService },
+				{ provide: EmailService, useValue: mockEmailService },
 			],
 		}).compile();
 
@@ -579,6 +586,7 @@ describe('AdminService — grantSubscriptionByEmail', () => {
 					useValue: mockManualGrantAuditModel,
 				},
 				{ provide: StripeService, useValue: mockStripeService },
+				{ provide: EmailService, useValue: mockEmailService },
 			],
 		}).compile();
 
@@ -669,6 +677,65 @@ describe('AdminService — grantSubscriptionByEmail', () => {
 			message: 'Concessão manual aplicada com sucesso',
 		});
 	});
+
+	// TRA-186: concessão manual não passa pelo Stripe, então não existe
+	// recibo nem webhook — sem este e-mail o usuário só descobre o acesso
+	// novo por acaso, se entrar no app.
+	describe('aviso por e-mail da concessão', () => {
+		beforeEach(() => {
+			mockEmailService.sendPlanGrantedEmail.mockReset();
+			mockEmailService.sendPlanGrantedEmail.mockResolvedValue(undefined);
+		});
+
+		it('avisa o usuário com o nome do plano liberado', async () => {
+			setupHappyPath();
+
+			await service.grantSubscriptionByEmail('admin-1', {
+				email: 'user@example.com',
+				planId: '507f1f77bcf86cd799439011',
+				grantType: ManualGrantType.Permanent,
+			} as any);
+
+			expect(mockEmailService.sendPlanGrantedEmail).toHaveBeenCalledWith(
+				expect.objectContaining({
+					email: 'user@example.com',
+					planName: expect.any(String),
+				})
+			);
+		});
+
+		it('repassa o prazo quando a concessão é um teste', async () => {
+			setupHappyPath();
+
+			await service.grantSubscriptionByEmail('admin-1', {
+				email: 'user@example.com',
+				planId: '507f1f77bcf86cd799439011',
+				grantType: ManualGrantType.Trial,
+				trialDurationDays: 21,
+			} as any);
+
+			expect(mockEmailService.sendPlanGrantedEmail).toHaveBeenCalledWith(
+				expect.objectContaining({ trialDurationDays: 21 })
+			);
+		});
+
+		it('não desfaz a concessão quando o envio do e-mail falha', async () => {
+			setupHappyPath();
+			mockEmailService.sendPlanGrantedEmail.mockRejectedValue(
+				new Error('provider down')
+			);
+
+			await expect(
+				service.grantSubscriptionByEmail('admin-1', {
+					email: 'user@example.com',
+					planId: '507f1f77bcf86cd799439011',
+					grantType: ManualGrantType.Permanent,
+				} as any)
+			).resolves.toMatchObject({
+				message: 'Concessão manual aplicada com sucesso',
+			});
+		});
+	});
 });
 
 describe('AdminService — listManualGrants', () => {
@@ -702,6 +769,7 @@ describe('AdminService — listManualGrants', () => {
 					useValue: mockManualGrantAuditModel,
 				},
 				{ provide: StripeService, useValue: {} },
+				{ provide: EmailService, useValue: mockEmailService },
 			],
 		}).compile();
 
@@ -871,6 +939,7 @@ describe('AdminService — listWebhookEvents', () => {
 				{ provide: getModelToken('UserSubscription'), useValue: {} },
 				{ provide: getModelToken('ManualGrantAudit'), useValue: {} },
 				{ provide: StripeService, useValue: mockStripeService },
+				{ provide: EmailService, useValue: mockEmailService },
 			],
 		}).compile();
 

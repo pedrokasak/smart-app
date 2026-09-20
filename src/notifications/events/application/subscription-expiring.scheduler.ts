@@ -94,7 +94,7 @@ export class SubscriptionExpiringScheduler {
 			}
 
 			const plan = sub.plan as unknown as { name?: string } | null;
-			const planName = plan?.name ?? 'Trakker';
+			const planName = plan?.name ?? 'Trackerr';
 
 			const userId = String(sub.user);
 			await this.publisher.publish(

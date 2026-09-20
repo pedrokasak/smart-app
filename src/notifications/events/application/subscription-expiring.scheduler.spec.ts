@@ -146,6 +146,6 @@ describe('SubscriptionExpiringScheduler', () => {
 			},
 		]);
 		await scheduler.dispatch(now);
-		expect(publicados[0].payload).toMatchObject({ planName: 'Trakker' });
+		expect(publicados[0].payload).toMatchObject({ planName: 'Trackerr' });
 	});
 });
