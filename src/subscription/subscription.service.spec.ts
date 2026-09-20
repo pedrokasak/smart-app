@@ -444,3 +444,102 @@ describe('SubscriptionController', () => {
 		});
 	});
 });
+
+// TRA-190: erro do Stripe ao abrir o portal (ex.: Customer Portal não
+// configurado para live mode — o gotcha mais comum na virada de teste pra
+// produção) virava 500 genérico do NestJS, sem nenhuma pista pro usuário.
+describe('SubscriptionService — createPortalSession', () => {
+	let service: SubscriptionService;
+	let mockUserSubscriptionModel: any;
+	let mockStripeService: any;
+
+	beforeEach(async () => {
+		mockUserSubscriptionModel = { findOne: jest.fn() };
+		mockStripeService = { createCustomerPortalSession: jest.fn() };
+
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				SubscriptionService,
+				{ provide: getModelToken('Subscription'), useValue: {} },
+				{
+					provide: getModelToken('UserSubscription'),
+					useValue: mockUserSubscriptionModel,
+				},
+				{ provide: getModelToken('User'), useValue: {} },
+				{ provide: StripeService, useValue: mockStripeService },
+				{ provide: WebhooksService, useValue: {} },
+			],
+		}).compile();
+
+		service = module.get<SubscriptionService>(SubscriptionService);
+	});
+
+	function mockSubscription(overrides: Record<string, any> = {}) {
+		const subscription = {
+			stripeCustomerId: 'cus_123',
+			...overrides,
+		};
+		mockUserSubscriptionModel.findOne.mockReturnValue({
+			populate: jest.fn().mockReturnValue({
+				sort: jest.fn().mockResolvedValue(subscription),
+			}),
+		});
+		return subscription;
+	}
+
+	it('returns the portal URL on success', async () => {
+		mockSubscription();
+		mockStripeService.createCustomerPortalSession.mockResolvedValue({
+			url: 'https://billing.stripe.com/session/abc',
+		});
+
+		const result = await service.createPortalSession(
+			'user-1',
+			'https://app.trackerr.com.br/subscription'
+		);
+
+		expect(result).toEqual({
+			url: 'https://billing.stripe.com/session/abc',
+		});
+	});
+
+	it('surfaces the Stripe error message instead of a generic 500', async () => {
+		mockSubscription();
+		mockStripeService.createCustomerPortalSession.mockRejectedValue(
+			new Error(
+				'No configuration provided and your test mode default configuration has not been created.'
+			)
+		);
+
+		await expect(
+			service.createPortalSession('user-1', 'https://app.trackerr.com.br')
+		).rejects.toThrow(
+			'No configuration provided and your test mode default configuration has not been created.'
+		);
+	});
+
+	it('falls back to a generic message when the Stripe error has none', async () => {
+		mockSubscription();
+		mockStripeService.createCustomerPortalSession.mockRejectedValue(
+			new Error()
+		);
+
+		await expect(
+			service.createPortalSession('user-1', 'https://app.trackerr.com.br')
+		).rejects.toThrow(
+			'Não foi possível abrir o portal de gerenciamento da assinatura.'
+		);
+	});
+
+	it('propagates NotFoundException when the user has no subscription', async () => {
+		mockUserSubscriptionModel.findOne.mockReturnValue({
+			populate: jest.fn().mockReturnValue({
+				sort: jest.fn().mockResolvedValue(null),
+			}),
+		});
+
+		await expect(
+			service.createPortalSession('user-1', 'https://app.trackerr.com.br')
+		).rejects.toThrow('Assinatura não encontrada');
+	});
+});

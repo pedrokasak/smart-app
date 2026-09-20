@@ -1,6 +1,7 @@
 import {
 	BadRequestException,
 	Injectable,
+	InternalServerErrorException,
 	Logger,
 	NotFoundException,
 	OnModuleInit,
@@ -141,7 +142,18 @@ export class AdminService implements OnModuleInit {
 	// Eventos recentes vindos direto da Stripe Events API — sem persistência
 	// local (TRA-115).
 	async listWebhookEvents(limit?: number) {
-		const events = await this.stripeService.listRecentEvents(limit);
+		let events: Awaited<ReturnType<StripeService['listRecentEvents']>>;
+		try {
+			events = await this.stripeService.listRecentEvents(limit);
+		} catch (error) {
+			// Sem isto, qualquer falha do Stripe (chave sem permissão de
+			// eventos, rate limit, conta errada) virava 500 genérico do
+			// NestJS — a tela mostrava "Nenhum evento recente", indistinguível
+			// de realmente não ter evento nenhum.
+			throw new InternalServerErrorException(
+				`Não foi possível listar os eventos do Stripe: ${error?.message ?? 'erro desconhecido'}`
+			);
+		}
 		return events.map((event) => ({
 			id: event.id,
 			type: event.type,

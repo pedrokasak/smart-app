@@ -852,3 +852,60 @@ describe('AdminService — listManualGrants', () => {
 		expect(mockUserSubscriptionModel.find).not.toHaveBeenCalled();
 	});
 });
+
+// TRA-190: erro do Stripe (chave sem permissão de eventos, rate limit)
+// virava 500 genérico do NestJS — a tela mostrava "Nenhum evento recente",
+// indistinguível de realmente não ter evento nenhum.
+describe('AdminService — listWebhookEvents', () => {
+	let service: AdminService;
+	let mockStripeService: any;
+
+	beforeEach(async () => {
+		mockStripeService = { listRecentEvents: jest.fn() };
+
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				AdminService,
+				{ provide: getModelToken('User'), useValue: {} },
+				{ provide: getModelToken('Subscription'), useValue: {} },
+				{ provide: getModelToken('UserSubscription'), useValue: {} },
+				{ provide: getModelToken('ManualGrantAudit'), useValue: {} },
+				{ provide: StripeService, useValue: mockStripeService },
+			],
+		}).compile();
+
+		service = module.get<AdminService>(AdminService);
+	});
+
+	it('maps Stripe events to the response shape', async () => {
+		mockStripeService.listRecentEvents.mockResolvedValue([
+			{
+				id: 'evt_1',
+				type: 'customer.subscription.created',
+				created: 1700000000,
+				livemode: true,
+			},
+		]);
+
+		const result = await service.listWebhookEvents(10);
+
+		expect(result).toEqual([
+			{
+				id: 'evt_1',
+				type: 'customer.subscription.created',
+				created: new Date(1700000000 * 1000),
+				livemode: true,
+			},
+		]);
+	});
+
+	it('surfaces the Stripe error message instead of a generic 500', async () => {
+		mockStripeService.listRecentEvents.mockRejectedValue(
+			new Error('This API key does not have the required permissions')
+		);
+
+		await expect(service.listWebhookEvents(10)).rejects.toThrow(
+			'This API key does not have the required permissions'
+		);
+	});
+});

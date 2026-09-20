@@ -1,8 +1,10 @@
 import {
+	HttpException,
 	Injectable,
 	Logger,
 	NotFoundException,
 	BadRequestException,
+	InternalServerErrorException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -438,7 +440,20 @@ export class SubscriptionService {
 			return { url: session.url };
 		} catch (error) {
 			this.logger.error('Erro ao criar sessão do portal:', error);
-			throw error;
+			// `findUserSubscription` já lança NotFoundException com o status e a
+			// mensagem certos — repassa como está. Só o erro cru do Stripe (SDK,
+			// não é HttpException) precisa de tradução: sem isto virava 500
+			// genérico do NestJS e o usuário só via "tente novamente" sem pista
+			// nenhuma do que fazer. Portal não configurado para live mode é o
+			// gotcha mais comum na virada de teste pra produção — a mensagem do
+			// Stripe já é escrita para ser exibida a quem está configurando isso.
+			if (error instanceof HttpException) {
+				throw error;
+			}
+			throw new InternalServerErrorException(
+				error?.message ||
+					'Não foi possível abrir o portal de gerenciamento da assinatura.'
+			);
 		}
 	}
 
