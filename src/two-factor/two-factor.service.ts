@@ -31,6 +31,14 @@ import {
 	toStoredRecoveryCodes,
 } from './security/recovery-codes';
 
+// Tolerância de ±60s (1 passo de 30s antes e depois do padrão) em vez do
+// padrão do otplib (±30s). `authenticator` é o singleton compartilhado por
+// todo o processo — isto também cobre o reset de senha em
+// `authentication.service.ts`. Absorve o drift comum entre o relógio do
+// celular do usuário e o do servidor sem esticar a validade real do código,
+// que continua expirando em segundos.
+authenticator.options = { window: 2 };
+
 @Injectable()
 export class TwoFactorService {
 	constructor(
