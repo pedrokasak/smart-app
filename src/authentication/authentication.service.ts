@@ -428,7 +428,37 @@ export class AuthenticationService {
 		user.refreshToken = null;
 		await user.save();
 
+		await this.notifyPasswordChanged(user);
+
 		return { message: 'Password updated successfully' };
+	}
+
+	/**
+	 * Avisa o dono da conta que a senha mudou (TRA-191).
+	 *
+	 * Falha de e-mail nunca desfaz a troca — a senha já está gravada quando
+	 * isto roda, e derrubar a requisição aqui faria o usuário achar que a
+	 * troca não aconteceu e tentar de novo com a senha antiga, que já não
+	 * vale mais.
+	 */
+	private async notifyPasswordChanged(user: {
+		email?: string;
+		firstName?: string;
+		id?: string;
+	}): Promise<void> {
+		if (!user?.email) return;
+
+		try {
+			await this.emailService.sendPasswordChangedEmail(
+				user.email,
+				user.firstName
+			);
+		} catch (error) {
+			this.logger.error(
+				`Falha ao enviar aviso de senha alterada (userId=${user.id}): ${error?.message}. ` +
+					'A senha FOI alterada; o usuário não recebeu o aviso.'
+			);
+		}
 	}
 
 	async forgotPassword(
@@ -564,6 +594,8 @@ export class AuthenticationService {
 		// manter o refresh token anterior válido deixava esse alguém dentro.
 		user.refreshToken = null;
 		await user.save();
+
+		await this.notifyPasswordChanged(user);
 
 		return { message: 'Senha redefinida com sucesso' };
 	}

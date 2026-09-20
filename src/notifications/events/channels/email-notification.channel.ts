@@ -27,7 +27,7 @@ function renderHtml(tpl: ReturnType<typeof buildTemplate>, ctaUrl: string) {
 			<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;margin:0 auto;background:#111827;border:1px solid #1f2937;border-radius:16px;overflow:hidden;">
 				<tr>
 					<td style="padding:28px 28px 12px 28px;background:linear-gradient(135deg,#16a34a,#2563eb);">
-						<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#dcfce7;font-weight:700;">Trakker</div>
+						<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#dcfce7;font-weight:700;">Trackerr</div>
 						<h1 style="margin:10px 0 0 0;color:#ffffff;font-size:24px;line-height:1.3;">${tpl.hero}</h1>
 					</td>
 				</tr>

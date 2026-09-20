@@ -29,6 +29,94 @@ describe('EmailService', () => {
 		return { service, sender };
 	}
 
+	// TRA-191: os dois avisos que não existiam. O usuário trocava a senha e
+	// recebia silêncio; o admin liberava um plano e o usuário só descobria
+	// por acaso ao entrar no app.
+	describe('sendPasswordChangedEmail', () => {
+		it('avisa a troca e oferece o caminho de recuperação para quem não reconhece', async () => {
+			const { service, sender } = buildService();
+
+			await service.sendPasswordChangedEmail('investidor@example.com', 'Pedro');
+
+			expect(sender.send).toHaveBeenCalledWith(
+				expect.objectContaining({
+					to: 'investidor@example.com',
+					subject: expect.stringContaining('alterada'),
+					html: expect.stringContaining('forgot-password'),
+				})
+			);
+		});
+
+		it('usa um nome neutro quando o cadastro não tem firstName', async () => {
+			const { service, sender } = buildService();
+
+			await service.sendPasswordChangedEmail('investidor@example.com');
+
+			const payload = (sender.send as jest.Mock).mock.calls[0][0];
+			expect(payload.html).toContain('Investidor');
+		});
+
+		it('escapa o nome para não injetar HTML no corpo do e-mail', async () => {
+			const { service, sender } = buildService();
+
+			await service.sendPasswordChangedEmail(
+				'investidor@example.com',
+				'<script>alert(1)</script>'
+			);
+
+			const payload = (sender.send as jest.Mock).mock.calls[0][0];
+			expect(payload.html).not.toContain('<script>');
+			expect(payload.html).toContain('&lt;script&gt;');
+		});
+	});
+
+	describe('sendPlanGrantedEmail', () => {
+		it('nomeia o plano liberado e leva ao dashboard', async () => {
+			const { service, sender } = buildService();
+
+			await service.sendPlanGrantedEmail({
+				email: 'investidor@example.com',
+				firstName: 'Pedro',
+				planName: 'Wealth',
+			});
+
+			expect(sender.send).toHaveBeenCalledWith(
+				expect.objectContaining({
+					to: 'investidor@example.com',
+					subject: expect.stringContaining('Wealth'),
+					html: expect.stringContaining('/dashboard'),
+				})
+			);
+		});
+
+		it('informa o prazo quando a concessão é um teste', async () => {
+			const { service, sender } = buildService();
+
+			await service.sendPlanGrantedEmail({
+				email: 'investidor@example.com',
+				planName: 'Pro',
+				trialDurationDays: 14,
+			});
+
+			const payload = (sender.send as jest.Mock).mock.calls[0][0];
+			expect(payload.html).toContain('14 dia(s)');
+			expect(payload.html).toContain('volta ao plano gratuito');
+		});
+
+		it('não promete prazo nenhum quando a concessão é permanente', async () => {
+			const { service, sender } = buildService();
+
+			await service.sendPlanGrantedEmail({
+				email: 'investidor@example.com',
+				planName: 'Pro',
+			});
+
+			const payload = (sender.send as jest.Mock).mock.calls[0][0];
+			expect(payload.html).not.toContain('dia(s)');
+			expect(payload.html).toContain('não gera cobrança');
+		});
+	});
+
 	describe('sendPurchaseIntentConfirmationEmail', () => {
 		it('sends a confirmation email mentioning the plan name', async () => {
 			const { service, sender } = buildService();

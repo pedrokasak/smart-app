@@ -294,7 +294,7 @@ export class PortfolioReportService {
       <tbody>${rows}</tbody>
     </table>
   </div>
-  <div class="footer">Trakker • Relatório Executivo</div>
+  <div class="footer">Trackerr • Relatório Executivo</div>
 </body>
 </html>`;
 	}

@@ -39,6 +39,7 @@ describe('AuthenticationService', () => {
 
 	const mockEmailService = {
 		sendPasswordResetEmail: jest.fn(),
+		sendPasswordChangedEmail: jest.fn(),
 	};
 
 	const mockBreachedPasswordPolicy = {
@@ -862,6 +863,68 @@ describe('AuthenticationService', () => {
 			await expect(service.refreshAccessToken(rawToken)).rejects.toThrow(
 				UnauthorizedException
 			);
+		});
+	});
+
+	/**
+	 * TRA-191: trocar a senha não avisava ninguém. Se a conta foi tomada,
+	 * este e-mail é o único sinal que o dono recebe — e ele não pode
+	 * derrubar a troca quando o provedor de e-mail falha, porque a senha
+	 * já está gravada nesse ponto.
+	 */
+	describe('aviso de senha alterada', () => {
+		function userWithPassword() {
+			return {
+				id: 'u1',
+				email: 'investidor@example.com',
+				firstName: 'Pedro',
+				password: 'hash-antigo',
+				save: jest.fn().mockResolvedValue(undefined),
+			};
+		}
+
+		beforeEach(() => {
+			mockEmailService.sendPasswordChangedEmail.mockReset();
+			mockEmailService.sendPasswordChangedEmail.mockResolvedValue(undefined);
+		});
+
+		it('envia o aviso depois de updatePassword', async () => {
+			const user = userWithPassword();
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(user),
+			});
+			mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
+			mockPasswordSecurityService.hashPassword.mockResolvedValue('hash-novo');
+
+			await service.updatePassword('u1', {
+				oldPassword: 'antiga',
+				newPassword: 'NovaSenhaForte1!',
+			} as any);
+
+			expect(mockEmailService.sendPasswordChangedEmail).toHaveBeenCalledWith(
+				'investidor@example.com',
+				'Pedro'
+			);
+		});
+
+		it('não desfaz a troca quando o envio do aviso falha', async () => {
+			const user = userWithPassword();
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(user),
+			});
+			mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
+			mockPasswordSecurityService.hashPassword.mockResolvedValue('hash-novo');
+			mockEmailService.sendPasswordChangedEmail.mockRejectedValue(
+				new Error('provider down')
+			);
+
+			await expect(
+				service.updatePassword('u1', {
+					oldPassword: 'antiga',
+					newPassword: 'NovaSenhaForte1!',
+				} as any)
+			).resolves.toEqual({ message: 'Password updated successfully' });
+			expect(user.save).toHaveBeenCalled();
 		});
 	});
 });

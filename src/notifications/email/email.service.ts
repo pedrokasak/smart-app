@@ -51,7 +51,7 @@ export class EmailService {
 				<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;margin:0 auto;background:#111827;border:1px solid #1f2937;border-radius:16px;overflow:hidden;">
 					<tr>
 						<td style="padding:28px 28px 12px 28px;background:linear-gradient(135deg,#16a34a,#2563eb);">
-							<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#dcfce7;font-weight:700;">Trakker</div>
+							<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#dcfce7;font-weight:700;">Trackerr</div>
 							<h1 style="margin:10px 0 0 0;color:#ffffff;font-size:24px;line-height:1.3;">${hero}</h1>
 						</td>
 					</tr>
@@ -73,7 +73,7 @@ export class EmailService {
 	async sendPasswordResetEmail(email: string, token: string): Promise<void> {
 		const resetLink = `${this.getAppBaseUrl()}/reset-password?token=${encodeURIComponent(token)}`;
 
-		const subject = 'Redefinição de Senha - Trakker';
+		const subject = 'Redefinição de Senha - Trackerr';
 		const html = this.getBaseTemplate({
 			title: 'Recuperação de senha',
 			hero: 'Solicitação para redefinir sua senha',
@@ -84,7 +84,7 @@ export class EmailService {
 			footerNote:
 				'Este link expira em 1 hora. Se você não solicitou, ignore este email com segurança.',
 		});
-		const text = `Recuperação de Senha - Trakker\n\nVocê solicitou a redefinição da sua senha.\nAcesse: ${resetLink}\n\nEste link expira em 1 hora.\nSe não foi você, ignore este email.`;
+		const text = `Recuperação de Senha - Trackerr\n\nVocê solicitou a redefinição da sua senha.\nAcesse: ${resetLink}\n\nEste link expira em 1 hora.\nSe não foi você, ignore este email.`;
 
 		await this.sender.send({
 			to: email,
@@ -94,21 +94,95 @@ export class EmailService {
 		});
 	}
 
+	/**
+	 * Confirmação de senha alterada (TRA-191).
+	 *
+	 * Sai depois da troca, não antes: o valor aqui é justamente avisar quem
+	 * NÃO trocou. Se a conta foi tomada, este e-mail é o primeiro sinal que
+	 * o dono recebe — por isso o texto aponta o caminho de recuperação em
+	 * vez de só informar o fato.
+	 */
+	async sendPasswordChangedEmail(
+		email: string,
+		firstName?: string
+	): Promise<void> {
+		const safeName = escapeHtml(String(firstName || 'Investidor').trim());
+		const supportLink = `${this.getAppBaseUrl()}/forgot-password`;
+		const subject = 'Sua senha do Trackerr foi alterada';
+		const html = this.getBaseTemplate({
+			title: `Senha alterada, ${safeName}`,
+			hero: 'A senha da sua conta foi alterada',
+			description:
+				'A senha da sua conta no Trackerr acabou de ser alterada com sucesso. ' +
+				'Se foi você, não precisa fazer nada.',
+			ctaLabel: 'Não fui eu — redefinir senha',
+			ctaUrl: supportLink,
+			footerNote:
+				'Se você não reconhece esta alteração, redefina sua senha imediatamente pelo botão acima e ative a autenticação em dois fatores.',
+		});
+		const text = `Senha alterada - Trackerr\n\nA senha da sua conta acabou de ser alterada.\nSe não foi você, redefina sua senha agora: ${supportLink}`;
+
+		await this.sender.send({ to: email, subject, html, text });
+	}
+
+	/**
+	 * Aviso de plano liberado manualmente pelo admin (TRA-186).
+	 *
+	 * A concessão manual não passa pelo Stripe, então o usuário não recebe
+	 * nenhum comprovante de cobrança — sem este e-mail ele simplesmente
+	 * descobre o acesso novo por acaso, se entrar no app.
+	 */
+	async sendPlanGrantedEmail(params: {
+		email: string;
+		firstName?: string;
+		planName: string;
+		trialDurationDays?: number;
+	}): Promise<void> {
+		const safeName = escapeHtml(
+			String(params.firstName || 'Investidor').trim()
+		);
+		const safePlan = escapeHtml(params.planName);
+		const dashboardLink = `${this.getAppBaseUrl()}/dashboard`;
+		const isTrial =
+			typeof params.trialDurationDays === 'number' &&
+			params.trialDurationDays > 0;
+		const period = isTrial
+			? ` O acesso é um teste válido por ${params.trialDurationDays} dia(s).`
+			: '';
+
+		const subject = `Seu acesso ao plano ${safePlan} foi liberado — Trackerr`;
+		const html = this.getBaseTemplate({
+			title: `Plano ${safePlan} liberado, ${safeName}!`,
+			hero: 'Seu novo acesso já está ativo',
+			description:
+				`Liberamos o plano <strong>${safePlan}</strong> na sua conta do Trackerr.${period} ` +
+				'Todos os recursos do plano já estão disponíveis — é só entrar.',
+			ctaLabel: 'Acessar meu dashboard',
+			ctaUrl: dashboardLink,
+			footerNote: isTrial
+				? 'Ao fim do período de teste o acesso volta ao plano gratuito, sem cobrança automática.'
+				: 'Esta liberação foi feita pela nossa equipe e não gera cobrança.',
+		});
+		const text = `Plano ${params.planName} liberado - Trackerr\n\nSeu acesso já está ativo.${period}\nAcesse: ${dashboardLink}`;
+
+		await this.sender.send({ to: params.email, subject, html, text });
+	}
+
 	async sendWelcomeEmail(email: string, firstName?: string): Promise<void> {
 		const dashboardLink = `${this.getAppBaseUrl()}/dashboard`;
 		const safeName = String(firstName || 'Investidor').trim();
-		const subject = `Bem-vindo(a) ao Trakker, ${safeName}!`;
+		const subject = `Bem-vindo(a) ao Trackerr, ${safeName}!`;
 		const html = this.getBaseTemplate({
 			title: `Conta criada com sucesso, ${safeName}!`,
 			hero: 'Seu novo painel de investimentos está pronto',
 			description:
-				'Obrigado por se cadastrar no Trakker. Agora você já pode conectar suas contas, importar sua carteira e acompanhar seus resultados em tempo real.',
+				'Obrigado por se cadastrar no Trackerr. Agora você já pode conectar suas contas, importar sua carteira e acompanhar seus resultados em tempo real.',
 			ctaLabel: 'Acessar meu dashboard',
 			ctaUrl: dashboardLink,
 			footerNote:
 				'Dica: ative a autenticação em dois fatores para aumentar a segurança da sua conta.',
 		});
-		const text = `Bem-vindo(a) ao Trakker, ${safeName}!\n\nSua conta foi criada com sucesso.\nAcesse seu dashboard: ${dashboardLink}\n\nBons investimentos!`;
+		const text = `Bem-vindo(a) ao Trackerr, ${safeName}!\n\nSua conta foi criada com sucesso.\nAcesse seu dashboard: ${dashboardLink}\n\nBons investimentos!`;
 
 		await this.sender.send({
 			to: email,
@@ -134,13 +208,13 @@ export class EmailService {
 			ctaLabel: 'Gerenciar agendamentos',
 			ctaUrl: reportsLink,
 			footerNote:
-				'Você recebe este e-mail porque agendou o relatório no Trakker. Pause ou apague o agendamento na tela Relatórios.',
+				'Você recebe este e-mail porque agendou o relatório no Trackerr. Pause ou apague o agendamento na tela Relatórios.',
 		});
 		const text = `${params.reportTitle} (${params.periodLabel}) em anexo.\nGerencie seus agendamentos: ${reportsLink}`;
 
 		await this.sender.send({
 			to: email,
-			subject: `${params.reportTitle} · ${params.periodLabel} — Trakker`,
+			subject: `${params.reportTitle} · ${params.periodLabel} — Trackerr`,
 			html,
 			text,
 			attachments: [params.attachment],
@@ -151,12 +225,12 @@ export class EmailService {
 		email: string,
 		planName: string
 	): Promise<void> {
-		const subject = `Recebemos seu interesse no plano ${planName} - Trakker`;
+		const subject = `Recebemos seu interesse no plano ${planName} - Trackerr`;
 		const html = this.getBaseTemplate({
 			title: `Interesse registrado: ${planName}`,
 			hero: 'Estamos finalizando os acessos para o seu setor',
 			description: `Recebemos seu interesse no plano ${planName}. Nossa equipe está priorizando os próximos convites — você vai receber um e-mail assim que seu acesso estiver liberado.`,
-			ctaLabel: 'Conhecer o Trakker',
+			ctaLabel: 'Conhecer o Trackerr',
 			ctaUrl: this.getAppBaseUrl(),
 			footerNote:
 				'Se você não solicitou este contato, pode ignorar este e-mail com segurança.',
@@ -194,7 +268,7 @@ export class EmailService {
 			omitted: 0,
 		};
 		const safeName = String(firstName || 'Investidor').trim();
-		const subject = 'Seu resumo semanal de carteira — Trakker';
+		const subject = 'Seu resumo semanal de carteira — Trackerr';
 
 		const money = (value: number | null) =>
 			value === null
@@ -287,7 +361,7 @@ export class EmailService {
 				<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;margin:0 auto;background:#111827;border:1px solid #1f2937;border-radius:16px;overflow:hidden;">
 					<tr>
 						<td style="padding:28px 28px 12px 28px;background:linear-gradient(135deg,#16a34a,#2563eb);">
-							<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#dcfce7;font-weight:700;">Trakker</div>
+							<div style="font-size:12px;letter-spacing:1.5px;text-transform:uppercase;color:#dcfce7;font-weight:700;">Trackerr</div>
 							<h1 style="margin:10px 0 0 0;color:#ffffff;font-size:22px;line-height:1.3;">Resumo semanal da sua carteira</h1>
 						</td>
 					</tr>

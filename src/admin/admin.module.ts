@@ -9,6 +9,7 @@ import { UserModel } from 'src/users/schema/user.model';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { ManualGrantAuditModel } from './schema/manual-grant-audit.model';
+import { EmailModule } from 'src/notifications/email/email.module';
 
 @Module({
 	imports: [
@@ -19,6 +20,7 @@ import { ManualGrantAuditModel } from './schema/manual-grant-audit.model';
 			{ name: 'ManualGrantAudit', schema: ManualGrantAuditModel.schema },
 		]),
 		SubscriptionModule,
+		EmailModule,
 	],
 	controllers: [AdminController],
 	providers: [AdminService],

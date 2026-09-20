@@ -60,7 +60,7 @@ export function buildPushDigest(
 	}
 
 	return capped({
-		title: 'Trakker',
+		title: 'Trackerr',
 		body: `${payloads.length} novidades na sua carteira`,
 		tag,
 		url: FALLBACK_ROUTE,
@@ -79,7 +79,7 @@ function capped(payload: WebPushPayload): WebPushPayload {
 	if (bytes <= MAX_PUSH_PAYLOAD_PLAINTEXT_BYTES) return payload;
 
 	return {
-		title: 'Trakker',
+		title: 'Trackerr',
 		body: `${payload.count} novidade${payload.count === 1 ? '' : 's'} na sua carteira`,
 		tag: payload.tag,
 		url: FALLBACK_ROUTE,
