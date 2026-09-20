@@ -47,6 +47,7 @@ const mockUnifiedIntelligenceFacade = {
 
 const mockUserPlanResolver = {
 	resolve: jest.fn(),
+	resolveWithCapabilities: jest.fn(),
 };
 
 const mockPortfolioScoreService = {
@@ -654,10 +655,16 @@ describe('AiController', () => {
 	});
 
 	describe('POST /ai/opportunity-radar', () => {
-		afterEach(() => mockUserPlanResolver.resolve.mockReset());
+		afterEach(() => {
+			mockUserPlanResolver.resolve.mockReset();
+			mockUserPlanResolver.resolveWithCapabilities.mockReset();
+		});
 
 		it('builds positions from the user portfolio and forwards body filters to the facade', async () => {
-			mockUserPlanResolver.resolve.mockResolvedValue(PREMIUM_ACCESS_LEVEL);
+			mockUserPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: PREMIUM_ACCESS_LEVEL,
+				capabilities: [],
+			});
 			mockPortfolioService.getUserPortfolios.mockResolvedValue([
 				{
 					assets: [
@@ -682,7 +689,9 @@ describe('AiController', () => {
 				{ candidateSymbols: ['VALE3'], watchlistSymbols: ['ITUB4'] }
 			);
 
-			expect(mockUserPlanResolver.resolve).toHaveBeenCalledWith('user-123');
+			expect(mockUserPlanResolver.resolveWithCapabilities).toHaveBeenCalledWith(
+				'user-123'
+			);
 			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
 				'user-123'
 			);
@@ -701,7 +710,10 @@ describe('AiController', () => {
 		});
 
 		it('throws Forbidden when the user plan is below premium', async () => {
-			mockUserPlanResolver.resolve.mockResolvedValue(FREE_ACCESS_LEVEL);
+			mockUserPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: FREE_ACCESS_LEVEL,
+				capabilities: [],
+			});
 
 			await expect(
 				controller.opportunityRadar({ user: { userId: 'user-123' } }, {})

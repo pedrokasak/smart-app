@@ -6,8 +6,7 @@ import { User } from 'src/users/schema/user.model';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
 import {
-	planAtLeast,
-	PRO_ACCESS_LEVEL,
+	planHasCapability,
 	USER_PLAN_RESOLVER,
 	UserPlanResolverPort,
 } from 'src/subscription/application/user-plan.types';
@@ -64,10 +63,11 @@ export class RagIngestionScheduler {
 		);
 	}
 
-	/** Retorna true se ingeriu (usuário Pro+ com carteira). Público pra teste. */
+	/** Retorna true se ingeriu (usuário com capability 'ai.rag' e carteira). Público pra teste. */
 	async ingestForUser(userId: string): Promise<boolean> {
-		const plan = await this.userPlanResolver.resolve(userId);
-		if (!planAtLeast(plan, PRO_ACCESS_LEVEL)) return false;
+		const { tier, capabilities } =
+			await this.userPlanResolver.resolveWithCapabilities(userId);
+		if (!planHasCapability(capabilities, 'ai.rag', tier)) return false;
 
 		const portfolios = await this.portfolioService.getUserPortfolios(userId);
 		const positions = this.toPositions(portfolios);

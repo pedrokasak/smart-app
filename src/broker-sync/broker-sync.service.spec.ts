@@ -166,6 +166,57 @@ describe('BrokerSyncService', () => {
 		);
 	});
 
+	// TRA-189: capability 'broker.sync' passa a mandar quando configurada.
+	describe('assertBrokerSyncPlan — capability broker.sync', () => {
+		it('nega quando o admin configurou capabilities e broker.sync não está na lista', async () => {
+			const userId = new Types.ObjectId().toString();
+			mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+				status: 'active',
+				plan: {
+					name: 'Wealth',
+					accessLevel: 20,
+					capabilities: ['ai.insights'],
+				},
+			});
+
+			await expect(service.syncConnection(userId, 'binance')).rejects.toThrow(
+				'PLANO_UPGRADE_NECESSARIO'
+			);
+		});
+
+		it('libera quando o admin marcou broker.sync explicitamente, mesmo com accessLevel baixo', async () => {
+			const userId = new Types.ObjectId().toString();
+			jest.spyOn(service as any, 'decrypt').mockReturnValue('decryptedValue');
+			mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+				status: 'active',
+				plan: {
+					name: 'Essencial Corretora',
+					accessLevel: 0,
+					capabilities: ['broker.sync'],
+				},
+			});
+			jest.spyOn(BrokerConnectionModel, 'findOne').mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					userId: new Types.ObjectId(userId),
+					provider: 'binance',
+					apiKeyEncrypted: 'iv:encryptedKey',
+					apiSecretEncrypted: 'iv:encryptedSecret',
+					status: 'connected',
+					save: jest.fn().mockResolvedValue(true),
+				}),
+			} as any);
+			mockPortfolioService.findPortfolioByName.mockResolvedValue({
+				_id: new Types.ObjectId(),
+				name: 'binance',
+			});
+			mockAssetsService.findAssetBySymbolAndPortfolio.mockResolvedValue(null);
+
+			await expect(
+				service.syncConnection(userId, 'binance')
+			).resolves.toBeDefined();
+		});
+	});
+
 	it('should extract balances from free/used/info when total is empty', () => {
 		const extracted = (service as any).extractPositiveBalances({
 			total: {},

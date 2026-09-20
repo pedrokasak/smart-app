@@ -5,10 +5,12 @@ import {
 	IsBoolean,
 	IsArray,
 	IsEnum,
+	IsIn,
 	IsInt,
 	Min,
 } from 'class-validator';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ALL_PLAN_CAPABILITIES } from 'src/subscription/application/user-plan.types';
 
 export class CreateSubscriptionDto {
 	@ApiProperty({ description: 'Nome da assinatura' })
@@ -101,6 +103,18 @@ export class CreateSubscriptionDto {
 	@IsArray()
 	@IsString({ each: true })
 	features?: string[];
+
+	@ApiPropertyOptional({
+		description:
+			'Capability keys que este plano libera (TRA-189) — separadas do ' +
+			'texto de vitrine em `features`.',
+		enum: ALL_PLAN_CAPABILITIES,
+		isArray: true,
+	})
+	@IsOptional()
+	@IsArray()
+	@IsIn(ALL_PLAN_CAPABILITIES, { each: true })
+	capabilities?: string[];
 
 	@ApiPropertyOptional({ description: 'Número máximo de usuários permitidos' })
 	@IsOptional()

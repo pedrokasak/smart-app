@@ -59,8 +59,7 @@ import { AppendChatMessageRequestDto } from 'src/ai/chat-history/dto/append-chat
 import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
 import { OpportunityRadarRequestDto } from './dto/opportunity-radar-request.dto';
 import {
-	planAtLeast,
-	PREMIUM_ACCESS_LEVEL,
+	planHasCapability,
 	USER_PLAN_RESOLVER,
 	UserPlanResolverPort,
 } from 'src/subscription/application/user-plan.types';
@@ -387,9 +386,10 @@ export class AiController {
 	 * /ai/chat/intelligent para intents especificos ("opportunity_radar"),
 	 * o que forcava qualquer consumidor a simular uma pergunta de chat so
 	 * pra ler o radar. Feature premium por definicao: mesmo gate de plano
-	 * (USER_PLAN_RESOLVER / planAtLeast) usado pelo RAG do chat (TRA-79),
-	 * aqui aplicado como 403 explicito em vez de fallback silencioso, ja
-	 * que este e um endpoint dedicado consumido diretamente.
+	 * (USER_PLAN_RESOLVER / planHasCapability, 'ai.insights') usado pelo RAG
+	 * do chat (TRA-79, TRA-189), aqui aplicado como 403 explicito em vez de
+	 * fallback silencioso, ja que este e um endpoint dedicado consumido
+	 * diretamente.
 	 */
 	@Post('opportunity-radar')
 	@UseGuards(JwtAuthGuard)
@@ -403,8 +403,9 @@ export class AiController {
 			throw new UnauthorizedException('User ID ausente no token');
 		}
 
-		const plan = await this.userPlanResolver.resolve(userId);
-		if (!planAtLeast(plan, PREMIUM_ACCESS_LEVEL)) {
+		const { tier, capabilities } =
+			await this.userPlanResolver.resolveWithCapabilities(userId);
+		if (!planHasCapability(capabilities, 'ai.insights', tier)) {
 			throw new ForbiddenException('FEATURE_PREMIUM_REQUERIDA');
 		}
 

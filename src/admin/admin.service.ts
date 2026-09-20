@@ -254,6 +254,9 @@ export class AdminService implements OnModuleInit {
 		if (dto.features) {
 			plan.features = dto.features;
 		}
+		if (dto.capabilities) {
+			plan.capabilities = dto.capabilities;
+		}
 		if (dto.maxUsers !== undefined) {
 			plan.maxUsers = dto.maxUsers;
 		}

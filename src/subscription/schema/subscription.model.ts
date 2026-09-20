@@ -20,6 +20,13 @@ export interface Subscription extends Document {
 	isComingSoon?: boolean;
 	isActive: boolean;
 	features?: string[];
+	/**
+	 * Capability keys liberadas por este plano (TRA-189), separadas do texto
+	 * de vitrine em `features`. Lista ausente/vazia significa "nunca
+	 * configurado pelo admin" — o gate cai no fallback por `accessLevel`, ver
+	 * `planHasCapability`.
+	 */
+	capabilities?: string[];
 	maxUsers?: number;
 	/**
 	 * `true` (padrão): conteúdo do plano (nome, preço, features...) ainda é
@@ -56,6 +63,7 @@ const subscriptionSchema = new Schema<Subscription>({
 	isComingSoon: { type: Boolean, default: false },
 	isActive: { type: Boolean, default: true },
 	features: [{ type: String }],
+	capabilities: [{ type: String }],
 	maxUsers: { type: Number },
 	catalogManaged: { type: Boolean, default: true },
 	createdAt: { type: Date, default: Date.now },
