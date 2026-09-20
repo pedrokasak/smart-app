@@ -68,6 +68,24 @@ interface StripeIds {
 }
 
 /**
+ * Vínculos Stripe reconciliam sempre, mesmo em plano que o admin já editou
+ * — um `stripeProductId` de outro modo trava o painel independente de quem
+ * é dono do conteúdo. Todo o resto do `target` é conteúdo comercial e só
+ * sobrescreve plano `catalogManaged: false` quando o campo está vazio.
+ */
+const STRIPE_LINK_FIELDS = new Set([
+	'stripeProductId',
+	'stripePriceId',
+	'annualStripePriceId',
+]);
+
+function isEmptyContentValue(value: unknown): boolean {
+	if (value === undefined || value === null) return true;
+	if (Array.isArray(value)) return value.length === 0;
+	return false;
+}
+
+/**
  * Serviço idempotente que reconcilia a coleção `subscriptions` do Mongo com
  * a definição canônica de planos (TRA-18).
  *
@@ -402,12 +420,27 @@ export class PlanSyncService implements OnApplicationBootstrap {
 			changes.push({ field, from: stored, to: undefined });
 			$unset[field] = '';
 		}
+		// `catalogManaged: false` marca plano que um admin já editou pelo
+		// painel (TRA-188): a partir daí o seed vira backfill — só preenche
+		// campo de conteúdo ainda vazio, nunca sobrescreve valor definido.
+		const adminOwned = (existing as any).catalogManaged === false;
+		let preservedByAdmin = 0;
 		for (const [field, to] of Object.entries(target)) {
 			const from = (existing as any)[field];
+			const isContentField = !STRIPE_LINK_FIELDS.has(field);
+			if (adminOwned && isContentField && !isEmptyContentValue(from)) {
+				if (!deepEqual(from, to)) preservedByAdmin += 1;
+				continue;
+			}
 			if (!deepEqual(from, to)) {
 				changes.push({ field, from, to });
 				$set[field] = to;
 			}
+		}
+		if (preservedByAdmin > 0) {
+			warnings.push(
+				`${preservedByAdmin} campo(s) preservado(s) por já terem sido definidos pelo admin no painel.`
+			);
 		}
 
 		if (!changes.length) {

@@ -362,4 +362,130 @@ describe('PlanSyncService', () => {
 		const cleared = pro.changes.filter((c) => c.to === undefined);
 		expect(cleared).toEqual([]);
 	});
+
+	// TRA-188: editar um plano pelo painel admin marca catalogManaged: false.
+	// A partir daí o seed vira backfill puro — nunca mais reverte o que o
+	// admin definiu, só preenche campo ainda vazio.
+	describe('plano gerenciado pelo admin (catalogManaged: false)', () => {
+		it('não sobrescreve nome, preço nem features que o admin já definiu', async () => {
+			plans.push({
+				_id: 'plan_pro_admin',
+				name: 'Pro',
+				price: 19.9,
+				currency: 'brl',
+				interval: 'month',
+				intervalCount: 1,
+				accessLevel: 10,
+				isActive: true,
+				isFeatured: false,
+				isComingSoon: false,
+				features: ['Feature editada pelo admin'],
+				catalogManaged: false,
+			});
+
+			const report = await service.syncCanonicalPlans({ env });
+			const pro = report.plans.find((p) => p.slug === 'pro')!;
+
+			const proDoc = plans.find((p) => p._id === 'plan_pro_admin');
+			expect(proDoc.price).toBe(19.9);
+			expect(proDoc.features).toEqual(['Feature editada pelo admin']);
+			expect(pro.changes.map((c) => c.field)).not.toContain('price');
+			expect(pro.changes.map((c) => c.field)).not.toContain('features');
+		});
+
+		it('ainda assim preenche campo de conteúdo que está vazio', async () => {
+			plans.push({
+				_id: 'plan_pro_admin',
+				name: 'Pro',
+				price: 19.9,
+				currency: 'brl',
+				interval: 'month',
+				intervalCount: 1,
+				isActive: true,
+				// accessLevel nunca foi definido — o admin editou outros campos,
+				// não este.
+				catalogManaged: false,
+			});
+
+			const report = await service.syncCanonicalPlans({ env });
+			const pro = report.plans.find((p) => p.slug === 'pro')!;
+
+			expect(pro.changes).toContainEqual({
+				field: 'accessLevel',
+				from: undefined,
+				to: 10,
+			});
+			expect(plans.find((p) => p._id === 'plan_pro_admin').accessLevel).toBe(
+				10
+			);
+		});
+
+		it('continua reconciliando o vínculo Stripe mesmo com o conteúdo preservado', async () => {
+			plans.push({
+				_id: 'plan_pro_admin',
+				name: 'Pro',
+				price: 19.9,
+				currency: 'brl',
+				interval: 'month',
+				intervalCount: 1,
+				isActive: true,
+				stripeProductId: 'prod_outdated',
+				catalogManaged: false,
+			});
+
+			const report = await service.syncCanonicalPlans({ env });
+			const pro = report.plans.find((p) => p.slug === 'pro')!;
+
+			expect(pro.changes).toContainEqual({
+				field: 'stripeProductId',
+				from: 'prod_outdated',
+				to: 'prod_pro_live',
+			});
+			expect(
+				plans.find((p) => p._id === 'plan_pro_admin').stripeProductId
+			).toBe('prod_pro_live');
+		});
+
+		it('não reativa um plano que o admin desativou (deactivatePlan) antes de qualquer outra edição', async () => {
+			// Plano ainda nunca editado pelo painel (catalogManaged: false só é
+			// gravado quando o admin desativa/edita) e isActive:false — o
+			// target do canonical inclui isActive:true incondicionalmente;
+			// sem o backfill-only isto reativaria o plano no boot seguinte.
+			plans.push({
+				_id: 'plan_pro_deactivated',
+				name: 'Pro',
+				price: 14.9,
+				currency: 'brl',
+				interval: 'month',
+				intervalCount: 1,
+				accessLevel: 10,
+				isActive: false,
+				catalogManaged: false,
+			});
+
+			await service.syncCanonicalPlans({ env });
+
+			expect(plans.find((p) => p._id === 'plan_pro_deactivated').isActive).toBe(
+				false
+			);
+		});
+
+		it('plano legado sem a flag continua sendo sincronizado por completo (compatibilidade)', async () => {
+			plans.push({
+				_id: 'plan_pro_legacy',
+				name: 'Pro',
+				price: 199,
+				currency: 'brl',
+				interval: 'month',
+				intervalCount: 1,
+				isActive: true,
+				// Documento anterior à TRA-188 — nunca teve catalogManaged
+				// gravado. Trata como o padrão do schema (true).
+			});
+
+			await service.syncCanonicalPlans({ env });
+
+			expect(plans.find((p) => p._id === 'plan_pro_legacy').price).toBe(14.9);
+		});
+	});
 });

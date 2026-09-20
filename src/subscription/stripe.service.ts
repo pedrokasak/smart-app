@@ -94,6 +94,24 @@ export class StripeService {
 		}
 	}
 
+	/**
+	 * Preços no Stripe são imutáveis — trocar valor, moeda ou intervalo
+	 * sempre cria um preço novo. Arquivar o antigo (`active: false`) evita
+	 * que ele fique acumulando como preço ativo órfão na conta a cada edição.
+	 */
+	async archivePrice(priceId: string): Promise<Stripe.Price> {
+		try {
+			const price = await this.stripe.prices.update(priceId, {
+				active: false,
+			});
+			this.logger.log(`Preço arquivado no Stripe: ${price.id}`);
+			return price;
+		} catch (error) {
+			this.logger.error('Erro ao arquivar preço no Stripe:', error);
+			throw error;
+		}
+	}
+
 	async createCustomer(email: string, name?: string): Promise<Stripe.Customer> {
 		try {
 			const customer = await this.stripe.customers.create({
