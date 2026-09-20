@@ -543,3 +543,60 @@ describe('SubscriptionService — createPortalSession', () => {
 		).rejects.toThrow('Assinatura não encontrada');
 	});
 });
+
+// TRA-192: o gate de plano de todo o produto sai daqui. Antes o filtro
+// olhava só `status`, e como a varredura que vira `unpaid` nunca rodava,
+// concessão de teste vencida seguia liberando o plano para sempre.
+describe('SubscriptionService — findCurrentSubscriptionByUser', () => {
+	let service: SubscriptionService;
+	let mockUserSubscriptionModel: any;
+
+	beforeEach(async () => {
+		mockUserSubscriptionModel = { findOne: jest.fn() };
+		mockUserSubscriptionModel.findOne.mockReturnValue({
+			populate: jest.fn().mockResolvedValue(null),
+		});
+
+		const module: TestingModule = await Test.createTestingModule({
+			providers: [
+				SubscriptionService,
+				{ provide: getModelToken('Subscription'), useValue: {} },
+				{
+					provide: getModelToken('UserSubscription'),
+					useValue: mockUserSubscriptionModel,
+				},
+				{ provide: getModelToken('User'), useValue: {} },
+				{ provide: StripeService, useValue: {} },
+				{ provide: WebhooksService, useValue: {} },
+			],
+		}).compile();
+
+		service = module.get<SubscriptionService>(SubscriptionService);
+	});
+
+	it('exige que o período ainda não tenha vencido', async () => {
+		await service.findCurrentSubscriptionByUser('507f1f77bcf86cd799439011');
+
+		const filter = mockUserSubscriptionModel.findOne.mock.calls[0][0];
+		expect(filter.status).toEqual({ $in: ['active', 'trialing'] });
+		expect(filter.$or).toEqual(
+			expect.arrayContaining([
+				expect.objectContaining({
+					currentPeriodEnd: expect.objectContaining({ $gte: expect.any(Date) }),
+				}),
+			])
+		);
+	});
+
+	it('aceita registro sem data: ausência é "sem prazo", não "vencido"', async () => {
+		await service.findCurrentSubscriptionByUser('507f1f77bcf86cd799439011');
+
+		const filter = mockUserSubscriptionModel.findOne.mock.calls[0][0];
+		expect(filter.$or).toEqual(
+			expect.arrayContaining([
+				{ currentPeriodEnd: { $exists: false } },
+				{ currentPeriodEnd: null },
+			])
+		);
+	});
+});
