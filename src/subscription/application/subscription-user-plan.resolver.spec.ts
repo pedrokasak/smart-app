@@ -124,4 +124,79 @@ describe('SubscriptionUserPlanResolver (TRA-79, TRA-182)', () => {
 			expect(planAtLeast(FREE_ACCESS_LEVEL, PRO_ACCESS_LEVEL)).toBe(false);
 		});
 	});
+
+	// TRA-189: capability explícita do plano manda; plano nunca configurado
+	// (capabilities ausente/vazio) cai no fallback por accessLevel de hoje.
+	describe('resolveWithCapabilities', () => {
+		it('devolve tier e capabilities numa única consulta', async () => {
+			subscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+				plan: {
+					name: 'Pro',
+					accessLevel: PRO_ACCESS_LEVEL,
+					capabilities: ['broker.sync'],
+				},
+			});
+
+			await expect(resolver.resolveWithCapabilities('user-1')).resolves.toEqual(
+				{
+					tier: PRO_ACCESS_LEVEL,
+					capabilities: ['broker.sync'],
+				}
+			);
+			expect(
+				subscriptionService.findCurrentSubscriptionByUser
+			).toHaveBeenCalledTimes(1);
+		});
+
+		it('devolve capabilities vazio quando o plano nunca foi configurado', async () => {
+			subscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+				plan: { name: 'Pro', accessLevel: PRO_ACCESS_LEVEL },
+			});
+
+			await expect(resolver.resolveWithCapabilities('user-1')).resolves.toEqual(
+				{
+					tier: PRO_ACCESS_LEVEL,
+					capabilities: [],
+				}
+			);
+		});
+
+		it('sem assinatura ativa, devolve free e capabilities vazio', async () => {
+			subscriptionService.findCurrentSubscriptionByUser.mockResolvedValue(null);
+
+			await expect(resolver.resolveWithCapabilities('user-1')).resolves.toEqual(
+				{
+					tier: FREE_ACCESS_LEVEL,
+					capabilities: [],
+				}
+			);
+		});
+
+		it('falha na consulta nunca vira acesso liberado por acidente', async () => {
+			subscriptionService.findCurrentSubscriptionByUser.mockRejectedValue(
+				new Error('mongo down')
+			);
+
+			await expect(resolver.resolveWithCapabilities('user-1')).resolves.toEqual(
+				{
+					tier: FREE_ACCESS_LEVEL,
+					capabilities: [],
+				}
+			);
+		});
+
+		it('resolve() continua devolvendo só o tier, mesmo comportamento de sempre', async () => {
+			subscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+				plan: {
+					name: 'Wealth',
+					accessLevel: PREMIUM_ACCESS_LEVEL,
+					capabilities: ['ai.insights'],
+				},
+			});
+
+			await expect(resolver.resolve('user-1')).resolves.toBe(
+				PREMIUM_ACCESS_LEVEL
+			);
+		});
+	});
 });

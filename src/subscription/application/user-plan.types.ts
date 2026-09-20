@@ -31,6 +31,62 @@ export function planAtLeast(
 	return actual >= required;
 }
 
+/**
+ * Chave estavel de feature paga (TRA-189) — separada do texto de vitrine em
+ * `plan.features`. Renomear a feature na landing nunca muda quem tem acesso;
+ * so mexer aqui muda.
+ */
+export type PlanCapability =
+	| 'fiscal.ir_report'
+	| 'broker.sync'
+	| 'ai.rag'
+	| 'ai.insights';
+
+export const ALL_PLAN_CAPABILITIES: PlanCapability[] = [
+	'fiscal.ir_report',
+	'broker.sync',
+	'ai.rag',
+	'ai.insights',
+];
+
+/** Rotulo exibido no checkbox do painel admin e no card do plano. */
+export const PLAN_CAPABILITY_LABELS: Record<PlanCapability, string> = {
+	'fiscal.ir_report': 'Relatório de Imposto de Renda',
+	'broker.sync': 'Sincronização direta com corretora',
+	'ai.rag': 'Copiloto com busca em base de conhecimento (RAG)',
+	'ai.insights': 'Radar de oportunidades e IA Insights',
+};
+
+/**
+ * Patamar de `accessLevel` que cada capability libera quando o plano NUNCA
+ * teve `capabilities` configurado pelo admin — mesma trava de hoje, sem
+ * regressao pra plano que ainda nao passou pelo painel novo (TRA-189).
+ */
+export const CAPABILITY_DEFAULT_LEVEL: Record<PlanCapability, UserPlanTier> = {
+	'fiscal.ir_report': PRO_ACCESS_LEVEL,
+	'broker.sync': PRO_ACCESS_LEVEL,
+	'ai.rag': PRO_ACCESS_LEVEL,
+	'ai.insights': PREMIUM_ACCESS_LEVEL,
+};
+
+/**
+ * `true` quando o admin configurou `capabilities` no plano e a lista inclui
+ * a chave — nesse caso o checkbox do painel manda, mesmo que contrarie o
+ * `accessLevel` numerico. Plano que nunca teve `capabilities` definido (lista
+ * ausente ou vazia) cai no patamar padrao de hoje via `tier`, pra nao
+ * regredir quem nunca abriu o painel novo.
+ */
+export function planHasCapability(
+	capabilities: string[] | null | undefined,
+	capability: PlanCapability,
+	tier: UserPlanTier
+): boolean {
+	if (Array.isArray(capabilities) && capabilities.length > 0) {
+		return capabilities.includes(capability);
+	}
+	return planAtLeast(tier, CAPABILITY_DEFAULT_LEVEL[capability]);
+}
+
 export const USER_PLAN_RESOLVER = Symbol('USER_PLAN_RESOLVER');
 
 export interface UserPlanResolverPort {
@@ -41,4 +97,15 @@ export interface UserPlanResolverPort {
 	 * duvida e o comportamento seguro pra um gate de feature paga.
 	 */
 	resolve(userId: string): Promise<UserPlanTier>;
+
+	/**
+	 * Mesma resolucao de `resolve()`, mais as `capabilities` explicitas do
+	 * plano (TRA-189) — numa unica consulta, pra quem precisa gatear por
+	 * capability em vez de so por nivel. Capabilities vazio no retorno so
+	 * significa "plano nao configurado com capabilities"; o fallback por
+	 * nivel e responsabilidade de `planHasCapability`, nao deste metodo.
+	 */
+	resolveWithCapabilities(
+		userId: string
+	): Promise<{ tier: UserPlanTier; capabilities: string[] }>;
 }

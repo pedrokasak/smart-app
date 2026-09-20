@@ -1,8 +1,5 @@
 import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
-import {
-	planAtLeast,
-	PRO_ACCESS_LEVEL,
-} from 'src/subscription/application/user-plan.types';
+import { planHasCapability } from 'src/subscription/application/user-plan.types';
 import {
 	ForbiddenException,
 	Injectable,
@@ -183,28 +180,21 @@ export class IrReportService {
 			throw new ForbiddenException('FEATURE_PREMIUM_REQUERIDA');
 		}
 
-		const planName = ((subscription as any)?.plan?.name || '')
-			.toString()
-			.toLowerCase();
-		const features = Array.isArray((subscription as any)?.plan?.features)
-			? (subscription as any).plan.features.map((feature: string) =>
-					feature.toLowerCase()
-				)
-			: [];
+		const plan = (
+			subscription as {
+				plan?: { name?: string; accessLevel?: number; capabilities?: string[] };
+			}
+		)?.plan;
+		const tier =
+			typeof plan?.accessLevel === 'number'
+				? plan.accessLevel
+				: SubscriptionUserPlanResolver.tierFromPlanName(plan?.name);
 
-		const hasExplicitPremiumFeature = features.some((feature: string) =>
-			['premium', 'ir-report', 'imposto-renda', 'fiscal-report'].some(
-				(keyword) => feature.includes(keyword)
-			)
-		);
-
-		// Mesmo resolvedor de nivel do resto do produto: Pro ou acima libera.
-		const premiumByName = planAtLeast(
-			SubscriptionUserPlanResolver.tierFromPlanName(planName),
-			PRO_ACCESS_LEVEL
-		);
-
-		if (!hasExplicitPremiumFeature && !premiumByName) {
+		// Capability 'fiscal.ir_report' (TRA-189) — antes gateava por substring
+		// no texto de marketing de `plan.features` ('premium'/'ir-report'/...),
+		// que mudava sozinho se a feature fosse renomeada na vitrine, e nem
+		// considerava `accessLevel`, só o nome do plano.
+		if (!planHasCapability(plan?.capabilities, 'fiscal.ir_report', tier)) {
 			throw new ForbiddenException('FEATURE_PREMIUM_REQUERIDA');
 		}
 	}

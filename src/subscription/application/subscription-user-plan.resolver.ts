@@ -29,27 +29,45 @@ export class SubscriptionUserPlanResolver implements UserPlanResolverPort {
 	constructor(private readonly subscriptionService: SubscriptionService) {}
 
 	async resolve(userId: string): Promise<UserPlanTier> {
-		if (!userId) return FREE_ACCESS_LEVEL;
+		return (await this.resolveWithCapabilities(userId)).tier;
+	}
+
+	async resolveWithCapabilities(
+		userId: string
+	): Promise<{ tier: UserPlanTier; capabilities: string[] }> {
+		const empty = { tier: FREE_ACCESS_LEVEL, capabilities: [] };
+		if (!userId) return empty;
 
 		try {
 			const subscription =
 				await this.subscriptionService.findCurrentSubscriptionByUser(userId);
-			if (!subscription) return FREE_ACCESS_LEVEL;
+			if (!subscription) return empty;
 
 			const plan = (
-				subscription as { plan?: { name?: string; accessLevel?: number } }
+				subscription as {
+					plan?: {
+						name?: string;
+						accessLevel?: number;
+						capabilities?: string[];
+					};
+				}
 			)?.plan;
 			// O nivel gravado no plano manda; o nome so vale de fallback pra
 			// plano antigo criado antes do campo `accessLevel` existir.
-			return typeof plan?.accessLevel === 'number'
-				? plan.accessLevel
-				: SubscriptionUserPlanResolver.tierFromPlanName(plan?.name);
+			const tier =
+				typeof plan?.accessLevel === 'number'
+					? plan.accessLevel
+					: SubscriptionUserPlanResolver.tierFromPlanName(plan?.name);
+			const capabilities = Array.isArray(plan?.capabilities)
+				? plan.capabilities
+				: [];
+			return { tier, capabilities };
 		} catch (error) {
 			// Falha na consulta nao pode virar acesso liberado por acidente.
 			this.logger.warn(
 				`Falha ao resolver plano do usuário ${userId}: ${error?.message}. Assumindo acesso gratuito.`
 			);
-			return FREE_ACCESS_LEVEL;
+			return empty;
 		}
 	}
 

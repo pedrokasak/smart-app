@@ -16,10 +16,7 @@ import { UserModel } from 'src/users/schema/user.model';
 import { ProviderRegistry } from 'src/broker-sync/providers/provider-registry';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
-import {
-	planAtLeast,
-	PRO_ACCESS_LEVEL,
-} from 'src/subscription/application/user-plan.types';
+import { planHasCapability } from 'src/subscription/application/user-plan.types';
 import { createBrokerCredentialCipher } from 'src/broker-sync/security/credential-cipher.factory';
 import {
 	BrokerCipherUnavailableError,
@@ -193,13 +190,20 @@ export class BrokerSyncService {
 			.findCurrentSubscriptionByUser(userId)
 			.catch(() => null);
 		const plan = (
-			subscription as { plan?: { name?: string; accessLevel?: number } } | null
+			subscription as {
+				plan?: { name?: string; accessLevel?: number; capabilities?: string[] };
+			} | null
 		)?.plan;
 		const level =
 			typeof plan?.accessLevel === 'number'
 				? plan.accessLevel
 				: SubscriptionUserPlanResolver.tierFromPlanName(plan?.name);
-		if (!subscription || !planAtLeast(level, PRO_ACCESS_LEVEL)) {
+		// Capability 'broker.sync' (TRA-189): admin pode liberar/revogar pelo
+		// painel sem tocar em accessLevel.
+		if (
+			!subscription ||
+			!planHasCapability(plan?.capabilities, 'broker.sync', level)
+		) {
 			throw new ForbiddenException('PLANO_UPGRADE_NECESSARIO');
 		}
 	}

@@ -27,16 +27,24 @@ function makeInput(
 
 describe('TrackerrIaRagSynthesizerAdapter (TRA-76)', () => {
 	let httpService: { post: jest.Mock };
-	let planResolver: { resolve: jest.Mock };
+	let planResolver: { resolve: jest.Mock; resolveWithCapabilities: jest.Mock };
 	let adapter: TrackerrIaRagSynthesizerAdapter;
 
-	const withPlan = (tier: UserPlanTier) => {
-		planResolver.resolve.mockResolvedValue(tier);
+	const withPlan = (tier: UserPlanTier, capabilities: string[] = []) => {
+		planResolver.resolveWithCapabilities.mockResolvedValue({
+			tier,
+			capabilities,
+		});
 	};
 
 	beforeEach(() => {
 		httpService = { post: jest.fn() };
-		planResolver = { resolve: jest.fn().mockResolvedValue(PRO_ACCESS_LEVEL) };
+		planResolver = {
+			resolve: jest.fn().mockResolvedValue(PRO_ACCESS_LEVEL),
+			resolveWithCapabilities: jest
+				.fn()
+				.mockResolvedValue({ tier: PRO_ACCESS_LEVEL, capabilities: [] }),
+		};
 		adapter = new TrackerrIaRagSynthesizerAdapter(
 			httpService as unknown as HttpService,
 			planResolver as unknown as UserPlanResolverPort
@@ -133,6 +141,6 @@ describe('TrackerrIaRagSynthesizerAdapter (TRA-76)', () => {
 		expect(await adapter.synthesize(makeInput({ question: '' }))).toEqual({
 			text: '',
 		});
-		expect(planResolver.resolve).not.toHaveBeenCalled();
+		expect(planResolver.resolveWithCapabilities).not.toHaveBeenCalled();
 	});
 });

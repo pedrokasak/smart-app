@@ -8,8 +8,7 @@ import {
 	ChatNarrativeSynthesizerPort,
 } from 'src/ai/orchestration/chat-narrative-synthesizer.port';
 import {
-	planAtLeast,
-	PRO_ACCESS_LEVEL,
+	planHasCapability,
 	USER_PLAN_RESOLVER,
 	UserPlanResolverPort,
 } from 'src/subscription/application/user-plan.types';
@@ -60,9 +59,11 @@ export class TrackerrIaRagSynthesizerAdapter implements ChatNarrativeSynthesizer
 
 		// Gate de custo (TRA-76): rodar RAG pra usuario Free e custo puro — ele
 		// nao tem acesso ao recurso. O plano vem da assinatura (TRA-79), nao da
-		// carteira.
-		const plan = await this.userPlanResolver.resolve(input.userId);
-		if (!planAtLeast(plan, PRO_ACCESS_LEVEL)) {
+		// carteira. Capability 'ai.rag' (TRA-189): admin pode liberar/revogar
+		// pelo painel sem tocar em accessLevel.
+		const { tier, capabilities } =
+			await this.userPlanResolver.resolveWithCapabilities(input.userId);
+		if (!planHasCapability(capabilities, 'ai.rag', tier)) {
 			return TrackerrIaRagSynthesizerAdapter.EMPTY;
 		}
 
