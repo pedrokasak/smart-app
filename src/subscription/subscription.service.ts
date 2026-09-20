@@ -102,11 +102,32 @@ export class SubscriptionService {
 		}
 	}
 
+	/**
+	 * Assinatura que de fato vale AGORA. É a fonte do gate de plano de todo
+	 * o produto (`SubscriptionUserPlanResolver`), então o que sai daqui é o
+	 * que decide acesso pago.
+	 *
+	 * O filtro de data é defesa em profundidade (TRA-192): antes daqui só
+	 * olhar `status`, e a varredura que vira `unpaid` o status vencido nunca
+	 * ter sido agendada, uma concessão de teste vencida seguia liberando o
+	 * plano indefinidamente. Com a data no próprio filtro, um dia em que o
+	 * cron falhe deixa de significar acesso vitalício — o acesso acaba na
+	 * hora certa mesmo com o status desatualizado no banco.
+	 *
+	 * Concessão permanente grava `currentPeriodEnd` em 2099, então continua
+	 * passando normalmente. Registro sem data nenhuma também passa: ausência
+	 * aqui significa "sem prazo definido", não "vencido".
+	 */
 	async findCurrentSubscriptionByUser(userId: string) {
 		const userSubscription = await this.userSubscriptionModel
 			.findOne({
 				user: new Types.ObjectId(userId),
 				status: { $in: ['active', 'trialing'] },
+				$or: [
+					{ currentPeriodEnd: { $gte: new Date() } },
+					{ currentPeriodEnd: { $exists: false } },
+					{ currentPeriodEnd: null },
+				],
 			})
 			.populate('plan');
 
