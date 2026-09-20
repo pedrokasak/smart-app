@@ -14,6 +14,7 @@ import {
 	TwoFactorVerifyDto,
 } from './dto/two-factor.dto';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
+import { Public } from 'src/utils/constants';
 
 @Controller('auth/2fa')
 export class TwoFactorController {
@@ -45,8 +46,15 @@ export class TwoFactorController {
 
 	/**
 	 * Autenticação pós-login com 2FA.
-	 * Não requer JwtAuthGuard pois o usuário ainda não tem o JWT final.
+	 *
+	 * `@Public()` é OBRIGATÓRIO aqui, não decorativo: `JwtAuthGuard` está
+	 * registrado como `APP_GUARD` global (`app.module.ts`), então apenas
+	 * OMITIR `@UseGuards` não isenta a rota — o guard global roda mesmo
+	 * assim, não acha o Bearer (quem está no meio do 2FA ainda não tem
+	 * access token) e responde 401 antes do controller existir. Sem este
+	 * decorator o segundo fator fica impossível de completar.
 	 */
+	@Public()
 	@Post('authenticate')
 	async authenticate(@Body() dto: TwoFactorAuthenticateDto) {
 		return this.twoFactorService.authenticateWithTwoFactor(
@@ -83,9 +91,11 @@ export class TwoFactorController {
 	/**
 	 * Login com código de recuperação, no lugar do TOTP.
 	 *
-	 * Sem `JwtAuthGuard` pela mesma razão de `authenticate`: quem perdeu o
-	 * autenticador ainda não tem o JWT final, só o `tempToken`.
+	 * `@Public()` pela mesma razão de `authenticate`: quem perdeu o
+	 * autenticador ainda não tem o JWT final, só o `tempToken`, e o guard
+	 * global exigiria um Bearer que não existe neste ponto do fluxo.
 	 */
+	@Public()
 	@Post('recovery-codes/consume')
 	async consumeRecoveryCode(@Body() dto: TwoFactorRecoveryConsumeDto) {
 		return this.twoFactorService.consumeRecoveryCode(
