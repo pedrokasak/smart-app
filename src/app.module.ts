@@ -15,6 +15,7 @@ import { PermissionsModule } from './permissions/permissions.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './authentication/jwt-auth.guard';
+import { PlanCapabilityGuard } from './subscription/capabilities/plan-capability.guard';
 import { SchedulerModule } from './scheduler/scheduler.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { StockModule } from './stocks/stocks.module';
@@ -79,6 +80,9 @@ import { QuoteStalenessModule } from './market-data/quote-staleness/quote-stalen
 		AppService,
 		ConnectDatabase,
 		{ provide: APP_GUARD, useClass: JwtAuthGuard },
+		// Depois do JwtAuthGuard de propósito: guards globais rodam na ordem
+		// de registro, e o gate de plano precisa do usuário já autenticado.
+		{ provide: APP_GUARD, useClass: PlanCapabilityGuard },
 	],
 })
 export class AppModule implements NestModule {

@@ -24,6 +24,7 @@ import {
 	ReportKindParamDto,
 	UpdateReportScheduleDto,
 } from './dto/report.dto';
+import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
 function requireUserId(req: any): string {
 	const userId = req.user?.userId ?? req.user?.sub;
@@ -32,6 +33,7 @@ function requireUserId(req: any): string {
 }
 
 /** Relatórios e agendamentos do usuário do token (TRA-171). */
+@RequiresCapability('reports.export')
 @Controller('reports')
 @ApiTags('reports')
 @ApiBearerAuth('access-token')

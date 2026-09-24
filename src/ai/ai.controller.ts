@@ -9,8 +9,6 @@ import {
 	HttpCode,
 	HttpStatus,
 	UnauthorizedException,
-	ForbiddenException,
-	Inject,
 	Logger,
 } from '@nestjs/common';
 import { AiService } from './ai.service';
@@ -58,11 +56,7 @@ import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
 import { AppendChatMessageRequestDto } from 'src/ai/chat-history/dto/append-chat-message-request.dto';
 import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
 import { OpportunityRadarRequestDto } from './dto/opportunity-radar-request.dto';
-import {
-	planHasCapability,
-	USER_PLAN_RESOLVER,
-	UserPlanResolverPort,
-} from 'src/subscription/application/user-plan.types';
+import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -81,9 +75,7 @@ export class AiController {
 		private readonly portfolioService: PortfolioService,
 		private readonly ragColdStart: RagColdStartService,
 		private readonly investorProfileService: InvestorProfileService,
-		private readonly chatHistoryService: ChatHistoryService,
-		@Inject(USER_PLAN_RESOLVER)
-		private readonly userPlanResolver: UserPlanResolverPort
+		private readonly chatHistoryService: ChatHistoryService
 	) {}
 
 	/**
@@ -385,12 +377,11 @@ export class AiController {
 	 * pelo Chat Inteligente. Antes so era alcancavel via POST
 	 * /ai/chat/intelligent para intents especificos ("opportunity_radar"),
 	 * o que forcava qualquer consumidor a simular uma pergunta de chat so
-	 * pra ler o radar. Feature premium por definicao: mesmo gate de plano
-	 * (USER_PLAN_RESOLVER / planHasCapability, 'ai.insights') usado pelo RAG
-	 * do chat (TRA-79, TRA-189), aqui aplicado como 403 explicito em vez de
-	 * fallback silencioso, ja que este e um endpoint dedicado consumido
-	 * diretamente.
+	 * pra ler o radar. Feature premium por definicao: gate declarativo
+	 * `ai.insights` (TRA-193), 403 explicito em vez do fallback silencioso do
+	 * RAG no chat, ja que este e um endpoint dedicado consumido diretamente.
 	 */
+	@RequiresCapability('ai.insights')
 	@Post('opportunity-radar')
 	@UseGuards(JwtAuthGuard)
 	@HttpCode(HttpStatus.OK)
@@ -401,12 +392,6 @@ export class AiController {
 		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
 		if (!userId) {
 			throw new UnauthorizedException('User ID ausente no token');
-		}
-
-		const { tier, capabilities } =
-			await this.userPlanResolver.resolveWithCapabilities(userId);
-		if (!planHasCapability(capabilities, 'ai.insights', tier)) {
-			throw new ForbiddenException('FEATURE_PREMIUM_REQUERIDA');
 		}
 
 		const portfolios = await this.portfolioService.getUserPortfolios(userId);

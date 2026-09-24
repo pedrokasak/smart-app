@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -7,7 +7,15 @@ import { User } from 'src/users/schema/user.model';
 import { REPORT_CATALOG } from 'src/reports/domain/report-catalog';
 import { nextRunAt, reportYearFor } from 'src/reports/domain/schedule-calendar';
 import { ReportSchedule } from 'src/reports/infrastructure/report-schedule.model';
+import {
+	planHasCapability,
+	USER_PLAN_RESOLVER,
+	UserPlanResolverPort,
+} from 'src/subscription/application/user-plan.types';
 import { ReportsService } from './reports.service';
+
+export const PLAN_REQUIRED_ERROR =
+	'Envio agendado disponível no plano Pro. Reative o plano para voltar a receber.';
 
 /** Relatório com PDF abre um Chromium: poucos por rodada. */
 const BATCH_SIZE = 20;
@@ -36,7 +44,9 @@ export class ReportDeliveryScheduler {
 		private readonly scheduleModel: Model<ReportSchedule>,
 		@InjectModel('User') private readonly userModel: Model<User>,
 		private readonly reportsService: ReportsService,
-		private readonly emailService: EmailService
+		private readonly emailService: EmailService,
+		@Inject(USER_PLAN_RESOLVER)
+		private readonly userPlanResolver: UserPlanResolverPort
 	) {}
 
 	@Cron('5 * * * *', { timeZone: 'America/Sao_Paulo' })
@@ -60,6 +70,16 @@ export class ReportDeliveryScheduler {
 		);
 	}
 
+	private async canExport(userId: string): Promise<boolean> {
+		const access = await this.userPlanResolver.resolveWithCapabilities(userId);
+		return planHasCapability(
+			access.capabilities,
+			'reports.export',
+			access.tier,
+			access.capabilitiesKnown
+		);
+	}
+
 	private async deliver(schedule: ReportSchedule, now: Date): Promise<void> {
 		const runAt = schedule.nextRunAt;
 		try {
@@ -70,6 +90,17 @@ export class ReportDeliveryScheduler {
 			if (!user?.email) {
 				// Conta apagada: o agendamento órfão sai junto.
 				await this.scheduleModel.deleteOne({ _id: schedule._id });
+				return;
+			}
+			// Envio agendado é `reports.export` (TRA-193). O decorator só
+			// protege as rotas HTTP; este job roda fora delas e precisa da
+			// mesma regra, senão quem cancelou o Pro continua recebendo.
+			// O agendamento NÃO é apagado: volta a sair se o plano voltar.
+			if (!(await this.canExport(String(schedule.userId)))) {
+				await this.scheduleModel.updateOne(
+					{ _id: schedule._id },
+					{ $set: { lastError: PLAN_REQUIRED_ERROR } }
+				);
 				return;
 			}
 			const year = reportYearFor(schedule.frequency, runAt);

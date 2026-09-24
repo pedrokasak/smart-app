@@ -28,9 +28,11 @@ import { IrReportService } from 'src/fiscal/services/ir-report.service';
 import { PortfolioReportService } from 'src/fiscal/services/portfolio-report.service';
 import { PortfolioModel } from 'src/portfolio/schema/portfolio.model';
 import { StockService } from 'src/stocks/stocks.service';
+import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
 @ApiTags('fiscal')
 @ApiBearerAuth('access-token')
+@RequiresCapability('fiscal.darf')
 @Controller('fiscal')
 @UseGuards(JwtAuthGuard)
 export class FiscalController {
@@ -535,6 +537,7 @@ export class FiscalController {
 		};
 	}
 
+	@RequiresCapability('fiscal.ir_report')
 	@Get('ir-report')
 	@ApiOperation({ summary: 'Gera relatório de IR anual (premium)' })
 	@ApiQuery({ name: 'year', required: true, example: '2025' })
