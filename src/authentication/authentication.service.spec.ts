@@ -2,7 +2,10 @@ import * as crypto from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
-import { AuthenticationService } from './authentication.service';
+import {
+	AuthenticationService,
+	LAST_SEEN_THROTTLE_MS,
+} from './authentication.service';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { EmailService } from 'src/notifications/email/email.service';
 import { UserModel } from 'src/users/schema/user.model';
@@ -248,6 +251,87 @@ describe('AuthenticationService', () => {
 			).rejects.toThrow();
 
 			expect(mockPasswordSecurityService.verifyPassword).toHaveBeenCalled();
+		});
+	});
+
+	describe('registro de atividade para o painel admin (TRA-192)', () => {
+		const refreshingUser = () => ({
+			id: 'u1',
+			role: 'user',
+			refreshToken: 'hashed-refresh-token',
+		});
+
+		beforeEach(() => {
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(refreshingUser()),
+			});
+			mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
+			mockJwtService.sign.mockReturnValue('new-access-token');
+		});
+
+		it('login grava lastLogin e lastSeenAt no mesmo save do refresh token', async () => {
+			mockJwtService.sign.mockReturnValue('signed');
+			let snapshotAtSave: { lastLogin?: Date; lastSeenAt?: Date } = {};
+			const user: any = {
+				id: 'u1',
+				email: 'a@b.c',
+				role: 'user',
+				save: jest.fn(async () => {
+					snapshotAtSave = {
+						lastLogin: user.lastLogin,
+						lastSeenAt: user.lastSeenAt,
+					};
+				}),
+			};
+
+			const before = Date.now();
+			await service.issueSessionTokens(user);
+
+			// Um único save: a atividade não custa escrita extra no login.
+			expect(user.save).toHaveBeenCalledTimes(1);
+			expect(snapshotAtSave.lastLogin).toBeInstanceOf(Date);
+			expect(snapshotAtSave.lastSeenAt).toEqual(snapshotAtSave.lastLogin);
+			expect(snapshotAtSave.lastLogin!.getTime()).toBeGreaterThanOrEqual(before);
+		});
+
+		it('renovação marca lastSeenAt com escrita condicional de no máximo 1x/hora', async () => {
+			const before = Date.now();
+
+			await service.refreshAccessToken('raw-refresh-token');
+
+			expect(UserModel.updateOne).toHaveBeenCalledTimes(1);
+			const [filter, update] = (UserModel.updateOne as jest.Mock).mock.calls[0];
+			expect(filter._id).toBe('u1');
+			// Só casa se o último sinal é mais velho que o limite: renovações
+			// seguidas dentro da hora não geram escrita.
+			const threshold: Date = filter.lastSeenAt.$not.$gte;
+			expect(before - threshold.getTime()).toBeGreaterThanOrEqual(
+				LAST_SEEN_THROTTLE_MS - 1000
+			);
+			expect(before - threshold.getTime()).toBeLessThanOrEqual(
+				LAST_SEEN_THROTTLE_MS + 1000
+			);
+			expect(update.$set.lastSeenAt).toBeInstanceOf(Date);
+		});
+
+		it('falha ao gravar atividade nunca derruba a renovação de sessão', async () => {
+			(UserModel.updateOne as jest.Mock).mockReturnValueOnce({
+				exec: jest.fn().mockRejectedValue(new Error('mongo fora')),
+			});
+
+			const result = await service.refreshAccessToken('raw-refresh-token');
+
+			expect(result.accessToken).toBe('new-access-token');
+		});
+
+		it('refresh inválido não registra atividade', async () => {
+			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
+
+			await expect(
+				service.refreshAccessToken('raw-refresh-token')
+			).rejects.toThrow(UnauthorizedException);
+			expect(UserModel.updateOne).not.toHaveBeenCalled();
 		});
 	});
 
