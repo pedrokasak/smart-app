@@ -143,14 +143,35 @@ describe('AesGcmCredentialCipher', () => {
 		});
 
 		it('falha quando a chave legada configurada nao e a da escrita', () => {
+			// AES-CBC nao autentica: decifrar com a chave errada produz bytes
+			// essencialmente aleatorios, e o padding PKCS7 do ultimo bloco tem
+			// uma chance nao-desprezivel (medido empiricamente: ~0,4%) de por
+			// acaso parecer valido — nesse caso `final()` NAO lanca. Um teste
+			// que so verifica "lancou BrokerCredentialDecryptionError" fica
+			// instavel: falha intermitente em CI sem nenhuma mudanca real no
+			// codigo (visto acontecer nesta suite).
+			//
+			// A propriedade de seguranca de verdade nao e "sempre lanca" — e
+			// "nunca devolve o segredo certo pra quem tem a chave errada".
+			// Testar isso e deterministico: coincidir com o PLAINTEXT exato
+			// por acaso e ~2^-96 pros 12 bytes de 'chave-antiga', nunca
+			// acontece. Cobre os dois desfechos aceitaveis (lancar, ou
+			// devolver lixo que nao e o segredo) e so falha se o desfecho
+			// inaceitavel (devolver o segredo certo) acontecer.
 			const wrong = new AesGcmCredentialCipher(
 				key,
 				Buffer.from('f'.repeat(32), 'utf8')
 			);
+			const ciphertext = writeLegacy('chave-antiga');
 
-			expect(() => wrong.decrypt(writeLegacy('chave-antiga'))).toThrow(
-				BrokerCredentialDecryptionError
-			);
+			let decrypted: string | null = null;
+			try {
+				decrypted = wrong.decrypt(ciphertext);
+			} catch (error) {
+				expect(error).toBeInstanceOf(BrokerCredentialDecryptionError);
+				return;
+			}
+			expect(decrypted).not.toBe('chave-antiga');
 		});
 	});
 });
