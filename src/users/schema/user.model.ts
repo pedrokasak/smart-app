@@ -17,6 +17,8 @@ export interface User extends Document {
 	permissions: Types.ObjectId[];
 	userSubscription?: string;
 	stripeCustomerId?: string;
+	/** Cliente no Asaas (PIX, TRA-195). O CPF fica la, nao aqui. */
+	asaasCustomerId?: string;
 	refreshToken?: string;
 	resetPasswordToken?: string;
 	resetPasswordExpires?: Date;
