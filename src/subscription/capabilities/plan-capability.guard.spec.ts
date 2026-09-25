@@ -124,6 +124,8 @@ describe('PlanCapabilityGuard', () => {
 			['risk.analytics', PREMIUM_ACCESS_LEVEL, true],
 			['policy.investment', PRO_ACCESS_LEVEL, false],
 			['policy.investment', PREMIUM_ACCESS_LEVEL, true],
+			['ri.ai_summary', PRO_ACCESS_LEVEL, false],
+			['ri.ai_summary', PREMIUM_ACCESS_LEVEL, true],
 			['ai.insights', PRO_ACCESS_LEVEL, false],
 			['ai.insights', PREMIUM_ACCESS_LEVEL, true],
 		];

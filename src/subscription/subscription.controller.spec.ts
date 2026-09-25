@@ -10,6 +10,12 @@ import { StripeService } from 'src/subscription/stripe.service';
 import { IS_PUBLIC_KEY } from 'src/utils/constants';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
 import { Role } from 'src/auth/enums/role.enum';
+import {
+	FREE_ACCESS_LEVEL,
+	PREMIUM_ACCESS_LEVEL,
+	PRO_ACCESS_LEVEL,
+	USER_PLAN_RESOLVER,
+} from 'src/subscription/application/user-plan.types';
 
 const mockSubscriptionModel = {
 	create: jest.fn(),
@@ -58,9 +64,14 @@ describe('SubscriptionController', () => {
 		createPortalSession: jest.fn(),
 		cancelUserSubscription: jest.fn(),
 		listUserInvoices: jest.fn(),
+		findCurrentSubscriptionByUser: jest.fn(),
 	};
 
 	const req = { user: { userId: 'token-user' } };
+	const mockPlanResolver = {
+		resolve: jest.fn(),
+		resolveWithCapabilities: jest.fn(),
+	};
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
@@ -78,6 +89,7 @@ describe('SubscriptionController', () => {
 				{ provide: 'UserModel', useValue: mockUserModel },
 				{ provide: StripeService, useValue: mockStripeService },
 				{ provide: WebhooksService, useValue: mockWebhooksService },
+				{ provide: USER_PLAN_RESOLVER, useValue: mockPlanResolver },
 			],
 		}).compile();
 
@@ -87,6 +99,69 @@ describe('SubscriptionController', () => {
 
 	it('should be defined', () => {
 		expect(controller).toBeDefined();
+	});
+
+	describe('getCurrentSubscription — capabilities (TRA-200)', () => {
+		beforeEach(() => {
+			mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue(
+				null
+			);
+		});
+
+		it('plano grátis não recebe nenhuma capability paga', async () => {
+			mockPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: FREE_ACCESS_LEVEL,
+				capabilities: [],
+			});
+
+			const result = await controller.getCurrentSubscription(req);
+
+			expect(result.capabilities).toEqual([]);
+			expect(
+				mockSubscriptionService.findCurrentSubscriptionByUser
+			).toHaveBeenCalledWith('token-user');
+			expect(mockPlanResolver.resolveWithCapabilities).toHaveBeenCalledWith(
+				'token-user'
+			);
+		});
+
+		it('Pro libera comparador mas não o resumo de RI por IA', async () => {
+			mockPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: PRO_ACCESS_LEVEL,
+				capabilities: [],
+			});
+
+			const { capabilities } = await controller.getCurrentSubscription(req);
+
+			expect(capabilities).toContain('research.comparator');
+			expect(capabilities).not.toContain('ri.ai_summary');
+		});
+
+		it('Wealth libera comparador e resumo de RI por IA', async () => {
+			mockPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: PREMIUM_ACCESS_LEVEL,
+				capabilities: [],
+			});
+
+			const { capabilities } = await controller.getCurrentSubscription(req);
+
+			expect(capabilities).toEqual(
+				expect.arrayContaining(['research.comparator', 'ri.ai_summary'])
+			);
+		});
+
+		it('checkbox do admin manda sobre o patamar quando ele decidiu', async () => {
+			mockPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: PREMIUM_ACCESS_LEVEL,
+				capabilities: ['ai.insights'],
+				capabilitiesKnown: ['ai.insights', 'ri.ai_summary'],
+			});
+
+			const { capabilities } = await controller.getCurrentSubscription(req);
+
+			expect(capabilities).toContain('ai.insights');
+			expect(capabilities).not.toContain('ri.ai_summary');
+		});
 	});
 
 	describe('create', () => {

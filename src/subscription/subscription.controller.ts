@@ -9,6 +9,7 @@ import {
 	Req,
 	UseGuards,
 	ForbiddenException,
+	Inject,
 } from '@nestjs/common';
 import { SubscriptionService } from './subscription.service';
 import { CreateSubscriptionDto } from './dto/create-subscription.dto';
@@ -25,6 +26,11 @@ import { Public } from 'src/utils/constants';
 import { Roles } from 'src/auth/decorators/roles.decorator';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
 import { Role } from 'src/auth/enums/role.enum';
+import {
+	USER_PLAN_RESOLVER,
+	UserPlanResolverPort,
+	effectiveCapabilities,
+} from './application/user-plan.types';
 
 /**
  * Rotas de conta usam SEMPRE o usuário do token. O `userId` que o web ainda
@@ -41,19 +47,27 @@ function requireUserId(req: any): string {
 @ApiTags('subscription')
 @ApiBearerAuth('access-token')
 export class SubscriptionController {
-	constructor(private readonly subscriptionService: SubscriptionService) {}
+	constructor(
+		private readonly subscriptionService: SubscriptionService,
+		@Inject(USER_PLAN_RESOLVER)
+		private readonly planResolver: UserPlanResolverPort
+	) {}
 
 	@Get('current')
 	async getCurrentSubscription(@Req() req: any) {
-		const subscription =
-			await this.subscriptionService.findCurrentSubscriptionByUser(
-				req.user.userId
-			);
+		const userId = requireUserId(req);
+		const [subscription, access] = await Promise.all([
+			this.subscriptionService.findCurrentSubscriptionByUser(userId),
+			this.planResolver.resolveWithCapabilities(userId),
+		]);
 
 		return {
 			hasSubscription: !!subscription,
 			subscription,
 			plan: subscription?.plan,
+			// Mesma regra do PlanCapabilityGuard: o web lê daqui em vez de
+			// adivinhar por nome/nível de plano (TRA-200).
+			capabilities: effectiveCapabilities(access),
 		};
 	}
 

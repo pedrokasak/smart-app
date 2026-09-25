@@ -44,7 +44,9 @@ export type PlanCapability =
 	| 'fiscal.darf'
 	| 'reports.export'
 	| 'risk.analytics'
-	| 'policy.investment';
+	| 'policy.investment'
+	| 'research.comparator'
+	| 'ri.ai_summary';
 
 export const ALL_PLAN_CAPABILITIES: PlanCapability[] = [
 	'fiscal.ir_report',
@@ -55,6 +57,8 @@ export const ALL_PLAN_CAPABILITIES: PlanCapability[] = [
 	'reports.export',
 	'risk.analytics',
 	'policy.investment',
+	'research.comparator',
+	'ri.ai_summary',
 ];
 
 /**
@@ -79,6 +83,8 @@ export const PLAN_CAPABILITY_LABELS: Record<PlanCapability, string> = {
 	'reports.export': 'Relatórios exportáveis (PDF/XLSX) e envio agendado',
 	'risk.analytics': 'VaR, Sharpe, beta e atribuição de risco',
 	'policy.investment': 'Política de investimento',
+	'research.comparator': 'Comparador de ativos lado a lado',
+	'ri.ai_summary': 'Resumo por IA de documentos de RI',
 };
 
 /**
@@ -96,6 +102,11 @@ export const CAPABILITY_DEFAULT_LEVEL: Record<PlanCapability, UserPlanTier> = {
 	'reports.export': PRO_ACCESS_LEVEL,
 	'risk.analytics': PREMIUM_ACCESS_LEVEL,
 	'policy.investment': PREMIUM_ACCESS_LEVEL,
+	// Sem rota própria: o comparador monta a tabela no cliente com a mesma
+	// cotação por ativo que o Research grátis já expõe (TRA-200). A trava é
+	// de UX, lida pelo web via `capabilities`.
+	'research.comparator': PRO_ACCESS_LEVEL,
+	'ri.ai_summary': PREMIUM_ACCESS_LEVEL,
 };
 
 /**
@@ -138,6 +149,18 @@ export interface PlanAccess {
 	capabilities: string[];
 	/** Capabilities sobre as quais o admin decidiu ao salvar o plano. */
 	capabilitiesKnown?: string[];
+}
+
+/** Capabilities que o plano libera de fato — mesma regra do gate. */
+export function effectiveCapabilities(access: PlanAccess): PlanCapability[] {
+	return ALL_PLAN_CAPABILITIES.filter((capability) =>
+		planHasCapability(
+			access.capabilities,
+			capability,
+			access.tier,
+			access.capabilitiesKnown
+		)
+	);
 }
 
 export const USER_PLAN_RESOLVER = Symbol('USER_PLAN_RESOLVER');

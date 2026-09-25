@@ -23,6 +23,7 @@ import {
 	RI_DOCUMENT_CONTENT,
 	RiDocumentContentPort,
 } from 'src/ri-intelligence/application/ri-document-content.port';
+import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
 interface RiSummaryBody {
 	document?: RiDocumentRecord;
@@ -87,6 +88,7 @@ export class RiIntelligenceController {
 	}
 
 	@Post('summary')
+	@RequiresCapability('ri.ai_summary')
 	async summarize(@Body() body: RiSummaryBody) {
 		if (!body?.document) throw new BadRequestException('ri_document_required');
 

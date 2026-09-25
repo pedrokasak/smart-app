@@ -6,6 +6,7 @@ import { getModelToken } from '@nestjs/mongoose';
 import { StripeService } from 'src/subscription/stripe.service';
 import { SubscriptionController } from 'src/subscription/subscription.controller';
 import { CreateSubscriptionDto } from 'src/subscription/dto';
+import { USER_PLAN_RESOLVER } from 'src/subscription/application/user-plan.types';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -305,6 +306,7 @@ describe('SubscriptionController', () => {
 			controllers: [SubscriptionController],
 			providers: [
 				{ provide: SubscriptionService, useValue: mockSubscriptionService },
+				{ provide: USER_PLAN_RESOLVER, useValue: {} },
 			],
 		}).compile();
 

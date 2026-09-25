@@ -11,6 +11,7 @@ import { FiscalController } from 'src/fiscal/fiscal.controller';
 import { InvestmentPolicyController } from 'src/investment-policy/investment-policy.controller';
 import { PortfolioController } from 'src/portfolio/portfolio.controller';
 import { ReportsController } from 'src/reports/reports.controller';
+import { RiIntelligenceController } from 'src/ri-intelligence/ri-intelligence.controller';
 import {
 	FREE_ACCESS_LEVEL,
 	PlanAccess,
@@ -198,6 +199,7 @@ describe('Gate de plano — integração', () => {
 			[PortfolioController, 'getRiskContribution', 'risk.analytics'],
 			[InvestmentPolicyController, undefined, 'policy.investment'],
 			[AiController, 'opportunityRadar', 'ai.insights'],
+			[RiIntelligenceController, 'summarize', 'ri.ai_summary'],
 		] as const)('%p.%s exige %s', (controller, method, capability) => {
 			expect(capabilityOf(controller, method)).toBe(capability);
 		});
@@ -208,6 +210,8 @@ describe('Gate de plano — integração', () => {
 			[PortfolioController, 'getSummary'],
 			[PortfolioController, 'findAll'],
 			[AiController, 'chat'],
+			[RiIntelligenceController, 'getDocuments'],
+			[RiIntelligenceController, 'getMostRelevantDocument'],
 		] as const)(
 			'%p.%s continua liberada para o plano gratuito',
 			(controller, method) => {
