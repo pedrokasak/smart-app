@@ -7,6 +7,10 @@ import {
 	OnModuleInit,
 } from '@nestjs/common';
 import { ALL_PLAN_CAPABILITIES } from 'src/subscription/application/user-plan.types';
+import {
+	countUsers,
+	UserCounter,
+} from 'src/admin/application/user-activity-metrics';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Role } from 'src/auth/enums/role.enum';
@@ -580,7 +584,7 @@ export class AdminService implements OnModuleInit {
 	}
 
 	async getOverview(): Promise<AdminOverviewResponse> {
-		const [activeCount, trialCount, manualGrantCount, planUsageRaw] =
+		const [activeCount, trialCount, manualGrantCount, planUsageRaw, users] =
 			await Promise.all([
 				this.userSubscriptionModel.countDocuments({ status: 'active' }),
 				this.userSubscriptionModel.countDocuments({ status: 'trialing' }),
@@ -620,6 +624,7 @@ export class AdminService implements OnModuleInit {
 					},
 					{ $sort: { count: -1, planName: 1 } },
 				]),
+				countUsers(this.userModel as unknown as UserCounter),
 			]);
 
 		const usersByPlan = planUsageRaw.map((item) => ({
@@ -634,6 +639,7 @@ export class AdminService implements OnModuleInit {
 			totalManualGrants: manualGrantCount,
 			mostUsedPlan: usersByPlan[0] || null,
 			usersByPlan,
+			users,
 		};
 	}
 }

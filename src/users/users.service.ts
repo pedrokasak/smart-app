@@ -64,6 +64,11 @@ export class UsersService {
 				email,
 				password: hashedPassword,
 				role: email === INITIAL_ADMIN_EMAIL ? Role.Admin : Role.User,
+				// O cadastro já devolve access token e abre a primeira sessão sem
+				// passar por `issueSessionTokens`: sem isto, todo usuário recém
+				// cadastrado contaria como inativo no painel admin (TRA-192).
+				lastLogin: new Date(),
+				lastSeenAt: new Date(),
 			});
 
 			await newUser.save();

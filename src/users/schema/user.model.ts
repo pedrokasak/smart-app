@@ -17,12 +17,20 @@ export interface User extends Document {
 	permissions: Types.ObjectId[];
 	userSubscription?: string;
 	stripeCustomerId?: string;
+	/** Cliente no Asaas (PIX, TRA-195). O CPF fica la, nao aqui. */
+	asaasCustomerId?: string;
 	refreshToken?: string;
 	resetPasswordToken?: string;
 	resetPasswordExpires?: Date;
 	isEmailVerified?: boolean;
 	isActive: boolean;
 	lastLogin?: Date;
+	/**
+	 * Último sinal de uso: login ou renovação de sessão (TRA-192). Alimenta a
+	 * contagem de usuários ativos do painel admin. `lastLogin` sozinho não
+	 * serve — quem usa "manter conectado" não loga de novo por semanas.
+	 */
+	lastSeenAt?: Date;
 	twoFactorSecret?: string;
 	twoFactorEnabled: boolean;
 	/**
@@ -215,6 +223,7 @@ const userSchema = new Schema<User>(
 
 		// Auditoria
 		lastLogin: Date,
+		lastSeenAt: Date,
 
 		// Preferências de notificação — separado do LGPD/cookie consent do
 		// web (ConsentContext), que é sobre tracking, não e-mail.
@@ -275,6 +284,9 @@ const userSchema = new Schema<User>(
 
 userSchema.index({ email: 1 });
 userSchema.index({ createdAt: -1 });
+// Contagem de ativos do painel admin (TRA-192). Sparse: contas que nunca
+// entraram depois do campo existir não ocupam o índice.
+userSchema.index({ lastSeenAt: -1 }, { sparse: true });
 
 userSchema.virtual('fullName').get(function () {
 	return `${this.firstName} ${this.lastName}`;
