@@ -161,7 +161,7 @@ describe('DailyPushDigestScheduler', () => {
 		// Sobrou UMA notificacao permitida: o push vira o deep link dela.
 		expect(sender.send.mock.calls[0][1]).toMatchObject({
 			count: 1,
-			url: '/dashboard/insights',
+			url: '/ai-insights',
 		});
 	});
 

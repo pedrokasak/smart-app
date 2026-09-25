@@ -57,7 +57,10 @@ export function buildTemplate(
 					payload.receivedAt ? ` em ${fmtDate(payload.receivedAt)}` : ''
 				}. Confira o extrato de proventos da sua carteira.`,
 				ctaLabel: 'Ver proventos',
-				ctaPath: '/dashboard/proventos',
+				// Rota real do web e '/dividends' (ver App.tsx) — '/dashboard/proventos'
+				// nunca existiu e sempre caiu em 404 (achado 25/09, clique na
+				// notificacao de dividendo).
+				ctaPath: '/dividends',
 				footerNote:
 					'Voce recebe este e-mail porque ativou avisos de dividendos nas suas preferencias.',
 				textFallback: `Novo dividendo: ${payload.symbol} — ${money(
@@ -74,7 +77,8 @@ export function buildTemplate(
 					1
 				)}%, contra uma meta de ${payload.targetPct.toFixed(1)}%. Vale rebalancear.`,
 				ctaLabel: 'Ver alocacao',
-				ctaPath: '/dashboard/carteira',
+				// Rota real e '/portfolio' — '/dashboard/carteira' nunca existiu.
+				ctaPath: '/portfolio',
 				footerNote:
 					'Voce recebe este e-mail porque ativou alertas de meta de alocacao.',
 				textFallback: `Alocacao em ${payload.bucket}: ${payload.actualPct.toFixed(
@@ -94,7 +98,7 @@ export function buildTemplate(
 					0
 				)} pontos. Vale conferir se a concentracao aumentou em algum ativo ou setor.`,
 				ctaLabel: 'Ver carteira',
-				ctaPath: '/dashboard/carteira',
+				ctaPath: '/portfolio',
 				footerNote:
 					'Voce recebe este e-mail porque ativou alertas de queda de score da carteira.',
 				textFallback: `Score de diversificacao: ${payload.score.toFixed(
@@ -110,9 +114,11 @@ export function buildTemplate(
 				hero: 'Novo insight de alta prioridade',
 				description: payload.summary,
 				ctaLabel: 'Abrir insight',
-				ctaPath: payload.insightId
-					? `/dashboard/insights/${payload.insightId}`
-					: '/dashboard/insights',
+				// A tela ('/ai-insights') nao aceita id nenhum na rota hoje — nunca
+				// existiu '/dashboard/insights' nem com id. Aponta pra tela real;
+				// abrir o insight especifico fica pra quando a tela aceitar deep
+				// link (fora do escopo desta correcao de 404).
+				ctaPath: '/ai-insights',
 				footerNote:
 					'Voce recebe este e-mail porque ativou avisos de insights IA de alta prioridade.',
 				textFallback: `${payload.title}\n\n${payload.summary}`,
@@ -129,7 +135,7 @@ export function buildTemplate(
 				hero: 'Detectamos atraso na cotacao',
 				description: `A cotacao de ${payload.symbol} nao atualiza ha ${ha} — a ultima leitura bem-sucedida foi em ${desde}. Costuma ser instabilidade da fonte de dados; ate normalizar, o valor deste ativo na carteira pode estar defasado.`,
 				ctaLabel: 'Ver carteira',
-				ctaPath: '/dashboard/carteira',
+				ctaPath: '/portfolio',
 				footerNote:
 					'Voce recebe este e-mail porque ativou alertas de cotacao ausente.',
 				textFallback: `Cotacao ${payload.symbol} sem atualizacao ha ${ha} (ultima leitura em ${desde}).`,

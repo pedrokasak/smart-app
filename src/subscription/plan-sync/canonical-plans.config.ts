@@ -90,6 +90,8 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 		features: [
 			'1 carteira · 1 corretora',
 			'Alocação e proventos',
+			'Research de ativos',
+			'RI Inteligente (fatos relevantes)',
 			'Copiloto em modo Iniciante',
 			'Suporte por e-mail',
 		],
@@ -114,8 +116,15 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 		currency: 'brl',
 		interval: 'month',
 		intervalCount: 1,
+		// Cumulativo por extenso: a tabela de comparação (`Subscription.tsx`)
+		// faz `plan.features.includes(feature)` por plano, sem herdar do nível
+		// abaixo — o que o Essencial já tem precisa estar listado aqui de novo,
+		// senão a linha aparece como "—" para o Pro.
 		features: [
 			'Ativos ilimitados · 5 contas',
+			'Research de ativos',
+			'Comparador de ativos lado a lado',
+			'RI Inteligente (fatos relevantes)',
 			'Módulo fiscal com DARF',
 			'Copiloto até modo Avançado',
 			'Relatórios exportáveis (PDF/XLSX)',
@@ -142,8 +151,19 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 		currency: 'brl',
 		interval: 'month',
 		intervalCount: 1,
+		// Mesmo motivo do Pro: tudo que o Pro tem precisa estar listado aqui
+		// de novo, mais o que é exclusivo do Wealth — em especial
+		// 'ai.insights', a capability que efetivamente distingue este plano
+		// (TRA-189/193), e que não aparecia em nenhum card até aqui.
 		features: [
 			'Multi-carteira ilimitada · 20 contas',
+			'Research de ativos',
+			'Comparador de ativos lado a lado',
+			'RI Inteligente (fatos relevantes)',
+			'Módulo fiscal com DARF',
+			'Copiloto até modo Avançado',
+			'Relatórios exportáveis (PDF/XLSX)',
+			'Radar de oportunidades e IA Insights',
 			'VaR, Sharpe, beta e atribuição',
 			'Política de investimento e alertas',
 			'Trilha de auditoria da IA',
