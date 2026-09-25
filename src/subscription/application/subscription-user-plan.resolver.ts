@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import {
 	FREE_ACCESS_LEVEL,
+	PlanAccess,
 	PREMIUM_ACCESS_LEVEL,
 	PRO_ACCESS_LEVEL,
 	UserPlanResolverPort,
@@ -32,10 +33,8 @@ export class SubscriptionUserPlanResolver implements UserPlanResolverPort {
 		return (await this.resolveWithCapabilities(userId)).tier;
 	}
 
-	async resolveWithCapabilities(
-		userId: string
-	): Promise<{ tier: UserPlanTier; capabilities: string[] }> {
-		const empty = { tier: FREE_ACCESS_LEVEL, capabilities: [] };
+	async resolveWithCapabilities(userId: string): Promise<PlanAccess> {
+		const empty: PlanAccess = { tier: FREE_ACCESS_LEVEL, capabilities: [] };
 		if (!userId) return empty;
 
 		try {
@@ -49,6 +48,7 @@ export class SubscriptionUserPlanResolver implements UserPlanResolverPort {
 						name?: string;
 						accessLevel?: number;
 						capabilities?: string[];
+						capabilitiesKnown?: string[];
 					};
 				}
 			)?.plan;
@@ -61,7 +61,10 @@ export class SubscriptionUserPlanResolver implements UserPlanResolverPort {
 			const capabilities = Array.isArray(plan?.capabilities)
 				? plan.capabilities
 				: [];
-			return { tier, capabilities };
+			const capabilitiesKnown = Array.isArray(plan?.capabilitiesKnown)
+				? plan.capabilitiesKnown
+				: undefined;
+			return { tier, capabilities, capabilitiesKnown };
 		} catch (error) {
 			// Falha na consulta nao pode virar acesso liberado por acidente.
 			this.logger.warn(

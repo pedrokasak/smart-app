@@ -40,9 +40,33 @@ export type PlanCapability =
 	| 'fiscal.ir_report'
 	| 'broker.sync'
 	| 'ai.rag'
-	| 'ai.insights';
+	| 'ai.insights'
+	| 'fiscal.darf'
+	| 'reports.export'
+	| 'risk.analytics'
+	| 'policy.investment'
+	| 'research.comparator'
+	| 'ri.ai_summary';
 
 export const ALL_PLAN_CAPABILITIES: PlanCapability[] = [
+	'fiscal.ir_report',
+	'broker.sync',
+	'ai.rag',
+	'ai.insights',
+	'fiscal.darf',
+	'reports.export',
+	'risk.analytics',
+	'policy.investment',
+	'research.comparator',
+	'ri.ai_summary',
+];
+
+/**
+ * As capabilities que existiam quando `capabilities` passou a ser gravado no
+ * plano (TRA-189). Plano configurado antes de `capabilitiesKnown` existir
+ * decidiu sobre ESTAS e só estas (TRA-193).
+ */
+export const LEGACY_PLAN_CAPABILITIES: readonly PlanCapability[] = [
 	'fiscal.ir_report',
 	'broker.sync',
 	'ai.rag',
@@ -55,6 +79,12 @@ export const PLAN_CAPABILITY_LABELS: Record<PlanCapability, string> = {
 	'broker.sync': 'Sincronização direta com corretora',
 	'ai.rag': 'Copiloto com busca em base de conhecimento (RAG)',
 	'ai.insights': 'Radar de oportunidades e IA Insights',
+	'fiscal.darf': 'Módulo fiscal com DARF',
+	'reports.export': 'Relatórios exportáveis (PDF/XLSX) e envio agendado',
+	'risk.analytics': 'VaR, Sharpe, beta e atribuição de risco',
+	'policy.investment': 'Política de investimento',
+	'research.comparator': 'Comparador de ativos lado a lado',
+	'ri.ai_summary': 'Resumo por IA de documentos de RI',
 };
 
 /**
@@ -67,24 +97,70 @@ export const CAPABILITY_DEFAULT_LEVEL: Record<PlanCapability, UserPlanTier> = {
 	'broker.sync': PRO_ACCESS_LEVEL,
 	'ai.rag': PRO_ACCESS_LEVEL,
 	'ai.insights': PREMIUM_ACCESS_LEVEL,
+	// Patamares tirados do que os cards de plano já prometem (TRA-194).
+	'fiscal.darf': PREMIUM_ACCESS_LEVEL,
+	'reports.export': PRO_ACCESS_LEVEL,
+	'risk.analytics': PREMIUM_ACCESS_LEVEL,
+	'policy.investment': PREMIUM_ACCESS_LEVEL,
+	// Sem rota própria: o comparador monta a tabela no cliente com a mesma
+	// cotação por ativo que o Research grátis já expõe (TRA-200). A trava é
+	// de UX, lida pelo web via `capabilities`.
+	'research.comparator': PRO_ACCESS_LEVEL,
+	'ri.ai_summary': PREMIUM_ACCESS_LEVEL,
 };
 
 /**
- * `true` quando o admin configurou `capabilities` no plano e a lista inclui
- * a chave — nesse caso o checkbox do painel manda, mesmo que contrarie o
- * `accessLevel` numerico. Plano que nunca teve `capabilities` definido (lista
- * ausente ou vazia) cai no patamar padrao de hoje via `tier`, pra nao
- * regredir quem nunca abriu o painel novo.
+ * Decide se o plano libera `capability`.
+ *
+ * A lista `capabilities` do plano só manda sobre as capabilities que o admin
+ * ENXERGAVA quando a gravou (`capabilitiesKnown`). Sem isto, criar uma
+ * capability nova (ex.: `fiscal.darf`) revogaria o acesso dela em todo plano
+ * já configurado — a chave nova não está na lista porque não existia quando
+ * o admin marcou os checkboxes, e "ausente" viraria "negado" para quem paga.
+ *
+ * Três casos:
+ *   - admin decidiu sobre esta capability  -> a lista manda (inclusive negar);
+ *   - plano nunca configurado (lista vazia) -> patamar padrão por `tier`;
+ *   - capability mais nova que a configuração -> patamar padrão por `tier`,
+ *     até o admin salvar o plano de novo e decidir sobre ela.
+ *
+ * `known` ausente com lista preenchida = plano gravado antes deste campo
+ * existir: vale `LEGACY_PLAN_CAPABILITIES`.
  */
 export function planHasCapability(
 	capabilities: string[] | null | undefined,
 	capability: PlanCapability,
-	tier: UserPlanTier
+	tier: UserPlanTier,
+	known?: readonly string[] | null
 ): boolean {
-	if (Array.isArray(capabilities) && capabilities.length > 0) {
-		return capabilities.includes(capability);
+	const configured = Array.isArray(capabilities) && capabilities.length > 0;
+	if (configured) {
+		const decidedOn = known?.length ? known : LEGACY_PLAN_CAPABILITIES;
+		if (decidedOn.includes(capability)) {
+			return capabilities.includes(capability);
+		}
 	}
 	return planAtLeast(tier, CAPABILITY_DEFAULT_LEVEL[capability]);
+}
+
+/** O que o gate precisa saber sobre o plano do usuário. */
+export interface PlanAccess {
+	tier: UserPlanTier;
+	capabilities: string[];
+	/** Capabilities sobre as quais o admin decidiu ao salvar o plano. */
+	capabilitiesKnown?: string[];
+}
+
+/** Capabilities que o plano libera de fato — mesma regra do gate. */
+export function effectiveCapabilities(access: PlanAccess): PlanCapability[] {
+	return ALL_PLAN_CAPABILITIES.filter((capability) =>
+		planHasCapability(
+			access.capabilities,
+			capability,
+			access.tier,
+			access.capabilitiesKnown
+		)
+	);
 }
 
 export const USER_PLAN_RESOLVER = Symbol('USER_PLAN_RESOLVER');
@@ -105,7 +181,5 @@ export interface UserPlanResolverPort {
 	 * significa "plano nao configurado com capabilities"; o fallback por
 	 * nivel e responsabilidade de `planHasCapability`, nao deste metodo.
 	 */
-	resolveWithCapabilities(
-		userId: string
-	): Promise<{ tier: UserPlanTier; capabilities: string[] }>;
+	resolveWithCapabilities(userId: string): Promise<PlanAccess>;
 }

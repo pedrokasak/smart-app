@@ -6,6 +6,7 @@ import {
 	NotFoundException,
 	OnModuleInit,
 } from '@nestjs/common';
+import { ALL_PLAN_CAPABILITIES } from 'src/subscription/application/user-plan.types';
 import {
 	countUsers,
 	UserCounter,
@@ -117,6 +118,11 @@ export class AdminService implements OnModuleInit {
 			// do conteúdo desde a criação — o próximo boot do plan-sync não
 			// deve sobrescrever nada aqui (TRA-188).
 			catalogManaged: false,
+			// O admin decidiu sobre as capabilities que existem hoje; as que
+			// forem criadas depois caem no patamar padrão (TRA-193).
+			...(dto.capabilities?.length
+				? { capabilitiesKnown: [...ALL_PLAN_CAPABILITIES] }
+				: {}),
 		});
 
 		return created;
@@ -274,6 +280,10 @@ export class AdminService implements OnModuleInit {
 		}
 		if (dto.capabilities) {
 			plan.capabilities = dto.capabilities;
+			// Registra sobre quais capabilities esta decisão vale. Uma
+			// capability criada depois não fica negada por não estar na lista
+			// — cai no patamar padrão até o próximo save (TRA-193).
+			plan.capabilitiesKnown = [...ALL_PLAN_CAPABILITIES];
 		}
 		if (dto.maxUsers !== undefined) {
 			plan.maxUsers = dto.maxUsers;

@@ -28,6 +28,7 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
 import { validateUploadFile } from 'src/broker-sync/security/upload-file.validator';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
+import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
 type ParsedTrade = {
 	assetSymbol: string;
@@ -56,11 +57,13 @@ export class BrokerSyncController {
 		return this.brokerSyncService.getConnections(req.user.userId);
 	}
 
+	@RequiresCapability('broker.sync')
 	@Post('connect')
 	async connect(@Req() req: any, @Body() dto: BrokerConnectDto) {
 		return this.brokerSyncService.connect(req.user.userId, dto);
 	}
 
+	@RequiresCapability('broker.sync')
 	@Post('sync/:provider')
 	async sync(@Req() req: any, @Param('provider') provider: string) {
 		return this.brokerSyncService.syncConnection(req.user.userId, provider);
