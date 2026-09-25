@@ -13,6 +13,8 @@ import { ProfileModule } from './profile/profile.module';
 import { AddressModule } from './address/address.module';
 import { PermissionsModule } from './permissions/permissions.module';
 import { MongooseModule } from '@nestjs/mongoose';
+import { DatabaseModule } from './database/database.module';
+import { resolveAutoIndex } from './database/mongo-index-policy';
 import { APP_GUARD } from '@nestjs/core';
 import { JwtAuthGuard } from './authentication/jwt-auth.guard';
 import { PlanCapabilityGuard } from './subscription/capabilities/plan-capability.guard';
@@ -52,7 +54,10 @@ import { QuoteStalenessModule } from './market-data/quote-staleness/quote-stalen
 		ProfileModule,
 		AddressModule,
 		PermissionsModule,
-		MongooseModule.forRoot(process.env.DATABASE_URL),
+		MongooseModule.forRoot(process.env.DATABASE_URL, {
+			autoIndex: resolveAutoIndex(),
+		}),
+		DatabaseModule,
 		SchedulerModule,
 		SubscriptionModule,
 		StockModule,

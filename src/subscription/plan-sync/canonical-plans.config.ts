@@ -125,7 +125,6 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 			'Research de ativos',
 			'Comparador de ativos lado a lado',
 			'RI Inteligente (fatos relevantes)',
-			'Módulo fiscal com DARF',
 			'Copiloto até modo Avançado',
 			'Relatórios exportáveis (PDF/XLSX)',
 			'Suporte prioritário',

@@ -41,12 +41,12 @@ import {
  */
 describe('Gate de plano — integração', () => {
 	describe('pipeline HTTP com guards globais', () => {
-		@RequiresCapability('fiscal.darf')
+		@RequiresCapability('reports.export')
 		@Controller('probe')
 		class ProbeController {
-			@Get('darf')
-			darf() {
-				return { ok: 'darf' };
+			@Get('export')
+			exportReport() {
+				return { ok: 'export' };
 			}
 
 			@RequiresCapability('risk.analytics')
@@ -117,20 +117,20 @@ describe('Gate de plano — integração', () => {
 		beforeEach(() => resolver.resolveWithCapabilities.mockClear());
 
 		it('sem token: 401 do JwtAuthGuard, antes de olhar plano', async () => {
-			await request(app.getHttpServer()).get('/probe/darf').expect(401);
+			await request(app.getHttpServer()).get('/probe/export').expect(401);
 			expect(resolver.resolveWithCapabilities).not.toHaveBeenCalled();
 		});
 
 		it('refresh token não passa pelo gate de autenticação (401)', async () => {
 			await request(app.getHttpServer())
-				.get('/probe/darf')
+				.get('/probe/export')
 				.set('Authorization', bearer('pro-user', 'refresh'))
 				.expect(401);
 		});
 
 		it('plano gratuito recebe 403 com o corpo do upsell', async () => {
 			const response = await request(app.getHttpServer())
-				.get('/probe/darf')
+				.get('/probe/export')
 				.set('Authorization', bearer('free-user'))
 				.expect(403);
 
@@ -138,15 +138,15 @@ describe('Gate de plano — integração', () => {
 				statusCode: 403,
 				error: 'PLAN_CAPABILITY_REQUIRED',
 				message: 'PLANO_UPGRADE_NECESSARIO',
-				capability: 'fiscal.darf',
+				capability: 'reports.export',
 			});
 		});
 
-		it('Pro acessa fiscal.darf (capability herdada da classe)', async () => {
+		it('Pro acessa reports.export (capability herdada da classe)', async () => {
 			await request(app.getHttpServer())
-				.get('/probe/darf')
+				.get('/probe/export')
 				.set('Authorization', bearer('pro-user'))
-				.expect(200, { ok: 'darf' });
+				.expect(200, { ok: 'export' });
 		});
 
 		it('Pro não acessa risk.analytics (Wealth) — método sobrescreve a classe', async () => {
