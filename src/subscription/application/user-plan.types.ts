@@ -92,7 +92,7 @@ export const CAPABILITY_DEFAULT_LEVEL: Record<PlanCapability, UserPlanTier> = {
 	'ai.rag': PRO_ACCESS_LEVEL,
 	'ai.insights': PREMIUM_ACCESS_LEVEL,
 	// Patamares tirados do que os cards de plano já prometem (TRA-194).
-	'fiscal.darf': PRO_ACCESS_LEVEL,
+	'fiscal.darf': PREMIUM_ACCESS_LEVEL,
 	'reports.export': PRO_ACCESS_LEVEL,
 	'risk.analytics': PREMIUM_ACCESS_LEVEL,
 	'policy.investment': PREMIUM_ACCESS_LEVEL,

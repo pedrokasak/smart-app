@@ -113,7 +113,8 @@ describe('PlanCapabilityGuard', () => {
 	describe('fallback por nível quando o admin nunca configurou capabilities', () => {
 		const cases: Array<[PlanCapability, number, boolean]> = [
 			['fiscal.darf', FREE_ACCESS_LEVEL, false],
-			['fiscal.darf', PRO_ACCESS_LEVEL, true],
+			['fiscal.darf', PRO_ACCESS_LEVEL, false],
+			['fiscal.darf', PREMIUM_ACCESS_LEVEL, true],
 			['fiscal.ir_report', PRO_ACCESS_LEVEL, true],
 			['reports.export', FREE_ACCESS_LEVEL, false],
 			['reports.export', PRO_ACCESS_LEVEL, true],
@@ -164,14 +165,14 @@ describe('PlanCapabilityGuard', () => {
 		});
 
 		it('capability criada depois da configuração cai no patamar padrão, não em "negado"', async () => {
-			// Plano Pro configurado quando `fiscal.darf` ainda não existia.
+			// Plano Pro configurado quando `reports.export` ainda não existia.
 			plan({
 				tier: PRO_ACCESS_LEVEL,
 				capabilities: ['broker.sync', 'fiscal.ir_report'],
 				capabilitiesKnown: ['broker.sync', 'fiscal.ir_report'],
 			});
 			await expect(
-				guard.canActivate(contextFor(gatedBy('fiscal.darf'), 'route'))
+				guard.canActivate(contextFor(gatedBy('reports.export'), 'route'))
 			).resolves.toBe(true);
 		});
 
@@ -205,7 +206,7 @@ describe('PlanCapabilityGuard', () => {
 		});
 
 		it('aceita o id em `sub` quando `userId` não existe', async () => {
-			plan({ tier: PRO_ACCESS_LEVEL });
+			plan({ tier: PREMIUM_ACCESS_LEVEL });
 			await guard.canActivate(contextFor(Fiscal, 'route', { sub: 'user-9' }));
 			expect(resolver.resolveWithCapabilities).toHaveBeenCalledWith('user-9');
 		});
