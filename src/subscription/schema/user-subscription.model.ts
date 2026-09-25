@@ -5,6 +5,13 @@ export interface UserSubscription extends Document {
 	plan: Types.ObjectId;
 	stripeSubscriptionId?: string;
 	stripeCustomerId?: string;
+	/**
+	 * Quem cobra esta assinatura (TRA-195). Ausente = registro anterior ao
+	 * campo (Stripe ou concessao manual).
+	 */
+	paymentProvider?: 'stripe' | 'asaas_pix' | 'manual';
+	/** Cobranca PIX que liberou o periodo atual — o estorno a desfaz. */
+	lastPixChargeId?: string;
 	status: 'active' | 'canceled' | 'past_due' | 'unpaid' | 'trialing' | 'paused';
 	currentPeriodStart: Date;
 	currentPeriodEnd: Date;
@@ -27,6 +34,8 @@ const userSubscriptionSchema = new Schema<UserSubscription>({
 	},
 	stripeSubscriptionId: { type: String, unique: true, sparse: true },
 	stripeCustomerId: { type: String },
+	paymentProvider: { type: String, enum: ['stripe', 'asaas_pix', 'manual'] },
+	lastPixChargeId: { type: String },
 	status: {
 		type: String,
 		enum: ['active', 'canceled', 'past_due', 'unpaid', 'trialing', 'paused'],

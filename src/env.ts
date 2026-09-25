@@ -16,6 +16,20 @@ const envSchema = z.object({
 	PORT: z.string().optional(),
 	ASAAS_API_KEY: z.string(),
 	ASAAS_URL_SANDBOX: z.string(),
+	/**
+	 * PIX via Asaas (TRA-195). `ASAAS_API_URL` tem precedencia sobre
+	 * `ASAAS_URL_SANDBOX` (nome antigo, mantido por compatibilidade).
+	 * Producao: https://api.asaas.com/v3 · sandbox: https://api-sandbox.asaas.com/v3.
+	 * `ASAAS_WEBHOOK_TOKEN` e o token que o Asaas envia no header
+	 * `asaas-access-token`; sem ele o webhook recusa tudo.
+	 */
+	ASAAS_API_URL: z.string().optional(),
+	ASAAS_WEBHOOK_TOKEN: z.string().optional(),
+	/**
+	 * Liga o checkout PIX (TRA-195). Desligado por padrao: ter chave do
+	 * Asaas no ambiente nao basta para expor cobranca a cliente real.
+	 */
+	PIX_CHECKOUT_ENABLED: z.string().optional(),
 	GOOGLE_CLIENT_ID: z.string().optional(),
 	GOOGLE_CSE_API_KEY: z.string().optional(),
 	GOOGLE_CSE_ENGINE_ID: z.string().optional(),
@@ -86,6 +100,12 @@ export const stripeWebhookSecretProduction: string =
 export const port: string = env.data.PORT;
 export const asaasApiKey: string = env.data.ASAAS_API_KEY;
 export const asaasUrlSandbox: string = env.data.ASAAS_URL_SANDBOX;
+export const asaasApiUrl: string =
+	env.data.ASAAS_API_URL?.trim() || env.data.ASAAS_URL_SANDBOX;
+export const asaasWebhookToken: string | undefined =
+	env.data.ASAAS_WEBHOOK_TOKEN?.trim() || undefined;
+export const pixCheckoutEnabled: boolean =
+	env.data.PIX_CHECKOUT_ENABLED?.trim().toLowerCase() === 'true';
 export const googleClientId: string | undefined = env.data.GOOGLE_CLIENT_ID;
 export const googleCseApiKey: string | undefined = env.data.GOOGLE_CSE_API_KEY;
 export const googleCseEngineId: string | undefined =
