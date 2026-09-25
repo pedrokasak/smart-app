@@ -1,10 +1,4 @@
-import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
-import { planHasCapability } from 'src/subscription/application/user-plan.types';
-import {
-	ForbiddenException,
-	Injectable,
-	InternalServerErrorException,
-} from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import puppeteer from 'puppeteer';
@@ -18,7 +12,6 @@ import {
 } from 'src/fiscal/dto/ir-report-response.dto';
 import { TradeDocument, TradeSide } from 'src/fiscal/schema/trade.model';
 import { Portfolio } from 'src/portfolio/schema/portfolio.model';
-import { SubscriptionService } from 'src/subscription/subscription.service';
 
 interface SymbolPositionState {
 	quantity: number;
@@ -49,16 +42,18 @@ export class IrReportService {
 		@InjectModel('Portfolio')
 		private readonly portfolioModel: Model<Portfolio>,
 		@InjectModel('Asset')
-		private readonly assetModel: Model<Asset>,
-		private readonly subscriptionService: SubscriptionService
+		private readonly assetModel: Model<Asset>
 	) {}
 
+	/**
+	 * Exige `fiscal.ir_report` — aplicado por `@RequiresCapability` na rota
+	 * (TRA-193). Antes este service resolvia o plano por conta própria,
+	 * divergindo do `UserPlanResolver` (TRA-83).
+	 */
 	async generateIrReport(
 		userId: string,
 		year: number
 	): Promise<IrReportResponseDto> {
-		await this.ensurePremiumAccess(userId);
-
 		const yearEnd = new Date(Date.UTC(year, 11, 31, 23, 59, 59, 999));
 
 		const portfolios = await this.portfolioModel
@@ -169,33 +164,6 @@ export class IrReportService {
 			);
 		} finally {
 			await browser.close();
-		}
-	}
-
-	private async ensurePremiumAccess(userId: string): Promise<void> {
-		const subscription =
-			await this.subscriptionService.findCurrentSubscriptionByUser(userId);
-
-		if (!subscription) {
-			throw new ForbiddenException('FEATURE_PREMIUM_REQUERIDA');
-		}
-
-		const plan = (
-			subscription as {
-				plan?: { name?: string; accessLevel?: number; capabilities?: string[] };
-			}
-		)?.plan;
-		const tier =
-			typeof plan?.accessLevel === 'number'
-				? plan.accessLevel
-				: SubscriptionUserPlanResolver.tierFromPlanName(plan?.name);
-
-		// Capability 'fiscal.ir_report' (TRA-189) — antes gateava por substring
-		// no texto de marketing de `plan.features` ('premium'/'ir-report'/...),
-		// que mudava sozinho se a feature fosse renomeada na vitrine, e nem
-		// considerava `accessLevel`, só o nome do plano.
-		if (!planHasCapability(plan?.capabilities, 'fiscal.ir_report', tier)) {
-			throw new ForbiddenException('FEATURE_PREMIUM_REQUERIDA');
 		}
 	}
 

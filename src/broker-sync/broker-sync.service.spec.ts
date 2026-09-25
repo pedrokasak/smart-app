@@ -1,11 +1,9 @@
-import { ForbiddenException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { BrokerSyncService } from './broker-sync.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
 import { BrokerConnectionModel } from './schema/broker-connection.model';
 import { Types } from 'mongoose';
-import { SubscriptionService } from 'src/subscription/subscription.service';
 import * as ccxt from 'ccxt';
 import { brokerSyncErrorMessage } from 'src/broker-sync/domain/broker-sync-error';
 
@@ -55,10 +53,6 @@ describe('BrokerSyncService', () => {
 		update: jest.fn(),
 	};
 
-	const mockSubscriptionService = {
-		findCurrentSubscriptionByUser: jest.fn(),
-	};
-
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [
@@ -70,10 +64,6 @@ describe('BrokerSyncService', () => {
 				{
 					provide: AssetsService,
 					useValue: mockAssetsService,
-				},
-				{
-					provide: SubscriptionService,
-					useValue: mockSubscriptionService,
 				},
 			],
 		}).compile();
@@ -106,10 +96,6 @@ describe('BrokerSyncService', () => {
 		jest.spyOn(service as any, 'decrypt').mockReturnValue('decryptedValue');
 
 		// Mock subscription
-		mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
-			status: 'active',
-			plan: { name: 'Pro' },
-		});
 
 		const selectSpy = jest.fn().mockReturnThis();
 		const findOneSpy = jest
@@ -153,69 +139,9 @@ describe('BrokerSyncService', () => {
 		expect(mockConnection.save).toHaveBeenCalled();
 	});
 
-	it('should throw PLANO_UPGRADE_NECESSARIO if no active subscription', async () => {
-		const userId = new Types.ObjectId().toString();
-		const provider = 'binance';
-
-		mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue(
-			null
-		);
-
-		await expect(service.syncConnection(userId, provider)).rejects.toThrow(
-			'PLANO_UPGRADE_NECESSARIO'
-		);
-	});
-
-	// TRA-189: capability 'broker.sync' passa a mandar quando configurada.
-	describe('assertBrokerSyncPlan — capability broker.sync', () => {
-		it('nega quando o admin configurou capabilities e broker.sync não está na lista', async () => {
-			const userId = new Types.ObjectId().toString();
-			mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
-				status: 'active',
-				plan: {
-					name: 'Wealth',
-					accessLevel: 20,
-					capabilities: ['ai.insights'],
-				},
-			});
-
-			await expect(service.syncConnection(userId, 'binance')).rejects.toThrow(
-				'PLANO_UPGRADE_NECESSARIO'
-			);
-		});
-
-		it('libera quando o admin marcou broker.sync explicitamente, mesmo com accessLevel baixo', async () => {
-			const userId = new Types.ObjectId().toString();
-			jest.spyOn(service as any, 'decrypt').mockReturnValue('decryptedValue');
-			mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
-				status: 'active',
-				plan: {
-					name: 'Essencial Corretora',
-					accessLevel: 0,
-					capabilities: ['broker.sync'],
-				},
-			});
-			jest.spyOn(BrokerConnectionModel, 'findOne').mockReturnValue({
-				select: jest.fn().mockResolvedValue({
-					userId: new Types.ObjectId(userId),
-					provider: 'binance',
-					apiKeyEncrypted: 'iv:encryptedKey',
-					apiSecretEncrypted: 'iv:encryptedSecret',
-					status: 'connected',
-					save: jest.fn().mockResolvedValue(true),
-				}),
-			} as any);
-			mockPortfolioService.findPortfolioByName.mockResolvedValue({
-				_id: new Types.ObjectId(),
-				name: 'binance',
-			});
-			mockAssetsService.findAssetBySymbolAndPortfolio.mockResolvedValue(null);
-
-			await expect(
-				service.syncConnection(userId, 'binance')
-			).resolves.toBeDefined();
-		});
-	});
+	// O gate de plano (`broker.sync`) saiu deste service e virou
+	// `@RequiresCapability` na rota (TRA-193). Os cenários de plano moram em
+	// `plan-capability.guard.spec.ts` e no teste de integração das rotas.
 
 	it('should extract balances from free/used/info when total is empty', () => {
 		const extracted = (service as any).extractPositiveBalances({
@@ -257,10 +183,6 @@ describe('BrokerSyncService', () => {
 			};
 
 			jest.spyOn(service as any, 'decrypt').mockReturnValue('decryptedValue');
-			mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
-				status: 'active',
-				plan: { name: 'Pro' },
-			});
 
 			const selectSpy = jest.fn().mockResolvedValue(mockConnection);
 			jest.spyOn(BrokerConnectionModel, 'findOne').mockReturnValue({
@@ -334,40 +256,6 @@ describe('BrokerSyncService', () => {
 
 			expect(conexao.lastError).toBeNull();
 			expect(conexao.lastErrorCode).toBeNull();
-		});
-	});
-	describe('plano Pro para conexão direta', () => {
-		it('recusa conectar e sincronizar no plano gratuito', async () => {
-			const userId = new Types.ObjectId().toString();
-			mockSubscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
-				status: 'active',
-				plan: { name: 'Essencial' },
-			});
-			const createSpy = jest.spyOn(BrokerConnectionModel, 'create');
-
-			await expect(
-				service.connect(userId, {
-					provider: 'binance',
-					apiKey: 'k',
-					apiSecret: 's',
-				})
-			).rejects.toThrow(ForbiddenException);
-			await expect(service.syncConnection(userId, 'binance')).rejects.toThrow(
-				ForbiddenException
-			);
-			expect(createSpy).not.toHaveBeenCalled();
-		});
-
-		it('nega quando a consulta do plano falha', async () => {
-			mockSubscriptionService.findCurrentSubscriptionByUser.mockRejectedValue(
-				new Error('db down')
-			);
-
-			await expect(
-				service.connect(new Types.ObjectId().toString(), {
-					provider: 'binance',
-				})
-			).rejects.toThrow('PLANO_UPGRADE_NECESSARIO');
 		});
 	});
 });

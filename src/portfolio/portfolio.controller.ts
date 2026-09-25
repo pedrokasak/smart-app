@@ -53,6 +53,7 @@ import {
 	BrokerageNoteUploadModel,
 	BrokerageUploadKind,
 } from 'src/broker-sync/schema/brokerage-note-upload.model';
+import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
 /**
  * Planilha da B3 é pequena; o limite existe pra impedir que um upload
@@ -349,6 +350,7 @@ export class PortfolioController {
 		});
 	}
 
+	@RequiresCapability('risk.analytics')
 	@Get('risk-contribution')
 	async getRiskContribution(@Req() req: any) {
 		const userId = resolveUserId(req);

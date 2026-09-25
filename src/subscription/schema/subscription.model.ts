@@ -27,6 +27,13 @@ export interface Subscription extends Document {
 	 * `planHasCapability`.
 	 */
 	capabilities?: string[];
+	/**
+	 * Capabilities que existiam quando o admin gravou `capabilities` (TRA-193).
+	 * Só elas são decididas pela lista; uma capability criada depois cai no
+	 * patamar padrão até o admin salvar o plano de novo. Ver
+	 * `planHasCapability`.
+	 */
+	capabilitiesKnown?: string[];
 	maxUsers?: number;
 	/**
 	 * `true` (padrão): conteúdo do plano (nome, preço, features...) ainda é
@@ -64,6 +71,8 @@ const subscriptionSchema = new Schema<Subscription>({
 	isActive: { type: Boolean, default: true },
 	features: [{ type: String }],
 	capabilities: [{ type: String }],
+	// Sem `default: []`: ausência significa "gravado antes do TRA-193".
+	capabilitiesKnown: { type: [String], default: undefined },
 	maxUsers: { type: Number },
 	catalogManaged: { type: Boolean, default: true },
 	createdAt: { type: Date, default: Date.now },

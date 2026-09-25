@@ -1,6 +1,5 @@
 import {
 	BadRequestException,
-	ForbiddenException,
 	Injectable,
 	NotFoundException,
 	Logger,
@@ -14,9 +13,6 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
 import { UserModel } from 'src/users/schema/user.model';
 import { ProviderRegistry } from 'src/broker-sync/providers/provider-registry';
-import { SubscriptionService } from 'src/subscription/subscription.service';
-import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
-import { planHasCapability } from 'src/subscription/application/user-plan.types';
 import { createBrokerCredentialCipher } from 'src/broker-sync/security/credential-cipher.factory';
 import {
 	BrokerCipherUnavailableError,
@@ -36,8 +32,7 @@ import {
 export class BrokerSyncService {
 	constructor(
 		private readonly portfolioService: PortfolioService,
-		private readonly assetsService: AssetsService,
-		private readonly subscriptionService: SubscriptionService
+		private readonly assetsService: AssetsService
 	) {}
 
 	private readonly logger = new Logger(BrokerSyncService.name);
@@ -181,35 +176,10 @@ export class BrokerSyncService {
 	}
 
 	/**
-	 * Conexão direta com corretora/exchange é do plano Pro para cima. A
-	 * importação de arquivos da B3 fica fora desta trava e vale para todos.
-	 * Qualquer falha ao resolver o plano nega o acesso.
+	 * Exige `broker.sync` — aplicado por `@RequiresCapability` na rota
+	 * (TRA-193), não aqui. A importação de arquivos da B3 fica fora da trava.
 	 */
-	private async assertBrokerSyncPlan(userId: string): Promise<void> {
-		const subscription = await this.subscriptionService
-			.findCurrentSubscriptionByUser(userId)
-			.catch(() => null);
-		const plan = (
-			subscription as {
-				plan?: { name?: string; accessLevel?: number; capabilities?: string[] };
-			} | null
-		)?.plan;
-		const level =
-			typeof plan?.accessLevel === 'number'
-				? plan.accessLevel
-				: SubscriptionUserPlanResolver.tierFromPlanName(plan?.name);
-		// Capability 'broker.sync' (TRA-189): admin pode liberar/revogar pelo
-		// painel sem tocar em accessLevel.
-		if (
-			!subscription ||
-			!planHasCapability(plan?.capabilities, 'broker.sync', level)
-		) {
-			throw new ForbiddenException('PLANO_UPGRADE_NECESSARIO');
-		}
-	}
-
 	async connect(userId: string, dto: BrokerConnectDto) {
-		await this.assertBrokerSyncPlan(userId);
 		const existing = await BrokerConnectionModel.findOne({
 			userId: new Types.ObjectId(userId),
 			provider: dto.provider,
@@ -247,9 +217,8 @@ export class BrokerSyncService {
 		};
 	}
 
+	/** Exige `broker.sync`, aplicado na rota (TRA-193). */
 	async syncConnection(userId: string, provider: string) {
-		await this.assertBrokerSyncPlan(userId);
-
 		const connection = await BrokerConnectionModel.findOne({
 			userId: new Types.ObjectId(userId),
 			provider,

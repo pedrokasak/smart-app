@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AiController } from './ai.controller';
+import { REQUIRED_CAPABILITY_KEY } from 'src/subscription/capabilities/requires-capability.decorator';
 import { AiService } from './ai.service';
 import { RagColdStartService } from 'src/ai/rag-ingestion/application/rag-cold-start.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
@@ -11,9 +12,8 @@ import { PortfolioErrorRadarService } from 'src/intelligence/application/portfol
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
-import { ForbiddenException, UnauthorizedException } from '@nestjs/common';
+import { UnauthorizedException } from '@nestjs/common';
 import {
-	FREE_ACCESS_LEVEL,
 	PREMIUM_ACCESS_LEVEL,
 	USER_PLAN_RESOLVER,
 } from 'src/subscription/application/user-plan.types';
@@ -689,9 +689,6 @@ describe('AiController', () => {
 				{ candidateSymbols: ['VALE3'], watchlistSymbols: ['ITUB4'] }
 			);
 
-			expect(mockUserPlanResolver.resolveWithCapabilities).toHaveBeenCalledWith(
-				'user-123'
-			);
 			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
 				'user-123'
 			);
@@ -709,19 +706,17 @@ describe('AiController', () => {
 			expect(response).toBe(fakeOutput);
 		});
 
-		it('throws Forbidden when the user plan is below premium', async () => {
-			mockUserPlanResolver.resolveWithCapabilities.mockResolvedValue({
-				tier: FREE_ACCESS_LEVEL,
-				capabilities: [],
-			});
-
-			await expect(
-				controller.opportunityRadar({ user: { userId: 'user-123' } }, {})
-			).rejects.toThrow(ForbiddenException);
-			expect(mockPortfolioService.getUserPortfolios).not.toHaveBeenCalled();
+		// O 403 por plano saiu do método e virou `@RequiresCapability` (TRA-193):
+		// quem nega é o `PlanCapabilityGuard` global, testado com o app
+		// montado em `plan-capability.integration.spec.ts`. Aqui só se garante
+		// que a rota continua declarando o que exige.
+		it('declara ai.insights como capability exigida', () => {
 			expect(
-				mockUnifiedIntelligenceFacade.detectOpportunities
-			).not.toHaveBeenCalled();
+				Reflect.getMetadata(
+					REQUIRED_CAPABILITY_KEY,
+					AiController.prototype.opportunityRadar
+				)
+			).toBe('ai.insights');
 		});
 
 		it('throws Unauthorized when the JWT has no userId', async () => {
