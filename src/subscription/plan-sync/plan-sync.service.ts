@@ -77,6 +77,9 @@ const STRIPE_CALL = { timeout: 10_000, maxNetworkRetries: 1 } as const;
 const toBrl = (price?: Stripe.Price | null) =>
 	price?.unit_amount != null ? price.unit_amount / 100 : undefined;
 
+const productOf = (price?: Stripe.Price) =>
+	typeof price?.product === 'string' ? price.product : price?.product?.id;
+
 /**
  * Vínculos Stripe reconciliam sempre, mesmo em plano que o admin já editou
  * — um `stripeProductId` de outro modo trava o painel independente de quem
@@ -207,8 +210,20 @@ export class PlanSyncService implements OnApplicationBootstrap {
 				})
 			);
 			ids.warnings.push(...byName.warnings);
-			monthly ??= byName.monthly;
-			annual ??= byName.annual;
+			// Mensal e anual precisam ser do mesmo produto: senão o checkout
+			// anual cobra um produto que o painel admin não edita.
+			const knownProduct =
+				ids.productId ?? productOf(monthly) ?? productOf(annual);
+			const sameProduct = (price?: Stripe.Price) => {
+				if (!price || !knownProduct || productOf(price) === knownProduct)
+					return price;
+				ids.warnings.push(
+					`Preço ${price.id} de "${canonical.name}" é de outro produto que o já vinculado; ignorado.`
+				);
+				return undefined;
+			};
+			monthly ??= sameProduct(byName.monthly);
+			annual ??= sameProduct(byName.annual);
 		}
 		this.applyResolvedPrices(ids, monthly, annual);
 		return ids;
@@ -219,9 +234,6 @@ export class PlanSyncService implements OnApplicationBootstrap {
 		monthly?: Stripe.Price,
 		annual?: Stripe.Price
 	) {
-		const productOf = (price?: Stripe.Price) =>
-			typeof price?.product === 'string' ? price.product : price?.product?.id;
-
 		if (!ids.monthlyPriceId && monthly) {
 			ids.monthlyPriceId = monthly.id;
 			ids.monthlyAmount = toBrl(monthly);
@@ -272,6 +284,9 @@ export class PlanSyncService implements OnApplicationBootstrap {
 			const candidates = prices.filter(
 				(price) =>
 					price.currency === canonical.currency &&
+					// Só preço fixo: sem `unit_amount` a vitrine não teria o valor cobrado.
+					price.billing_scheme === 'per_unit' &&
+					price.unit_amount != null &&
 					price.recurring?.interval === interval &&
 					price.recurring?.interval_count === 1
 			);

@@ -234,6 +234,7 @@ describe('PlanSyncService', () => {
 			product,
 			currency,
 			unit_amount: cents,
+			billing_scheme: 'per_unit',
 			recurring: { interval, interval_count: 1 },
 		});
 
@@ -387,6 +388,72 @@ describe('PlanSyncService', () => {
 			expect(
 				plans.find((p) => p.name === 'Pro')?.stripePriceId
 			).toBeUndefined();
+		});
+
+		it('ignora preço sem valor fixo (tiered)', async () => {
+			const withStripe = new PlanSyncService(
+				subscriptionModel,
+				userSubscriptionModel,
+				stripeWith([{ id: 'prod_pro', name: 'Pro' }], {
+					prod_pro: [
+						{
+							...recurring('price_tier', 'prod_pro', 'month', 0),
+							unit_amount: null,
+							billing_scheme: 'tiered',
+						},
+					],
+				}) as any
+			);
+
+			await withStripe.syncCanonicalPlans({ env: {} });
+
+			expect(
+				plans.find((p) => p.name === 'Pro')?.stripePriceId
+			).toBeUndefined();
+		});
+
+		it('não junta mensal de um produto com anual de outro', async () => {
+			const stripe = stripeWith([{ id: 'prod_pro', name: 'Pro' }], {
+				prod_pro: [
+					recurring('price_pro_m', 'prod_pro', 'month', 1990),
+					recurring('price_pro_y', 'prod_pro', 'year', 17990),
+				],
+			});
+			stripe.prices.list.mockImplementation(async (params: any) =>
+				params.lookup_keys
+					? {
+							data: [
+								{
+									...recurring('price_other_m', 'prod_other', 'month', 2990),
+									lookup_key: 'trackerr_pro_monthly',
+								},
+							],
+						}
+					: {
+							data: [
+								recurring('price_pro_m', 'prod_pro', 'month', 1990),
+								recurring('price_pro_y', 'prod_pro', 'year', 17990),
+							],
+						}
+			);
+			const withStripe = new PlanSyncService(
+				subscriptionModel,
+				userSubscriptionModel,
+				stripe as any
+			);
+
+			const report = await withStripe.syncCanonicalPlans({ env: {} });
+
+			expect(plans.find((p) => p.name === 'Pro')).toMatchObject({
+				stripeProductId: 'prod_other',
+				stripePriceId: 'price_other_m',
+				price: 29.9,
+			});
+			expect(
+				plans.find((p) => p.name === 'Pro')?.annualStripePriceId
+			).toBeUndefined();
+			const pro = report.plans.find((p) => p.slug === 'pro')!;
+			expect(pro.warnings.join(' ')).toContain('outro produto');
 		});
 
 		it('falha na busca por produto vira aviso, não derruba o sync', async () => {
