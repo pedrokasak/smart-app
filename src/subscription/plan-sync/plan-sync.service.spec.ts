@@ -77,7 +77,7 @@ describe('PlanSyncService', () => {
 		const proDoc = plans.find((p) => p.name === 'Pro');
 		expect(proDoc).toMatchObject({
 			name: 'Pro',
-			price: 14.9,
+			price: 19.9,
 			annualPrice: 149,
 			stripeProductId: 'prod_pro_live',
 			stripePriceId: 'price_pro_monthly_live',
@@ -132,7 +132,7 @@ describe('PlanSyncService', () => {
 		const updated = plans.find((p) => p._id === 'legacy_pro_1');
 		expect(updated).toMatchObject({
 			name: 'Pro',
-			price: 14.9,
+			price: 19.9,
 			stripeProductId: 'prod_pro_live',
 			stripePriceId: 'price_pro_monthly_live',
 			annualStripePriceId: 'price_pro_annual_live',
@@ -219,6 +219,256 @@ describe('PlanSyncService', () => {
 			stripePriceId: 'price_trackerr_pro_monthly',
 			annualStripePriceId: 'price_trackerr_pro_annual',
 			annualPrice: 149,
+		});
+	});
+
+	describe('vínculo pelo nome do produto no Stripe (sem env nem lookup_key)', () => {
+		const recurring = (
+			id: string,
+			product: string,
+			interval: 'month' | 'year',
+			cents: number,
+			currency = 'brl'
+		) => ({
+			id,
+			product,
+			currency,
+			unit_amount: cents,
+			billing_scheme: 'per_unit',
+			recurring: { interval, interval_count: 1 },
+		});
+
+		const stripeWith = (
+			products: Array<{ id: string; name: string }>,
+			pricesByProduct: Record<string, any[]>
+		) => ({
+			prices: {
+				list: jest.fn(async (params: any) =>
+					params.lookup_keys
+						? { data: [] }
+						: { data: pricesByProduct[params.product] ?? [] }
+				),
+			},
+			products: { list: jest.fn(async () => ({ data: products })) },
+		});
+
+		const liveCatalog = () =>
+			stripeWith(
+				[
+					{ id: 'prod_pro', name: 'Pro' },
+					{ id: 'prod_wealth', name: 'Wealth' },
+				],
+				{
+					prod_pro: [
+						recurring('price_pro_m', 'prod_pro', 'month', 1990),
+						recurring('price_pro_y', 'prod_pro', 'year', 17990),
+					],
+					prod_wealth: [
+						recurring('price_w_m', 'prod_wealth', 'month', 3990),
+						recurring('price_w_y', 'prod_wealth', 'year', 32990),
+					],
+				}
+			);
+
+		it('vincula IDs e grava os valores cobrados pelo Stripe', async () => {
+			const withStripe = new PlanSyncService(
+				subscriptionModel,
+				userSubscriptionModel,
+				liveCatalog() as any
+			);
+
+			const report = await withStripe.syncCanonicalPlans({ env: {} });
+
+			expect(plans.find((p) => p.name === 'Pro')).toMatchObject({
+				stripeProductId: 'prod_pro',
+				stripePriceId: 'price_pro_m',
+				annualStripePriceId: 'price_pro_y',
+				price: 19.9,
+				annualPrice: 179.9,
+			});
+			expect(plans.find((p) => p.name === 'Wealth')).toMatchObject({
+				stripeProductId: 'prod_wealth',
+				stripePriceId: 'price_w_m',
+				annualStripePriceId: 'price_w_y',
+				price: 39.9,
+				annualPrice: 329.9,
+			});
+			expect(report.todos).toEqual([]);
+		});
+
+		it('preço do Stripe vence o valor editado pelo admin no painel', async () => {
+			plans.push({
+				_id: 'plan_pro_admin',
+				name: 'Pro',
+				price: 14.9,
+				annualPrice: 149,
+				description: 'Texto do admin',
+				currency: 'brl',
+				interval: 'month',
+				intervalCount: 1,
+				accessLevel: 10,
+				isActive: true,
+				catalogManaged: false,
+			});
+			const withStripe = new PlanSyncService(
+				subscriptionModel,
+				userSubscriptionModel,
+				liveCatalog() as any
+			);
+
+			await withStripe.syncCanonicalPlans({ env: {} });
+
+			expect(plans.find((p) => p._id === 'plan_pro_admin')).toMatchObject({
+				price: 19.9,
+				annualPrice: 179.9,
+				stripePriceId: 'price_pro_m',
+				description: 'Texto do admin',
+			});
+		});
+
+		it('dois produtos com o mesmo nome: não vincula e avisa', async () => {
+			const withStripe = new PlanSyncService(
+				subscriptionModel,
+				userSubscriptionModel,
+				stripeWith(
+					[
+						{ id: 'prod_a', name: 'Pro' },
+						{ id: 'prod_b', name: 'pro' },
+					],
+					{}
+				) as any
+			);
+
+			const report = await withStripe.syncCanonicalPlans({ env: {} });
+
+			const pro = report.plans.find((p) => p.slug === 'pro')!;
+			expect(pro.warnings.join(' ')).toContain('2 produtos ativos');
+			expect(
+				plans.find((p) => p.name === 'Pro')?.stripePriceId
+			).toBeUndefined();
+		});
+
+		it('dois preços mensais no produto: não vincula o mensal, mantém o anual', async () => {
+			const withStripe = new PlanSyncService(
+				subscriptionModel,
+				userSubscriptionModel,
+				stripeWith([{ id: 'prod_pro', name: 'Pro' }], {
+					prod_pro: [
+						recurring('price_m1', 'prod_pro', 'month', 1990),
+						recurring('price_m2', 'prod_pro', 'month', 2990),
+						recurring('price_y', 'prod_pro', 'year', 17990),
+					],
+				}) as any
+			);
+
+			const report = await withStripe.syncCanonicalPlans({ env: {} });
+
+			const pro = report.plans.find((p) => p.slug === 'pro')!;
+			expect(pro.warnings.join(' ')).toContain('2 preços mensais');
+			expect(plans.find((p) => p.name === 'Pro')).toMatchObject({
+				annualStripePriceId: 'price_y',
+				annualPrice: 179.9,
+			});
+			expect(
+				plans.find((p) => p.name === 'Pro')?.stripePriceId
+			).toBeUndefined();
+		});
+
+		it('ignora preço em outra moeda', async () => {
+			const withStripe = new PlanSyncService(
+				subscriptionModel,
+				userSubscriptionModel,
+				stripeWith([{ id: 'prod_pro', name: 'Pro' }], {
+					prod_pro: [recurring('price_usd', 'prod_pro', 'month', 500, 'usd')],
+				}) as any
+			);
+
+			await withStripe.syncCanonicalPlans({ env: {} });
+
+			expect(
+				plans.find((p) => p.name === 'Pro')?.stripePriceId
+			).toBeUndefined();
+		});
+
+		it('ignora preço sem valor fixo (tiered)', async () => {
+			const withStripe = new PlanSyncService(
+				subscriptionModel,
+				userSubscriptionModel,
+				stripeWith([{ id: 'prod_pro', name: 'Pro' }], {
+					prod_pro: [
+						{
+							...recurring('price_tier', 'prod_pro', 'month', 0),
+							unit_amount: null,
+							billing_scheme: 'tiered',
+						},
+					],
+				}) as any
+			);
+
+			await withStripe.syncCanonicalPlans({ env: {} });
+
+			expect(
+				plans.find((p) => p.name === 'Pro')?.stripePriceId
+			).toBeUndefined();
+		});
+
+		it('não junta mensal de um produto com anual de outro', async () => {
+			const stripe = stripeWith([{ id: 'prod_pro', name: 'Pro' }], {
+				prod_pro: [
+					recurring('price_pro_m', 'prod_pro', 'month', 1990),
+					recurring('price_pro_y', 'prod_pro', 'year', 17990),
+				],
+			});
+			stripe.prices.list.mockImplementation(async (params: any) =>
+				params.lookup_keys
+					? {
+							data: [
+								{
+									...recurring('price_other_m', 'prod_other', 'month', 2990),
+									lookup_key: 'trackerr_pro_monthly',
+								},
+							],
+						}
+					: {
+							data: [
+								recurring('price_pro_m', 'prod_pro', 'month', 1990),
+								recurring('price_pro_y', 'prod_pro', 'year', 17990),
+							],
+						}
+			);
+			const withStripe = new PlanSyncService(
+				subscriptionModel,
+				userSubscriptionModel,
+				stripe as any
+			);
+
+			const report = await withStripe.syncCanonicalPlans({ env: {} });
+
+			expect(plans.find((p) => p.name === 'Pro')).toMatchObject({
+				stripeProductId: 'prod_other',
+				stripePriceId: 'price_other_m',
+				price: 29.9,
+			});
+			expect(
+				plans.find((p) => p.name === 'Pro')?.annualStripePriceId
+			).toBeUndefined();
+			const pro = report.plans.find((p) => p.slug === 'pro')!;
+			expect(pro.warnings.join(' ')).toContain('outro produto');
+		});
+
+		it('falha na busca por produto vira aviso, não derruba o sync', async () => {
+			const stripe = liveCatalog();
+			stripe.products.list.mockRejectedValue(new Error('timeout'));
+			const withStripe = new PlanSyncService(
+				subscriptionModel,
+				userSubscriptionModel,
+				stripe as any
+			);
+
+			const report = await withStripe.syncCanonicalPlans({ env: {} });
+
+			const pro = report.plans.find((p) => p.slug === 'pro')!;
+			expect(pro.warnings.join(' ')).toContain('falhou (timeout)');
 		});
 	});
 
@@ -485,7 +735,7 @@ describe('PlanSyncService', () => {
 
 			await service.syncCanonicalPlans({ env });
 
-			expect(plans.find((p) => p._id === 'plan_pro_legacy').price).toBe(14.9);
+			expect(plans.find((p) => p._id === 'plan_pro_legacy').price).toBe(19.9);
 		});
 	});
 });

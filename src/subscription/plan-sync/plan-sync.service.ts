@@ -64,8 +64,21 @@ interface StripeIds {
 	productId?: string;
 	monthlyPriceId?: string;
 	annualPriceId?: string;
+	/** `unit_amount` do preço mensal no Stripe, em BRL. */
+	monthlyAmount?: number;
 	annualAmount?: number;
+	/** `annualAmount` veio do Stripe (não do override por env). */
+	annualAmountFromStripe?: boolean;
+	warnings: string[];
 }
+
+const STRIPE_CALL = { timeout: 10_000, maxNetworkRetries: 1 } as const;
+
+const toBrl = (price?: Stripe.Price | null) =>
+	price?.unit_amount != null ? price.unit_amount / 100 : undefined;
+
+const productOf = (price?: Stripe.Price) =>
+	typeof price?.product === 'string' ? price.product : price?.product?.id;
 
 /**
  * Vínculos Stripe reconciliam sempre, mesmo em plano que o admin já editou
@@ -152,15 +165,23 @@ export class PlanSyncService implements OnApplicationBootstrap {
 	): Promise<StripeIds> {
 		const keys = envKeysForSlug(canonical.slug);
 		const amountRaw = env[keys.annualAmount]?.trim();
+		// A env var também precisa passar pela conta atual: um
+		// `STRIPE_PLAN_<SLUG>_PRODUCT_ID` de teste no ambiente de produção
+		// reintroduziria o ID inválido a cada boot.
+		const envMonthly = await this.usablePrice(env[keys.monthlyPriceId]?.trim());
+		const envAnnual = await this.usablePrice(env[keys.annualPriceId]?.trim());
 		const ids: StripeIds = {
-			// A env var também precisa passar pela conta atual: um
-			// `STRIPE_PLAN_<SLUG>_PRODUCT_ID` de teste no ambiente de produção
-			// reintroduziria o ID inválido a cada boot.
 			productId: await this.keepProductIfUsable(env[keys.productId]?.trim()),
-			monthlyPriceId: await this.keepIfUsable(env[keys.monthlyPriceId]?.trim()),
-			annualPriceId: await this.keepIfUsable(env[keys.annualPriceId]?.trim()),
+			monthlyPriceId: envMonthly?.id,
+			annualPriceId: envAnnual?.id,
+			monthlyAmount: envMonthly?.amount,
 			annualAmount: amountRaw ? Number(amountRaw) : undefined,
+			warnings: [],
 		};
+		if (ids.annualAmount === undefined && envAnnual?.amount !== undefined) {
+			ids.annualAmount = envAnnual.amount;
+			ids.annualAmountFromStripe = true;
+		}
 		const needsLookup =
 			canonical.kind === 'stripe_subscription' &&
 			(!ids.monthlyPriceId || !ids.annualPriceId);
@@ -174,20 +195,110 @@ export class PlanSyncService implements OnApplicationBootstrap {
 				limit: 2,
 			},
 			// Stripe fora do ar não pode deixar o sync pendurado.
-			{ timeout: 10_000, maxNetworkRetries: 1 }
+			STRIPE_CALL
 		);
-		const monthly = data.find((p) => p.lookup_key === lookup.monthly);
-		const annual = data.find((p) => p.lookup_key === lookup.annual);
-		const productOf = (price?: Stripe.Price) =>
-			typeof price?.product === 'string' ? price.product : price?.product?.id;
-
-		ids.monthlyPriceId ??= monthly?.id;
-		ids.annualPriceId ??= annual?.id;
-		ids.productId ??= productOf(monthly) ?? productOf(annual);
-		if (ids.annualAmount === undefined && annual?.unit_amount != null) {
-			ids.annualAmount = annual.unit_amount / 100;
+		let monthly = data.find((p) => p.lookup_key === lookup.monthly);
+		let annual = data.find((p) => p.lookup_key === lookup.annual);
+		if ((!ids.monthlyPriceId && !monthly) || (!ids.annualPriceId && !annual)) {
+			const byName = await this.findPricesByProductName(canonical).catch(
+				(error) => ({
+					monthly: undefined,
+					annual: undefined,
+					warnings: [
+						`Busca do produto "${canonical.name}" no Stripe falhou (${error?.message}).`,
+					],
+				})
+			);
+			ids.warnings.push(...byName.warnings);
+			// Mensal e anual precisam ser do mesmo produto: senão o checkout
+			// anual cobra um produto que o painel admin não edita.
+			const knownProduct =
+				ids.productId ?? productOf(monthly) ?? productOf(annual);
+			const sameProduct = (price?: Stripe.Price) => {
+				if (!price || !knownProduct || productOf(price) === knownProduct)
+					return price;
+				ids.warnings.push(
+					`Preço ${price.id} de "${canonical.name}" é de outro produto que o já vinculado; ignorado.`
+				);
+				return undefined;
+			};
+			monthly ??= sameProduct(byName.monthly);
+			annual ??= sameProduct(byName.annual);
 		}
+		this.applyResolvedPrices(ids, monthly, annual);
 		return ids;
+	}
+
+	private applyResolvedPrices(
+		ids: StripeIds,
+		monthly?: Stripe.Price,
+		annual?: Stripe.Price
+	) {
+		if (!ids.monthlyPriceId && monthly) {
+			ids.monthlyPriceId = monthly.id;
+			ids.monthlyAmount = toBrl(monthly);
+		}
+		if (!ids.annualPriceId && annual) ids.annualPriceId = annual.id;
+		ids.productId ??= productOf(monthly) ?? productOf(annual);
+		if (ids.annualAmount === undefined && toBrl(annual) !== undefined) {
+			ids.annualAmount = toBrl(annual);
+			ids.annualAmountFromStripe = true;
+		}
+	}
+
+	/**
+	 * Último recurso, sem env nem `lookup_key`: o produto ativo com o mesmo
+	 * nome do plano ("Pro", "Wealth") e o único preço recorrente mensal e
+	 * anual na moeda do plano. Qualquer ambiguidade (dois produtos, dois
+	 * preços mensais) não escolhe nada: vincular o preço errado cobraria o
+	 * valor errado de alguém.
+	 */
+	private async findPricesByProductName(canonical: CanonicalPlan): Promise<{
+		monthly?: Stripe.Price;
+		annual?: Stripe.Price;
+		warnings: string[];
+	}> {
+		const warnings: string[] = [];
+		const wanted = canonical.name.trim().toLowerCase();
+		const { data: products } = await this.stripe!.products.list(
+			{ active: true, limit: 100 },
+			STRIPE_CALL
+		);
+		const matches = products.filter(
+			(product) => product.name?.trim().toLowerCase() === wanted
+		);
+		if (matches.length !== 1) {
+			if (matches.length > 1) {
+				warnings.push(
+					`${matches.length} produtos ativos chamados "${canonical.name}" no Stripe; nenhum vinculado. Deixe um só ativo ou use lookup_key.`
+				);
+			}
+			return { warnings };
+		}
+
+		const { data: prices } = await this.stripe!.prices.list(
+			{ product: matches[0].id, active: true, type: 'recurring', limit: 100 },
+			STRIPE_CALL
+		);
+		const pick = (interval: 'month' | 'year') => {
+			const candidates = prices.filter(
+				(price) =>
+					price.currency === canonical.currency &&
+					// Só preço fixo: sem `unit_amount` a vitrine não teria o valor cobrado.
+					price.billing_scheme === 'per_unit' &&
+					price.unit_amount != null &&
+					price.recurring?.interval === interval &&
+					price.recurring?.interval_count === 1
+			);
+			if (candidates.length > 1) {
+				warnings.push(
+					`${candidates.length} preços ${interval === 'month' ? 'mensais' : 'anuais'} ativos em "${canonical.name}"; nenhum vinculado. Arquive os extras ou use lookup_key.`
+				);
+				return undefined;
+			}
+			return candidates[0];
+		};
+		return { monthly: pick('month'), annual: pick('year'), warnings };
 	}
 
 	/**
@@ -197,19 +308,23 @@ export class PlanSyncService implements OnApplicationBootstrap {
 	 * `lookup_key` assume.
 	 */
 	private async keepIfUsable(priceId?: string): Promise<string | undefined> {
-		if (!priceId || !this.stripe) return priceId;
+		return (await this.usablePrice(priceId))?.id;
+	}
+
+	private async usablePrice(
+		priceId?: string
+	): Promise<{ id: string; amount?: number } | undefined> {
+		if (!priceId) return undefined;
+		if (!this.stripe) return { id: priceId };
 		try {
-			const price = await this.stripe.prices.retrieve(priceId, {
-				timeout: 10_000,
-				maxNetworkRetries: 1,
-			});
-			return price.active ? price.id : undefined;
+			const price = await this.stripe.prices.retrieve(priceId, STRIPE_CALL);
+			return price.active ? { id: price.id, amount: toBrl(price) } : undefined;
 		} catch (error) {
 			if (!isStripeResourceMissing(error)) {
 				this.logger.warn(
 					`[plan-sync] não deu para validar o preço ${priceId} (${error?.message}); mantido.`
 				);
-				return priceId;
+				return { id: priceId };
 			}
 			this.logger.warn(
 				`[plan-sync] preço ${priceId} não existe nesta conta Stripe; usando o lookup_key.`
@@ -309,22 +424,22 @@ export class PlanSyncService implements OnApplicationBootstrap {
 		const envAnnualAmount = stripeIds.annualAmount;
 
 		const todos: string[] = [];
-		const warnings: string[] = [];
+		const warnings: string[] = [...stripeIds.warnings];
 
 		if (
 			canonical.kind === 'stripe_subscription' &&
 			(!envProductId || !envMonthlyPriceId)
 		) {
 			todos.push(
-				`Defina ${envKeys.productId} e ${envKeys.monthlyPriceId} — sem eles ` +
-					`o plano fica sem vínculo mensal no Stripe. Crie via ` +
+				`Sem preço mensal no Stripe para "${canonical.name}": crie um produto ativo com esse nome ` +
+					`e um preço recorrente mensal, ou defina ${envKeys.productId} e ${envKeys.monthlyPriceId}. Crie via ` +
 					`\`stripe products create --name "${canonical.name}"\` e ` +
 					`\`stripe prices create --product <PROD> --unit-amount ${canonical.monthlyPrice * 100} --currency ${canonical.currency} --recurring[interval]=month\`.`
 			);
 		}
 		if (canonical.kind === 'stripe_subscription' && !envAnnualPriceId) {
 			todos.push(
-				`Defina ${envKeys.annualPriceId} para expor o preço anual. Crie via ` +
+				`Sem preço anual no Stripe para "${canonical.name}": adicione um preço recorrente anual ao produto ou defina ${envKeys.annualPriceId}. Crie via ` +
 					`\`stripe prices create --product <PROD> --unit-amount <AMOUNT_CENTS> --currency ${canonical.currency} --recurring[interval]=year\`.`
 			);
 		}
@@ -343,7 +458,7 @@ export class PlanSyncService implements OnApplicationBootstrap {
 		const target: Record<string, unknown> = {
 			name: canonical.name,
 			description: canonical.description,
-			price: canonical.monthlyPrice,
+			price: stripeIds.monthlyAmount ?? canonical.monthlyPrice,
 			accessLevel: canonical.accessLevel,
 			currency: canonical.currency,
 			interval: canonical.interval,
@@ -425,9 +540,14 @@ export class PlanSyncService implements OnApplicationBootstrap {
 		// campo de conteúdo ainda vazio, nunca sobrescreve valor definido.
 		const adminOwned = (existing as any).catalogManaged === false;
 		let preservedByAdmin = 0;
+		// Valor lido do Stripe é o que o cliente paga: vence até edição do
+		// admin, senão a vitrine mostra um preço e o checkout cobra outro.
+		const stripeOwned = new Set(STRIPE_LINK_FIELDS);
+		if (stripeIds.monthlyAmount !== undefined) stripeOwned.add('price');
+		if (stripeIds.annualAmountFromStripe) stripeOwned.add('annualPrice');
 		for (const [field, to] of Object.entries(target)) {
 			const from = (existing as any)[field];
-			const isContentField = !STRIPE_LINK_FIELDS.has(field);
+			const isContentField = !stripeOwned.has(field);
 			if (adminOwned && isContentField && !isEmptyContentValue(from)) {
 				if (!deepEqual(from, to)) preservedByAdmin += 1;
 				continue;

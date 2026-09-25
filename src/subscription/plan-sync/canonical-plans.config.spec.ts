@@ -14,9 +14,9 @@ import { CANONICAL_PLANS, envKeysForSlug } from './canonical-plans.config';
  * exatamente o acoplamento que faltava.
  */
 const STRIPE_CATALOG = {
-	essencial: { monthly: 0, annual: undefined, produto: 'Gratuito' },
-	pro: { monthly: 14.9, annual: 149, produto: 'Investidor Pro' },
-	premium: { monthly: 24.9, annual: 249, produto: 'Premium' },
+	essencial: { monthly: 0, annual: undefined, produto: 'Essencial' },
+	pro: { monthly: 19.9, annual: 179.9, produto: 'Pro' },
+	premium: { monthly: 39.9, annual: 329.9, produto: 'Wealth' },
 } as const;
 
 describe('CANONICAL_PLANS — alinhamento com o catálogo Stripe', () => {
@@ -29,11 +29,6 @@ describe('CANONICAL_PLANS — alinhamento com o catálogo Stripe', () => {
 		});
 	}
 
-	/**
-	 * O preço anual do Pro (R$ 149) é numericamente igual ao valor que estava
-	 * no campo MENSAL antes da correção. Se alguém reverter por engano, o
-	 * mensal volta a 149 e este teste denuncia.
-	 */
 	it('não confunde o preço anual do Pro com o mensal', () => {
 		const pro = CANONICAL_PLANS.find((p) => p.slug === 'pro')!;
 		expect(pro.monthlyPrice).not.toBe(pro.annualPrice);
@@ -50,6 +45,15 @@ describe('CANONICAL_PLANS — alinhamento com o catálogo Stripe', () => {
 		}
 	});
 
+	it('nome do plano pago é o nome do produto no Stripe (o sync casa por ele)', () => {
+		for (const [slug, esperado] of Object.entries(STRIPE_CATALOG)) {
+			const plan = CANONICAL_PLANS.find((p) => p.slug === slug)!;
+			if (plan.kind === 'stripe_subscription') {
+				expect(plan.name).toBe(esperado.produto);
+			}
+		}
+	});
+
 	it('gera as chaves de ambiente no formato que o sync lê', () => {
 		expect(envKeysForSlug('pro')).toEqual({
 			productId: 'STRIPE_PLAN_PRO_PRODUCT_ID',
@@ -57,5 +61,34 @@ describe('CANONICAL_PLANS — alinhamento com o catálogo Stripe', () => {
 			annualPriceId: 'STRIPE_PLAN_PRO_PRICE_ANNUAL_ID',
 			annualAmount: 'STRIPE_PLAN_PRO_ANNUAL_AMOUNT',
 		});
+	});
+});
+
+describe('CANONICAL_PLANS — recursos cumulativos', () => {
+	const ordered = [...CANONICAL_PLANS].sort(
+		(a, b) => a.accessLevel - b.accessLevel
+	);
+
+	it('todo recurso de um plano aparece em todos os planos acima dele', () => {
+		ordered.forEach((lower, index) => {
+			for (const higher of ordered.slice(index + 1)) {
+				for (const feature of lower.features) {
+					expect(higher.features).toContain(feature);
+				}
+			}
+		});
+	});
+
+	it('nenhum plano repete recurso', () => {
+		for (const plan of CANONICAL_PLANS) {
+			expect(new Set(plan.features).size).toBe(plan.features.length);
+		}
+	});
+
+	it('DARF é exclusivo do Wealth', () => {
+		const withDarf = CANONICAL_PLANS.filter((p) =>
+			p.features.includes('Módulo fiscal com DARF')
+		).map((p) => p.slug);
+		expect(withDarf).toEqual(['premium']);
 	});
 });
