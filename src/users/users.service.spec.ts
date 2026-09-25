@@ -111,6 +111,31 @@ describe('UsersService', () => {
 			expect(result.accessToken).toBeDefined();
 		});
 
+		it('marca atividade no cadastro — a primeira sessão conta como ativa (TRA-192)', async () => {
+			(UserModel.findOne as jest.Mock).mockResolvedValue(null);
+			(UserModel as any).mockImplementationOnce((data: any) => ({
+				...data,
+				_id: 'u1',
+				id: 'u1',
+				save: jest.fn().mockResolvedValue(true),
+			}));
+			const before = Date.now();
+
+			await service.create({
+				firstName: 'Pedro',
+				lastName: 'SantAnna',
+				email: 'pedro@example.com',
+				password: 'Password123@',
+				confirmPassword: 'Password123@',
+				avatar: 'http://example.com/avatar.jpg',
+			});
+
+			const [created] = (UserModel as any).mock.calls.at(-1);
+			expect(created.lastSeenAt).toBeInstanceOf(Date);
+			expect(created.lastLogin).toBeInstanceOf(Date);
+			expect(created.lastSeenAt.getTime()).toBeGreaterThanOrEqual(before);
+		});
+
 		it('should throw if email already exists', async () => {
 			(UserModel.findOne as jest.Mock).mockResolvedValue({
 				email: 'pedro@example.com',

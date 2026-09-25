@@ -46,6 +46,8 @@ export interface SessionUser {
 	firstName?: string;
 	lastName?: string;
 	refreshToken?: string | null;
+	lastLogin?: Date;
+	lastSeenAt?: Date;
 	save: () => Promise<unknown>;
 	role?: string;
 }
@@ -63,6 +65,9 @@ export interface SessionTokens {
 		role: string;
 	};
 }
+
+/** Renovações dentro desta janela não regravam `lastSeenAt` (TRA-192). */
+export const LAST_SEEN_THROTTLE_MS = 60 * 60 * 1000;
 
 type GoogleTokenInfoResponse = {
 	aud?: string;
@@ -294,6 +299,13 @@ export class AuthenticationService {
 		// comparação; o hash serve para revogação/binding, não para resistir a
 		// dicionário. Argon2 aqui custava 64 MiB por login sem ganho.
 		user.refreshToken = hashRefreshToken(refreshToken);
+		// Sinal de atividade para a contagem do painel admin (TRA-192). Vai no
+		// mesmo `save()` que já grava o refresh token: nenhuma escrita extra
+		// no login. Todo fluxo de entrada (senha, Google, 2FA, recovery code)
+		// passa por aqui.
+		const now = new Date();
+		user.lastLogin = now;
+		user.lastSeenAt = now;
 		await user.save();
 
 		return {
@@ -378,12 +390,44 @@ export class AuthenticationService {
 				{ expiresIn: expireKeepAliveConected }
 			);
 
+			await this.touchLastSeen(user.id);
+
 			return {
 				accessToken: newAccessToken,
 				expiresIn: expireKeepAliveConected,
 			};
 		} catch (error) {
 			throw new UnauthorizedException('Invalid or expired refresh token');
+		}
+	}
+
+	/**
+	 * Marca atividade na renovação de sessão (TRA-192). Quem usa "manter
+	 * conectado" não passa pelo login por semanas; sem isto ele nunca contaria
+	 * como usuário ativo.
+	 *
+	 * A escrita é condicional e atômica: o filtro só casa se o último sinal
+	 * tem mais de uma hora, então o refresh — que é caminho quente — escreve no
+	 * máximo uma vez por hora por usuário, sem ler o documento antes.
+	 *
+	 * Nunca lança. Métrica de painel não pode derrubar a renovação de sessão
+	 * do usuário.
+	 */
+	private async touchLastSeen(userId: string): Promise<void> {
+		const now = new Date();
+		const threshold = new Date(now.getTime() - LAST_SEEN_THROTTLE_MS);
+
+		try {
+			await UserModel.updateOne(
+				{ _id: userId, lastSeenAt: { $not: { $gte: threshold } } },
+				{ $set: { lastSeenAt: now } }
+			).exec();
+		} catch (error) {
+			this.logger.warn(
+				`Falha ao registrar atividade na renovação de sessão: ${
+					(error as Error)?.message ?? 'erro desconhecido'
+				}`
+			);
 		}
 	}
 
