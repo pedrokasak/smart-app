@@ -6,10 +6,10 @@
  *
  * Regras de arquitetura (CLAUDE.md §4.4 e §6.1):
  *   - Stripe é a fonte de verdade comercial; o banco espelha.
- *   - Nenhum ID Stripe é hard-coded neste arquivo. Product/price IDs vêm
- *     por variável de ambiente para cada deploy (dev/prod). Se um ID não
- *     for informado, o sync deixa o campo como está e loga TODO — nunca
- *     inventa ID de Stripe.
+ *   - Nenhum ID Stripe é hard-coded neste arquivo. O sync acha os IDs por
+ *     variável de ambiente, por `lookup_key` ou pelo produto ativo com o
+ *     mesmo `name` na conta da chave configurada. Sem nenhum deles, deixa o
+ *     campo como está e loga TODO — nunca inventa ID de Stripe.
  *   - Slug é a chave interna e estável usada para casar linhas legadas
  *     com o plano canônico correspondente. `name` pode mudar sem quebrar
  *     o match; `slug` não.
@@ -75,26 +75,52 @@ export interface CanonicalPlan {
  * (`pro`, `premium`, `global`/`investor`). Alterar os nomes sem revisar
  * o resolver derruba o gate de features pagas silenciosamente.
  */
+/**
+ * Recursos cumulativos por construção: cada plano repete tudo do plano
+ * abaixo, porque a tabela de comparação e os cards leem `features` por plano.
+ * Limites de carteira/conta ficam na `description`, não aqui — "1 carteira"
+ * não pode aparecer marcado no Pro.
+ */
+const ESSENCIAL_FEATURES = [
+	'Alocação e proventos',
+	'Research de ativos',
+	'RI Inteligente (fatos relevantes)',
+	'Copiloto em modo Iniciante',
+	'Suporte por e-mail',
+];
+
+const PRO_FEATURES = [
+	...ESSENCIAL_FEATURES,
+	'Comparador de ativos lado a lado',
+	'Sincronização direta com corretora',
+	'Relatório de Imposto de Renda',
+	'Relatórios exportáveis (PDF/XLSX)',
+	'Copiloto até modo Avançado',
+	'Suporte prioritário',
+];
+
+const WEALTH_FEATURES = [
+	...PRO_FEATURES,
+	'Módulo fiscal com DARF',
+	'Radar de oportunidades e IA Insights',
+	'VaR, Sharpe, beta e atribuição',
+	'Política de investimento e alertas',
+	'Trilha de auditoria da IA',
+	'Onboarding guiado 1:1',
+];
+
 export const CANONICAL_PLANS: CanonicalPlan[] = [
 	{
 		slug: 'essencial',
 		kind: 'free',
 		accessLevel: FREE_ACCESS_LEVEL,
 		name: 'Essencial',
-		description:
-			'Consolidação de até 10 ativos para quem está começando a organizar.',
+		description: 'Para começar a organizar: 1 carteira e 1 corretora.',
 		monthlyPrice: 0,
 		currency: 'brl',
 		interval: 'month',
 		intervalCount: 1,
-		features: [
-			'1 carteira · 1 corretora',
-			'Alocação e proventos',
-			'Research de ativos',
-			'RI Inteligente (fatos relevantes)',
-			'Copiloto em modo Iniciante',
-			'Suporte por e-mail',
-		],
+		features: ESSENCIAL_FEATURES,
 		isFeatured: false,
 		isComingSoon: false,
 		aliases: ['essencial', 'free', 'gratis', 'grátis', 'basic', 'iniciante'],
@@ -105,31 +131,15 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 		accessLevel: PRO_ACCESS_LEVEL,
 		name: 'Pro',
 		description:
-			'Para o investidor que já tem carteira montada em mais de uma corretora.',
-		// Espelha o produto "Investidor Pro" no Stripe: R$ 14,90/mês e
-		// R$ 149,00/ano. Estes números vinham como 149 no mensal — que é o
-		// preço ANUAL do mesmo produto — e o `sync` grava `monthlyPrice` no
-		// campo `price` exibido na vitrine. Rodar o sync assim publicaria
-		// R$ 149 numa assinatura que o Stripe cobra R$ 14,90 (TRA-150).
-		monthlyPrice: 14.9,
-		annualPrice: 149,
+			'Ativos ilimitados em até 5 contas, para quem investe em mais de uma corretora.',
+		// Só fallback: com o produto "Pro" encontrado no Stripe, o sync grava
+		// o `unit_amount` real no plano (TRA-206).
+		monthlyPrice: 19.9,
+		annualPrice: 179.9,
 		currency: 'brl',
 		interval: 'month',
 		intervalCount: 1,
-		// Cumulativo por extenso: a tabela de comparação (`Subscription.tsx`)
-		// faz `plan.features.includes(feature)` por plano, sem herdar do nível
-		// abaixo — o que o Essencial já tem precisa estar listado aqui de novo,
-		// senão a linha aparece como "—" para o Pro.
-		features: [
-			'Ativos ilimitados · 5 contas',
-			'Research de ativos',
-			'Comparador de ativos lado a lado',
-			'RI Inteligente (fatos relevantes)',
-			'Módulo fiscal com DARF',
-			'Copiloto até modo Avançado',
-			'Relatórios exportáveis (PDF/XLSX)',
-			'Suporte prioritário',
-		],
+		features: PRO_FEATURES,
 		isFeatured: true,
 		isComingSoon: false,
 		aliases: ['pro', 'plano pro', 'trackerr pro', 'plano destaque'],
@@ -142,33 +152,13 @@ export const CANONICAL_PLANS: CanonicalPlan[] = [
 		accessLevel: PREMIUM_ACCESS_LEVEL,
 		name: 'Wealth',
 		description:
-			'Multi-carteira com risco quantitativo e política de investimento.',
-		// Espelha o produto "Premium" no Stripe: R$ 24,90/mês e R$ 249,00/ano
-		// (TRA-150). O valor anterior, 389, não corresponde a nenhum preço
-		// existente na conta.
-		monthlyPrice: 24.9,
-		annualPrice: 249,
+			'Multi-carteira ilimitada em até 20 contas, com risco quantitativo e política de investimento.',
+		monthlyPrice: 39.9,
+		annualPrice: 329.9,
 		currency: 'brl',
 		interval: 'month',
 		intervalCount: 1,
-		// Mesmo motivo do Pro: tudo que o Pro tem precisa estar listado aqui
-		// de novo, mais o que é exclusivo do Wealth — em especial
-		// 'ai.insights', a capability que efetivamente distingue este plano
-		// (TRA-189/193), e que não aparecia em nenhum card até aqui.
-		features: [
-			'Multi-carteira ilimitada · 20 contas',
-			'Research de ativos',
-			'Comparador de ativos lado a lado',
-			'RI Inteligente (fatos relevantes)',
-			'Módulo fiscal com DARF',
-			'Copiloto até modo Avançado',
-			'Relatórios exportáveis (PDF/XLSX)',
-			'Radar de oportunidades e IA Insights',
-			'VaR, Sharpe, beta e atribuição',
-			'Política de investimento e alertas',
-			'Trilha de auditoria da IA',
-			'Onboarding guiado 1:1',
-		],
+		features: WEALTH_FEATURES,
 		isFeatured: false,
 		isComingSoon: false,
 		aliases: ['premium', 'wealth', 'wealth premium', 'plano premium'],
