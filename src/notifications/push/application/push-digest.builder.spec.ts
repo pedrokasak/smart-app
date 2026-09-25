@@ -32,7 +32,7 @@ describe('buildPushDigest', () => {
 		expect(digest).not.toBeNull();
 		expect(digest!.count).toBe(1);
 		expect(digest!.title).toContain('ITSA4');
-		expect(digest!.url).toBe('/dashboard/proventos');
+		expect(digest!.url).toBe('/dividends');
 	});
 
 	it('com VARIAS, agrega em contagem e manda para o painel', () => {

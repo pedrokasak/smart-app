@@ -170,7 +170,7 @@ describe('InAppNotificationsService', () => {
 				body: expect.stringContaining('PETR4'),
 				createdAt: newer.createdAt.toISOString(),
 				readAt: null,
-				action: { label: 'Ver proventos', route: '/dashboard/proventos' },
+				action: { label: 'Ver proventos', route: '/dividends' },
 			});
 			expect(page.nextCursor).toBeNull();
 			expect(page.unreadCount).toBe(2);
