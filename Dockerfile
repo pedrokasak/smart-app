@@ -8,8 +8,12 @@ RUN apk add --no-cache python3 make g++ openssl
 ENV PUPPETEER_SKIP_DOWNLOAD=true
 
 COPY . .
-RUN bun install
+# Mesmo lockfile do CI: sem --frozen-lockfile o build resolvia versões na hora.
+RUN bun install --frozen-lockfile
 RUN bun run build
+# A imagem final leva só dependências de produção: ferramenta de build/teste
+# (jest, webpack, eslint...) não entra no container nem na superfície de ataque.
+RUN rm -rf node_modules && bun install --frozen-lockfile --production
 
 # -------- PRODUCTION --------
 FROM base

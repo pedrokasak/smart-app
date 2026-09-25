@@ -1,0 +1,11 @@
+version: 2
+updates:
+  # bun.lock é a fonte de verdade (CI e Docker instalam com bun).
+  - package-ecosystem: "bun"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      patch-and-minor:
+        update-types: ["patch", "minor"]

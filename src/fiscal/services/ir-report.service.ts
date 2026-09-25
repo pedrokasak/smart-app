@@ -144,7 +144,7 @@ export class IrReportService {
 		try {
 			const page = await browser.newPage();
 			await page.setContent(this.buildHtmlReport(report), {
-				waitUntil: 'networkidle0',
+				waitUntil: 'load',
 			});
 			const pdf = await page.pdf({
 				format: 'A4',
