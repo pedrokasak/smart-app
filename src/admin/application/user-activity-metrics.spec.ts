@@ -82,9 +82,7 @@ describe('countUsers (TRA-192)', () => {
 
 		await countUsers(users, now);
 
-		const fields = users.filters.flatMap((filter) =>
-			Object.keys(filter ?? {})
-		);
+		const fields = users.filters.flatMap((filter) => Object.keys(filter ?? {}));
 		expect(new Set(fields)).toEqual(new Set(['createdAt', 'lastSeenAt']));
 	});
 

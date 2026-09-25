@@ -292,7 +292,9 @@ describe('AuthenticationService', () => {
 			expect(user.save).toHaveBeenCalledTimes(1);
 			expect(snapshotAtSave.lastLogin).toBeInstanceOf(Date);
 			expect(snapshotAtSave.lastSeenAt).toEqual(snapshotAtSave.lastLogin);
-			expect(snapshotAtSave.lastLogin!.getTime()).toBeGreaterThanOrEqual(before);
+			expect(snapshotAtSave.lastLogin!.getTime()).toBeGreaterThanOrEqual(
+				before
+			);
 		});
 
 		it('renovação marca lastSeenAt com escrita condicional de no máximo 1x/hora', async () => {
