@@ -1,11 +1,10 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import { Injectable, NotFoundException } from '@nestjs/common';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import { Asset } from 'src/assets/schema/assets.model';
 import { CreateAssetDto } from 'src/assets/dto/create-asset.dto';
-import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { DividendReceivedProducer } from 'src/assets/events/dividend-received.producer';
 
 @Injectable()
@@ -16,14 +15,29 @@ export class AssetsService {
 
 	constructor(
 		@InjectModel('Asset') private readonly assetModel: Model<Asset>,
-		@Inject(forwardRef(() => PortfolioService))
+		@InjectModel('Portfolio')
 		private readonly portfolioModel: Model<Portfolio>,
 		private readonly dividendProducer: DividendReceivedProducer
 	) {}
 
-	// Buscar todos os assets
-	async findAll() {
-		return this.assetModel.find();
+	/** Ativos das carteiras do usuário — nunca de outra pessoa. */
+	async findAllForUser(userId: string) {
+		const portfolioIds = await this.portfolioModel.distinct('_id', { userId });
+		return this.assetModel.find({ portfolioId: { $in: portfolioIds } });
+	}
+
+	/** 404 também para ativo de outra pessoa: não revela que o id existe. */
+	async findOwned(userId: string, assetId: string) {
+		const notFound = () => new NotFoundException('Ativo não encontrado.');
+		if (!Types.ObjectId.isValid(assetId)) throw notFound();
+		const asset = await this.assetModel.findById(assetId);
+		if (!asset) throw notFound();
+		const owned = await this.portfolioModel.exists({
+			_id: asset.portfolioId,
+			userId,
+		});
+		if (!owned) throw notFound();
+		return asset;
 	}
 
 	// Buscar asset específico

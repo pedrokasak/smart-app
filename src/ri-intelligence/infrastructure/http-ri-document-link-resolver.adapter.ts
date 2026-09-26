@@ -4,6 +4,7 @@ import {
 	ResolveRiDocumentLinkResult,
 	RiDocumentLinkResolverPort,
 } from 'src/ri-intelligence/application/ri-document-link-resolver.port';
+import { assertPublicHttpUrl } from 'src/common/net/public-http-url';
 
 const ALLOWED_CONTENT_TYPE_SNIPPETS = [
 	'application/pdf',
@@ -27,6 +28,7 @@ const ALLOWED_FILE_EXTENSIONS = [
 @Injectable()
 export class HttpRiDocumentLinkResolverAdapter implements RiDocumentLinkResolverPort {
 	private readonly timeoutMs = 8000;
+	private readonly maxRedirects = 5;
 
 	async resolve(
 		input: ResolveRiDocumentLinkInput
@@ -43,12 +45,12 @@ export class HttpRiDocumentLinkResolverAdapter implements RiDocumentLinkResolver
 			);
 		}
 
-		const response = await this.fetchResolvedResponse(absoluteUrl);
-		if (!response) {
+		const fetched = await this.fetchResolvedResponse(absoluteUrl);
+		if (!fetched) {
 			return this.invalid('unreachable');
 		}
-
-		const finalUrl = String(response.url || absoluteUrl);
+		const { response } = fetched;
+		const finalUrl = fetched.url;
 		const isExplicitPdf = this.safePathname(finalUrl)
 			.toLowerCase()
 			.endsWith('.pdf');
@@ -108,17 +110,51 @@ export class HttpRiDocumentLinkResolverAdapter implements RiDocumentLinkResolver
 		};
 	}
 
-	private async fetchResolvedResponse(url: string): Promise<Response | null> {
-		const head = await this.request(url, 'HEAD');
-		if (head && head.ok) return head;
+	private async fetchResolvedResponse(
+		url: string
+	): Promise<{ response: Response; url: string } | null> {
+		const head = await this.followRedirects(url, 'HEAD');
+		if (head && head.response.ok) return head;
 
-		const status = head?.status;
+		const status = head?.response.status;
 		if (!head || status === 403 || status === 405 || status === 406) {
-			if (head) this.cancelBody(head);
-			return this.request(url, 'GET');
+			if (head) this.cancelBody(head.response);
+			return this.followRedirects(url, 'GET');
 		}
 
 		return head;
+	}
+
+	/**
+	 * A URL pode vir do cliente (resumo de RI): cada salto de redirect é
+	 * revalidado contra rede interna, senão um 302 levaria o server a
+	 * consultar Mongo, Redis ou a API do Coolify (SSRF).
+	 */
+	private async followRedirects(
+		url: string,
+		method: 'HEAD' | 'GET'
+	): Promise<{ response: Response; url: string } | null> {
+		let current = url;
+		for (let hop = 0; hop <= this.maxRedirects; hop += 1) {
+			try {
+				await assertPublicHttpUrl(current);
+			} catch {
+				return null;
+			}
+			const response = await this.request(current, method);
+			if (!response) return null;
+			const location = response.headers.get('location');
+			if (response.status < 300 || response.status >= 400 || !location) {
+				return { response, url: current };
+			}
+			this.cancelBody(response);
+			try {
+				current = new URL(location, current).toString();
+			} catch {
+				return null;
+			}
+		}
+		return null;
 	}
 
 	private async request(
@@ -130,7 +166,7 @@ export class HttpRiDocumentLinkResolverAdapter implements RiDocumentLinkResolver
 		try {
 			return await fetch(url, {
 				method,
-				redirect: 'follow',
+				redirect: 'manual',
 				headers:
 					method === 'GET'
 						? {

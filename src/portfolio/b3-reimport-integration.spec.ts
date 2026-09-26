@@ -3,8 +3,6 @@ import * as xlsx from 'xlsx';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { AssetsService } from 'src/assets/assets.service';
-import { PortfolioService } from 'src/portfolio/portfolio.service';
-import { DividendReceivedProducer } from 'src/assets/events/dividend-received.producer';
 import { parseB3Workbook } from './portfolio.controller';
 
 /**
@@ -51,7 +49,7 @@ describeWithRealFile('reimportação do extrato real da B3', () => {
 			providers: [
 				AssetsService,
 				{ provide: getModelToken('Asset'), useValue: mockAssetModel },
-				{ provide: PortfolioService, useValue: {} },
+				{ provide: getModelToken('Portfolio'), useValue: {} },
 				// TRA-136: publicação de evento é efeito colateral do upsert e
 				// não pode influenciar o merge que este teste prova.
 				{

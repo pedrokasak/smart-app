@@ -7,7 +7,13 @@ import {
 	Delete,
 	UseGuards,
 	Put,
+	Req,
 } from '@nestjs/common';
+import {
+	assertSelfOrAdmin,
+	isAdminRequest,
+	requesterIdOf,
+} from 'src/auth/ownership';
 import {
 	ApiTags,
 	ApiOperation,
@@ -32,14 +38,14 @@ export class AddressController {
 	constructor(private readonly addressService: AddressService) {}
 
 	@Get()
-	@ApiOperation({ summary: 'Listar todos os endereços' })
+	@ApiOperation({ summary: 'Listar os endereços do usuário autenticado' })
 	@ApiResponse({
 		status: 200,
 		description: 'Lista de endereços retornada com sucesso',
 		type: [AddressResponseDto],
 	})
-	async findAll() {
-		return this.addressService.findAll();
+	async findAll(@Req() req: any) {
+		return this.addressService.findByUserId(requesterIdOf(req));
 	}
 
 	@Get('user/:userId')
@@ -49,7 +55,8 @@ export class AddressController {
 		description: 'Endereços do usuário retornados com sucesso',
 		type: [AddressResponseDto],
 	})
-	async findByUserId(@Param('userId') userId: string) {
+	async findByUserId(@Param('userId') userId: string, @Req() req: any) {
+		assertSelfOrAdmin(req, userId);
 		return this.addressService.findByUserId(userId);
 	}
 
@@ -62,8 +69,10 @@ export class AddressController {
 	})
 	async findByUserIdAndType(
 		@Param('userId') userId: string,
-		@Param('type') type: AddressType
+		@Param('type') type: AddressType,
+		@Req() req: any
 	) {
+		assertSelfOrAdmin(req, userId);
 		return this.addressService.findByUserIdAndType(userId, type);
 	}
 
@@ -74,8 +83,12 @@ export class AddressController {
 		description: 'Endereço retornado com sucesso',
 		type: AddressResponseDto,
 	})
-	async findOne(@Param('id') id: string) {
-		return this.addressService.findOne(id);
+	async findOne(@Param('id') id: string, @Req() req: any) {
+		return this.addressService.findOwned(
+			id,
+			requesterIdOf(req),
+			isAdminRequest(req)
+		);
 	}
 
 	@Post()
@@ -85,8 +98,12 @@ export class AddressController {
 		description: 'Endereço criado com sucesso',
 		type: AddressResponseDto,
 	})
-	async create(@Body() createAddressDto: CreateAddressDto) {
-		return this.addressService.create(createAddressDto);
+	async create(@Body() createAddressDto: CreateAddressDto, @Req() req: any) {
+		// O dono é sempre quem está logado; `userId` do corpo só vale para admin.
+		const userId = isAdminRequest(req)
+			? createAddressDto.userId || requesterIdOf(req)
+			: requesterIdOf(req);
+		return this.addressService.create({ ...createAddressDto, userId });
 	}
 
 	@Put(':id')
@@ -98,9 +115,18 @@ export class AddressController {
 	})
 	async update(
 		@Param('id') id: string,
-		@Body() updateAddressDto: UpdateAddressDto
+		@Body() updateAddressDto: UpdateAddressDto,
+		@Req() req: any
 	) {
-		return this.addressService.update(id, updateAddressDto);
+		await this.addressService.findOwned(
+			id,
+			requesterIdOf(req),
+			isAdminRequest(req)
+		);
+		// Trocar o dono do endereço pelo corpo não é permitido.
+		const changes = { ...updateAddressDto };
+		delete changes.userId;
+		return this.addressService.update(id, changes);
 	}
 
 	@Delete(':id')
@@ -110,7 +136,12 @@ export class AddressController {
 		description: 'Endereço removido com sucesso',
 		type: AddressResponseDto,
 	})
-	async remove(@Param('id') id: string) {
+	async remove(@Param('id') id: string, @Req() req: any) {
+		await this.addressService.findOwned(
+			id,
+			requesterIdOf(req),
+			isAdminRequest(req)
+		);
 		return this.addressService.remove(id);
 	}
 
