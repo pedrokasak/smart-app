@@ -1,4 +1,5 @@
 import {
+	ConflictException,
 	BadRequestException,
 	HttpException,
 	Inject,
@@ -134,7 +135,41 @@ export class UsersService {
 	}
 
 	async update(id: string, updateUserDto: UpdateUserDto) {
-		return await UserModel.findByIdAndUpdate(id, updateUserDto, { new: true });
+		const current = await UserModel.findById(id);
+		if (!current) return null;
+
+		const nextEmail = updateUserDto.email?.trim().toLowerCase();
+		const emailChanged =
+			!!nextEmail && nextEmail !== String(current.email).toLowerCase();
+		if (emailChanged) {
+			const taken = await UserModel.exists({
+				email: nextEmail,
+				_id: { $ne: id },
+			});
+			if (taken) throw new ConflictException('Este e-mail já está em uso.');
+		}
+
+		const updated = await UserModel.findByIdAndUpdate(
+			id,
+			emailChanged ? { ...updateUserDto, email: nextEmail } : updateUserDto,
+			{ new: true }
+		);
+
+		if (emailChanged) {
+			// Best-effort: falha de e-mail não desfaz a troca, mas fica no log.
+			await this.emailService
+				.sendEmailChangedNotice({
+					previousEmail: current.email,
+					newEmail: nextEmail,
+					firstName: current.firstName,
+				})
+				.catch((error) =>
+					this.logger.error(
+						`Falha ao avisar troca de e-mail do usuário ${id}: ${error?.message}`
+					)
+				);
+		}
+		return updated;
 	}
 
 	async delete(id: string) {
