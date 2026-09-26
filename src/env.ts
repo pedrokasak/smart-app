@@ -85,6 +85,16 @@ if (!env.success) {
 }
 
 export const jwtSecret: string = env.data.JWT_SECRET;
+
+// HS256 com segredo curto cai em força bruta offline sobre qualquer JWT
+// capturado. Não derruba o boot (o valor de produção é desconhecido aqui e
+// travar a API seria pior), mas avisa alto até ser trocado (TRA-214).
+export const MIN_JWT_SECRET_LENGTH = 32;
+if (!isTestEnvironment && jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
+	console.error(
+		`[security] JWT_SECRET tem ${jwtSecret.length} caracteres; use ${MIN_JWT_SECRET_LENGTH}+ (openssl rand -hex 32).`
+	);
+}
 export const expireKeepAliveConected: string = env.data.EXPIRES_IN;
 export const expireKeepAliveConectedRefreshToken: string =
 	env.data.EXPIRES_IN_REFRESH_TOKEN;

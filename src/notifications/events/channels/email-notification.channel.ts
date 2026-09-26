@@ -91,7 +91,10 @@ export class EmailNotificationChannel implements NotificationChannel {
 			return { channel: this.name(), success: true };
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
-			this.logger.error(`Falha ao enviar email para ${user.email}: ${message}`);
+			// E-mail é dado pessoal: o log identifica pelo id (LGPD, TRA-214).
+			this.logger.error(
+				`Falha ao enviar email para o usuário ${String((user as any)._id ?? '?')}: ${message}`
+			);
 			return {
 				channel: this.name(),
 				success: false,
