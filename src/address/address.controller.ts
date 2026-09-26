@@ -30,6 +30,10 @@ import { AddressType } from './schema/address.model';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { ZipCodeValidationPipe } from 'src/address/pipes/zipcode-validation.pipe';
 
+import {
+	NotUserScoped,
+	OwnershipChecked,
+} from 'src/auth/decorators/ownership.decorator';
 @ApiTags('addresses')
 @Controller('addresses')
 @UseGuards(JwtAuthGuard)
@@ -48,6 +52,7 @@ export class AddressController {
 		return this.addressService.findByUserId(requesterIdOf(req));
 	}
 
+	@OwnershipChecked('assertSelfOrAdmin no userId da rota')
 	@Get('user/:userId')
 	@ApiOperation({ summary: 'Buscar endereços por ID do usuário' })
 	@ApiResponse({
@@ -60,6 +65,7 @@ export class AddressController {
 		return this.addressService.findByUserId(userId);
 	}
 
+	@OwnershipChecked('assertSelfOrAdmin no userId da rota')
 	@Get('user/:userId/type/:type')
 	@ApiOperation({ summary: 'Buscar endereço por ID do usuário e tipo' })
 	@ApiResponse({
@@ -76,6 +82,7 @@ export class AddressController {
 		return this.addressService.findByUserIdAndType(userId, type);
 	}
 
+	@OwnershipChecked('AddressService.findOwned')
 	@Get(':id')
 	@ApiOperation({ summary: 'Buscar endereço por ID' })
 	@ApiResponse({
@@ -106,6 +113,7 @@ export class AddressController {
 		return this.addressService.create({ ...createAddressDto, userId });
 	}
 
+	@OwnershipChecked('AddressService.findOwned')
 	@Put(':id')
 	@ApiOperation({ summary: 'Atualizar endereço por ID' })
 	@ApiResponse({
@@ -129,6 +137,7 @@ export class AddressController {
 		return this.addressService.update(id, changes);
 	}
 
+	@OwnershipChecked('AddressService.findOwned')
 	@Delete(':id')
 	@ApiOperation({ summary: 'Remover endereço por ID' })
 	@ApiResponse({
@@ -145,6 +154,7 @@ export class AddressController {
 		return this.addressService.remove(id);
 	}
 
+	@NotUserScoped('consulta pública de CEP')
 	@Get('zipcode/:zipCode')
 	@ApiOperation({
 		summary: 'Buscar endereço por CEP',
@@ -176,6 +186,7 @@ export class AddressController {
 		return this.addressService.findByZipCode(zipCode);
 	}
 
+	@NotUserScoped('consulta pública de CEP')
 	@Post('fill-from-zipcode/:zipCode')
 	@ApiOperation({ summary: 'Preencher endereço a partir do CEP' })
 	@ApiParam({

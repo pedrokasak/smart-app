@@ -55,6 +55,7 @@ import {
 } from 'src/broker-sync/schema/brokerage-note-upload.model';
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 /**
  * Planilha da B3 é pequena; o limite existe pra impedir que um upload
  * arbitrariamente grande seja carregado inteiro em memória antes do parse.
@@ -224,6 +225,7 @@ export class PortfolioController {
 		);
 	}
 
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Get('assets/:assetId')
 	async findAssetById(@Param('assetId') assetId: string, @Req() req: any) {
 		// Fetch a specific asset across all user portfolios
@@ -253,6 +255,7 @@ export class PortfolioController {
 		return null;
 	}
 
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Put('assets/:assetId')
 	async updateAsset(
 		@Param('assetId') assetId: string,
@@ -340,6 +343,7 @@ export class PortfolioController {
 	 * (TRA-141). O import novo já dispara sozinho; esta rota atende quem
 	 * importou antes de a reconstrução existir.
 	 */
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Post(':id/history/backfill')
 	async backfillHistory(@Param('id') id: string, @Req() req: any) {
 		const userId = resolveUserId(req);
@@ -357,6 +361,7 @@ export class PortfolioController {
 		return this.portfolioRiskContributionService.getRiskContribution(userId);
 	}
 
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Get(':id')
 	async findById(
 		@Param('id') id: string,
@@ -408,6 +413,7 @@ export class PortfolioController {
 	 * despercebidos por meses. Aqui cada achado vem com o motivo e o que
 	 * fazer para resolver.
 	 */
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Get(':id/data-health')
 	async getDataHealth(@Param('id') id: string, @Req() req: any) {
 		const userId = resolveUserId(req);
@@ -442,6 +448,7 @@ export class PortfolioController {
 		};
 	}
 
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Get(':id/history')
 	async getHistory(@Param('id') id: string, @Req() req: any) {
 		const userId = resolveUserId(req);
@@ -495,6 +502,7 @@ export class PortfolioController {
 	 * tudo pro upload genérico de nota de corretagem, que não entende
 	 * proventos nem posição e criava uma carteira separada chamada "b3".
 	 */
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Post(':id/import-b3-auto')
 	@UseInterceptors(
 		FileInterceptor('file', {
@@ -656,6 +664,7 @@ export class PortfolioController {
 		}
 	}
 
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Post(':id/import-b3')
 	@UseInterceptors(
 		FileInterceptor('file', {
@@ -926,6 +935,7 @@ export class PortfolioController {
 		};
 	}
 
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Post(':id/import-b3-transactions')
 	@UseInterceptors(
 		FileInterceptor('file', {
@@ -1079,6 +1089,7 @@ export class PortfolioController {
 		};
 	}
 
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Post(':portfolioId/asset')
 	async addAsset(
 		@Param('portfolioId') portfolioId: string,
@@ -1096,6 +1107,7 @@ export class PortfolioController {
 		return AssetMapper.toResponseDto(asset);
 	}
 
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Put(':id')
 	async update(
 		@Param('id') id: string,
@@ -1113,6 +1125,7 @@ export class PortfolioController {
 		return PortfolioMapper.toResponseDto(portfolio);
 	}
 
+	@OwnershipChecked('assertPortfolioOwnership / carteiras do userId do token')
 	@Delete(':id')
 	async delete(@Param('id') id: string, @Req() req: any): Promise<void> {
 		await this.portfolioService.assertPortfolioOwnership(

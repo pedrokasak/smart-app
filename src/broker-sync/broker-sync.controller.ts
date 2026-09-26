@@ -30,6 +30,7 @@ import { validateUploadFile } from 'src/broker-sync/security/upload-file.validat
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 type ParsedTrade = {
 	assetSymbol: string;
 	side: 'buy' | 'sell';
@@ -64,11 +65,13 @@ export class BrokerSyncController {
 	}
 
 	@RequiresCapability('broker.sync')
+	@OwnershipChecked('conexão buscada por userId do token + provider')
 	@Post('sync/:provider')
 	async sync(@Req() req: any, @Param('provider') provider: string) {
 		return this.brokerSyncService.syncConnection(req.user.userId, provider);
 	}
 
+	@OwnershipChecked('conexão buscada por userId do token + provider')
 	@Delete('disconnect/:provider')
 	async disconnect(@Req() req: any, @Param('provider') provider: string) {
 		return this.brokerSyncService.disconnect(req.user.userId, provider);
@@ -87,6 +90,7 @@ export class BrokerSyncController {
 	}
 
 	/** Dispensa uma linha de "Importações recentes" (só as do próprio usuário). */
+	@OwnershipChecked('filtro por userId do token')
 	@Delete('uploads/:uploadId')
 	async dismissUpload(@Req() req: any, @Param('uploadId') uploadId: string) {
 		if (!Types.ObjectId.isValid(uploadId)) {
@@ -104,6 +108,7 @@ export class BrokerSyncController {
 		return { dismissed: true };
 	}
 
+	@OwnershipChecked('filtro por userId do token')
 	@Get('upload-note/:uploadId/status')
 	async getUploadStatus(@Req() req: any, @Param('uploadId') uploadId: string) {
 		if (!Types.ObjectId.isValid(uploadId)) {

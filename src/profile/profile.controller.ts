@@ -1,6 +1,5 @@
 import {
 	Controller,
-	ForbiddenException,
 	Get,
 	Body,
 	Patch,
@@ -40,6 +39,12 @@ import {
 import { ProfileResponseDto } from 'src/profile/dto/profile-response.dto';
 import { ProfileMapper } from 'src/profile/mappers/profile.mapper';
 
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
+import {
+	assertSelfOrAdmin,
+	isAdminRequest,
+	requesterIdOf,
+} from 'src/auth/ownership';
 /**
  * Perfil só é acessível pelo próprio dono — admin é a única exceção
  * (TRA-89). Antes disso todas as rotas `:id` aceitavam qualquer JWT válido,
@@ -49,27 +54,6 @@ import { ProfileMapper } from 'src/profile/mappers/profile.mapper';
  * PERFIL em `PATCH`/`DELETE`. Por isso são duas checagens diferentes, e não
  * uma só reaproveitada.
  */
-function requesterId(req: any): string {
-	return String(req?.user?.userId ?? req?.user?.sub ?? '');
-}
-
-function isAdmin(req: any): boolean {
-	return req?.user?.role === Role.Admin;
-}
-
-function assertSelfOrAdmin(req: any, targetUserId: string): void {
-	const id = requesterId(req);
-
-	if (!id) {
-		throw new ForbiddenException('Usuário não autenticado.');
-	}
-	if (isAdmin(req)) {
-		return;
-	}
-	if (id !== String(targetUserId)) {
-		throw new ForbiddenException('Acesso negado a dados de outro usuário.');
-	}
-}
 
 @Controller('profile')
 @ApiTags('profile')
@@ -111,6 +95,7 @@ export class ProfileController {
 		return { avatarUrl };
 	}
 
+	@OwnershipChecked('assertSelfOrAdmin no userId da rota')
 	@Post('create/:id')
 	@UseGuards(JwtAuthGuard)
 	@ApiOkResponse({ type: CreateProfileDto, description: 'Success' })
@@ -153,6 +138,7 @@ export class ProfileController {
 		return this.profileService.findAll();
 	}
 
+	@OwnershipChecked('assertProfileOwnership')
 	@Get(':id')
 	@UseGuards(JwtAuthGuard)
 	@ApiOkResponse({ type: CreateProfileDto, description: 'Success' })
@@ -168,6 +154,7 @@ export class ProfileController {
 		return ProfileMapper.toResponseDto(profile);
 	}
 
+	@OwnershipChecked('assertProfileOwnership')
 	@Patch(':id')
 	@UseGuards(JwtAuthGuard)
 	@ApiOkResponse({ type: CreateProfileDto, description: 'Success' })
@@ -183,12 +170,13 @@ export class ProfileController {
 		// decidir carregando o documento.
 		await this.profileService.assertProfileOwnership(
 			id,
-			requesterId(req),
-			isAdmin(req)
+			requesterIdOf(req),
+			isAdminRequest(req)
 		);
 		return this.profileService.update(id, updateProfileDto);
 	}
 
+	@OwnershipChecked('assertProfileOwnership')
 	@Delete('remove/:id')
 	@UseGuards(JwtAuthGuard)
 	@ApiOkResponse({ type: CreateProfileDto, description: 'Success' })
@@ -199,8 +187,8 @@ export class ProfileController {
 	async remove(@Param('id') id: string, @Request() req: any) {
 		await this.profileService.assertProfileOwnership(
 			id,
-			requesterId(req),
-			isAdmin(req)
+			requesterIdOf(req),
+			isAdminRequest(req)
 		);
 		return this.profileService.remove(id);
 	}

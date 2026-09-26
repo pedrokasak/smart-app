@@ -1,6 +1,5 @@
 import {
 	Controller,
-	ForbiddenException,
 	Get,
 	Post,
 	Body,
@@ -30,25 +29,13 @@ import {
 	ApiTags,
 } from '@nestjs/swagger';
 
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
+import { assertSelfOrAdmin } from 'src/auth/ownership';
 /**
  * Rotas de usuário por id só podem alcançar a PRÓPRIA conta — admin é a
  * única exceção (TRA-89). Fica aqui, e não num guard genérico, porque a
  * regra depende de qual parâmetro da rota carrega o id do dono.
  */
-function assertSelfOrAdmin(req: any, targetUserId: string): void {
-	const requesterId = String(req?.user?.userId ?? req?.user?.sub ?? '');
-	const role = req?.user?.role;
-
-	if (!requesterId) {
-		throw new ForbiddenException('Usuário não autenticado.');
-	}
-	if (role === Role.Admin) {
-		return;
-	}
-	if (requesterId !== String(targetUserId)) {
-		throw new ForbiddenException('Acesso negado a dados de outro usuário.');
-	}
-}
 
 @Controller('users')
 @ApiTags('users')
@@ -115,6 +102,7 @@ export class UsersController {
 		return this.usersService.findMany();
 	}
 
+	@OwnershipChecked('assertSelfOrAdmin')
 	@Get(':id')
 	@UseGuards(JwtAuthGuard)
 	@ApiOperation({ summary: 'Retorna um usuário pelo ID (o próprio ou admin)' })
@@ -127,6 +115,7 @@ export class UsersController {
 		return this.usersService.findOne(id);
 	}
 
+	@OwnershipChecked('assertSelfOrAdmin')
 	@Patch('update/:id')
 	@UseGuards(JwtAuthGuard)
 	@ApiOperation({ summary: 'Atualiza um usuário pelo ID (o próprio ou admin)' })

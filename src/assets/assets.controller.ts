@@ -12,6 +12,7 @@ import { requesterIdOf } from 'src/auth/ownership';
 import { AssetsService } from './assets.service';
 import { UpdateAssetDto } from './dto/update-asset.dto';
 
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 /**
  * Ativo pertence a uma carteira, e a carteira a um usuário: toda rota
  * confere essa cadeia (TRA-211). Criação acontece pelo fluxo de carteira.
@@ -26,11 +27,13 @@ export class AssetsController {
 		return this.assetsService.findAllForUser(requesterIdOf(req));
 	}
 
+	@OwnershipChecked('AssetsService.findOwned pela carteira do ativo')
 	@Get(':id')
 	findOne(@Param('id') id: string, @Req() req: any) {
 		return this.assetsService.findOwned(requesterIdOf(req), id);
 	}
 
+	@OwnershipChecked('AssetsService.findOwned pela carteira do ativo')
 	@Patch(':id')
 	async update(
 		@Param('id') id: string,
@@ -41,6 +44,7 @@ export class AssetsController {
 		return this.assetsService.update(id, updateAssetDto);
 	}
 
+	@OwnershipChecked('AssetsService.findOwned pela carteira do ativo')
 	@Delete(':id')
 	async remove(@Param('id') id: string, @Req() req: any) {
 		const asset = await this.assetsService.findOwned(requesterIdOf(req), id);

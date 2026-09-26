@@ -3,6 +3,7 @@ import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { PixCheckoutService } from './application/pix-checkout.service';
 import { CreatePixCheckoutDto } from './dto/create-pix-checkout.dto';
 
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 /**
  * Checkout por PIX (TRA-195). Autenticado pelo `JwtAuthGuard` global. Não
  * exige plano: é justamente o caminho de quem ainda não tem plano pago.
@@ -26,6 +27,7 @@ export class PixController {
 		return this.checkout.createCheckout(String(req.user.userId), dto);
 	}
 
+	@OwnershipChecked('getCharge filtra por user')
 	@Get('charges/:chargeId')
 	@ApiOperation({ summary: 'Estado da cobrança PIX (polling do web)' })
 	getCharge(@Req() req: any, @Param('chargeId') chargeId: string) {
