@@ -9,6 +9,7 @@ import { AddressService } from 'src/address/address.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
+import { AccountErasureService } from './account-erasure.service';
 
 describe('PrivacyService', () => {
 	let service: PrivacyService;
@@ -22,6 +23,7 @@ describe('PrivacyService', () => {
 	const portfolioService = { getUserPortfolios: jest.fn() };
 	const subscriptionService = { findUserSubscription: jest.fn() };
 	const tokenBlacklistService = { addToBlacklist: jest.fn() };
+	const accountErasure = { eraseDependents: jest.fn() };
 
 	const tradeModel = {
 		find: jest.fn(),
@@ -39,6 +41,7 @@ describe('PrivacyService', () => {
 				{ provide: PortfolioService, useValue: portfolioService },
 				{ provide: SubscriptionService, useValue: subscriptionService },
 				{ provide: TokenBlacklistService, useValue: tokenBlacklistService },
+				{ provide: AccountErasureService, useValue: accountErasure },
 			],
 		}).compile();
 
@@ -127,6 +130,39 @@ describe('PrivacyService', () => {
 	});
 
 	describe('deleteOwnAccount', () => {
+		beforeEach(() => {
+			usersService.findOne.mockResolvedValue({ _id: 'user-1' });
+			accountErasure.eraseDependents.mockReset().mockResolvedValue({});
+		});
+
+		it('apaga os dados dependentes antes do User', async () => {
+			usersService.delete.mockResolvedValue({ _id: 'user-1' });
+			const order: string[] = [];
+			accountErasure.eraseDependents.mockImplementation(async () => {
+				order.push('dependents');
+			});
+			usersService.delete.mockImplementation(async () => {
+				order.push('user');
+				return { _id: 'user-1' };
+			});
+
+			await service.deleteOwnAccount('user-1');
+
+			expect(accountErasure.eraseDependents).toHaveBeenCalledWith('user-1');
+			expect(order).toEqual(['dependents', 'user']);
+		});
+
+		it('se o cancelamento da cobrança falhar, não apaga o User', async () => {
+			accountErasure.eraseDependents.mockRejectedValue(
+				new Error('stripe down')
+			);
+
+			await expect(service.deleteOwnAccount('user-1')).rejects.toThrow(
+				'stripe down'
+			);
+			expect(usersService.delete).not.toHaveBeenCalled();
+		});
+
 		it('deletes the user and blacklists the current token', async () => {
 			usersService.delete.mockResolvedValue({ _id: 'user-1' });
 			const module = await Test.createTestingModule({
@@ -140,6 +176,8 @@ describe('PrivacyService', () => {
 					{ provide: PortfolioService, useValue: portfolioService },
 					{ provide: SubscriptionService, useValue: subscriptionService },
 					{ provide: TokenBlacklistService, useValue: tokenBlacklistService },
+					{ provide: AccountErasureService, useValue: accountErasure },
+					{ provide: AccountErasureService, useValue: accountErasure },
 				],
 			}).compile();
 			service = module.get<PrivacyService>(PrivacyService);
@@ -157,6 +195,7 @@ describe('PrivacyService', () => {
 		});
 
 		it('throws when the account does not exist', async () => {
+			usersService.findOne.mockResolvedValue(null);
 			usersService.delete.mockResolvedValue(null);
 
 			await expect(service.deleteOwnAccount('nope')).rejects.toThrow(

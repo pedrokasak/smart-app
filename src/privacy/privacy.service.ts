@@ -1,5 +1,6 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
+import { AccountErasureService } from './account-erasure.service';
 import { JwtService } from '@nestjs/jwt';
 import { Model } from 'mongoose';
 import { TradeDocument } from 'src/fiscal/schema/trade.model';
@@ -22,7 +23,8 @@ export class PrivacyService {
 		private readonly portfolioService: PortfolioService,
 		private readonly subscriptionService: SubscriptionService,
 		private readonly tokenBlacklistService: TokenBlacklistService,
-		private readonly jwtService: JwtService
+		private readonly jwtService: JwtService,
+		private readonly accountErasure: AccountErasureService
 	) {}
 
 	/**
@@ -71,27 +73,20 @@ export class PrivacyService {
 	}
 
 	/**
-	 * Exclusão da própria conta (LGPD, TRA-122).
-	 *
-	 * Escopo deliberadamente limitado ao mesmo comportamento que já existe
-	 * para a exclusão feita por um admin (`UsersService.delete`, TRA-78):
-	 * remove o documento `User` e apaga a cópia dos dados no RAG da IA.
-	 *
-	 * NÃO faz cascade em Profile/Address/Portfolio/Trade/UserSubscription —
-	 * isso exigiria auditar as relações e efeitos colaterais de cada um
-	 * desses módulos (ex.: portfolio tem assets e histórico associados,
-	 * trade referencia uploads de notas de corretagem, subscription tem
-	 * espelho no Stripe) para não deixar dado órfão nem quebrar retenção
-	 * fiscal exigida por lei sobre negociações. Fazer isso com segurança é
-	 * maior que o escopo desta tarefa (botões de privacidade) e fica
-	 * registrado aqui como próximo passo necessário — ver relato da tarefa.
-	 *
-	 * Invalida o token da sessão atual antes de apagar a conta.
+	 * Exclusão da própria conta (LGPD, TRA-122/TRA-213): encerra a cobrança,
+	 * apaga dado pessoal e credenciais de corretora e, por fim, o `User` e a
+	 * cópia no RAG. Registro fiscal segue a decisão de retenção do TRA-127.
 	 */
 	async deleteOwnAccount(userId: string, bearerToken?: string) {
 		this.logger.warn(
 			`Exclusão de conta solicitada pelo próprio usuário: ${userId}`
 		);
+
+		const exists = await this.usersService.findOne(userId);
+		if (!exists) {
+			throw new NotFoundException('Usuário não encontrado');
+		}
+		await this.accountErasure.eraseDependents(userId);
 
 		const deleted = await this.usersService.delete(userId);
 		if (!deleted) {
