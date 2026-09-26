@@ -26,6 +26,7 @@ import {
 } from './dto/report.dto';
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 function requireUserId(req: any): string {
 	const userId = req.user?.userId ?? req.user?.sub;
 	if (!userId) throw new ForbiddenException('Usuário não autenticado.');
@@ -56,6 +57,7 @@ export class ReportsController {
 		return this.schedulesService.create(requireUserId(req), dto);
 	}
 
+	@OwnershipChecked('ReportSchedulesService.findOwned')
 	@Patch('schedules/:id')
 	@ApiOperation({ summary: 'Pausa ou retoma um agendamento' })
 	updateSchedule(
@@ -66,6 +68,7 @@ export class ReportsController {
 		return this.schedulesService.setStatus(requireUserId(req), id, dto.status);
 	}
 
+	@OwnershipChecked('ReportSchedulesService.findOwned')
 	@Delete('schedules/:id')
 	@HttpCode(204)
 	@ApiOperation({ summary: 'Apaga um agendamento' })
@@ -73,6 +76,7 @@ export class ReportsController {
 		await this.schedulesService.remove(requireUserId(req), id);
 	}
 
+	@OwnershipChecked('relatório gerado para o userId do token')
 	@Get(':kind/download')
 	@ApiOperation({ summary: 'Gera e baixa um relatório' })
 	async download(

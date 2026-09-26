@@ -20,6 +20,7 @@ import {
 } from './dto/financial-plan.dto';
 import { FinancialPlanService } from './financial-plan.service';
 
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 function requireUserId(req: any): string {
 	const userId = req.user?.userId ?? req.user?.sub;
 	if (!userId) throw new ForbiddenException('Usuário não autenticado.');
@@ -52,6 +53,7 @@ export class FinancialPlanController {
 		return this.service.addGoal(requireUserId(req), dto);
 	}
 
+	@OwnershipChecked('findPlanWithGoal(userId, goalId)')
 	@Patch('goals/:id')
 	@ApiOperation({ summary: 'Atualiza uma meta' })
 	updateGoal(
@@ -62,6 +64,7 @@ export class FinancialPlanController {
 		return this.service.updateGoal(requireUserId(req), id, dto);
 	}
 
+	@OwnershipChecked('findPlanWithGoal(userId, goalId)')
 	@Delete('goals/:id')
 	@ApiOperation({ summary: 'Apaga uma meta' })
 	removeGoal(@Req() req: any, @Param('id') id: string) {

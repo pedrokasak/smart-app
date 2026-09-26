@@ -25,6 +25,7 @@ import {
 } from 'src/ri-intelligence/application/ri-document-content.port';
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
+import { NotUserScoped } from 'src/auth/decorators/ownership.decorator';
 interface RiSummaryBody {
 	document?: RiDocumentRecord;
 	content?: string | null;
@@ -77,6 +78,7 @@ export class RiIntelligenceController {
 		});
 	}
 
+	@NotUserScoped('catálogo público de documentos de RI')
 	@Get('documents/:documentId/pdf')
 	async getDocumentPdf(
 		@Param('documentId') documentId: string,

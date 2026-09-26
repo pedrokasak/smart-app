@@ -16,6 +16,7 @@ import {
 	InAppNotificationPage,
 } from './domain/in-app-notification.types';
 
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 /** O payload do JWT variou entre versoes; aceita as formas ja emitidas. */
 function resolveUserId(req: any): string {
 	return String(
@@ -72,6 +73,7 @@ export class InAppNotificationsController {
 		return this.service.markAllAsRead(resolveUserId(req));
 	}
 
+	@OwnershipChecked('markAsRead filtra pelo dono')
 	@Patch(':id/read')
 	@ApiOperation({
 		summary:

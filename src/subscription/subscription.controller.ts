@@ -32,6 +32,10 @@ import {
 	effectiveCapabilities,
 } from './application/user-plan.types';
 
+import {
+	NotUserScoped,
+	OwnershipChecked,
+} from 'src/auth/decorators/ownership.decorator';
 /**
  * Rotas de conta usam SEMPRE o usuário do token. O `userId` que o web ainda
  * envia no corpo é ignorado: aceitá-lo deixava qualquer sessão abrir o portal
@@ -84,6 +88,7 @@ export class SubscriptionController {
 		return this.subscriptionService.findAllSubscriptions();
 	}
 
+	@NotUserScoped('catálogo público de planos')
 	@Get(':id')
 	@ApiOperation({ summary: 'Buscar plano por ID' })
 	@ApiResponse({ status: 200, description: 'Plano encontrado' })
@@ -92,6 +97,7 @@ export class SubscriptionController {
 		return this.subscriptionService.findSubscriptionById(id);
 	}
 
+	@OwnershipChecked('checkout para o usuário do token; o id é do plano')
 	@Post(':subscriptionId/checkout')
 	createCheckout(
 		@Param('subscriptionId') subscriptionId: string,
