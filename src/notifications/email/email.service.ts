@@ -16,6 +16,13 @@ const AI_GENERATED_NOTICE_TEXT =
  * campo livre (`AiInsightHigh.title`/`summary`) ou de `aiSummary`. Nada
  * que atravessou o trackerr-ia entra cru no corpo do e-mail.
  */
+/** `pedro@gmail.com` -> `pe***@gmail.com`: confirma o destino sem expor tudo. */
+export function maskEmail(email: string): string {
+	const [local = '', domain = ''] = String(email).split('@');
+	const visible = local.slice(0, Math.min(2, local.length));
+	return `${visible}***@${domain}`;
+}
+
 function escapeHtml(value: string): string {
 	return String(value ?? '')
 		.replace(/&/g, '&amp;')
@@ -123,6 +130,41 @@ export class EmailService {
 		const text = `Senha alterada - Trackerr\n\nA senha da sua conta acabou de ser alterada.\nSe não foi você, redefina sua senha agora: ${supportLink}`;
 
 		await this.sender.send({ to: email, subject, html, text });
+	}
+
+	/**
+	 * Aviso ao e-mail ANTIGO quando o e-mail da conta muda (TRA-219). Sem
+	 * reverificação, este é o sinal que o dono recebe se a conta foi tomada
+	 * e o invasor trocou o e-mail para travar a recuperação de senha.
+	 */
+	async sendEmailChangedNotice(params: {
+		previousEmail: string;
+		newEmail: string;
+		firstName?: string;
+	}): Promise<void> {
+		const safeName = escapeHtml(
+			String(params.firstName || 'Investidor').trim()
+		);
+		const maskedNew = escapeHtml(maskEmail(params.newEmail));
+		const supportLink = `mailto:suporte@trackerr.com.br?subject=${encodeURIComponent('Não troquei o e-mail da minha conta')}`;
+		const subject = 'O e-mail da sua conta Trackerr foi alterado';
+		const html = this.getBaseTemplate({
+			title: `E-mail alterado, ${safeName}`,
+			hero: 'O e-mail de acesso da sua conta mudou',
+			description:
+				`O e-mail da sua conta no Trackerr foi alterado para ${maskedNew}. ` +
+				'Se foi você, não precisa fazer nada.',
+			ctaLabel: 'Não fui eu — falar com o suporte',
+			ctaUrl: supportLink,
+			footerNote:
+				'Se você não reconhece esta alteração, responda este e-mail ou fale com o suporte para recuperarmos o acesso.',
+		});
+		const text = `E-mail alterado - Trackerr
+
+O e-mail da sua conta foi alterado para ${maskEmail(params.newEmail)}.
+Se não foi você, fale com suporte@trackerr.com.br.`;
+
+		await this.sender.send({ to: params.previousEmail, subject, html, text });
 	}
 
 	/**
