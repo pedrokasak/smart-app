@@ -159,12 +159,13 @@ export class StripeService {
 		cancelAtPeriodEnd: boolean = true
 	): Promise<Stripe.Subscription> {
 		try {
-			const subscription = await this.stripe.subscriptions.update(
-				subscriptionId,
-				{
-					cancel_at_period_end: cancelAtPeriodEnd,
-				}
-			);
+			// `cancel_at_period_end: false` só desfaz um cancelamento agendado;
+			// não cancela nada. Cancelamento imediato é `subscriptions.cancel`.
+			const subscription = cancelAtPeriodEnd
+				? await this.stripe.subscriptions.update(subscriptionId, {
+						cancel_at_period_end: true,
+					})
+				: await this.stripe.subscriptions.cancel(subscriptionId);
 			this.logger.log(`Assinatura cancelada no Stripe: ${subscriptionId}`);
 			return subscription;
 		} catch (error) {

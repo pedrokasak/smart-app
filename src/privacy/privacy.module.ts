@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { PrivacyController } from './privacy.controller';
 import { PrivacyService } from './privacy.service';
+import { AccountErasureService } from './account-erasure.service';
 import { UsersModule } from 'src/users/users.module';
 import { ProfileModule } from 'src/profile/profile.module';
 import { AddressModule } from 'src/address/address.module';
@@ -33,6 +34,6 @@ import { tradeSchema } from 'src/fiscal/schema/trade.model';
 		TokenBlacklistModule.forRoot(),
 	],
 	controllers: [PrivacyController],
-	providers: [PrivacyService],
+	providers: [PrivacyService, AccountErasureService],
 })
 export class PrivacyModule {}
