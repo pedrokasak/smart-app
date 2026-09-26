@@ -311,7 +311,7 @@ export class AuthenticationService {
 		return {
 			accessToken,
 			refreshToken,
-			expiresIn: expireKeepAliveConected,
+			expiresIn: String(expireKeepAliveConected),
 			user: {
 				id: user.id,
 				email: user.email,
@@ -394,7 +394,7 @@ export class AuthenticationService {
 
 			return {
 				accessToken: newAccessToken,
-				expiresIn: expireKeepAliveConected,
+				expiresIn: String(expireKeepAliveConected),
 			};
 		} catch (error) {
 			throw new UnauthorizedException('Invalid or expired refresh token');

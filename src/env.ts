@@ -1,3 +1,7 @@
+import type { JwtSignOptions } from '@nestjs/jwt';
+
+type JwtExpiresIn = JwtSignOptions['expiresIn'];
+
 import z from 'zod';
 
 const envSchema = z.object({
@@ -95,9 +99,10 @@ if (!isTestEnvironment && jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
 		`[security] JWT_SECRET tem ${jwtSecret.length} caracteres; use ${MIN_JWT_SECRET_LENGTH}+ (openssl rand -hex 32).`
 	);
 }
-export const expireKeepAliveConected: string = env.data.EXPIRES_IN;
-export const expireKeepAliveConectedRefreshToken: string =
-	env.data.EXPIRES_IN_REFRESH_TOKEN;
+// Tipos do jsonwebtoken 9 exigem o formato do `ms` ('1h', '7d', 3600).
+export const expireKeepAliveConected = env.data.EXPIRES_IN as JwtExpiresIn;
+export const expireKeepAliveConectedRefreshToken = env.data
+	.EXPIRES_IN_REFRESH_TOKEN as JwtExpiresIn;
 export const urlProduction: string = env.data.URL_PRODUCTION;
 export const urlDevelopment: string = env.data.URL_DEVELOPMENT;
 export const twelveDataApiKey: string = env.data.TWELVE_DATA_API_KEY;
