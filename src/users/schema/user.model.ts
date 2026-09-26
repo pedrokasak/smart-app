@@ -282,7 +282,8 @@ const userSchema = new Schema<User>(
 	}
 );
 
-userSchema.index({ email: 1 });
+// `email` já tem índice único na definição do campo; declarar de novo aqui
+// criava um segundo `email_1` sem `unique` e o Mongo recusava os dois.
 userSchema.index({ createdAt: -1 });
 // Contagem de ativos do painel admin (TRA-192). Sparse: contas que nunca
 // entraram depois do campo existir não ocupam o índice.

@@ -39,7 +39,7 @@ const portfolioTargetAllocationSchema = new Schema<PortfolioTargetAllocation>(
 	}
 );
 
-portfolioTargetAllocationSchema.index({ user: 1 });
+// `user` já tem índice único na definição do campo.
 
 portfolioTargetAllocationSchema.set('toJSON', { virtuals: true });
 portfolioTargetAllocationSchema.set('toObject', { virtuals: true });
