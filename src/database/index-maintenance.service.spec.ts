@@ -6,6 +6,7 @@ function fakeConnection(models: Record<string, () => Promise<void>>) {
 	const connection = {
 		modelNames: () => Object.keys(models),
 		model: (name: string) => ({
+			collection: { collectionName: name.toLowerCase() },
 			createIndexes: async () => {
 				calls.push(`start:${name}`);
 				await models[name]();
@@ -15,6 +16,11 @@ function fakeConnection(models: Record<string, () => Promise<void>>) {
 	} as unknown as Connection;
 	return { connection, calls };
 }
+
+const emptyConnection = {
+	modelNames: () => [],
+	model: () => undefined,
+} as unknown as Connection;
 
 describe('IndexMaintenanceService', () => {
 	const originalEnv = { ...process.env };
@@ -64,7 +70,7 @@ describe('IndexMaintenanceService', () => {
 		delete process.env.MONGO_AUTO_INDEX;
 		process.env.MONGO_INDEX_BUILD_DELAY_MS = '1000';
 		const { connection } = fakeConnection({});
-		const service = new IndexMaintenanceService(connection);
+		const service = new IndexMaintenanceService(connection, emptyConnection);
 		const ensure = jest.spyOn(service, 'ensureIndexes').mockResolvedValue({
 			built: [],
 			failed: [],
@@ -82,12 +88,31 @@ describe('IndexMaintenanceService', () => {
 		process.env.NODE_ENV = 'development';
 		delete process.env.MONGO_AUTO_INDEX;
 		const { connection } = fakeConnection({});
-		const service = new IndexMaintenanceService(connection);
+		const service = new IndexMaintenanceService(connection, emptyConnection);
 		const ensure = jest.spyOn(service, 'ensureIndexes');
 
 		service.onApplicationBootstrap();
 		jest.runAllTimers();
 
 		expect(ensure).not.toHaveBeenCalled();
+	});
+
+	it('cobre também os models estáticos da conexão global, sem repetir coleção', async () => {
+		const nest = fakeConnection({ User: async () => undefined });
+		const global = fakeConnection({
+			User: async () => undefined,
+			BrokerConnection: async () => undefined,
+		});
+
+		const result = await new IndexMaintenanceService(
+			nest.connection,
+			global.connection
+		).ensureIndexes();
+
+		expect(result.built).toEqual(['User', 'BrokerConnection']);
+		expect(global.calls).toEqual([
+			'start:BrokerConnection',
+			'end:BrokerConnection',
+		]);
 	});
 });

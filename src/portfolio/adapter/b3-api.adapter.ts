@@ -48,7 +48,8 @@ export class B3ApiAdapter implements IDataProvider {
 				total: item.total_value,
 			}));
 		} catch (error) {
-			this.logger.error(`Failed to fetch positions for CPF ${cpf}:`, error);
+			// CPF é dado pessoal: não vai para log (LGPD, TRA-214).
+			this.logger.error('Failed to fetch positions from B3', error);
 			throw new Error('B3 API request failed');
 		}
 	}
