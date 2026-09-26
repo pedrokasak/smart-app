@@ -3,6 +3,7 @@ import * as xlsx from 'xlsx';
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { AssetsService } from 'src/assets/assets.service';
+import { DividendReceivedProducer } from 'src/assets/events/dividend-received.producer';
 import { parseB3Workbook } from './portfolio.controller';
 
 /**
