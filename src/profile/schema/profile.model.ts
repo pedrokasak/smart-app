@@ -116,7 +116,7 @@ const profileSchema = new Schema<Profile>(
 );
 
 // Índices
-profileSchema.index({ user: 1 });
+// `user` já tem índice único na definição do campo.
 
 profileSchema.set('toJSON', { virtuals: true });
 profileSchema.set('toObject', { virtuals: true });
