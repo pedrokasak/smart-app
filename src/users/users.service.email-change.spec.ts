@@ -20,11 +20,13 @@ describe('UsersService.update — troca de e-mail (TRA-219)', () => {
 		jest.restoreAllMocks();
 		emailService.sendEmailChangedNotice.mockClear();
 		jest.spyOn(UserModel, 'findById').mockResolvedValue(current as any);
-		jest
-			.spyOn(UserModel, 'findByIdAndUpdate')
-			.mockImplementation(
-				async (_id, update: any) => ({ ...current, ...update }) as any
-			);
+		jest.spyOn(UserModel, 'findByIdAndUpdate').mockImplementation((async (
+			_id: unknown,
+			update: any
+		) => ({
+			...current,
+			...update,
+		})) as any);
 		jest.spyOn(UserModel, 'exists').mockResolvedValue(null as any);
 	});
 
