@@ -48,7 +48,7 @@ export class BullBoardController {
 		this.forward(req, res);
 	}
 
-	@All('*')
+	@All('{*splat}')
 	@Roles(Role.Admin)
 	async proxy(@Req() req: Request, @Res() res: Response): Promise<void> {
 		this.forward(req, res);
