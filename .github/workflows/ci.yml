@@ -28,3 +28,53 @@ jobs:
 
       - name: Build project
         run: bun run build
+  # A imagem de produção não era construída no CI: erro no Dockerfile só
+  # aparecia no deploy do Coolify (TRA-222). Constrói a imagem e sobe o
+  # container com Mongo e Redis de serviço até o /health responder.
+  docker:
+    runs-on: ubuntu-latest
+    services:
+      mongo:
+        image: mongo:7
+        ports: ['27017:27017']
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Build production image
+        run: docker build -t trackerr-server:ci .
+
+      - name: Boot smoke test
+        run: |
+          docker run -d --name api --network host \
+            -e NODE_ENV=production \
+            -e PORT=3000 \
+            -e DATABASE_URL=mongodb://127.0.0.1:27017/trackerr-ci \
+            -e REDIS_HOST=127.0.0.1 -e REDIS_PORT=6379 \
+            -e JWT_SECRET=ci-only-secret-0123456789abcdef0123456789 \
+            -e EXPIRES_IN=1h -e EXPIRES_IN_REFRESH_TOKEN=7d \
+            -e URL_PRODUCTION=https://example.com -e URL_DEVELOPMENT=http://localhost:8080 \
+            -e TWELVE_DATA_API_KEY=ci -e BRAPI_DATA_API_KEY=ci \
+            -e STRIPE_PRIVATE_API_KEY=sk_test_ci -e STRIPE_PUBLIC_API_KEY=pk_test_ci \
+            -e STRIPE_WEBHOOK_SECRET=whsec_ci -e STRIPE_WEBHOOK_SECRET_PROD=whsec_ci \
+            -e ASAAS_API_KEY=ci -e ASAAS_URL_SANDBOX=https://sandbox.asaas.com/api/v3 \
+            -e DIGEST_TOKEN_SECRET=ci-digest-secret \
+            -e PLAN_SYNC_ON_BOOT=false \
+            trackerr-server:ci
+          for attempt in $(seq 1 45); do
+            if curl -fsS http://127.0.0.1:3000/health; then
+              echo " -> container healthy"
+              exit 0
+            fi
+            sleep 2
+          done
+          docker logs api
+          exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs api 2>&1 | tail -80 || true

@@ -87,7 +87,7 @@ neste repo** e nenhum default de senha existe no codigo.
 
 ```bash
 LOAD_SEED_PASSWORD='SenhaDeCarga123@' \
-DATABASE_URL='mongodb://root:example@localhost:27017/trackerr?authSource=admin' \
+DATABASE_URL='mongodb://<usuario>:<senha>@localhost:27017/trackerr?authSource=admin' \
 node test/load/seed/seed-load-users.mjs --count 50 --assets 15
 ```
 
