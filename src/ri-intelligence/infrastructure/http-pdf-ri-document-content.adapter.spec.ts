@@ -3,6 +3,11 @@ import { HttpService } from '@nestjs/axios';
 import { HttpPdfRiDocumentContentAdapter } from 'src/ri-intelligence/infrastructure/http-pdf-ri-document-content.adapter';
 import { RiDocumentLinkResolverPort } from 'src/ri-intelligence/application/ri-document-link-resolver.port';
 
+// A checagem de rede interna tem teste próprio; aqui o host é público.
+jest.mock('src/common/net/public-http-url', () => ({
+	assertPublicHttpUrl: jest.fn(async (raw: string) => new URL(raw)),
+}));
+
 // PDFParse é mockado: o que testamos aqui é o fluxo do adapter (guardas,
 // resolucao, tratamento de erro), nao a lib de parsing de PDF.
 const mockGetText = jest.fn();

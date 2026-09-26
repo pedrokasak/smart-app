@@ -2,6 +2,7 @@ import {
 	Injectable,
 	BadRequestException,
 	InternalServerErrorException,
+	NotFoundException,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -65,6 +66,22 @@ export class AddressService {
 
 	async findOne(id: string): Promise<Address> {
 		return this.addressModel.findById(id).exec();
+	}
+
+	/** 404 também para endereço de outro dono: não revela que o id existe. */
+	async findOwned(
+		id: string,
+		requesterId: string,
+		isAdmin: boolean
+	): Promise<Address> {
+		if (!Types.ObjectId.isValid(id)) {
+			throw new NotFoundException('Endereço não encontrado');
+		}
+		const address = await this.addressModel.findById(id).exec();
+		if (!address || (!isAdmin && String(address.userId) !== requesterId)) {
+			throw new NotFoundException('Endereço não encontrado');
+		}
+		return address;
 	}
 
 	async update(

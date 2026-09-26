@@ -1,7 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { AssetsService } from './assets.service';
-import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { DividendReceivedProducer } from './events/dividend-received.producer';
 
 /**
@@ -42,7 +41,7 @@ describe('AssetsService.upsertDividendHistoryEntries', () => {
 			providers: [
 				AssetsService,
 				{ provide: getModelToken('Asset'), useValue: mockAssetModel },
-				{ provide: PortfolioService, useValue: {} },
+				{ provide: getModelToken('Portfolio'), useValue: {} },
 				{
 					provide: DividendReceivedProducer,
 					useValue: dividendProducer,

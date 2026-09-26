@@ -12,6 +12,7 @@ import {
 	RI_DOCUMENT_LINK_RESOLVER,
 	RiDocumentLinkResolverPort,
 } from 'src/ri-intelligence/application/ri-document-link-resolver.port';
+import { assertPublicHttpUrl } from 'src/common/net/public-http-url';
 
 /**
  * Busca o PDF de um documento de RI e extrai o texto (TRA-85).
@@ -60,6 +61,12 @@ export class HttpPdfRiDocumentContentAdapter implements RiDocumentContentPort {
 			return { text: null, reason: 'not_pdf' };
 		}
 
+		try {
+			await assertPublicHttpUrl(resolved.resolvedUrl);
+		} catch {
+			return { text: null, reason: 'link_invalid' };
+		}
+
 		let buffer: Buffer;
 		try {
 			const response = await firstValueFrom(
@@ -68,6 +75,9 @@ export class HttpPdfRiDocumentContentAdapter implements RiDocumentContentPort {
 					timeout: HttpPdfRiDocumentContentAdapter.FETCH_TIMEOUT_MS,
 					maxContentLength: HttpPdfRiDocumentContentAdapter.MAX_BYTES,
 					maxBodyLength: HttpPdfRiDocumentContentAdapter.MAX_BYTES,
+					// O resolver já seguiu (e validou) os redirects; um novo salto
+					// aqui escaparia da checagem contra rede interna.
+					maxRedirects: 0,
 					headers: {
 						Accept: 'application/pdf,application/octet-stream,*/*;q=0.5',
 					},

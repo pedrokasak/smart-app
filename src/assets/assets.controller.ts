@@ -1,44 +1,49 @@
 import {
 	Controller,
 	Get,
-	Post,
 	Body,
 	Patch,
 	Param,
 	Delete,
+	Req,
 } from '@nestjs/common';
-import { AssetsService } from './assets.service';
-import { CreateAssetDto } from './dto/create-asset.dto';
-import { UpdateAssetDto } from './dto/update-asset.dto';
 import { ApiTags } from '@nestjs/swagger';
+import { requesterIdOf } from 'src/auth/ownership';
+import { AssetsService } from './assets.service';
+import { UpdateAssetDto } from './dto/update-asset.dto';
 
+/**
+ * Ativo pertence a uma carteira, e a carteira a um usuário: toda rota
+ * confere essa cadeia (TRA-211). Criação acontece pelo fluxo de carteira.
+ */
 @Controller('assets')
 @ApiTags('assets')
 export class AssetsController {
 	constructor(private readonly assetsService: AssetsService) {}
 
-	@Post()
-	create(@Body() createAssetDto: CreateAssetDto) {
-		return this.assetsService.create(createAssetDto);
-	}
-
 	@Get()
-	findAll() {
-		return this.assetsService.findAll();
+	findAll(@Req() req: any) {
+		return this.assetsService.findAllForUser(requesterIdOf(req));
 	}
 
 	@Get(':id')
-	findOne(@Param('id') id: string) {
-		return this.assetsService.findOne(id);
+	findOne(@Param('id') id: string, @Req() req: any) {
+		return this.assetsService.findOwned(requesterIdOf(req), id);
 	}
 
 	@Patch(':id')
-	update(@Param('id') id: string, @Body() updateAssetDto: UpdateAssetDto) {
+	async update(
+		@Param('id') id: string,
+		@Body() updateAssetDto: UpdateAssetDto,
+		@Req() req: any
+	) {
+		await this.assetsService.findOwned(requesterIdOf(req), id);
 		return this.assetsService.update(id, updateAssetDto);
 	}
 
 	@Delete(':id')
-	remove(@Param('id') id: string, @Param('portfolioId') portfolioId: string) {
-		return this.assetsService.remove(id, portfolioId);
+	async remove(@Param('id') id: string, @Req() req: any) {
+		const asset = await this.assetsService.findOwned(requesterIdOf(req), id);
+		return this.assetsService.remove(id, String(asset.portfolioId));
 	}
 }

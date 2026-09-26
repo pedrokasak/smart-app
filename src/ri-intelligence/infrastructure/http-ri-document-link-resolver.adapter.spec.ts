@@ -1,3 +1,19 @@
+// DNS real fora dos testes: hostname é tratado como público; IP literal
+// passa pela checagem de verdade (é o que os testes de SSRF exercitam).
+jest.mock('src/common/net/public-http-url', () => {
+	const actual = jest.requireActual('src/common/net/public-http-url');
+	const { isIP } = jest.requireActual('node:net');
+	return {
+		...actual,
+		assertPublicHttpUrl: jest.fn(async (raw: string) => {
+			const url = new URL(raw);
+			const host = url.hostname.replace(/^\[|\]$/g, '');
+			const isHttp = url.protocol === 'http:' || url.protocol === 'https:';
+			return isIP(host) || !isHttp ? actual.assertPublicHttpUrl(raw) : url;
+		}),
+	};
+});
+
 import { HttpRiDocumentLinkResolverAdapter } from 'src/ri-intelligence/infrastructure/http-ri-document-link-resolver.adapter';
 
 describe('HttpRiDocumentLinkResolverAdapter', () => {
@@ -18,13 +34,22 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 		contentType?: string;
 		contentDisposition?: string;
 	}) {
-		global.fetch = jest.fn().mockResolvedValue({
+		global.fetch = jest.fn().mockResolvedValue(fakeResponse(response));
+	}
+
+	function fakeResponse(response: {
+		status: number;
+		location?: string;
+		contentType?: string;
+		contentDisposition?: string;
+	}) {
+		return {
 			ok: response.status >= 200 && response.status < 300,
 			status: response.status,
-			url: response.url || 'https://ri.example.com/doc.pdf',
 			headers: {
 				get: (name: string) => {
 					const key = name.toLowerCase();
+					if (key === 'location') return response.location ?? null;
 					if (key === 'content-type') {
 						return response.contentType || 'application/pdf';
 					}
@@ -35,7 +60,20 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 				},
 			},
 			body: { cancel: jest.fn().mockResolvedValue(undefined) },
-		});
+		};
+	}
+
+	/** Um 302 para `location`, depois `final` — redirect seguido à mão. */
+	function mockRedirect(
+		location: string,
+		final: { status: number; contentType?: string }
+	) {
+		// Toda requisição à URL de origem redireciona (HEAD e o GET de retry).
+		global.fetch = jest.fn(async (url: string) =>
+			url === location
+				? fakeResponse(final)
+				: fakeResponse({ status: 302, location })
+		) as any;
 	}
 
 	it('resolves relative links into absolute urls using origin', async () => {
@@ -60,9 +98,8 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 	});
 
 	it('keeps redirected final url when destination is valid', async () => {
-		mockFetch({
+		mockRedirect('https://cdn.ri.example.com/final/release.pdf', {
 			status: 200,
-			url: 'https://cdn.ri.example.com/final/release.pdf',
 			contentType: 'application/pdf',
 		});
 
@@ -77,9 +114,8 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 	});
 
 	it('rejects known mziq error routes even with 200 status', async () => {
-		mockFetch({
+		mockRedirect('https://api.mziq.com/mzfilemanager/error/404', {
 			status: 200,
-			url: 'https://api.mziq.com/mzfilemanager/error/404',
 			contentType: 'text/html',
 		});
 
@@ -92,9 +128,8 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 	});
 
 	it('rejects invalid http status', async () => {
-		mockFetch({
+		mockRedirect('https://ri.example.com/404.html', {
 			status: 404,
-			url: 'https://ri.example.com/404.html',
 			contentType: 'text/html',
 		});
 
@@ -173,5 +208,50 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 
 		expect(output.isValid).toBe(false);
 		expect(output.rejectionReason).toBe('invalid_content_type');
+	});
+
+	describe('SSRF (TRA-211)', () => {
+		it.each([
+			'http://127.0.0.1/doc.pdf',
+			'http://169.254.169.254/latest/meta-data/',
+			'http://10.0.0.5:8000/api/health',
+			'http://[::1]/doc.pdf',
+			'http://[::ffff:192.168.0.10]/doc.pdf',
+			'file:///app/.env',
+			'ftp://ri.example.com/doc.pdf',
+		])('recusa %s sem fazer requisição', async (url) => {
+			mockFetch({ status: 200 });
+
+			const output = await adapter.resolve({ url });
+
+			expect(output.isValid).toBe(false);
+			expect(global.fetch).not.toHaveBeenCalled();
+		});
+
+		it('recusa redirect para a rede interna', async () => {
+			mockRedirect('http://172.17.0.1:6379/', { status: 200 });
+
+			const output = await adapter.resolve({
+				url: 'https://ri.example.com/redirect',
+			});
+
+			expect(output.isValid).toBe(false);
+			const requested = (global.fetch as jest.Mock).mock.calls.map((c) => c[0]);
+			expect(requested).not.toContain('http://172.17.0.1:6379/');
+		});
+
+		it('para de seguir depois de 5 redirects', async () => {
+			global.fetch = jest
+				.fn()
+				.mockResolvedValue(
+					fakeResponse({ status: 302, location: 'https://ri.example.com/loop' })
+				);
+
+			const output = await adapter.resolve({
+				url: 'https://ri.example.com/loop',
+			});
+
+			expect(output.isValid).toBe(false);
+		});
 	});
 });
