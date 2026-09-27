@@ -28,6 +28,18 @@ export function withCheckoutSessionId(successUrl: string): string {
 	return `${successUrl}${separator}session_id={CHECKOUT_SESSION_ID}`;
 }
 
+/**
+ * Status em que a assinatura ainda cobra, ou vai cobrar, o cliente. Um
+ * checkout novo com qualquer uma destas abertas duplica a cobrança.
+ */
+const OPEN_SUBSCRIPTION_STATUSES = new Set<string>([
+	'active',
+	'trialing',
+	'past_due',
+	'unpaid',
+	'incomplete',
+]);
+
 @Injectable()
 export class StripeService {
 	private readonly stripe: Stripe;
@@ -279,6 +291,27 @@ export class StripeService {
 			return session;
 		} catch (error) {
 			this.logger.error('Erro ao criar sessão de checkout:', error);
+			throw error;
+		}
+	}
+
+	/**
+	 * O cliente já tem assinatura aberta no Stripe? Consulta o Stripe, e não o
+	 * banco: no incidente de 27/09/2026 o banco não sabia da primeira compra
+	 * (webhook ausente) e o app deixou comprar de novo — duas assinaturas
+	 * cobrando o mesmo cliente (TRA-246).
+	 */
+	async hasOpenSubscription(customerId: string): Promise<boolean> {
+		try {
+			const { data } = await this.stripe.subscriptions.list({
+				customer: customerId,
+				status: 'all',
+				limit: 20,
+			});
+			return data.some((sub) => OPEN_SUBSCRIPTION_STATUSES.has(sub.status));
+		} catch (error) {
+			// Cliente gravado em outro modo (teste x live) não tem assinatura aqui.
+			if (isStripeResourceMissing(error)) return false;
 			throw error;
 		}
 	}

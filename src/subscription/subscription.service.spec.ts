@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { SubscriptionService } from './subscription.service';
 import { WebhooksService } from 'src/subscription/webhooks.service';
@@ -53,6 +54,7 @@ describe('SubscriptionService', () => {
 			createProduct: jest.fn().mockResolvedValue({ id: 'prod_123' }),
 			createPrice: jest.fn().mockResolvedValue({ id: 'price_123' }),
 			createCheckoutSession: jest.fn(),
+			hasOpenSubscription: jest.fn().mockResolvedValue(false),
 		};
 		mockWebhooksService = {
 			checkExpiredSubscriptions: jest.fn(),
@@ -105,6 +107,76 @@ describe('SubscriptionService', () => {
 			const result = await service.checkExpiredSubscriptions();
 			expect(result).toBe('ok');
 			expect(mockWebhooksService.checkExpiredSubscriptions).toHaveBeenCalled();
+		});
+	});
+
+	// TRA-246: o app deixou comprar de novo quem já pagava, e as duas
+	// assinaturas passariam a cobrar todo mês.
+	describe('createCheckoutSession — uma assinatura por cliente', () => {
+		const plan = {
+			_id: 'plan_1',
+			price: 19.9,
+			isActive: true,
+			stripePriceId: 'price_monthly_123',
+		};
+
+		beforeEach(() => {
+			mockSubscriptionModel.findById.mockResolvedValue(plan);
+			mockStripeService.createCheckoutSession.mockResolvedValue({
+				url: 'https://checkout.stripe.com/x',
+			});
+		});
+
+		it('recusa um segundo checkout quando o cliente já tem assinatura aberta no Stripe', async () => {
+			mockUserModel.findById.mockResolvedValue({
+				_id: 'user_1',
+				stripeCustomerId: 'cus_1',
+			});
+			mockStripeService.hasOpenSubscription.mockResolvedValue(true);
+
+			await expect(
+				service.createCheckoutSession(
+					'user_1',
+					'plan_1',
+					'https://ok',
+					'https://cancel'
+				)
+			).rejects.toThrow(ConflictException);
+			expect(mockStripeService.hasOpenSubscription).toHaveBeenCalledWith(
+				'cus_1'
+			);
+			expect(mockStripeService.createCheckoutSession).not.toHaveBeenCalled();
+		});
+
+		it('segue para o checkout quando as assinaturas antigas estão encerradas', async () => {
+			mockUserModel.findById.mockResolvedValue({
+				_id: 'user_1',
+				stripeCustomerId: 'cus_1',
+			});
+			mockStripeService.hasOpenSubscription.mockResolvedValue(false);
+
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel'
+			);
+
+			expect(mockStripeService.createCheckoutSession).toHaveBeenCalled();
+		});
+
+		it('primeira compra (sem cliente no Stripe) nem consulta', async () => {
+			mockUserModel.findById.mockResolvedValue({ _id: 'user_1' });
+
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel'
+			);
+
+			expect(mockStripeService.hasOpenSubscription).not.toHaveBeenCalled();
+			expect(mockStripeService.createCheckoutSession).toHaveBeenCalled();
 		});
 	});
 
