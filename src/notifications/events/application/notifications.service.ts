@@ -10,7 +10,12 @@ import {
 	NotificationDeliveryStatus,
 	NotificationPayload,
 	NotificationType,
+	ESSENTIAL_EMAIL_TYPES,
 } from '../domain/notification.types';
+import {
+	EMAIL_OPT_OUT_READER,
+	EmailOptOutReader,
+} from './ports/email-opt-out.port';
 import { Notification } from '../schema/notification.model';
 import {
 	NOTIFICATION_CHANNELS,
@@ -63,7 +68,9 @@ export class NotificationsService {
 		@InjectModel('User')
 		private readonly userModel: Model<User>,
 		@Inject(NOTIFICATION_CHANNELS)
-		private readonly channels: NotificationChannel[]
+		private readonly channels: NotificationChannel[],
+		@Inject(EMAIL_OPT_OUT_READER)
+		private readonly emailOptOut: EmailOptOutReader
 	) {}
 
 	async notify(input: NotifyInput): Promise<NotifyResult> {
@@ -99,6 +106,11 @@ export class NotificationsService {
 		}
 
 		const allowedChannels = input.channels ? new Set(input.channels) : null;
+		const emailBlocked = await this.isEmailBlockedByMasterSwitch(
+			userId,
+			input.payload.type,
+			allowedChannels
+		);
 
 		const deliveries: NotifyResult['deliveries'] = [];
 		for (const channel of this.channels) {
@@ -106,7 +118,12 @@ export class NotificationsService {
 				continue;
 			}
 
-			if (!this.userAllows(user, input.payload.type, channel.name())) {
+			const blockedByMasterSwitch =
+				channel.name() === NotificationChannelName.Email && emailBlocked;
+			if (
+				blockedByMasterSwitch ||
+				!this.userAllows(user, input.payload.type, channel.name())
+			) {
 				deliveries.push({
 					channel: channel.name(),
 					status: NotificationDeliveryStatus.Skipped,
@@ -234,6 +251,30 @@ export class NotificationsService {
 		return channel === NotificationChannelName.Email
 			? DEFAULT_EMAIL_PREFS[type]
 			: DEFAULT_PUSH_PREFS[type];
+	}
+
+	/**
+	 * Chave geral de e-mail (TRA-244). Só consulta o perfil quando o e-mail
+	 * de fato entraria nesta notificação.
+	 */
+	private async isEmailBlockedByMasterSwitch(
+		userId: Types.ObjectId,
+		type: NotificationType,
+		allowedChannels: Set<NotificationChannelName> | null
+	): Promise<boolean> {
+		if (ESSENTIAL_EMAIL_TYPES.has(type)) return false;
+		if (
+			allowedChannels &&
+			!allowedChannels.has(NotificationChannelName.Email)
+		) {
+			return false;
+		}
+		if (
+			!this.channels.some((c) => c.name() === NotificationChannelName.Email)
+		) {
+			return false;
+		}
+		return this.emailOptOut.hasOptedOut(userId);
 	}
 
 	private async findDuplicate(
