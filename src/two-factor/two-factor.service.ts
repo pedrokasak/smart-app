@@ -167,7 +167,8 @@ export class TwoFactorService {
 		await this.persistAttemptState(user.id, clearedAttemptState());
 
 		return this.authenticationService.issueSessionTokens(
-			user as unknown as SessionUser
+			user as unknown as SessionUser,
+			{ keepConnected: payload.keep === true }
 		);
 	}
 
@@ -287,7 +288,8 @@ export class TwoFactorService {
 		await this.revokeTempToken(tempToken, payload.exp);
 
 		return this.authenticationService.issueSessionTokens(
-			user as unknown as SessionUser
+			user as unknown as SessionUser,
+			{ keepConnected: payload.keep === true }
 		);
 	}
 
@@ -335,12 +337,12 @@ export class TwoFactorService {
 		tempToken: string,
 		extraProjection = ''
 	): Promise<{
-		payload: { userId: string; type: string; exp?: number };
+		payload: { userId: string; type: string; exp?: number; keep?: boolean };
 		user: any;
 		attemptState: TwoFactorAttemptState;
 		now: Date;
 	}> {
-		let payload: { userId: string; type: string; exp?: number };
+		let payload: { userId: string; type: string; exp?: number; keep?: boolean };
 		try {
 			payload = this.jwtService.verify(tempToken, { secret: jwtSecret }) as any;
 		} catch {

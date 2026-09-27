@@ -20,6 +20,9 @@ export interface User extends Document {
 	/** Cliente no Asaas (PIX, TRA-195). O CPF fica la, nao aqui. */
 	asaasCustomerId?: string;
 	refreshToken?: string;
+	/** Digest do refresh token anterior à última rotação (TRA-245). */
+	previousRefreshToken?: string | null;
+	refreshTokenRotatedAt?: Date | null;
 	resetPasswordToken?: string;
 	resetPasswordExpires?: Date;
 	isEmailVerified?: boolean;
@@ -132,6 +135,18 @@ const userSchema = new Schema<User>(
 		// Segurança
 		refreshToken: {
 			type: String,
+			default: null,
+			select: false,
+		},
+		// Rotação do refresh token (TRA-245): o anterior vale só por uma janela
+		// curta depois de girar. Fora dela, apresentá-lo derruba a sessão.
+		previousRefreshToken: {
+			type: String,
+			default: null,
+			select: false,
+		},
+		refreshTokenRotatedAt: {
+			type: Date,
 			default: null,
 			select: false,
 		},
