@@ -10,6 +10,7 @@ import { StripeService } from 'src/subscription/stripe.service';
 import { IS_PUBLIC_KEY } from 'src/utils/constants';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
 import { Role } from 'src/auth/enums/role.enum';
+import { CheckoutConfirmationService } from './application/checkout-confirmation.service';
 import {
 	FREE_ACCESS_LEVEL,
 	PREMIUM_ACCESS_LEVEL,
@@ -36,6 +37,10 @@ const mockUserModel = {
 
 const mockStripeService = {
 	createCheckoutSession: jest.fn(),
+};
+
+const mockCheckoutConfirmation = {
+	confirmForUser: jest.fn(),
 };
 
 const mockWebhooksService = {
@@ -90,6 +95,10 @@ describe('SubscriptionController', () => {
 				{ provide: StripeService, useValue: mockStripeService },
 				{ provide: WebhooksService, useValue: mockWebhooksService },
 				{ provide: USER_PLAN_RESOLVER, useValue: mockPlanResolver },
+				{
+					provide: CheckoutConfirmationService,
+					useValue: mockCheckoutConfirmation,
+				},
 			],
 		}).compile();
 
@@ -381,5 +390,28 @@ describe('SubscriptionController', () => {
 				expect(rolesGuard.canActivate(context)).toBe(true);
 			}
 		);
+	});
+
+	describe('confirmação de checkout (incidente 27/09/2026)', () => {
+		it('confirma para o usuário do token, nunca para um id do corpo', async () => {
+			mockCheckoutConfirmation.confirmForUser.mockResolvedValue({
+				state: 'confirmed',
+				subscriptionStatus: 'active',
+			});
+
+			const result = await controller.confirmCheckout(
+				{ sessionId: 'cs_live_abc' },
+				{ user: { userId: 'u-token' } }
+			);
+
+			expect(mockCheckoutConfirmation.confirmForUser).toHaveBeenCalledWith(
+				'u-token',
+				'cs_live_abc'
+			);
+			expect(result).toEqual({
+				state: 'confirmed',
+				subscriptionStatus: 'active',
+			});
+		});
 	});
 });

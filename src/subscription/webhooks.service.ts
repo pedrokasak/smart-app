@@ -4,6 +4,11 @@ import { Model } from 'mongoose';
 import Stripe from 'stripe';
 import { Subscription, UserSubscription } from './schema';
 import { User } from 'src/users/schema/user.model';
+import { CheckoutConfirmationService } from './application/checkout-confirmation.service';
+import {
+	resolveInvoiceSubscriptionId,
+	resolveStripePeriod,
+} from './application/stripe-period';
 
 @Injectable()
 export class WebhooksService {
@@ -15,7 +20,8 @@ export class WebhooksService {
 		@InjectModel('Subscription')
 		private subscriptionModel: Model<Subscription>,
 		@InjectModel('UserSubscription')
-		private userSubscriptionModel: Model<UserSubscription>
+		private userSubscriptionModel: Model<UserSubscription>,
+		private readonly checkoutConfirmation: CheckoutConfirmationService
 	) {}
 
 	/**
@@ -27,18 +33,7 @@ export class WebhooksService {
 		start: Date;
 		end: Date;
 	} {
-		const item = subscription.items?.data?.[0] as any;
-		const root = subscription as any;
-
-		const startUnix = item?.current_period_start ?? root.current_period_start;
-		const endUnix = item?.current_period_end ?? root.current_period_end;
-
-		return {
-			start: startUnix ? new Date(startUnix * 1000) : new Date(),
-			end: endUnix
-				? new Date(endUnix * 1000)
-				: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
-		};
+		return resolveStripePeriod(subscription);
 	}
 
 	// Processar webhook do Stripe
@@ -47,6 +42,17 @@ export class WebhooksService {
 			this.logger.log(`Processando webhook: ${event.type}`);
 
 			switch (event.type) {
+				// Libera o plano pela sessão paga, com o dono vindo de
+				// `metadata.userId` — mesmo caminho da confirmação pela tela de
+				// sucesso. Não depende de `stripeCustomerId` já estar gravado.
+				case 'checkout.session.completed':
+				// Boleto: a sessão conclui como "unpaid" e este evento chega
+				// quando o banco compensa, dias depois.
+				case 'checkout.session.async_payment_succeeded':
+					await this.checkoutConfirmation.applySession(
+						event.data.object as Stripe.Checkout.Session
+					);
+					break;
 				case 'customer.subscription.created':
 					await this.handleSubscriptionCreated(
 						event.data.object as Stripe.Subscription
@@ -231,9 +237,7 @@ export class WebhooksService {
 	// Pagamento realizado com sucesso
 	private async handlePaymentSucceeded(invoice: Stripe.Invoice): Promise<void> {
 		try {
-			const subscriptionId = (
-				invoice as Stripe.Invoice & { subscription: string }
-			).subscription;
+			const subscriptionId = resolveInvoiceSubscriptionId(invoice);
 			if (!subscriptionId) {
 				this.logger.log(
 					`Invoice ${invoice.id} não está associada a uma assinatura, ignorando.`
@@ -292,9 +296,7 @@ export class WebhooksService {
 	// Pagamento falhou
 	private async handlePaymentFailed(invoice: Stripe.Invoice): Promise<void> {
 		try {
-			const subscriptionId = (
-				invoice as Stripe.Invoice & { subscription: string }
-			).subscription;
+			const subscriptionId = resolveInvoiceSubscriptionId(invoice);
 			if (!subscriptionId) {
 				this.logger.log('Invoice sem assinatura, ignorando');
 				return;

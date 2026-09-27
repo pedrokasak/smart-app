@@ -16,6 +16,18 @@ export function isStripeResourceMissing(error: unknown): boolean {
 	return (error as Stripe.errors.StripeError)?.code === 'resource_missing';
 }
 
+/**
+ * Garante o `session_id` no retorno do checkout. Sem ele a tela de sucesso
+ * não tinha como confirmar a compra e dependia só do webhook (incidente
+ * 27/09/2026). O placeholder precisa ir literal — o Stripe o substitui; por
+ * isso concatena em vez de usar URLSearchParams, que codificaria as chaves.
+ */
+export function withCheckoutSessionId(successUrl: string): string {
+	if (successUrl.includes('{CHECKOUT_SESSION_ID}')) return successUrl;
+	const separator = successUrl.includes('?') ? '&' : '?';
+	return `${successUrl}${separator}session_id={CHECKOUT_SESSION_ID}`;
+}
+
 @Injectable()
 export class StripeService {
 	private readonly stripe: Stripe;
@@ -245,6 +257,10 @@ export class StripeService {
 				metadata: {
 					userId,
 				},
+				client_reference_id: userId,
+				// A assinatura também carrega o dono: eventos dela chegam sem a
+				// sessão e ainda assim identificam o usuário.
+				subscription_data: { metadata: { userId } },
 				customer: stripeCustomerId,
 				payment_method_types: ['card', 'boleto'],
 				line_items: [
@@ -256,7 +272,7 @@ export class StripeService {
 				mode: 'subscription',
 				// Cupons criados no Stripe (ex.: cobrança de teste) entram no checkout.
 				allow_promotion_codes: true,
-				success_url: successUrl,
+				success_url: withCheckoutSessionId(successUrl),
 				cancel_url: cancelUrl,
 			});
 			this.logger.log(`Sessão de checkout criada: ${session.id}`);

@@ -13,6 +13,8 @@ import { USER_PLAN_RESOLVER } from 'src/subscription/application/user-plan.types
 import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
 import { PlanSyncService } from 'src/subscription/plan-sync/plan-sync.service';
 import { SubscriptionExpiryScheduler } from 'src/subscription/application/subscription-expiry.scheduler';
+import { StripeSubscriptionSyncService } from 'src/subscription/application/stripe-subscription-sync.service';
+import { CheckoutConfirmationService } from 'src/subscription/application/checkout-confirmation.service';
 
 @Module({
 	imports: [
@@ -34,6 +36,9 @@ import { SubscriptionExpiryScheduler } from 'src/subscription/application/subscr
 		WebhooksService,
 		PlanSyncService,
 		SubscriptionExpiryScheduler,
+		// Liberação do plano sem depender só do webhook (incidente 27/09/2026).
+		StripeSubscriptionSyncService,
+		CheckoutConfirmationService,
 		{
 			provide: Stripe,
 			useFactory: () =>

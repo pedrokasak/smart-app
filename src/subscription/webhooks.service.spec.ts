@@ -7,6 +7,7 @@ describe('WebhooksService — resolução de plano no webhook', () => {
 	let userModel: { findOne: jest.Mock };
 	let userSubscriptionModel: any;
 	let service: WebhooksService;
+	let checkoutConfirmation: { applySession: jest.Mock };
 
 	/** Documentos que o upsert atômico gravou de fato. */
 	function upsertedDocs(): any[] {
@@ -48,10 +49,12 @@ describe('WebhooksService — resolução de plano no webhook', () => {
 			updateOne: jest.fn().mockResolvedValue({ upsertedCount: 1 }),
 		};
 
+		checkoutConfirmation = { applySession: jest.fn() };
 		service = new WebhooksService(
 			userModel as never,
 			subscriptionModel as never,
-			userSubscriptionModel as never
+			userSubscriptionModel as never,
+			checkoutConfirmation as never
 		);
 	});
 
@@ -112,5 +115,51 @@ describe('WebhooksService — resolução de plano no webhook', () => {
 		await expect(
 			service.handleWebhook(makeSubscriptionEvent('price_monthly_pro'))
 		).resolves.toBeUndefined();
+	});
+
+	// Incidente 27/09/2026: o plano só era liberado por customer.subscription.created.
+	it('libera o plano pelo checkout.session.completed, pelo mesmo caminho da tela de sucesso', async () => {
+		const session = { id: 'cs_live_1', mode: 'subscription' };
+
+		await service.handleWebhook({
+			type: 'checkout.session.completed',
+			data: { object: session },
+		} as any);
+
+		expect(checkoutConfirmation.applySession).toHaveBeenCalledWith(session);
+	});
+
+	it('libera o plano quando o boleto compensa (checkout.session.async_payment_succeeded)', async () => {
+		const session = { id: 'cs_live_boleto', mode: 'subscription' };
+
+		await service.handleWebhook({
+			type: 'checkout.session.async_payment_succeeded',
+			data: { object: session },
+		} as any);
+
+		expect(checkoutConfirmation.applySession).toHaveBeenCalledWith(session);
+	});
+
+	it('lê a assinatura da fatura no formato da API basil (parent.subscription_details)', async () => {
+		const existing = { status: 'past_due', save: jest.fn() };
+		userSubscriptionModel.findOne.mockResolvedValue(existing);
+
+		await service.handleWebhook({
+			type: 'invoice.payment_succeeded',
+			data: {
+				object: {
+					id: 'in_1',
+					period_start: 1_700_000_000,
+					period_end: 1_702_000_000,
+					parent: { subscription_details: { subscription: 'sub_basil' } },
+				},
+			},
+		} as any);
+
+		expect(userSubscriptionModel.findOne).toHaveBeenCalledWith({
+			stripeSubscriptionId: 'sub_basil',
+		});
+		expect(existing.status).toBe('active');
+		expect(existing.save).toHaveBeenCalled();
 	});
 });

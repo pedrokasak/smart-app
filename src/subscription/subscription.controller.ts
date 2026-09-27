@@ -16,6 +16,8 @@ import { CreateSubscriptionDto } from './dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from './dto/update-subscription.dto';
 import { UpdateFeaturesDto } from './dto/update-features.dto';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
+import { ConfirmCheckoutDto } from './dto/confirm-checkout.dto';
+import { CheckoutConfirmationService } from './application/checkout-confirmation.service';
 import {
 	ApiBearerAuth,
 	ApiOperation,
@@ -54,7 +56,8 @@ export class SubscriptionController {
 	constructor(
 		private readonly subscriptionService: SubscriptionService,
 		@Inject(USER_PLAN_RESOLVER)
-		private readonly planResolver: UserPlanResolverPort
+		private readonly planResolver: UserPlanResolverPort,
+		private readonly checkoutConfirmation: CheckoutConfirmationService
 	) {}
 
 	@Get('current')
@@ -110,6 +113,21 @@ export class SubscriptionController {
 			body.successUrl,
 			body.cancelUrl,
 			body.billingInterval
+		);
+	}
+
+	@OwnershipChecked(
+		'confirma o checkout do usuário do token; a sessão é conferida contra metadata.userId'
+	)
+	@Post('checkout/confirm')
+	@ApiOperation({
+		summary:
+			'Confirma um checkout do Stripe pelo session_id e libera o plano (não depende do webhook)',
+	})
+	confirmCheckout(@Body() body: ConfirmCheckoutDto, @Req() req: any) {
+		return this.checkoutConfirmation.confirmForUser(
+			requireUserId(req),
+			body.sessionId
 		);
 	}
 
