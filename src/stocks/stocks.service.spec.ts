@@ -807,4 +807,45 @@ describe('StockService.getCdiSeries', () => {
 
 		expect(result.series).toEqual([]);
 	});
+
+	it('splits a fifteen-year range into windows the BACEN accepts (TRA-226)', async () => {
+		mockAxiosGet.mockResolvedValue({ data: [] });
+		const service = makeService();
+
+		await service.getCdiSeries(
+			new Date('2011-01-01T00:00:00Z'),
+			new Date('2025-12-31T00:00:00Z')
+		);
+
+		expect(mockAxiosGet).toHaveBeenCalledTimes(5);
+	});
+
+	it('serves a repeated range from cache without calling the BACEN again', async () => {
+		mockAxiosGet.mockResolvedValue({
+			data: [{ data: '01/07/2026', valor: '0.05' }],
+		});
+		const service = makeService();
+		const from = new Date('2026-07-01T00:00:00Z');
+		const to = new Date('2026-07-31T00:00:00Z');
+
+		await service.getCdiSeries(from, to);
+		const second = await service.getCdiSeries(from, to);
+
+		expect(mockAxiosGet).toHaveBeenCalledTimes(1);
+		expect(second.series).toEqual([{ date: '2026-07-01', value: 0.05 }]);
+	});
+
+	it('does not cache a failure', async () => {
+		mockAxiosGet
+			.mockRejectedValueOnce(new Error('bacen down'))
+			.mockResolvedValueOnce({ data: [{ data: '01/07/2026', valor: '0.05' }] });
+		const service = makeService();
+		const from = new Date('2026-07-01T00:00:00Z');
+		const to = new Date('2026-07-31T00:00:00Z');
+
+		await service.getCdiSeries(from, to);
+		const retry = await service.getCdiSeries(from, to);
+
+		expect(retry.series).toEqual([{ date: '2026-07-01', value: 0.05 }]);
+	});
 });
