@@ -1,5 +1,6 @@
 import { Controller, Get, Param, Query } from '@nestjs/common';
 import { ApiBearerAuth, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { NotUserScoped } from 'src/auth/decorators/ownership.decorator';
 import {
 	MacroSeriesService,
 	todayInSaoPaulo,
@@ -23,6 +24,7 @@ export class MacroIndicatorsController {
 	constructor(private readonly macroSeries: MacroSeriesService) {}
 
 	@Get(':key/series')
+	@NotUserScoped('série macro pública do BACEN, igual para todos os usuários')
 	@ApiResponse({ status: 200, description: 'OK' })
 	@ApiResponse({ status: 400, description: 'Série ou data inválida' })
 	async getSeries(
