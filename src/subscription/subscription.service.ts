@@ -1,4 +1,5 @@
 import {
+	ConflictException,
 	HttpException,
 	Injectable,
 	Logger,
@@ -407,6 +408,18 @@ export class SubscriptionService {
 		if (!priceId) {
 			throw new BadRequestException(
 				'Plano sem preço configurado no Stripe. Contate o suporte.'
+			);
+		}
+
+		// Uma assinatura por cliente (TRA-246). Troca de plano passa pelo
+		// portal do Stripe, que faz o rateio; um segundo checkout cobraria as
+		// duas assinaturas todo mês.
+		if (
+			user.stripeCustomerId &&
+			(await this.stripeService.hasOpenSubscription(user.stripeCustomerId))
+		) {
+			throw new ConflictException(
+				'Você já tem uma assinatura ativa. Para trocar de plano, use "Gerenciar assinatura" na página Assinatura.'
 			);
 		}
 
