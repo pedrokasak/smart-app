@@ -8,10 +8,28 @@ import { YahooFinanceAdapter } from 'src/market-data/infrastructure/yahoo-financ
 import { isRangeSupportedByBrapi } from 'src/stocks/range-support';
 import axios from 'axios';
 import { MarketAssetType } from 'src/market-data/application/market-data-provider.port';
+import {
+	fetchSgsDailySeries,
+	toBacenDate,
+	type SgsPoint,
+} from 'src/stocks/bcb-sgs/bcb-sgs-series';
+import { TtlPromiseCache } from 'src/stocks/bcb-sgs/ttl-promise-cache';
+
+const CDI_SGS_SERIES = 12;
+// Primeira observação da série 12, conferida ao vivo em 26/09/2026.
+const CDI_SGS_SERIES_START = new Date('1986-03-06T00:00:00.000Z');
+// Série publicada uma vez por dia útil: 1h basta para absorver picos sem
+// segurar o dado do dia por muito tempo.
+const CDI_SERIES_CACHE_TTL_MS = 60 * 60 * 1000;
+const CDI_SERIES_CACHE_MAX_ENTRIES = 500;
 
 @Injectable()
 export class StockService implements StockRepository {
 	private readonly logger = new Logger(StockService.name);
+	private readonly cdiSeriesCache = new TtlPromiseCache<SgsPoint[]>(
+		CDI_SERIES_CACHE_TTL_MS,
+		CDI_SERIES_CACHE_MAX_ENTRIES
+	);
 	private static readonly GLOBAL_QUOTE_CHAIN = [
 		'twelve_data',
 		'yahoo_finance',
@@ -697,12 +715,6 @@ export class StockService implements StockRepository {
 		}
 	}
 
-	private toBacenDate(date: Date): string {
-		const day = String(date.getUTCDate()).padStart(2, '0');
-		const month = String(date.getUTCMonth() + 1).padStart(2, '0');
-		return `${day}/${month}/${date.getUTCFullYear()}`;
-	}
-
 	async getCdiSeries(
 		from: Date,
 		to: Date
@@ -717,29 +729,18 @@ export class StockService implements StockRepository {
 			unit: 'daily_percent' as const,
 			source: 'BACEN_SGS_12' as const,
 		};
+		const cacheKey = `${toBacenDate(from)}|${toBacenDate(to)}`;
 
 		try {
-			const url =
-				'https://api.bcb.gov.br/dados/serie/bcdata.sgs.12/dados?formato=json' +
-				`&dataInicial=${this.toBacenDate(from)}` +
-				`&dataFinal=${this.toBacenDate(to)}`;
-
-			const response = await axios.get(url, { timeout: 8000 });
-			const rows = Array.isArray(response.data) ? response.data : [];
-
-			const series = rows
-				.map((row: any) => {
-					const value = Number(String(row?.valor ?? '').replace(',', '.'));
-					const [day, month, year] = String(row?.data ?? '').split('/');
-					if (!day || !month || !year || !Number.isFinite(value)) return null;
-					return { date: `${year}-${month}-${day}`, value };
+			const series = await this.cdiSeriesCache.getOrLoad(cacheKey, () =>
+				fetchSgsDailySeries(CDI_SGS_SERIES, from, to, {
+					seriesStart: CDI_SGS_SERIES_START,
 				})
-				.filter(Boolean) as Array<{ date: string; value: number }>;
-
+			);
 			return { ...base, series };
 		} catch (error) {
 			// O CDI é linha de comparação: sua ausência nunca deve derrubar o
-			// dashboard inteiro.
+			// dashboard inteiro. A mensagem diz qual janela falhou (TRA-226).
 			this.logger.warn(
 				`Falha ao buscar série do CDI no BACEN: ${error?.message || error}`
 			);
