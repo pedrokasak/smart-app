@@ -16,6 +16,15 @@ export enum NotificationType {
 	SubscriptionExpiring = 'subscriptionExpiring',
 }
 
+/**
+ * Avisos que saem por e-mail mesmo com a chave geral "Notificações por
+ * e-mail" desligada (TRA-244): dizem respeito à cobrança da conta, não são
+ * conteúdo. A preferência por tipo continua valendo para eles.
+ */
+export const ESSENTIAL_EMAIL_TYPES: ReadonlySet<NotificationType> = new Set([
+	NotificationType.SubscriptionExpiring,
+]);
+
 export enum NotificationChannelName {
 	Email = 'email',
 	Push = 'push',

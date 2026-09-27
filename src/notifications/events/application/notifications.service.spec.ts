@@ -11,6 +11,7 @@ import {
 	NotificationDeliveryStatus,
 	NotificationType,
 } from '../domain/notification.types';
+import { EMAIL_OPT_OUT_READER } from './ports/email-opt-out.port';
 
 function fakeUser(overrides: Record<string, unknown> = {}) {
 	return {
@@ -38,6 +39,7 @@ describe('NotificationsService', () => {
 	const UserModelMock = {
 		findById: jest.fn(),
 	};
+	const emailOptOut = { hasOptedOut: jest.fn() };
 
 	let service: NotificationsService;
 	let emailSend: jest.Mock;
@@ -45,6 +47,7 @@ describe('NotificationsService', () => {
 
 	beforeEach(async () => {
 		jest.clearAllMocks();
+		emailOptOut.hasOptedOut.mockResolvedValue(false);
 		emailSend = jest.fn().mockResolvedValue({
 			channel: NotificationChannelName.Email,
 			success: true,
@@ -70,6 +73,7 @@ describe('NotificationsService', () => {
 					useValue: NotificationModelMock,
 				},
 				{ provide: getModelToken('User'), useValue: UserModelMock },
+				{ provide: EMAIL_OPT_OUT_READER, useValue: emailOptOut },
 				{
 					provide: NOTIFICATION_CHANNELS,
 					useValue: [
@@ -336,6 +340,65 @@ describe('NotificationsService', () => {
 
 			expect(emailSend).toHaveBeenCalledTimes(1);
 			expect(pushSend).toHaveBeenCalledTimes(1);
+		});
+	});
+
+	describe('chave geral "Notificações por e-mail" (TRA-244)', () => {
+		beforeEach(() => {
+			UserModelMock.findById.mockReturnValue({
+				lean: () => Promise.resolve(fakeUser()),
+			});
+		});
+
+		const statusOf = (
+			result: Awaited<ReturnType<NotificationsService['notify']>>,
+			channel: NotificationChannelName
+		) => result.deliveries.find((d) => d.channel === channel)?.status;
+
+		it('desligada: pula o e-mail e mantém o push', async () => {
+			emailOptOut.hasOptedOut.mockResolvedValue(true);
+
+			const result = await service.notify({
+				userId: new Types.ObjectId(),
+				payload: { type: NotificationType.AllocationBreached } as never,
+			});
+
+			expect(emailSend).not.toHaveBeenCalled();
+			expect(pushSend).toHaveBeenCalled();
+			expect(statusOf(result, NotificationChannelName.Email)).toBe(
+				NotificationDeliveryStatus.Skipped
+			);
+		});
+
+		it('ligada: o e-mail sai normalmente', async () => {
+			await service.notify({
+				userId: new Types.ObjectId(),
+				payload: { type: NotificationType.AllocationBreached } as never,
+			});
+
+			expect(emailSend).toHaveBeenCalled();
+		});
+
+		it('aviso de cobrança sai mesmo com a chave desligada', async () => {
+			emailOptOut.hasOptedOut.mockResolvedValue(true);
+
+			await service.notify({
+				userId: new Types.ObjectId(),
+				payload: { type: NotificationType.SubscriptionExpiring } as never,
+			});
+
+			expect(emailSend).toHaveBeenCalled();
+			expect(emailOptOut.hasOptedOut).not.toHaveBeenCalled();
+		});
+
+		it('não consulta o perfil quando a notificação não usa e-mail', async () => {
+			await service.notify({
+				userId: new Types.ObjectId(),
+				payload: { type: NotificationType.AllocationBreached } as never,
+				channels: [NotificationChannelName.Push],
+			});
+
+			expect(emailOptOut.hasOptedOut).not.toHaveBeenCalled();
 		});
 	});
 });

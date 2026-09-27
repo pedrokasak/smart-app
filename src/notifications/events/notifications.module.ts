@@ -4,6 +4,9 @@ import { EmailModule } from 'src/notifications/email/email.module';
 import { UsersModule } from 'src/users/users.module';
 import { UserSubscriptionModel } from 'src/subscription/schema';
 import { NotificationModel } from './schema/notification.model';
+import { ProfileModel } from 'src/profile/schema/profile.model';
+import { EMAIL_OPT_OUT_READER } from './application/ports/email-opt-out.port';
+import { ProfileEmailOptOutAdapter } from './infrastructure/profile-email-opt-out.adapter';
 import { NotificationsService } from './application/notifications.service';
 import { SubscriptionExpiringScheduler } from './application/subscription-expiring.scheduler';
 import { NotificationEventConsumer } from './application/notification-event.consumer';
@@ -39,6 +42,8 @@ import { TrackerrIaNotificationSummaryAdapter } from './infrastructure/trackerr-
 				name: 'UserSubscription',
 				schema: UserSubscriptionModel.schema,
 			},
+			// Chave geral de e-mail (TRA-244). Mesmo schema do ProfileModule.
+			{ name: 'Profile', schema: ProfileModel.schema },
 		]),
 		EmailModule,
 		UsersModule,
@@ -65,6 +70,8 @@ import { TrackerrIaNotificationSummaryAdapter } from './infrastructure/trackerr-
 		// precisa conhecer este modulo.
 		NotificationEventConsumer,
 		TrackerrIaNotificationSummaryAdapter,
+		ProfileEmailOptOutAdapter,
+		{ provide: EMAIL_OPT_OUT_READER, useExisting: ProfileEmailOptOutAdapter },
 		{
 			provide: NOTIFICATION_SUMMARY_PROVIDER,
 			useExisting: TrackerrIaNotificationSummaryAdapter,
