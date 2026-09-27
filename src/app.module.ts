@@ -22,6 +22,7 @@ import { SchedulerModule } from './scheduler/scheduler.module';
 import { SubscriptionModule } from './subscription/subscription.module';
 import { PixModule } from './payments/pix/pix.module';
 import { StockModule } from './stocks/stocks.module';
+import { MacroIndicatorsModule } from 'src/macro-indicators/macro-indicators.module';
 import { AssetsModule } from './assets/assets.module';
 import { AiModule } from './ai/ai.module';
 import { RagIngestionModule } from './ai/rag-ingestion/rag-ingestion.module';
@@ -61,6 +62,7 @@ import { QuoteStalenessModule } from './market-data/quote-staleness/quote-stalen
 		SchedulerModule,
 		SubscriptionModule,
 		StockModule,
+		MacroIndicatorsModule,
 		AssetsModule,
 		AiModule,
 		RagIngestionModule,

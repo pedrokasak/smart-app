@@ -22,8 +22,12 @@ import { tradeSchema } from 'src/fiscal/schema/trade.model';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 import { SectorBackfillScheduler } from 'src/portfolio/sector/sector-backfill.scheduler';
 import { RISK_FREE_RATE_PROVIDER } from 'src/portfolio/returns/risk-free-rate.port';
-import { StockModule } from 'src/stocks/stocks.module';
-import { StockService } from 'src/stocks/stocks.service';
+import { MacroIndicatorsModule } from 'src/macro-indicators/macro-indicators.module';
+import { INFLATION_PROVIDER } from 'src/portfolio/returns/inflation.port';
+import {
+	MacroInflationAdapter,
+	MacroRiskFreeRateAdapter,
+} from 'src/portfolio/returns/macro-series.adapters';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { upcomingDividendSchema } from 'src/portfolio/upcoming-dividends/upcoming-dividend.model';
@@ -59,9 +63,8 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		// volta, então a dependência é de mão única — sem ciclo.
 		TargetAllocationModule,
 		MarketDataModule,
-		// Fonte do CDI para o Sharpe (TRA-141). StockModule só importa
-		// HttpModule, então a dependência é de mão única — sem ciclo.
-		StockModule,
+		// Séries macro do BACEN (TRA-227): CDI do Sharpe e IPCA do retorno real.
+		MacroIndicatorsModule,
 	],
 	providers: [
 		// Adapters
@@ -79,7 +82,12 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		PortfolioIntelligenceService,
 		PortfolioReturnsService,
 		PortfolioCompositionService,
-		{ provide: RISK_FREE_RATE_PROVIDER, useExisting: StockService },
+		// CDI do Sharpe e IPCA do retorno real vêm do espelho local das séries
+		// do BACEN (TRA-227), não de uma ida ao BACEN por cálculo.
+		MacroRiskFreeRateAdapter,
+		{ provide: RISK_FREE_RATE_PROVIDER, useExisting: MacroRiskFreeRateAdapter },
+		MacroInflationAdapter,
+		{ provide: INFLATION_PROVIDER, useExisting: MacroInflationAdapter },
 		PortfolioRiskContributionService,
 		PortfolioHistoryBackfillService,
 		UpcomingDividendsService,

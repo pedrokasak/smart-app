@@ -33,6 +33,16 @@ import {
 	RISK_FREE_RATE_PROVIDER,
 	type RiskFreeRatePort,
 } from './risk-free-rate.port';
+import {
+	INFLATION_PROVIDER,
+	type InflationPort,
+	type InflationSeries,
+} from './inflation.port';
+import {
+	buildRealReturn,
+	ipcaLookupStart,
+	type RealReturnResult,
+} from './real-return';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 
 /**
@@ -55,6 +65,11 @@ export interface PortfolioReturnsOutput {
 		annualized: number | null;
 		periods: number;
 	};
+	/**
+	 * TWR descontado o IPCA do mesmo período (TRA-227). Número derivado: vem
+	 * com a convenção usada e a procedência da série do BACEN.
+	 */
+	realReturn: RealReturnResult;
 	/** Retorno ponderado pelo dinheiro: qual foi o retorno do SEU capital. */
 	irr: number | null;
 	/**
@@ -123,6 +138,8 @@ export class PortfolioReturnsService {
 		private readonly marketData: MarketDataProviderPort,
 		@Inject(RISK_FREE_RATE_PROVIDER)
 		private readonly riskFreeRate: RiskFreeRatePort,
+		@Inject(INFLATION_PROVIDER)
+		private readonly inflation: InflationPort,
 		private readonly portfolioService: PortfolioService
 	) {}
 
@@ -204,6 +221,22 @@ export class PortfolioReturnsService {
 				`CDI indisponível para o Sharpe: ${(error as Error)?.message || error}`
 			);
 			return [];
+		}
+	}
+
+	/** IPCA mensal para o retorno real. Falha vira `null` e a lacuna é declarada. */
+	private async fetchInflation(
+		from: string | null,
+		to: string | null
+	): Promise<InflationSeries | null> {
+		if (!from || !to) return null;
+		try {
+			return await this.inflation.getMonthlyIpca(ipcaLookupStart(from), to);
+		} catch (error) {
+			this.logger.warn(
+				`IPCA indisponível para o retorno real: ${(error as Error)?.message || error}`
+			);
+			return null;
 		}
 	}
 
@@ -318,13 +351,23 @@ export class PortfolioReturnsService {
 			series,
 			flows: flows.byDay,
 		});
-		const [benchmark, riskFreeDaily] = await Promise.all([
+		const [benchmark, riskFreeDaily, ipca] = await Promise.all([
 			this.resolveBenchmark(userId),
 			this.fetchRiskFreeDaily(
 				portfolioReturns[0]?.date,
 				portfolioReturns[portfolioReturns.length - 1]?.date
 			),
+			twrResult.twr !== null ? this.fetchInflation(from, to) : null,
 		]);
+		const realReturnResult = buildRealReturn({
+			twr: twrResult.twr,
+			from,
+			to,
+			ipca,
+		});
+		if (twrResult.twr !== null && realReturnResult.value === null) {
+			unavailable.push('real_return_inflation_unavailable');
+		}
 		if (benchmark.fallback) {
 			unavailable.push('benchmark_preferred_index_unavailable');
 		}
@@ -355,6 +398,7 @@ export class PortfolioReturnsService {
 				annualized,
 				periods: twrResult.periods,
 			},
+			realReturn: realReturnResult,
 			irr,
 			benchmark: {
 				symbol: benchmark.symbol,
