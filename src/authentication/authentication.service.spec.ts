@@ -262,7 +262,11 @@ describe('AuthenticationService', () => {
 		});
 
 		beforeEach(() => {
-			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			mockJwtService.verify.mockReturnValue({
+				userId: 'u1',
+				type: 'refresh',
+				exp: Math.floor(Date.now() / 1000) + 3600,
+			});
 			(UserModel.findById as jest.Mock).mockReturnValue({
 				select: jest.fn().mockResolvedValue(refreshingUser()),
 			});
@@ -302,8 +306,12 @@ describe('AuthenticationService', () => {
 
 			await service.refreshAccessToken('raw-refresh-token');
 
-			expect(UserModel.updateOne).toHaveBeenCalledTimes(1);
-			const [filter, update] = (UserModel.updateOne as jest.Mock).mock.calls[0];
+			// Além da rotação do refresh token (TRA-245), uma única escrita de atividade.
+			const activityWrites = (
+				UserModel.updateOne as jest.Mock
+			).mock.calls.filter(([filter]) => filter.lastSeenAt);
+			expect(activityWrites).toHaveLength(1);
+			const [filter, update] = activityWrites[0];
 			expect(filter._id).toBe('u1');
 			// Só casa se o último sinal é mais velho que o limite: renovações
 			// seguidas dentro da hora não geram escrita.
@@ -318,9 +326,14 @@ describe('AuthenticationService', () => {
 		});
 
 		it('falha ao gravar atividade nunca derruba a renovação de sessão', async () => {
-			(UserModel.updateOne as jest.Mock).mockReturnValueOnce({
-				exec: jest.fn().mockRejectedValue(new Error('mongo fora')),
-			});
+			(UserModel.updateOne as jest.Mock)
+				// rotação do refresh token (TRA-245)
+				.mockReturnValueOnce({
+					exec: jest.fn().mockResolvedValue({ modifiedCount: 1 }),
+				})
+				.mockReturnValueOnce({
+					exec: jest.fn().mockRejectedValue(new Error('mongo fora')),
+				});
 
 			const result = await service.refreshAccessToken('raw-refresh-token');
 
@@ -333,7 +346,10 @@ describe('AuthenticationService', () => {
 			await expect(
 				service.refreshAccessToken('raw-refresh-token')
 			).rejects.toThrow(UnauthorizedException);
-			expect(UserModel.updateOne).not.toHaveBeenCalled();
+			const activityWrites = (
+				UserModel.updateOne as jest.Mock
+			).mock.calls.filter(([filter]) => filter.lastSeenAt);
+			expect(activityWrites).toHaveLength(0);
 		});
 	});
 
@@ -357,7 +373,9 @@ describe('AuthenticationService', () => {
 
 			// `refreshToken` e `select: false`: sem esta projecao o campo volta
 			// undefined em producao e nenhuma renovacao funciona.
-			expect(select).toHaveBeenCalledWith('+refreshToken');
+			expect(select).toHaveBeenCalledWith(
+				'+refreshToken +previousRefreshToken +refreshTokenRotatedAt'
+			);
 			expect(mockPasswordSecurityService.verifyPassword).toHaveBeenCalledWith(
 				'raw-refresh-token',
 				'hashed-refresh-token'

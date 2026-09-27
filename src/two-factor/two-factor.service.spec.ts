@@ -154,6 +154,34 @@ describe('TwoFactorService', () => {
 			expect(user.save).toHaveBeenCalled();
 		});
 
+		it('keeps the "Manter conectado" choice carried by the temp token (TRA-245)', async () => {
+			for (const keep of [true, false]) {
+				mockJwtService.sign.mockClear();
+				mockJwtService.verify.mockReturnValue({
+					userId: 'u1',
+					type: 'temp_2fa',
+					keep,
+					exp: Math.floor(Date.now() / 1000) + 300,
+				});
+				(UserModel.findById as jest.Mock).mockReturnValue({
+					select: jest.fn().mockResolvedValue(buildUser()),
+				});
+
+				await service.authenticateWithTwoFactor(
+					'temp.token',
+					authenticator.generate(secret)
+				);
+
+				const refreshCall = mockJwtService.sign.mock.calls.find(
+					([claims]) => claims.type === 'refresh'
+				);
+				expect(refreshCall).toEqual([
+					{ userId: 'u1', type: 'refresh', keep },
+					{ expiresIn: keep ? '30d' : '1d' },
+				]);
+			}
+		});
+
 		it('lets a 2FA user refresh the session it just received', async () => {
 			const user = buildUser();
 			(UserModel.findById as jest.Mock).mockReturnValue({

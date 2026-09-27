@@ -4,11 +4,25 @@ type JwtExpiresIn = JwtSignOptions['expiresIn'];
 
 import z from 'zod';
 
+/** Prazo no formato do `ms`/jsonwebtoken: '30d', '12h', '90m'. */
+const durationSchema = z
+	.string()
+	.regex(/^\d+(ms|s|m|h|d|w|y)$/, 'use o formato do ms, ex.: 1d, 12h');
+
 const envSchema = z.object({
 	DATABASE_URL: z.string().url(),
 	JWT_SECRET: z.string(),
 	EXPIRES_IN: z.string(),
-	EXPIRES_IN_REFRESH_TOKEN: z.string(),
+	/**
+	 * Legado: prazo único do refresh token antes do TRA-245. Não é mais lido —
+	 * a sessão agora segue `SESSION_TTL_DEFAULT` / `SESSION_TTL_KEEP_CONNECTED`.
+	 * Continua aceito para não quebrar ambientes que ainda o definem.
+	 */
+	EXPIRES_IN_REFRESH_TOKEN: z.string().optional(),
+	/** Sessão sem "Manter conectado", contada do login (formato `ms`: '1d', '12h'). */
+	SESSION_TTL_DEFAULT: durationSchema.default('1d'),
+	/** Sessão com "Manter conectado", contada do login. */
+	SESSION_TTL_KEEP_CONNECTED: durationSchema.default('30d'),
 	URL_PRODUCTION: z.string(),
 	URL_DEVELOPMENT: z.string(),
 	TWELVE_DATA_API_KEY: z.string(),
@@ -101,8 +115,9 @@ if (!isTestEnvironment && jwtSecret.length < MIN_JWT_SECRET_LENGTH) {
 }
 // Tipos do jsonwebtoken 9 exigem o formato do `ms` ('1h', '7d', 3600).
 export const expireKeepAliveConected = env.data.EXPIRES_IN as JwtExpiresIn;
-export const expireKeepAliveConectedRefreshToken = env.data
-	.EXPIRES_IN_REFRESH_TOKEN as JwtExpiresIn;
+export const sessionTtlDefault = env.data.SESSION_TTL_DEFAULT as JwtExpiresIn;
+export const sessionTtlKeepConnected = env.data
+	.SESSION_TTL_KEEP_CONNECTED as JwtExpiresIn;
 export const urlProduction: string = env.data.URL_PRODUCTION;
 export const urlDevelopment: string = env.data.URL_DEVELOPMENT;
 export const twelveDataApiKey: string = env.data.TWELVE_DATA_API_KEY;

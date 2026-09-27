@@ -10,11 +10,7 @@ import { AuthenticateDto } from './dto/authenticate.dto';
 import { JwtService } from '@nestjs/jwt';
 import { AuthenticationEntity } from './entities/authentication-entity';
 import { UserModel } from 'src/users/schema/user.model';
-import {
-	expireKeepAliveConected,
-	expireKeepAliveConectedRefreshToken,
-	googleClientId,
-} from 'src/env';
+import { expireKeepAliveConected, googleClientId } from 'src/env';
 import { AuthErrorService } from 'src/utils/errors-handler';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { UpdatePasswordDto } from './dto/update-password.dto';
@@ -33,6 +29,11 @@ import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
 import { INITIAL_ADMIN_EMAIL } from 'src/admin/constants/admin.constants';
 import { Role } from 'src/auth/enums/role.enum';
 import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
+import {
+	isWithinRotationGrace,
+	remainingSessionSeconds,
+	sessionTtl,
+} from 'src/authentication/session/session-policy';
 
 /**
  * Documento mínimo de usuário aceito por `issueSessionTokens`.
@@ -46,6 +47,8 @@ export interface SessionUser {
 	firstName?: string;
 	lastName?: string;
 	refreshToken?: string | null;
+	previousRefreshToken?: string | null;
+	refreshTokenRotatedAt?: Date | null;
 	lastLogin?: Date;
 	lastSeenAt?: Date;
 	save: () => Promise<unknown>;
@@ -64,6 +67,19 @@ export interface SessionTokens {
 		lastName?: string;
 		role: string;
 	};
+}
+
+/** Opções de emissão de sessão. */
+export interface SessionOptions {
+	/** "Manter conectado": escolhe o prazo da sessão (TRA-245). */
+	keepConnected?: boolean;
+}
+
+/** Resposta da renovação. `refreshToken` vem quando o token foi girado. */
+export interface RefreshedSession {
+	accessToken: string;
+	refreshToken?: string;
+	expiresIn: string;
 }
 
 /** Renovações dentro desta janela não regravam `lastSeenAt` (TRA-192). */
@@ -94,7 +110,7 @@ export class AuthenticationService {
 	async signin(
 		createSigninDto: AuthenticateDto
 	): Promise<AuthenticationEntity> {
-		const { email, password } = createSigninDto;
+		const { email, password, keepConnected } = createSigninDto;
 
 		const verifyUser = await UserModel.findOne({ email })
 			.select('+password')
@@ -134,14 +150,10 @@ export class AuthenticationService {
 
 		// Se 2FA está habilitado, retorna um tempToken para verificação
 		if (verifyUser.twoFactorEnabled) {
-			const tempToken = this.jwtService.sign(
-				{ userId: verifyUser.id, type: 'temp_2fa' },
-				{ expiresIn: '5m' }
-			);
-			return { requiresTwoFactor: true, tempToken } as any;
+			return this.twoFactorChallenge(verifyUser.id, keepConnected);
 		}
 
-		return this.issueSessionTokens(verifyUser as any);
+		return this.issueSessionTokens(verifyUser as any, { keepConnected });
 	}
 
 	/**
@@ -222,14 +234,24 @@ export class AuthenticationService {
 		}
 
 		if (user.twoFactorEnabled) {
-			const tempToken = this.jwtService.sign(
-				{ userId: user.id, type: 'temp_2fa' },
-				{ expiresIn: '5m' }
-			);
-			return { requiresTwoFactor: true, tempToken } as any;
+			return this.twoFactorChallenge(user.id, payload.keepConnected);
 		}
 
-		return this.issueSessionTokens(user as any);
+		return this.issueSessionTokens(user as any, {
+			keepConnected: payload.keepConnected,
+		});
+	}
+
+	/**
+	 * Login com 2FA devolve um tempToken em vez da sessão. A escolha de
+	 * "Manter conectado" viaja nele (`keep`) até o código ser confirmado.
+	 */
+	private twoFactorChallenge(userId: string, keepConnected?: boolean) {
+		const tempToken = this.jwtService.sign(
+			{ userId, type: 'temp_2fa', keep: keepConnected === true },
+			{ expiresIn: '5m' }
+		);
+		return { requiresTwoFactor: true, tempToken } as any;
 	}
 
 	async signout(token: string) {
@@ -240,6 +262,21 @@ export class AuthenticationService {
 			AuthErrorService.handleInvalidToken();
 		}
 		await this.tokenBlacklistService.addToBlacklist(token, verifyToken.exp);
+
+		// Sair também encerra a renovação (TRA-245). Antes só o access token
+		// ia para a blacklist e o refresh token seguia renovando por dias.
+		if (verifyToken.userId) {
+			await UserModel.updateOne(
+				{ _id: verifyToken.userId },
+				{
+					$set: {
+						refreshToken: null,
+						previousRefreshToken: null,
+						refreshTokenRotatedAt: null,
+					},
+				}
+			).exec();
+		}
 
 		return { message: 'Signout successfully' };
 	}
@@ -279,7 +316,11 @@ export class AuthenticationService {
 	 * token em texto puro e, de quebra, emitia access token sem `role`. Manter
 	 * uma emissão só elimina a origem da divergência em vez de remendá-la.
 	 */
-	async issueSessionTokens(user: SessionUser): Promise<SessionTokens> {
+	async issueSessionTokens(
+		user: SessionUser,
+		options: SessionOptions = {}
+	): Promise<SessionTokens> {
+		const keepConnected = options.keepConnected === true;
 		const accessToken = this.jwtService.sign(
 			{
 				userId: user.id,
@@ -290,8 +331,8 @@ export class AuthenticationService {
 		);
 
 		const refreshToken = this.jwtService.sign(
-			{ userId: user.id, type: 'refresh' },
-			{ expiresIn: expireKeepAliveConectedRefreshToken }
+			{ userId: user.id, type: 'refresh', keep: keepConnected },
+			{ expiresIn: sessionTtl(keepConnected) }
 		);
 
 		// SHA-256, não Argon2 (TRA-143). Ver `refresh-token-hash.ts`: o token é
@@ -299,6 +340,9 @@ export class AuthenticationService {
 		// comparação; o hash serve para revogação/binding, não para resistir a
 		// dicionário. Argon2 aqui custava 64 MiB por login sem ganho.
 		user.refreshToken = hashRefreshToken(refreshToken);
+		// Login novo começa sem histórico de rotação.
+		user.previousRefreshToken = null;
+		user.refreshTokenRotatedAt = null;
 		// Sinal de atividade para a contagem do painel admin (TRA-192). Vai no
 		// mesmo `save()` que já grava o refresh token: nenhuma escrita extra
 		// no login. Todo fluxo de entrada (senha, Google, 2FA, recovery code)
@@ -357,9 +401,17 @@ export class AuthenticationService {
 		return { message: 'All sessions signed out successfully' };
 	}
 
-	async refreshAccessToken(
-		refreshToken: string
-	): Promise<{ accessToken: string; expiresIn: string }> {
+	/**
+	 * Renova o access token e gira o refresh token (TRA-245).
+	 *
+	 * - Token atual: devolve access token novo e um refresh token novo, que
+	 *   herda o fim da sessão do anterior (girar não estica a sessão).
+	 * - Token anterior, logo depois de uma rotação: aceito dentro da janela de
+	 *   tolerância, só com access token — abas concorrentes já têm o novo.
+	 * - Token anterior fora da janela: reuso. Alguém guardou um token que já
+	 *   foi trocado; a sessão inteira cai.
+	 */
+	async refreshAccessToken(refreshToken: string): Promise<RefreshedSession> {
 		try {
 			const payload = this.jwtService.verify(refreshToken);
 
@@ -372,17 +424,27 @@ export class AuthenticationService {
 			// so os de 2FA. Os testes nao pegavam porque mockavam `findById`
 			// devolvendo o documento ja com o campo, formato que producao nunca tem.
 			const user = await UserModel.findById(payload.userId).select(
-				'+refreshToken'
+				'+refreshToken +previousRefreshToken +refreshTokenRotatedAt'
 			);
 			if (!user || !user.refreshToken) {
 				throw new Error('Invalid refresh token');
 			}
-			const tokenValid = await this.verifyStoredRefreshToken(
+
+			const isCurrent = await this.verifyStoredRefreshToken(
 				refreshToken,
 				user.refreshToken
 			);
-			if (!tokenValid) {
-				throw new Error('Invalid refresh token');
+			let rotatedRefreshToken: string | undefined;
+
+			if (isCurrent) {
+				rotatedRefreshToken = await this.rotateRefreshToken(
+					user.id,
+					user.refreshToken,
+					payload
+				);
+			} else if (!this.isGracefulReuse(refreshToken, user)) {
+				await this.revokeOnReuse(user.id);
+				throw new Error('Refresh token reuse');
 			}
 
 			const newAccessToken = this.jwtService.sign(
@@ -394,11 +456,79 @@ export class AuthenticationService {
 
 			return {
 				accessToken: newAccessToken,
+				...(rotatedRefreshToken ? { refreshToken: rotatedRefreshToken } : {}),
 				expiresIn: String(expireKeepAliveConected),
 			};
 		} catch (error) {
 			throw new UnauthorizedException('Invalid or expired refresh token');
 		}
+	}
+
+	/**
+	 * Troca o refresh token gravado por um novo. A escrita só casa se o valor
+	 * gravado ainda é o que foi conferido: se outra requisição girou antes,
+	 * esta não sobrescreve e segue só com o access token.
+	 */
+	private async rotateRefreshToken(
+		userId: string,
+		storedValue: string,
+		payload: { exp: number; keep?: boolean }
+	): Promise<string | undefined> {
+		const claims: Record<string, unknown> = { userId, type: 'refresh' };
+		// Token emitido antes do TRA-245 não tem `keep`: o novo também não, e
+		// herda o mesmo fim de sessão.
+		if (typeof payload.keep === 'boolean') claims.keep = payload.keep;
+
+		const next = this.jwtService.sign(claims, {
+			expiresIn: remainingSessionSeconds(payload.exp),
+		});
+
+		const result = await UserModel.updateOne(
+			{ _id: userId, refreshToken: storedValue },
+			{
+				$set: {
+					refreshToken: hashRefreshToken(next),
+					// Só o digest SHA-256 do anterior entra no histórico; um valor
+					// legado (Argon2) não serve para a comparação da janela.
+					previousRefreshToken: isRefreshTokenDigest(storedValue)
+						? storedValue
+						: null,
+					refreshTokenRotatedAt: new Date(),
+				},
+			}
+		).exec();
+
+		return result.modifiedCount > 0 ? next : undefined;
+	}
+
+	private isGracefulReuse(
+		refreshToken: string,
+		user: {
+			previousRefreshToken?: string | null;
+			refreshTokenRotatedAt?: Date | null;
+		}
+	): boolean {
+		return (
+			!!user.previousRefreshToken &&
+			isWithinRotationGrace(user.refreshTokenRotatedAt) &&
+			matchesRefreshTokenDigest(refreshToken, user.previousRefreshToken)
+		);
+	}
+
+	private async revokeOnReuse(userId: string): Promise<void> {
+		this.logger.warn(
+			`[auth] refresh token já girado reapresentado; sessão revogada (user ${userId}).`
+		);
+		await UserModel.updateOne(
+			{ _id: userId },
+			{
+				$set: {
+					refreshToken: null,
+					previousRefreshToken: null,
+					refreshTokenRotatedAt: null,
+				},
+			}
+		).exec();
 	}
 
 	/**

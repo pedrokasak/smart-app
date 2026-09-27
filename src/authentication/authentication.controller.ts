@@ -62,6 +62,11 @@ export class AuthenticationController {
 					type: 'string',
 					description: 'New access token',
 				},
+				refreshToken: {
+					type: 'string',
+					description:
+						'New refresh token (rotated). Replaces the previous one; absent when a concurrent request already rotated it.',
+				},
 				expiresIn: {
 					type: 'string',
 					description: 'Token expiration time',
