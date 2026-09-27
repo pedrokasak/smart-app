@@ -12,8 +12,8 @@ import {
 	fetchSgsDailySeries,
 	toBacenDate,
 	type SgsPoint,
-} from 'src/stocks/bcb-sgs/bcb-sgs-series';
-import { TtlPromiseCache } from 'src/stocks/bcb-sgs/ttl-promise-cache';
+} from 'src/macro-indicators/infrastructure/bcb-sgs/bcb-sgs-series';
+import { TtlPromiseCache } from 'src/macro-indicators/infrastructure/bcb-sgs/ttl-promise-cache';
 
 const CDI_SGS_SERIES = 12;
 // Primeira observação da série 12, conferida ao vivo em 26/09/2026.

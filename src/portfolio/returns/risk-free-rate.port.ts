@@ -3,7 +3,8 @@
  *
  * Port em vez de injetar `StockService` direto: o returns service só precisa
  * da série do CDI, não do módulo de ações inteiro, e a fonte (hoje BACEN SGS
- * 12) pode mudar sem tocar no cálculo.
+ * 12) pode mudar sem tocar no cálculo. Desde TRA-227 o adapter lê o espelho
+ * local das séries do BACEN (`MacroRiskFreeRateAdapter`).
  */
 export const RISK_FREE_RATE_PROVIDER = Symbol('RISK_FREE_RATE_PROVIDER');
 
