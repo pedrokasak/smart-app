@@ -129,6 +129,17 @@ describe('WebhooksService — resolução de plano no webhook', () => {
 		expect(checkoutConfirmation.applySession).toHaveBeenCalledWith(session);
 	});
 
+	it('libera o plano quando o boleto compensa (checkout.session.async_payment_succeeded)', async () => {
+		const session = { id: 'cs_live_boleto', mode: 'subscription' };
+
+		await service.handleWebhook({
+			type: 'checkout.session.async_payment_succeeded',
+			data: { object: session },
+		} as any);
+
+		expect(checkoutConfirmation.applySession).toHaveBeenCalledWith(session);
+	});
+
 	it('lê a assinatura da fatura no formato da API basil (parent.subscription_details)', async () => {
 		const existing = { status: 'past_due', save: jest.fn() };
 		userSubscriptionModel.findOne.mockResolvedValue(existing);

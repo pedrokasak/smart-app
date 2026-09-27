@@ -46,6 +46,9 @@ export class WebhooksService {
 				// `metadata.userId` — mesmo caminho da confirmação pela tela de
 				// sucesso. Não depende de `stripeCustomerId` já estar gravado.
 				case 'checkout.session.completed':
+				// Boleto: a sessão conclui como "unpaid" e este evento chega
+				// quando o banco compensa, dias depois.
+				case 'checkout.session.async_payment_succeeded':
 					await this.checkoutConfirmation.applySession(
 						event.data.object as Stripe.Checkout.Session
 					);
