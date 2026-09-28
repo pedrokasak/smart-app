@@ -1,4 +1,7 @@
-import { FundamentalsService } from './fundamentals.service';
+import {
+	FundamentalsService,
+	payoutFromYieldAndEarnings,
+} from './fundamentals.service';
 
 function makeService(overrides: {
 	fundamentusFields?: Record<string, { value: number | null; text: string }>;
@@ -252,5 +255,46 @@ describe('FundamentalsService', () => {
 		expect(result.values.priceEarnings.source).toBe('brapi');
 		expect(result.values.roic.source).toBe('fundamentus');
 		expect(result.mixed).toBe(true);
+	});
+
+	// TRA-247: EV/EBITDA e payout apareciam como "sem dado" com o Fundamentus
+	// publicando os dois números.
+	describe('EV/EBITDA e payout pelo Fundamentus', () => {
+		const VIBRA = {
+			SETOR: { value: null, text: 'Petróleo, Gás e Biocombustíveis' },
+			'EV / EBITDA': { value: 6.34, text: '6,34' },
+			'DIV. YIELD': { value: 5.2, text: '5,2%' },
+			'P/L': { value: 8.82, text: '8,82' },
+		};
+
+		it('lê o EV/EBITDA publicado na página de detalhes', async () => {
+			const { service } = makeService({ fundamentusFields: VIBRA });
+
+			const result = await service.getFundamentals('VBBR3', null);
+
+			expect(result.values.evEbitda).toEqual({
+				status: 'ok',
+				value: 6.34,
+				source: 'fundamentus',
+			});
+		});
+
+		it('sem payout do Yahoo, deriva de DY × P/L', async () => {
+			const { service } = makeService({ fundamentusFields: VIBRA });
+
+			const result = await service.getFundamentals('VBBR3', null);
+
+			expect(result.values.payout).toEqual({
+				status: 'ok',
+				value: 45.86,
+				source: 'fundamentus',
+			});
+		});
+
+		it('P/L negativo (prejuízo) não vira payout', () => {
+			expect(payoutFromYieldAndEarnings(5, -3)).toBeNull();
+			expect(payoutFromYieldAndEarnings(null, 8)).toBeNull();
+			expect(payoutFromYieldAndEarnings(0, 8)).toBe(0);
+		});
 	});
 });
