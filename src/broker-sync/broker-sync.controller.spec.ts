@@ -1,5 +1,10 @@
 import * as xlsx from 'xlsx';
 import { BrokerSyncController } from './broker-sync.controller';
+import { TradeModel } from 'src/fiscal/schema/trade.model';
+
+jest.mock('src/fiscal/schema/trade.model', () => ({
+	TradeModel: { exists: jest.fn(), find: jest.fn(), insertMany: jest.fn() },
+}));
 
 function buildXlsxBuffer(sheetName: string, rows: Record<string, unknown>[]) {
 	const workbook = xlsx.utils.book_new();
@@ -255,5 +260,71 @@ describe('BrokerSyncController - resolveImportPortfolio', () => {
 
 		expect(result).toBe(existing);
 		expect(portfolioService.createPortfolio).not.toHaveBeenCalled();
+	});
+});
+
+/** TRA-248: o consolidado gravava o fechamento como preço médio. */
+describe('BrokerSyncController - applyPositionsSnapshot', () => {
+	const PORTFOLIO_ID = '64b000000000000000000001';
+	const USER_ID = '64b000000000000000000002';
+
+	function build(existing: any) {
+		const portfolioService = {
+			findPortfolioByName: jest.fn().mockResolvedValue({ _id: PORTFOLIO_ID }),
+			addAssetToPortfolio: jest.fn().mockResolvedValue(undefined),
+		};
+		const assetsService = {
+			findAssetBySymbolAndPortfolio: jest.fn().mockResolvedValue(existing),
+			update: jest.fn().mockResolvedValue(undefined),
+		};
+		const controller = new BrokerSyncController(
+			{} as any,
+			{} as any,
+			portfolioService as any,
+			assetsService as any,
+			{} as any
+		);
+		const upload: any = { save: jest.fn() };
+		return { controller, portfolioService, assetsService, upload };
+	}
+
+	const apply = (controller: BrokerSyncController, upload: any) =>
+		(controller as any).applyPositionsSnapshot(
+			USER_ID,
+			'b3',
+			[{ symbol: 'VBBR3', quantity: 73.9, price: 25.33 }],
+			upload
+		);
+
+	it('ativo existente nunca recebe o fechamento como preço médio', async () => {
+		(TradeModel.exists as jest.Mock).mockResolvedValue(null);
+		const { controller, assetsService, upload } = build({ _id: 'a1' });
+
+		await apply(controller, upload);
+
+		const [, dto] = assetsService.update.mock.calls[0];
+		expect(dto).toEqual({ quantity: 73.9, price: 25.33 });
+		expect(dto).not.toHaveProperty('avgPrice');
+		expect(upload.status).toBe('processed');
+	});
+
+	it('com negociações importadas, a quantidade continua vindo delas', async () => {
+		(TradeModel.exists as jest.Mock).mockResolvedValue({ _id: 't1' });
+		const { controller, assetsService, upload } = build({ _id: 'a1' });
+
+		await apply(controller, upload);
+
+		const [, dto] = assetsService.update.mock.calls[0];
+		expect(dto).toEqual({ price: 25.33 });
+	});
+
+	it('ativo novo entra marcado como vindo da B3, sem custo', async () => {
+		const { controller, portfolioService, upload } = build(null);
+
+		await apply(controller, upload);
+
+		const [, dto, source] = portfolioService.addAssetToPortfolio.mock.calls[0];
+		expect(source).toBe('b3');
+		expect(dto).not.toHaveProperty('avgPrice');
 	});
 });

@@ -621,10 +621,22 @@ export class BrokerSyncController {
 					portfolio._id.toString(),
 					position.symbol
 				);
+				// "Preço de Fechamento" é cotação do fim do período, nunca custo
+				// de aquisição. Gravá-lo como `avgPrice` zerava o resultado por
+				// construção e apagava um preço médio real vindo de negociações
+				// (TRA-248) — o importador de /portfolio já tinha parado de fazer
+				// isso; este caminho, não.
 				if (existing) {
+					// Com negociações importadas, a quantidade sai delas: um
+					// relatório anual antigo sobrescreveria compras feitas depois
+					// da data de referência dele.
+					const hasTrades = await TradeModel.exists({
+						userId: new Types.ObjectId(userId),
+						portfolioId: new Types.ObjectId(portfolio._id),
+						symbol: position.symbol,
+					});
 					await this.assetsService.update(existing._id.toString(), {
-						quantity: position.quantity,
-						avgPrice: position.price,
+						...(hasTrades ? {} : { quantity: position.quantity }),
 						price: position.price,
 					} as any);
 				} else {
@@ -635,7 +647,8 @@ export class BrokerSyncController {
 							type: this.inferType(position.symbol) as any,
 							quantity: position.quantity,
 							price: position.price,
-						} as any
+						} as any,
+						'b3'
 					);
 				}
 				updatedAssets++;
