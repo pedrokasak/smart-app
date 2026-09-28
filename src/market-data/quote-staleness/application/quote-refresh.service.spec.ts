@@ -87,7 +87,8 @@ describe('QuoteRefreshService (TRA-136, fase 7)', () => {
 
 		const result = await service.refresh(['petr4', 'vale3'], NOW);
 
-		expect(result).toEqual({ requested: 2, stamped: 1 });
+		expect(result).toMatchObject({ requested: 2, stamped: 1 });
+		expect(result.records).toHaveLength(1);
 		expect(gravados).toHaveLength(1);
 		expect(gravados[0].symbol).toBe('PETR4');
 		expect(gravados[0].lastQuoteAt.toISOString()).toBe(
@@ -108,7 +109,7 @@ describe('QuoteRefreshService (TRA-136, fase 7)', () => {
 
 		const result = await service.refresh(['PETR4', 'VALE3'], NOW);
 
-		expect(result).toEqual({ requested: 2, stamped: 0 });
+		expect(result).toEqual({ requested: 2, stamped: 0, records: [] });
 		expect(gravados).toHaveLength(0);
 	});
 
@@ -133,6 +134,6 @@ describe('QuoteRefreshService (TRA-136, fase 7)', () => {
 		const result = await service.refresh([], NOW);
 
 		expect(getMany).not.toHaveBeenCalled();
-		expect(result).toEqual({ requested: 0, stamped: 0 });
+		expect(result).toEqual({ requested: 0, stamped: 0, records: [] });
 	});
 });

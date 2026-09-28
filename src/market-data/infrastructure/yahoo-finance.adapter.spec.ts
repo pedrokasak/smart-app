@@ -61,15 +61,17 @@ describe('YahooFinanceAdapter', () => {
 			}),
 			expect.anything()
 		);
+		// Percentuais do Yahoo vêm como fração e saem em pontos percentuais,
+		// na mesma convenção da brapi (TRA-247).
 		expect(result).toEqual({
 			price: 30.5,
-			dividendYield: 0.08,
+			dividendYield: 8,
 			sector: 'Energy',
 			changePercent: 1.2,
 			priceToEarnings: null,
 			priceToBook: 1.4,
-			returnOnEquity: 0.19,
-			netMargin: 0.11,
+			returnOnEquity: 19,
+			netMargin: 11,
 			evEbitda: 5.2,
 			marketCap: 100000,
 		});

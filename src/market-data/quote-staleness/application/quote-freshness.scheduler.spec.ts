@@ -9,13 +9,15 @@ describe('QuoteFreshnessScheduler (TRA-136, fase 7)', () => {
 	let portfolioModel: any;
 	let refresh: { refresh: jest.Mock };
 	let producer: { heldSymbols: jest.Mock; evaluateForUser: jest.Mock };
+	let assetPrices: { applyLatestPrices: jest.Mock };
 
 	const criar = () =>
 		new QuoteFreshnessScheduler(
 			portfolioModel,
 			refresh as never,
 			producer as never,
-			SYSTEM_THRESHOLD_POLICY
+			SYSTEM_THRESHOLD_POLICY,
+			assetPrices as never
 		);
 
 	beforeEach(() => {
@@ -29,8 +31,11 @@ describe('QuoteFreshnessScheduler (TRA-136, fase 7)', () => {
 			})),
 		};
 		refresh = {
-			refresh: jest.fn().mockResolvedValue({ requested: 2, stamped: 2 }),
+			refresh: jest
+				.fn()
+				.mockResolvedValue({ requested: 2, stamped: 2, records: [] }),
 		};
+		assetPrices = { applyLatestPrices: jest.fn().mockResolvedValue(0) };
 		producer = {
 			heldSymbols: jest.fn().mockResolvedValue(['PETR4', 'VALE3']),
 			evaluateForUser: jest.fn().mockResolvedValue(1),
@@ -68,5 +73,32 @@ describe('QuoteFreshnessScheduler (TRA-136, fase 7)', () => {
 		producer.heldSymbols = jest.fn().mockRejectedValue(new Error('mongo fora'));
 
 		await expect(criar().runRefresh()).resolves.toBeUndefined();
+	});
+
+	// TRA-247: a leitura chegava ao cache mas nunca as posicoes.
+	it('leva a cotacao lida para as posicoes de quem tem o simbolo', async () => {
+		const records = [
+			{ symbol: 'PETR4', lastQuoteAt: NOW, lastPrice: 38.5, source: 'primary' },
+		];
+		refresh.refresh.mockResolvedValue({ requested: 2, stamped: 1, records });
+
+		await criar().refreshHeldSymbols(NOW);
+
+		expect(assetPrices.applyLatestPrices).toHaveBeenCalledWith(records);
+	});
+
+	it('falha ao gravar nas posicoes nao derruba a varredura', async () => {
+		assetPrices.applyLatestPrices.mockRejectedValue(new Error('mongo fora'));
+
+		await expect(criar().refreshHeldSymbols(NOW)).resolves.toMatchObject({
+			stamped: 2,
+		});
+	});
+
+	it('no pregao a varredura reaproveita o mesmo caminho', async () => {
+		await criar().runTradingHoursRefresh();
+
+		expect(refresh.refresh).toHaveBeenCalled();
+		expect(assetPrices.applyLatestPrices).toHaveBeenCalled();
 	});
 });

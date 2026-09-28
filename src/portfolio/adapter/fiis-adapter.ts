@@ -1,6 +1,7 @@
 import { HttpService } from '@nestjs/axios';
 import { Injectable } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
+import { brapiRequest } from 'src/stocks/adapter/brapi-request-gate';
 import {
 	AssetQuote,
 	AssetWithIndicators,
@@ -17,7 +18,9 @@ export class FiisApiAdapter implements IAssetApiAdapter {
 		try {
 			// FII também usa Brapi, mas é um tipo diferente
 			const url = `${this.baseUrl}/quote/${symbol}?fundamental=true`;
-			const response = await firstValueFrom(this.httpService.get(url));
+			const response = await brapiRequest(() =>
+				firstValueFrom(this.httpService.get(url))
+			);
 
 			const fii = response.data.results[0];
 
@@ -37,7 +40,9 @@ export class FiisApiAdapter implements IAssetApiAdapter {
 	async getIndicators(symbol: string): Promise<AssetWithIndicators> {
 		try {
 			const url = `${this.baseUrl}/quote/${symbol}?fundamental=true&dividends=true`;
-			const response = await firstValueFrom(this.httpService.get(url));
+			const response = await brapiRequest(() =>
+				firstValueFrom(this.httpService.get(url))
+			);
 
 			const fii = response.data.results[0];
 			const quote = await this.getQuote(symbol);
@@ -59,7 +64,9 @@ export class FiisApiAdapter implements IAssetApiAdapter {
 		try {
 			const apiKey = process.env.BRAPI_API_KEY;
 			const url = `${this.baseUrl}/quote/list?search=${query}&type=fii&token=${apiKey}`;
-			const response = await firstValueFrom(this.httpService.get(url));
+			const response = await brapiRequest(() =>
+				firstValueFrom(this.httpService.get(url))
+			);
 			return response.data.stocks;
 		} catch (error) {
 			throw error;

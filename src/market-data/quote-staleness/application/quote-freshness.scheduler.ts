@@ -6,6 +6,10 @@ import { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import { THRESHOLD_SYSTEM_POLICY } from 'src/thresholds/application/ports/threshold-policy.port';
 import { ResolvedThresholdPolicy } from 'src/thresholds/domain/threshold.types';
 import { QuoteRefreshService } from './quote-refresh.service';
+import {
+	HELD_ASSET_PRICE_WRITER,
+	HeldAssetPriceWriter,
+} from './ports/held-asset-price.port';
 import { QuoteStaleProducer } from './quote-stale.producer';
 
 /**
@@ -43,7 +47,9 @@ export class QuoteFreshnessScheduler {
 		private readonly refresh: QuoteRefreshService,
 		private readonly producer: QuoteStaleProducer,
 		@Inject(THRESHOLD_SYSTEM_POLICY)
-		private readonly systemPolicy: ResolvedThresholdPolicy
+		private readonly systemPolicy: ResolvedThresholdPolicy,
+		@Inject(HELD_ASSET_PRICE_WRITER)
+		private readonly assetPrices: HeldAssetPriceWriter
 	) {}
 
 	@Cron('0 */6 * * *', {
@@ -60,6 +66,19 @@ export class QuoteFreshnessScheduler {
 			const message = err instanceof Error ? err.message : String(err);
 			this.logger.error(`Refresh de cotacao falhou: ${message}`);
 		}
+	}
+
+	/**
+	 * Durante o pregão a cada hora (TRA-247): 6 em 6 horas deixava a carteira
+	 * com o preço da manhã o dia inteiro. As chamadas à brapi passam pela fila
+	 * de concorrência 1, então a varredura não disputa com as telas.
+	 */
+	@Cron('15 10-17 * * 1-5', {
+		name: 'market-quote-refresh-trading-hours',
+		timeZone: 'America/Sao_Paulo',
+	})
+	async runTradingHoursRefresh(): Promise<void> {
+		await this.runRefresh();
 	}
 
 	@Cron('30 7 * * *', {
@@ -81,7 +100,17 @@ export class QuoteFreshnessScheduler {
 	/** Extraido para teste. Atualiza a cotacao dos simbolos em carteira. */
 	async refreshHeldSymbols(now: Date = new Date()) {
 		const symbols = await this.producer.heldSymbols();
-		return this.refresh.refresh(symbols, now);
+		const result = await this.refresh.refresh(symbols, now);
+		// Falha ao gravar nas posicoes nao desfaz o carimbo: a leitura foi
+		// real, e a proxima varredura tenta de novo.
+		try {
+			const updated = await this.assetPrices.applyLatestPrices(result.records);
+			this.logger.log(`Cotacao aplicada em ${updated} posicao(oes)`);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.logger.error(`Falha ao aplicar cotacao nas posicoes: ${message}`);
+		}
+		return result;
 	}
 
 	/** Extraido para teste. Devolve quantos eventos foram publicados. */

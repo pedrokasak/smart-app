@@ -4,7 +4,10 @@ import {
 	MarketAssetSnapshot,
 	MarketDataProviderPort,
 } from 'src/market-data/application/market-data-provider.port';
-import { normalizeSymbol } from '../domain/quote-freshness';
+import {
+	QuoteFreshnessRecord,
+	normalizeSymbol,
+} from '../domain/quote-freshness';
 import {
 	QUOTE_FRESHNESS_STORE,
 	QuoteFreshnessStore,
@@ -15,6 +18,8 @@ export interface QuoteRefreshResult {
 	requested: number;
 	/** Simbolos que voltaram com preco e tiveram o carimbo gravado. */
 	stamped: number;
+	/** As leituras gravadas — levadas depois para as posicoes (TRA-247). */
+	records: QuoteFreshnessRecord[];
 }
 
 /**
@@ -51,7 +56,7 @@ export class QuoteRefreshService {
 		const unique = Array.from(
 			new Set(symbols.map(normalizeSymbol).filter(Boolean))
 		);
-		if (unique.length === 0) return { requested: 0, stamped: 0 };
+		if (unique.length === 0) return { requested: 0, stamped: 0, records: [] };
 
 		let snapshots: MarketAssetSnapshot[] = [];
 		try {
@@ -62,7 +67,7 @@ export class QuoteRefreshService {
 			// correta do que aconteceu.
 			const message = err instanceof Error ? err.message : String(err);
 			this.logger.error(`Varredura de cotacao falhou: ${message}`);
-			return { requested: unique.length, stamped: 0 };
+			return { requested: unique.length, stamped: 0, records: [] };
 		}
 
 		const records = snapshots
@@ -86,7 +91,7 @@ export class QuoteRefreshService {
 			await this.freshness.recordReads(records);
 		}
 
-		return { requested: unique.length, stamped: records.length };
+		return { requested: unique.length, stamped: records.length, records };
 	}
 }
 

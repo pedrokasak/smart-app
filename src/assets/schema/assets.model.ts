@@ -29,6 +29,8 @@ export interface Asset extends Document {
 	avgPrice?: number; // Preço médio/custo (quando conhecido)
 	total: number; // quantity * price
 	currentPrice?: number;
+	/** Quando `currentPrice` foi lido na fonte (varredura de cotação, TRA-247). */
+	currentPriceAt?: Date;
 	change24h?: number;
 	dividendHistory?: {
 		date: Date;
@@ -90,6 +92,7 @@ export const assetSchema = new Schema<Asset>(
 			type: Number,
 			default: null,
 		},
+		currentPriceAt: { type: Date },
 		change24h: {
 			type: Number,
 			default: null,

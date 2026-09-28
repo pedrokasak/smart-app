@@ -11,6 +11,12 @@ export class AssetResponseDto {
 	avgPrice?: number;
 	total: number;
 	currentPrice?: number;
+	/** Quando a cotação foi lida na fonte (TRA-247). */
+	currentPriceAt?: Date;
+	/** Data da cotação usada na marcação a mercado, em ISO (TRA-247). */
+	quoteAsOf?: string;
+	/** Fonte da cotação usada (`primary`, `fallback_fundamentus`...). */
+	quoteSource?: string;
 	change24h?: number;
 	dividendHistory?: {
 		date: Date;
