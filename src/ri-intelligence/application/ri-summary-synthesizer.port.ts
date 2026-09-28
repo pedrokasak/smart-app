@@ -1,5 +1,8 @@
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
-import { RiStructuredSignals } from 'src/ri-intelligence/application/ri-summary.types';
+import {
+	RiStructuredSignals,
+	RiSummaryCitation,
+} from 'src/ri-intelligence/application/ri-summary.types';
 
 export interface RiSummarySynthesisInput {
 	document: RiDocumentRecord;
@@ -10,6 +13,7 @@ export interface RiSummarySynthesisInput {
 export interface RiSummarySynthesisOutput {
 	highlights: string[];
 	narrative: string;
+	citations?: RiSummaryCitation[];
 	metadata?: {
 		model?: string;
 		tokenUsage?: number;

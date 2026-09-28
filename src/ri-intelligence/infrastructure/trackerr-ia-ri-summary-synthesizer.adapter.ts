@@ -7,6 +7,7 @@ import {
 	RiSummarySynthesisOutput,
 	RiSummarySynthesizerPort,
 } from 'src/ri-intelligence/application/ri-summary-synthesizer.port';
+import { RiSummaryCitation } from 'src/ri-intelligence/application/ri-summary.types';
 
 /**
  * Teto do texto enviado ao modelo (~15k tokens). O PDF pode ter ate 25 MB
@@ -21,6 +22,37 @@ interface TrackerrIaRiSummaryResponse {
 	highlights?: unknown;
 	narrative?: unknown;
 	provider?: string | null;
+	citations?: unknown;
+}
+
+/**
+ * Citacoes que o trackerr-ia validou contra o documento (TRA-239). Mesmo
+ * vindo de servico interno, a resposta e conferida aqui: citacao malformada
+ * ou de destaque que nao voltou e descartada, e pagina invalida vira `null`
+ * sem derrubar o trecho.
+ */
+function readCitations(
+	raw: unknown,
+	highlights: string[]
+): RiSummaryCitation[] {
+	if (!Array.isArray(raw)) return [];
+	const known = new Set(highlights);
+	const citations: RiSummaryCitation[] = [];
+	for (const item of raw) {
+		if (!item || typeof item !== 'object') continue;
+		const { highlight, excerpt, page } = item as Record<string, unknown>;
+		if (typeof highlight !== 'string' || !known.has(highlight)) continue;
+		if (typeof excerpt !== 'string' || !excerpt.trim()) continue;
+		citations.push({
+			highlight,
+			excerpt: excerpt.trim(),
+			page:
+				Number.isInteger(page) && (page as number) > 0
+					? (page as number)
+					: null,
+		});
+	}
+	return citations;
 }
 
 /**
@@ -96,6 +128,7 @@ export class TrackerrIaRiSummarySynthesizerAdapter implements RiSummarySynthesiz
 		return {
 			highlights,
 			narrative,
+			citations: readCitations(data.citations, highlights),
 			metadata: data.provider ? { model: data.provider } : undefined,
 		};
 	}
