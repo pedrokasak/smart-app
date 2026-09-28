@@ -5,6 +5,7 @@ describe('PortfolioHistoryBackfillService', () => {
 		trades: any[];
 		closes?: Record<string, { date: string; close: number }[]>;
 		upsertedCount?: number;
+		assetTypes?: Record<string, string>;
 	}) => {
 		const tradeModel = {
 			find: jest.fn().mockReturnValue({
@@ -30,12 +31,21 @@ describe('PortfolioHistoryBackfillService', () => {
 				),
 		};
 
+		const portfolioService = {
+			getPortfolioWithAssets: jest.fn().mockResolvedValue({
+				assets: Object.entries(params.assetTypes ?? {}).map(
+					([symbol, type]) => ({ symbol, type })
+				),
+			}),
+		};
+
 		const service = new PortfolioHistoryBackfillService(
 			tradeModel as any,
 			historyModel as any,
-			marketData as any
+			marketData as any,
+			portfolioService as any
 		);
-		return { service, tradeModel, historyModel, marketData };
+		return { service, tradeModel, historyModel, marketData, portfolioService };
 	};
 
 	/** Datas relativas a hoje: a janela pedida ao provedor depende da idade
@@ -98,7 +108,11 @@ describe('PortfolioHistoryBackfillService', () => {
 
 		const result = await service.backfill({ userId: 'u1', portfolioId: 'p1' });
 
-		expect(marketData.getDailyCloses).toHaveBeenCalledWith('PETR4', '1y');
+		expect(marketData.getDailyCloses).toHaveBeenCalledWith(
+			'PETR4',
+			'1y',
+			'stock'
+		);
 		expect(result.covered).toBe(true);
 		expect(result.written).toBe(25);
 		expect(result.from).toBe(iso(daysAgo(30)));
@@ -145,7 +159,56 @@ describe('PortfolioHistoryBackfillService', () => {
 
 		await service.backfill({ userId: 'u1', portfolioId: 'p1' });
 
-		expect(marketData.getDailyCloses).toHaveBeenCalledWith('PETR4', '5y');
+		expect(marketData.getDailyCloses).toHaveBeenCalledWith(
+			'PETR4',
+			'5y',
+			'stock'
+		);
+	});
+
+	// Cripto buscada como ação viria com série errada: o tipo do ativo do
+	// portfólio tem que acompanhar o símbolo até o provedor.
+	it('repassa o tipo do ativo ao provedor', async () => {
+		const { service, marketData } = makeService({
+			trades: [trade(), trade({ symbol: 'BTC' })],
+			closes: {
+				PETR4: closes(daysAgo(30), 31),
+				BTC: closes(daysAgo(30), 31),
+			},
+			assetTypes: { PETR4: 'stock', BTC: 'crypto' },
+		});
+
+		await service.backfill({ userId: 'u1', portfolioId: 'p1' });
+
+		expect(marketData.getDailyCloses).toHaveBeenCalledWith(
+			'BTC',
+			'1y',
+			'crypto'
+		);
+		expect(marketData.getDailyCloses).toHaveBeenCalledWith(
+			'PETR4',
+			'1y',
+			'stock'
+		);
+	});
+
+	it('cai em ação quando não consegue ler os tipos', async () => {
+		const { service, marketData, portfolioService } = makeService({
+			trades: [trade()],
+			closes: { PETR4: closes(daysAgo(30), 31) },
+		});
+		portfolioService.getPortfolioWithAssets.mockRejectedValueOnce(
+			new Error('db')
+		);
+
+		const result = await service.backfill({ userId: 'u1', portfolioId: 'p1' });
+
+		expect(result.covered).toBe(true);
+		expect(marketData.getDailyCloses).toHaveBeenCalledWith(
+			'PETR4',
+			'1y',
+			'stock'
+		);
 	});
 
 	it('falha de cotação não derruba a reconstrução', async () => {
