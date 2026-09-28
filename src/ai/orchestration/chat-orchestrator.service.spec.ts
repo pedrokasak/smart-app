@@ -8,7 +8,11 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiDocumentQueryPort } from 'src/ri-intelligence/application/ri-document-query.port';
 import { StockService } from 'src/stocks/stocks.service';
-import { UserPlanResolverPort } from 'src/subscription/application/user-plan.types';
+import {
+	FREE_ACCESS_LEVEL,
+	PREMIUM_ACCESS_LEVEL,
+	UserPlanResolverPort,
+} from 'src/subscription/application/user-plan.types';
 
 describe('ChatOrchestratorService', () => {
 	const mockPortfolioService = {
@@ -63,6 +67,9 @@ describe('ChatOrchestratorService', () => {
 
 	const mockUserPlanResolver = {
 		resolve: jest.fn().mockResolvedValue('free'),
+		resolveWithCapabilities: jest
+			.fn()
+			.mockResolvedValue({ tier: FREE_ACCESS_LEVEL, capabilities: [] }),
 	} as unknown as UserPlanResolverPort;
 
 	const mockCompositionService = {
@@ -1539,6 +1546,100 @@ describe('ChatOrchestratorService', () => {
 		expect(response.warnings).toEqual(
 			expect.arrayContaining(['ri_document_not_found'])
 		);
+	});
+
+	// TRA-238: o resumo de RI por IA e capability paga (`ri.ai_summary`), a
+	// mesma que trava POST /ri-intelligence/summary. Pelo chat ela vazava
+	// assim que o sintetizador fosse ligado.
+	describe('RI summary AI gate (TRA-238)', () => {
+		const latestDocument = {
+			document: {
+				id: 'doc-current',
+				ticker: 'BBDC4',
+				company: 'Bradesco',
+				title: '4T25',
+				documentType: 'earnings_release',
+				period: '4T25',
+				publishedAt: '2026-02-10T00:00:00.000Z',
+				source: { type: 'url', value: 'https://example.com/current.pdf' },
+				classification: { method: 'provided', confidence: 'high' },
+				contentStatus: 'metadata_only',
+			},
+			content: 'receita crescimento lucro alta',
+		};
+
+		beforeEach(() => {
+			(mockRiDocumentQuery.getLatestByTicker as jest.Mock).mockResolvedValue(
+				latestDocument
+			);
+			(mockRiDocumentSummaryService.summarize as jest.Mock).mockResolvedValue({
+				summary: { status: 'ai_failed' },
+			});
+		});
+
+		it('asks for the structured summary when the plan lacks ri.ai_summary', async () => {
+			(
+				mockUserPlanResolver.resolveWithCapabilities as jest.Mock
+			).mockResolvedValueOnce({ tier: FREE_ACCESS_LEVEL, capabilities: [] });
+
+			const response = await makeService().orchestrate(
+				'user-1',
+				'O que mudou no último RI de BBDC4?'
+			);
+
+			expect(response.intent).toBe('ri_summary');
+			expect(mockRiDocumentSummaryService.summarize).toHaveBeenCalledWith(
+				expect.objectContaining({ allowAi: false })
+			);
+			expect(response.cache.key).toContain('ri:0');
+		});
+
+		it('allows the ai summary when the plan has ri.ai_summary', async () => {
+			(
+				mockUserPlanResolver.resolveWithCapabilities as jest.Mock
+			).mockResolvedValueOnce({
+				tier: PREMIUM_ACCESS_LEVEL,
+				capabilities: [],
+			});
+
+			const response = await makeService().orchestrate(
+				'user-1',
+				'O que mudou no último RI de BBDC4?'
+			);
+
+			expect(mockRiDocumentSummaryService.summarize).toHaveBeenCalledWith(
+				expect.objectContaining({ allowAi: true })
+			);
+			expect(response.cache.key).toContain('ri:1');
+		});
+
+		it('denies ai when the plan lookup fails', async () => {
+			(
+				mockUserPlanResolver.resolveWithCapabilities as jest.Mock
+			).mockRejectedValueOnce(new Error('mongo down'));
+
+			await makeService().orchestrate(
+				'user-1',
+				'O que mudou no último RI de BBDC4?'
+			);
+
+			expect(mockRiDocumentSummaryService.summarize).toHaveBeenCalledWith(
+				expect.objectContaining({ allowAi: false })
+			);
+		});
+
+		it('does not consult capabilities nor change the cache key for other intents', async () => {
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Qual o resumo da minha carteira?'
+			);
+
+			expect(response.intent).not.toMatch(/^ri_/);
+			expect(
+				mockUserPlanResolver.resolveWithCapabilities
+			).not.toHaveBeenCalled();
+			expect(response.cache.key ?? '').not.toContain('ri:');
+		});
 	});
 
 	it('routes RI comparison deterministically when current and previous docs are available', async () => {

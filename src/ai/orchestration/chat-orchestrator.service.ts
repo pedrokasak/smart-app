@@ -36,10 +36,17 @@ import {
 import { RiDocumentSummaryOutput } from 'src/ri-intelligence/application/ri-summary.types';
 import { StockService } from 'src/stocks/stocks.service';
 import {
+	planHasCapability,
 	USER_PLAN_RESOLVER,
 	UserPlanResolverPort,
 	UserPlanTier,
 } from 'src/subscription/application/user-plan.types';
+
+/** Intents que resumem documento de RI e, por isso, podem chamar IA. */
+const RI_SUMMARY_INTENTS: ReadonlySet<ChatOrchestratorIntent> = new Set([
+	'ri_summary',
+	'ri_comparison',
+]);
 
 /**
  * Tudo que o preâmbulo de `orchestrate()` calcula uma vez e que todo ramo
@@ -154,6 +161,14 @@ export class ChatOrchestratorService {
 		);
 		// Plano vem da assinatura, nao da carteira (TRA-79 / CLAUDE.md 4.4).
 		const userPlan = await this.userPlanResolver.resolve(userId);
+		// Resumo de RI por IA e capability paga (`ri.ai_summary`), a mesma que
+		// trava POST /ri-intelligence/summary (TRA-238). Entra na chave de cache
+		// porque ela nao e por usuario: duas carteiras vazias no mesmo patamar
+		// geram a mesma chave, e o plano pode ter a capability ajustada pelo
+		// admin sem mudar de patamar.
+		const riAiAllowed = RI_SUMMARY_INTENTS.has(intent)
+			? await this.canUseRiAiSummary(userId)
+			: undefined;
 		const portfolioHash = this.computePortfolioHash(positions);
 		const marketDataVersion = this.resolveMarketDataVersion({
 			intent,
@@ -165,6 +180,7 @@ export class ChatOrchestratorService {
 			userPlan,
 			marketDataVersion,
 			responseMode: predictedRouteType,
+			riAiAllowed,
 		});
 		const ttlSeconds = this.resolveCacheTtl(intent, predictedRouteType);
 		const canCache = this.canCacheIntent(intent, marketDataVersion);
@@ -889,6 +905,7 @@ export class ChatOrchestratorService {
 			const riSummary = await this.riDocumentSummaryService.summarize({
 				document: latestDocument.document,
 				content: latestDocument.content || '',
+				allowAi: riAiAllowed === true,
 			});
 			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
@@ -927,14 +944,21 @@ export class ChatOrchestratorService {
 					data: {},
 				});
 			}
-			const currentSummary = await this.riDocumentSummaryService.summarize({
-				document: latestDocument.document,
-				content: latestDocument.content || '',
-			});
-			const previousSummary = await this.riDocumentSummaryService.summarize({
-				document: previousDocument.document,
-				content: previousDocument.content || '',
-			});
+			// Em paralelo: com o resumo por IA ligado (TRA-238) cada chamada pode
+			// levar dezenas de segundos na primeira vez, e as duas sao
+			// independentes.
+			const [currentSummary, previousSummary] = await Promise.all([
+				this.riDocumentSummaryService.summarize({
+					document: latestDocument.document,
+					content: latestDocument.content || '',
+					allowAi: riAiAllowed === true,
+				}),
+				this.riDocumentSummaryService.summarize({
+					document: previousDocument.document,
+					content: previousDocument.content || '',
+					allowAi: riAiAllowed === true,
+				}),
+			]);
 			const riComparison = this.buildRiComparison(
 				currentSummary,
 				previousSummary
@@ -1453,18 +1477,43 @@ export class ChatOrchestratorService {
 		userPlan: UserPlanTier;
 		marketDataVersion: string;
 		responseMode: 'deterministic_no_llm' | 'synthesis_required';
+		/** So nas intents de RI; nas demais a chave fica como sempre foi. */
+		riAiAllowed?: boolean;
 	}): string {
 		const normalizedQuestion = String(input.question || '')
 			.trim()
 			.toLowerCase()
 			.replace(/\s+/g, ' ');
-		return [
+		const parts = [
 			`q:${normalizedQuestion}`,
 			`p:${input.portfolioHash}`,
 			`plan:${input.userPlan}`,
 			`mv:${input.marketDataVersion}`,
 			`mode:${input.responseMode}`,
-		].join('|');
+		];
+		if (input.riAiAllowed !== undefined) {
+			parts.push(`ri:${input.riAiAllowed ? 1 : 0}`);
+		}
+		return parts.join('|');
+	}
+
+	/** Negar em caso de duvida: e o comportamento seguro para feature paga. */
+	private async canUseRiAiSummary(userId: string): Promise<boolean> {
+		try {
+			const access =
+				await this.userPlanResolver.resolveWithCapabilities(userId);
+			return planHasCapability(
+				access.capabilities,
+				'ri.ai_summary',
+				access.tier,
+				access.capabilitiesKnown
+			);
+		} catch (error) {
+			this.logger.warn(
+				`Falha ao resolver capability ri.ai_summary: ${error?.message}; resumo de RI sem IA.`
+			);
+			return false;
+		}
 	}
 
 	private computePortfolioHash(

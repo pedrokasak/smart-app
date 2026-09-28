@@ -20,6 +20,12 @@ export interface RiStructuredSignals {
 export interface RiDocumentSummaryInput {
 	document: RiDocumentRecord;
 	content: string | null | undefined;
+	/**
+	 * `false` quando quem chama nao tem a capability `ri.ai_summary` (TRA-238):
+	 * devolve so o resumo estruturado, sem ler cache nem chamar IA. Ausente
+	 * vale `true` — a rota HTTP ja e travada pelo `@RequiresCapability`.
+	 */
+	allowAi?: boolean;
 }
 
 export interface RiDocumentSummaryOutput {

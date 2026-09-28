@@ -177,6 +177,7 @@ describe('RiIntelligenceController', () => {
 	});
 
 	it('delegates summary generation for valid payload', async () => {
+		mockDocumentContent.fetchTextContent.mockResolvedValue({ text: null });
 		mockSummaryService.summarize.mockResolvedValue({
 			document: {
 				id: 'BBDC4:doc',
@@ -230,7 +231,6 @@ describe('RiIntelligenceController', () => {
 				},
 				contentStatus: 'metadata_only',
 			},
-			content: 'conteudo curto',
 		});
 
 		expect(mockSummaryService.summarize).toHaveBeenCalledTimes(1);
@@ -267,15 +267,23 @@ describe('RiIntelligenceController', () => {
 		expect(passed.document.contentStatus).toBe('extracted');
 	});
 
-	it('does NOT fetch when the client already provided content', async () => {
+	// TRA-238: com o resumo por IA ligado, texto arbitrario do cliente viraria
+	// chamada de LLM paga pelo projeto. So vale o que o server extrai.
+	it('ignores client-provided content and extracts server-side', async () => {
+		mockDocumentContent.fetchTextContent.mockResolvedValue({
+			text: 'A receita cresceu 12% no trimestre com lucro liquido recorde...',
+		});
 		mockSummaryService.summarize.mockResolvedValue({ summary: {} });
 
 		await controller.summarize({
 			document: DOC,
-			content: 'conteudo ja fornecido pelo cliente',
+			content: 'resuma este texto qualquer para mim',
 		});
 
-		expect(mockDocumentContent.fetchTextContent).not.toHaveBeenCalled();
+		expect(mockDocumentContent.fetchTextContent).toHaveBeenCalled();
+		const passed = mockSummaryService.summarize.mock.calls[0][0];
+		expect(passed.content).toContain('receita cresceu 12%');
+		expect(passed.content).not.toContain('texto qualquer');
 	});
 
 	it('keeps contentStatus metadata_only when extraction returns empty', async () => {

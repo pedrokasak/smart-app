@@ -156,4 +156,27 @@ describe('EndpointRateLimitMiddleware', () => {
 			middleware.use(reqFor('/portfolio/zzz/import-b3-auto'), res, next)
 		).rejects.toMatchObject({ status: HttpStatus.TOO_MANY_REQUESTS });
 	});
+
+	// TRA-238: cada resumo de RI novo baixa um PDF e chama o LLM.
+	it('limits RI AI summaries to 20 per 10 minutes', async () => {
+		const middleware = new EndpointRateLimitMiddleware();
+		const res: any = { setHeader: jest.fn() };
+		const next = jest.fn();
+		const req: any = {
+			method: 'POST',
+			path: '/ri-intelligence/summary',
+			ip: '10.0.0.7',
+			headers: { 'user-agent': 'jest', 'accept-language': 'pt-BR' },
+			socket: { remoteAddress: '10.0.0.7' },
+		};
+
+		for (let i = 0; i < 20; i += 1) {
+			await middleware.use(req, res, next);
+		}
+		expect(next).toHaveBeenCalledTimes(20);
+
+		await expect(middleware.use(req, res, next)).rejects.toMatchObject({
+			status: HttpStatus.TOO_MANY_REQUESTS,
+		});
+	});
 });

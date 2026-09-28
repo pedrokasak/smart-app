@@ -18,7 +18,10 @@ import {
 @Injectable()
 export class RiDocumentSummaryService {
 	private readonly minContentLength = 220;
-	private readonly cacheTtlSeconds = 60 * 30;
+	// A chave carrega a hash do conteudo e o documento publicado nao muda:
+	// resumo vencido so faria pagar a mesma chamada de novo (TRA-238). Mudou
+	// o prompt no trackerr-ia? Suba o sufixo `v1` de `buildCacheKey`.
+	private readonly cacheTtlSeconds = 60 * 60 * 24 * 30;
 
 	constructor(
 		@Optional()
@@ -48,7 +51,23 @@ export class RiDocumentSummaryService {
 			});
 		}
 
-		const cacheKey = this.buildCacheKey(input.document.id, normalizedContent);
+		// Sem a capability, nem o cache e lido: ele guarda resumo de IA, que e
+		// justamente o conteudo pago (TRA-238).
+		if (input.allowAi === false) {
+			return this.buildOutput({
+				input,
+				structuredSignals,
+				summaryStatus: 'ai_failed',
+				sourceLabel: 'structured_fallback',
+				highlights: [],
+				narrative: null,
+				limitations: ['ri_ai_summary_not_in_plan'],
+				cache: { key: null, hit: false, ttlSeconds: null },
+				cost: { aiCalls: 0, tokenUsageEstimate: 0 },
+			});
+		}
+
+		const cacheKey = this.buildCacheKey(input.document, normalizedContent);
 		if (this.cache) {
 			try {
 				const cached = await this.cache.get(cacheKey);
@@ -171,12 +190,32 @@ export class RiDocumentSummaryService {
 			.trim();
 	}
 
-	private buildCacheKey(documentId: string, content: string): string {
-		const contentHash = createHash('sha256')
-			.update(content)
+	/**
+	 * O cache e compartilhado entre usuarios, entao a chave cobre TUDO que
+	 * entra no prompt, nao so o texto (TRA-238). Ticker, empresa, periodo e
+	 * titulo vem do corpo da requisicao em POST /ri-intelligence/summary:
+	 * sem eles na chave, alguem mandaria o id e o PDF verdadeiros com uma
+	 * "empresa" contendo instrucoes, e o resumo adulterado ficaria gravado
+	 * na chave legitima, servido a todo mundo por 30 dias.
+	 */
+	private buildCacheKey(
+		document: RiDocumentSummaryInput['document'],
+		content: string
+	): string {
+		const promptInputs = JSON.stringify([
+			document.ticker ?? null,
+			document.company ?? null,
+			document.documentType ?? null,
+			document.period ?? null,
+			document.title ?? null,
+			document.publishedAt ?? null,
+			content,
+		]);
+		const inputsHash = createHash('sha256')
+			.update(promptInputs)
 			.digest('hex')
 			.slice(0, 12);
-		return `ri-summary:${documentId}:${contentHash}:v1`;
+		return `ri-summary:${document.id}:${inputsHash}:v1`;
 	}
 
 	private limitHighlights(items: string[]): string[] {

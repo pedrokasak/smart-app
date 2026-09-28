@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { HttpModule } from '@nestjs/axios';
+import { MongooseModule } from '@nestjs/mongoose';
 import { StockModule } from 'src/stocks/stocks.module';
 import { RI_ASSET_AUTOCOMPLETE } from 'src/ri-intelligence/application/ri-asset-autocomplete.port';
 import { RiDocumentCatalogService } from 'src/ri-intelligence/application/ri-document-catalog.service';
@@ -13,7 +14,10 @@ import { RI_ISSUER_CATALOG } from 'src/ri-intelligence/application/ri-issuer-cat
 import { HttpRiDocumentLinkResolverAdapter } from 'src/ri-intelligence/infrastructure/http-ri-document-link-resolver.adapter';
 import { RI_SUMMARY_CACHE } from 'src/ri-intelligence/application/ri-summary-cache.port';
 import { InMemoryRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastructure/in-memory-ri-document-discovery.adapter';
-import { InMemoryRiSummaryCacheAdapter } from 'src/ri-intelligence/infrastructure/in-memory-ri-summary-cache.adapter';
+import { RI_SUMMARY_SYNTHESIZER } from 'src/ri-intelligence/application/ri-summary-synthesizer.port';
+import { MongoRiSummaryCacheAdapter } from 'src/ri-intelligence/infrastructure/mongo-ri-summary-cache.adapter';
+import { RiSummaryCacheModel } from 'src/ri-intelligence/infrastructure/ri-summary-cache.model';
+import { TrackerrIaRiSummarySynthesizerAdapter } from 'src/ri-intelligence/infrastructure/trackerr-ia-ri-summary-synthesizer.adapter';
 import { StocksRiAssetAutocompleteAdapter } from 'src/ri-intelligence/infrastructure/stocks-ri-asset-autocomplete.adapter';
 import { StocksRiIssuerCatalogAdapter } from 'src/ri-intelligence/infrastructure/stocks-ri-issuer-catalog.adapter';
 import { B3RegistryCnpjResolverAdapter } from 'src/ri-intelligence/infrastructure/b3-registry-cnpj-resolver.adapter';
@@ -29,7 +33,13 @@ import { RI_DOCUMENT_CONTENT } from 'src/ri-intelligence/application/ri-document
 import { HttpPdfRiDocumentContentAdapter } from 'src/ri-intelligence/infrastructure/http-pdf-ri-document-content.adapter';
 
 @Module({
-	imports: [StockModule, HttpModule],
+	imports: [
+		StockModule,
+		HttpModule,
+		MongooseModule.forFeature([
+			{ name: 'RiSummaryCache', schema: RiSummaryCacheModel.schema },
+		]),
+	],
 	controllers: [RiIntelligenceController],
 	providers: [
 		RiDocumentCatalogService,
@@ -47,9 +57,18 @@ import { HttpPdfRiDocumentContentAdapter } from 'src/ri-intelligence/infrastruct
 			provide: RI_ORIGIN_SEARCH,
 			useExisting: GoogleCseRiOriginSearchAdapter,
 		},
+		// Resumo por IA via trackerr-ia com cache persistente (TRA-238). Antes o
+		// sintetizador nao era registrado e o cache era em memoria: todo resumo
+		// caia no fallback estruturado. `ri-intelligence.module.spec` trava isso.
+		TrackerrIaRiSummarySynthesizerAdapter,
+		MongoRiSummaryCacheAdapter,
+		{
+			provide: RI_SUMMARY_SYNTHESIZER,
+			useExisting: TrackerrIaRiSummarySynthesizerAdapter,
+		},
 		{
 			provide: RI_SUMMARY_CACHE,
-			useClass: InMemoryRiSummaryCacheAdapter,
+			useExisting: MongoRiSummaryCacheAdapter,
 		},
 		{
 			provide: RI_ASSET_AUTOCOMPLETE,
