@@ -13,6 +13,7 @@ import {
 	RiDocumentSummaryOutput,
 	RiStructuredSignalItem,
 	RiStructuredSignals,
+	RiSummaryCitation,
 } from 'src/ri-intelligence/application/ri-summary.types';
 
 @Injectable()
@@ -20,7 +21,7 @@ export class RiDocumentSummaryService {
 	private readonly minContentLength = 220;
 	// A chave carrega a hash do conteudo e o documento publicado nao muda:
 	// resumo vencido so faria pagar a mesma chamada de novo (TRA-238). Mudou
-	// o prompt no trackerr-ia? Suba o sufixo `v1` de `buildCacheKey`.
+	// o prompt no trackerr-ia? Suba o sufixo de versao de `buildCacheKey`.
 	private readonly cacheTtlSeconds = 60 * 60 * 24 * 30;
 
 	constructor(
@@ -114,12 +115,14 @@ export class RiDocumentSummaryService {
 				content: normalizedContent,
 				structuredSignals,
 			});
+			const highlights = this.limitHighlights(synthesized.highlights || []);
 			const output = this.buildOutput({
 				input,
 				structuredSignals,
 				summaryStatus: 'ai_generated',
 				sourceLabel: 'ai_summary',
-				highlights: this.limitHighlights(synthesized.highlights || []),
+				highlights,
+				citations: this.alignCitations(highlights, synthesized.citations),
 				narrative: String(synthesized.narrative || '').trim() || null,
 				limitations: [],
 				cache: { key: cacheKey, hit: false, ttlSeconds: this.cacheTtlSeconds },
@@ -157,6 +160,7 @@ export class RiDocumentSummaryService {
 		summaryStatus: RiDocumentSummaryOutput['summary']['status'];
 		sourceLabel: RiDocumentSummaryOutput['summary']['sourceLabel'];
 		highlights: string[];
+		citations?: RiSummaryCitation[];
 		narrative: string | null;
 		limitations: string[];
 		cache: RiDocumentSummaryOutput['cache'];
@@ -177,6 +181,7 @@ export class RiDocumentSummaryService {
 				narrative: params.narrative,
 				limitations: params.limitations,
 				sourceLabel: params.sourceLabel,
+				citations: params.citations ?? [],
 			},
 			structuredSignals: params.structuredSignals,
 			cache: params.cache,
@@ -215,13 +220,34 @@ export class RiDocumentSummaryService {
 			.update(promptInputs)
 			.digest('hex')
 			.slice(0, 12);
-		return `ri-summary:${document.id}:${inputsHash}:v1`;
+		// v2 (TRA-239): destaques passaram a vir com citacao verificada.
+		return `ri-summary:${document.id}:${inputsHash}:v2`;
 	}
 
 	private limitHighlights(items: string[]): string[] {
 		return Array.from(
 			new Set(items.map((item) => String(item || '').trim()).filter(Boolean))
 		).slice(0, 8);
+	}
+
+	/**
+	 * Uma citacao por destaque FINAL, na mesma ordem (TRA-239): depois do
+	 * dedupe e do corte em 8, nao pode sobrar citacao de destaque que nao
+	 * aparece na tela.
+	 */
+	private alignCitations(
+		highlights: string[],
+		citations: RiSummaryCitation[] | undefined
+	): RiSummaryCitation[] {
+		const byHighlight = new Map<string, RiSummaryCitation>();
+		for (const citation of citations ?? []) {
+			const key = String(citation?.highlight || '').trim();
+			if (key && !byHighlight.has(key)) byHighlight.set(key, citation);
+		}
+		return highlights.flatMap((highlight) => {
+			const citation = byHighlight.get(highlight);
+			return citation ? [{ ...citation, highlight }] : [];
+		});
 	}
 
 	private extractStructuredSignals(content: string): RiStructuredSignals {

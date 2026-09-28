@@ -186,9 +186,65 @@ describe('RiDocumentSummaryService', () => {
 			unknown,
 			number,
 		];
-		expect(key).toMatch(/^ri-summary:ri-doc-1:[a-f0-9]{12}:v1$/);
+		// v2 (TRA-239): o prompt passou a exigir trecho por destaque; resumo
+		// gravado com o prompt anterior nao tem citacao e nao pode ser servido.
+		expect(key).toMatch(/^ri-summary:ri-doc-1:[a-f0-9]{12}:v2$/);
 		expect(ttl).toBe(60 * 60 * 24 * 30);
 		expect(output.cache.ttlSeconds).toBe(60 * 60 * 24 * 30);
+	});
+
+	// TRA-239: cada destaque chega com o trecho do documento que o sustenta.
+	// A lista de citacoes acompanha os destaques FINAIS — depois do dedupe e
+	// do corte em 8 — pra nao sobrar citacao de destaque que nao aparece.
+	it('keeps citations aligned with the final highlights', async () => {
+		const highlights = Array.from({ length: 10 }, (_, i) => `Destaque ${i}`);
+		const synthesizer: RiSummarySynthesizerPort = {
+			summarize: jest.fn(async () => ({
+				highlights: [highlights[0], ...highlights],
+				narrative: 'Resumo.',
+				citations: [
+					...highlights.map((highlight, page) => ({
+						highlight,
+						excerpt: `Trecho ${page}`,
+						page,
+					})),
+					{ highlight: 'Destaque inexistente', excerpt: 'x', page: 1 },
+				],
+			})) as any,
+		};
+		const service = new RiDocumentSummaryService(synthesizer, undefined);
+
+		const output = await service.summarize({
+			document: baseDocument,
+			content: longContent,
+		});
+
+		expect(output.summary.highlights).toHaveLength(8);
+		expect(output.summary.citations?.map((c) => c.highlight)).toEqual(
+			output.summary.highlights
+		);
+		expect(output.summary.citations?.[3]).toEqual({
+			highlight: 'Destaque 3',
+			excerpt: 'Trecho 3',
+			page: 3,
+		});
+	});
+
+	it('returns no citations on the structured fallback', async () => {
+		const synthesizer: RiSummarySynthesizerPort = {
+			summarize: jest.fn(async () => {
+				throw new Error('ai down');
+			}) as any,
+		};
+		const service = new RiDocumentSummaryService(synthesizer, undefined);
+
+		const output = await service.summarize({
+			document: baseDocument,
+			content: longContent,
+		});
+
+		expect(output.summary.sourceLabel).toBe('structured_fallback');
+		expect(output.summary.citations).toEqual([]);
 	});
 
 	// TRA-238: o cache e compartilhado entre usuarios. Metadado que entra no

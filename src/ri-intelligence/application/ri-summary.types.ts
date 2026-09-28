@@ -28,6 +28,18 @@ export interface RiDocumentSummaryInput {
 	allowAi?: boolean;
 }
 
+/**
+ * O que sustenta um destaque do resumo por IA (TRA-239). O trackerr-ia so
+ * aprova destaque cujo trecho existe no documento e contem os numeros
+ * citados; `excerpt` e o texto do PROPRIO documento, nao a copia do modelo.
+ */
+export interface RiSummaryCitation {
+	highlight: string;
+	excerpt: string;
+	/** Calculada pelos marcadores do PDF; `null` quando o texto nao os tem. */
+	page: number | null;
+}
+
 export interface RiDocumentSummaryOutput {
 	document: {
 		id: string;
@@ -43,6 +55,8 @@ export interface RiDocumentSummaryOutput {
 		narrative: string | null;
 		limitations: string[];
 		sourceLabel: 'ai_summary' | 'structured_fallback';
+		/** Aditivo (TRA-239): uma citacao por destaque, na mesma ordem. */
+		citations?: RiSummaryCitation[];
 	};
 	structuredSignals: RiStructuredSignals;
 	cache: {

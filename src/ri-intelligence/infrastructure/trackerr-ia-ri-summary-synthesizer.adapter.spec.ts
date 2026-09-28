@@ -78,6 +78,7 @@ describe('TrackerrIaRiSummarySynthesizerAdapter (TRA-238)', () => {
 		expect(out).toEqual({
 			highlights: ['Receita cresceu 12%.'],
 			narrative: 'Trimestre de crescimento.',
+			citations: [],
 			metadata: { model: 'gemini' },
 		});
 		const [url, body, config] = httpService.post.mock.calls[0];
@@ -98,6 +99,68 @@ describe('TrackerrIaRiSummarySynthesizerAdapter (TRA-238)', () => {
 		});
 		expect(config.headers['Content-Type']).toBe('application/json');
 		expect(config.timeout).toBeGreaterThan(0);
+	});
+
+	// TRA-239: o trackerr-ia devolve, pra cada destaque, o trecho do documento
+	// que o sustenta e a pagina calculada pelos marcadores do PDF.
+	it('maps the citation of each highlight', async () => {
+		httpService.post.mockReturnValue(
+			of({
+				data: {
+					highlights: ['Receita cresceu 12%.'],
+					narrative: '',
+					citations: [
+						{
+							highlight: 'Receita cresceu 12%.',
+							excerpt: 'A receita cresceu 12% no trimestre.',
+							page: 3,
+						},
+					],
+				},
+			})
+		);
+
+		const out = await adapter.summarize(makeInput());
+
+		expect(out.citations).toEqual([
+			{
+				highlight: 'Receita cresceu 12%.',
+				excerpt: 'A receita cresceu 12% no trimestre.',
+				page: 3,
+			},
+		]);
+	});
+
+	it('discards malformed citations and citations of unknown highlights', async () => {
+		httpService.post.mockReturnValue(
+			of({
+				data: {
+					highlights: ['Receita cresceu 12%.'],
+					narrative: '',
+					citations: [
+						null,
+						{ highlight: 'Receita cresceu 12%.', excerpt: 42, page: 1 },
+						{ highlight: 'Outro destaque.', excerpt: 'Trecho.', page: 1 },
+						{
+							highlight: 'Receita cresceu 12%.',
+							excerpt: 'A receita cresceu 12%.',
+							page: 'três',
+						},
+					],
+				},
+			})
+		);
+
+		const out = await adapter.summarize(makeInput());
+
+		// Pagina invalida vira `null` — o trecho continua valendo.
+		expect(out.citations).toEqual([
+			{
+				highlight: 'Receita cresceu 12%.',
+				excerpt: 'A receita cresceu 12%.',
+				page: null,
+			},
+		]);
 	});
 
 	it('caps the content sent to the model', async () => {
