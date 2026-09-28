@@ -22,6 +22,18 @@ const FUNDAMENTUS_LABELS: Partial<Record<FundamentalKey, string>> = {
 	returnOnEquity: 'ROE',
 };
 
+/**
+ * O Fundamentus publica "EV / EBITDA" na página de detalhes (VBBR3: 6,34);
+ * o card mostrava "sem dado" (TRA-247). Fica fora do grupo coerente, como o
+ * payout: nem toda página traz o número, e a ausência dele não pode tornar
+ * "misto" o grupo lido do balanço.
+ */
+const FUNDAMENTUS_EV_EBITDA = 'EV / EBITDA';
+
+/** Rótulos usados só para derivar o payout quando nenhuma fonte o reporta. */
+const FUNDAMENTUS_DIVIDEND_YIELD = 'DIV. YIELD';
+const FUNDAMENTUS_PRICE_EARNINGS = 'P/L';
+
 const FUNDAMENTUS_SECTOR_LABEL = 'SETOR';
 
 const BRAPI_FIELDS: Partial<Record<FundamentalKey, string>> = {
@@ -100,11 +112,10 @@ export class FundamentalsService {
 		//
 		// Os dois filtros importam. `payout` sai porque tem fonte propria e
 		// nunca participa da disputa de grupo. E uma chave que nenhuma fonte
-		// mapeia — hoje `evEbitda`, que nem a brapi no plano gratuito nem o
-		// Fundamentus publicam — precisa sair tambem: se ficasse, nenhuma
-		// fonte conseguiria cobrir o grupo inteiro, o ramo de coerencia nunca
-		// dispararia e todo resultado sairia marcado como misto. Ela
-		// permanece `unavailable`, que e a resposta correta.
+		// mapeia precisa sair tambem: se ficasse, nenhuma fonte conseguiria
+		// cobrir o grupo inteiro, o ramo de coerencia nunca dispararia e todo
+		// resultado sairia marcado como misto. Ela permanece `unavailable`,
+		// que e a resposta correta.
 		const readable = (key: FundamentalKey) =>
 			BRAPI_FIELDS[key] !== undefined || FUNDAMENTUS_LABELS[key] !== undefined;
 
@@ -154,15 +165,16 @@ export class FundamentalsService {
 			}
 		}
 
-		await this.fillPayout(values, symbol);
+		this.fillEvEbitda(values, index);
+		await this.fillPayout(values, symbol, index);
 		this.reportSourceDrift('fundamentus', symbol, index);
 
-		// `payout` nunca disputa o grupo (fonte propria: yahoo/derived) e por
-		// isso fica fora daqui. `mixed` descreve a coerencia do grupo lido do
+		// `payout` e `evEbitda` nunca disputam o grupo (fonte propria) e por
+		// isso ficam fora daqui. `mixed` descreve a coerencia do grupo lido do
 		// balanco (roic, margem, divida, P/L, P/VP, ROE, evEbitda) — nao a
 		// origem do payout, que ja e visivel no seu proprio `source`.
 		const sources = new Set(
-			FUNDAMENTAL_KEYS.filter((key) => key !== 'payout')
+			FUNDAMENTAL_KEYS.filter((key) => key !== 'payout' && key !== 'evEbitda')
 				.map((key) => values[key])
 				.filter((entry) => entry.status === 'ok')
 				.map((entry) => entry.source)
@@ -239,9 +251,23 @@ export class FundamentalsService {
 		return index.get(normalizeFundamentusKey(label))?.value ?? null;
 	}
 
+	private fillEvEbitda(
+		values: Record<FundamentalKey, FundamentalValue>,
+		index: Map<string, FundamentusField>
+	): void {
+		if (values.evEbitda.status !== 'unavailable') return;
+		const value = index.get(
+			normalizeFundamentusKey(FUNDAMENTUS_EV_EBITDA)
+		)?.value;
+		if (typeof value === 'number' && Number.isFinite(value)) {
+			values.evEbitda = { status: 'ok', value, source: 'fundamentus' };
+		}
+	}
+
 	private async fillPayout(
 		values: Record<FundamentalKey, FundamentalValue>,
-		symbol: string
+		symbol: string,
+		index: Map<string, FundamentusField>
 	): Promise<void> {
 		if (values.payout.status !== 'unavailable') return;
 
@@ -265,6 +291,41 @@ export class FundamentalsService {
 
 		if (derived !== null) {
 			values.payout = { status: 'ok', value: derived, source: 'derived' };
+			return;
+		}
+
+		// Último recurso (TRA-247): o Yahoo bloqueia o servidor com frequência
+		// e o payout ficava "sem dado". DY × P/L é o mesmo número por outra
+		// conta — (dividendo/preço) × (preço/lucro) = dividendo/lucro — e o
+		// Fundamentus publica os dois (VBBR3: 5,2% × 8,82 ≈ 46%).
+		const fromFundamentus = payoutFromYieldAndEarnings(
+			index.get(normalizeFundamentusKey(FUNDAMENTUS_DIVIDEND_YIELD))?.value ??
+				null,
+			index.get(normalizeFundamentusKey(FUNDAMENTUS_PRICE_EARNINGS))?.value ??
+				null
+		);
+		if (fromFundamentus !== null) {
+			values.payout = {
+				status: 'ok',
+				value: fromFundamentus,
+				source: 'fundamentus',
+			};
 		}
 	}
+}
+
+/**
+ * Payout a partir do dividend yield (em pontos percentuais) e do P/L.
+ * Com prejuízo (P/L ≤ 0) a razão não tem leitura de payout.
+ */
+export function payoutFromYieldAndEarnings(
+	dividendYieldPct: number | null,
+	priceEarnings: number | null
+): number | null {
+	if (dividendYieldPct === null || priceEarnings === null) return null;
+	if (!Number.isFinite(dividendYieldPct) || !Number.isFinite(priceEarnings)) {
+		return null;
+	}
+	if (dividendYieldPct < 0 || !(priceEarnings > 0)) return null;
+	return Math.round(dividendYieldPct * priceEarnings * 100) / 100;
 }
