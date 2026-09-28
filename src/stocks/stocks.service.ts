@@ -167,7 +167,17 @@ export class StockService implements StockRepository {
 			? options
 			: { ...options, range: undefined, interval: undefined };
 
-		const response = await this.brapi.getStockQuote(cleanSymbol, brapiOptions);
+		let response: any;
+		try {
+			response = await this.brapi.getStockQuote(cleanSymbol, brapiOptions);
+		} catch (error) {
+			// 429 da brapi (concorrência/volume) ou rede: sem este tratamento a
+			// exceção subia crua e a tela recebia 500 (TRA-247).
+			this.logger.warn(
+				`brapi indisponível para ${cleanSymbol}: ${error?.message || error}`
+			);
+			return this.nationalQuoteFallback(cleanSymbol, requestedRange);
+		}
 		const stock = response?.results?.[0];
 		if (!stock) return response;
 
@@ -622,6 +632,59 @@ export class StockService implements StockRepository {
 			source: 'unavailable',
 			fallbackSources: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 3),
 			unavailableProviders: StockService.GLOBAL_QUOTE_CHAIN.slice(0, 3),
+		};
+	}
+
+	/**
+	 * Cotação quando a brapi falhou: Yahoo e, sem ele, a mesma resposta
+	 * "indisponível" da cotação global — nunca uma exceção (TRA-247).
+	 */
+	private async nationalQuoteFallback(symbol: string, range?: string) {
+		try {
+			const snapshot = await this.yahooFinance.getSnapshot(symbol, 'stock');
+			if (snapshot && snapshot.price !== null) {
+				const result: Record<string, unknown> = {
+					symbol,
+					regularMarketPrice: snapshot.price,
+					regularMarketChangePercent: snapshot.changePercent,
+					dividendYield: snapshot.dividendYield,
+					priceEarnings: snapshot.priceToEarnings,
+					priceToBook: snapshot.priceToBook,
+					returnOnEquity: snapshot.returnOnEquity,
+					netMargin: snapshot.netMargin,
+					enterpriseValueEbitda: snapshot.evEbitda,
+					marketCap: snapshot.marketCap,
+					sector: snapshot.sector,
+				};
+				if (range) {
+					result.historicalDataPrice = await this.yahooFinance.getHistory(
+						symbol,
+						'stock',
+						range
+					);
+				}
+				return {
+					results: [result],
+					source: 'yahoo_finance',
+					fallbackSources: ['brapi'],
+				};
+			}
+		} catch (error) {
+			this.logger.warn(
+				`Yahoo Finance indisponivel para ${symbol}: ${error?.message || error}`
+			);
+		}
+
+		return {
+			results: [
+				{
+					symbol,
+					unavailable: true,
+					message: 'Cotação indisponível no momento.',
+				},
+			],
+			source: 'unavailable',
+			fallbackSources: ['brapi', 'yahoo_finance'],
 		};
 	}
 

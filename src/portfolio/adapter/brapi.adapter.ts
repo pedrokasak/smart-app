@@ -1,6 +1,7 @@
 import { HttpService } from '@nestjs/axios';
 import { Inject, Injectable } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
+import { brapiRequest } from 'src/stocks/adapter/brapi-request-gate';
 import {
 	AssetQuote,
 	AssetWithIndicators,
@@ -29,10 +30,12 @@ export class BrapiStockAdapter implements IAssetApiAdapter {
 			const fund = options?.fundamental ?? true;
 			const div = options?.dividends ?? true;
 			const url = `${this.baseUrl}/quote/${symbols}?fundamental=${fund}&dividends=${div}`;
-			const response = await firstValueFrom(
-				this.httpService.get(url, {
-					headers: { 'User-Agent': 'SmartFolio App' },
-				})
+			const response = await brapiRequest(() =>
+				firstValueFrom(
+					this.httpService.get(url, {
+						headers: { 'User-Agent': 'SmartFolio App' },
+					})
+				)
 			);
 
 			const stock = response.data.results[0];
@@ -86,13 +89,17 @@ export class BrapiStockAdapter implements IAssetApiAdapter {
 			const url = `${this.baseUrl}/quote/${symbol}?fundamental=true&dividends=true`;
 			let response;
 			try {
-				response = await firstValueFrom(this.httpService.get(url));
+				response = await brapiRequest(() =>
+					firstValueFrom(this.httpService.get(url))
+				);
 			} catch (e: any) {
 				const errorData = e?.response?.data;
 				if (errorData?.code === 'FEATURE_NOT_AVAILABLE') {
 					// Retry with minimal data
-					response = await firstValueFrom(
-						this.httpService.get(`${this.baseUrl}/quote/${symbol}`)
+					response = await brapiRequest(() =>
+						firstValueFrom(
+							this.httpService.get(`${this.baseUrl}/quote/${symbol}`)
+						)
 					);
 				} else {
 					throw e;
@@ -146,7 +153,9 @@ export class BrapiStockAdapter implements IAssetApiAdapter {
 		try {
 			const apiKey = process.env.BRAPI_API_KEY;
 			const url = `${this.baseUrl}/quote/list?search=${query}&type=stock&token=${apiKey}`;
-			const response = await firstValueFrom(this.httpService.get(url));
+			const response = await brapiRequest(() =>
+				firstValueFrom(this.httpService.get(url))
+			);
 			return response.data.stocks;
 		} catch (error) {
 			console.error('BrapiAdapter - Erro ao listar ações:', error);

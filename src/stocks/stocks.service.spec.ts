@@ -849,3 +849,71 @@ describe('StockService.getCdiSeries', () => {
 		expect(retry.series).toEqual([{ date: '2026-07-01', value: 0.05 }]);
 	});
 });
+
+/** TRA-247: 429 da brapi subia cru e a tela recebia 500. */
+describe('StockService.getNationalQuote — brapi fora do ar', () => {
+	const build = (yahoo: { snapshot?: any; history?: any[] } = {}) => {
+		const rateLimited = Object.assign(
+			new Error('Request failed with status code 429'),
+			{
+				response: { status: 429 },
+			}
+		);
+		const brapi = {
+			getStockQuote: jest
+				.fn<(symbol: string, options?: any) => Promise<any>>()
+				.mockRejectedValue(rateLimited),
+		} as unknown as BrapiAdapter;
+		const yahooFinance = {
+			getSnapshot: jest
+				.fn<(symbol: string, assetType: string) => Promise<any>>()
+				.mockResolvedValue(yahoo.snapshot ?? null),
+			getHistory: jest
+				.fn<
+					(symbol: string, assetType: string, range: string) => Promise<any[]>
+				>()
+				.mockResolvedValue(yahoo.history ?? []),
+		} as unknown as YahooFinanceAdapter;
+		const service = new StockService(
+			brapi,
+			{} as TwelveDataAdapter,
+			{ getSnapshot: jest.fn() } as unknown as FundamentusFallbackAdapter,
+			{} as CvmOpenDataAdapter,
+			yahooFinance
+		);
+		return { service, yahooFinance };
+	};
+
+	it('responde com a cotação do Yahoo, incluindo o histórico pedido', async () => {
+		const { service, yahooFinance } = build({
+			snapshot: { price: 128000, changePercent: -0.4, dividendYield: null },
+			history: [{ date: 1790000000, close: 127500 }],
+		});
+
+		const response = await service.getNationalQuote('^BVSP', { range: '1mo' });
+
+		expect(response.source).toBe('yahoo_finance');
+		expect(response.results[0]).toMatchObject({
+			symbol: '^BVSP',
+			regularMarketPrice: 128000,
+			historicalDataPrice: [{ date: 1790000000, close: 127500 }],
+		});
+		expect(yahooFinance.getHistory).toHaveBeenCalledWith(
+			'^BVSP',
+			'stock',
+			'1mo'
+		);
+	});
+
+	it('sem nenhuma fonte, devolve "indisponível" em vez de lançar', async () => {
+		const { service } = build();
+
+		const response = await service.getNationalQuote('USDBRL=X');
+
+		expect(response.source).toBe('unavailable');
+		expect(response.results[0]).toMatchObject({
+			symbol: 'USDBRL=X',
+			unavailable: true,
+		});
+	});
+});

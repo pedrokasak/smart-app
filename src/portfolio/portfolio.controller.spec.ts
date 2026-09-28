@@ -9,6 +9,7 @@ import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
+import { QUOTE_FRESHNESS_STORE } from 'src/market-data/quote-staleness/application/ports/quote-freshness.port';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 import * as xlsx from 'xlsx';
 import { BrokerageNoteUploadModel } from 'src/broker-sync/schema/brokerage-note-upload.model';
@@ -73,6 +74,10 @@ describe('PortfolioController', () => {
 		backfill: jest.fn(),
 	};
 
+	const mockQuoteFreshness = {
+		findBySymbols: jest.fn().mockResolvedValue([]),
+		recordReads: jest.fn(),
+	};
 	const mockUpcomingDividendsService = {
 		replaceForPortfolio: jest.fn(),
 		listUpcoming: jest.fn(),
@@ -113,6 +118,10 @@ describe('PortfolioController', () => {
 				{
 					provide: UpcomingDividendsService,
 					useValue: mockUpcomingDividendsService,
+				},
+				{
+					provide: QUOTE_FRESHNESS_STORE,
+					useValue: mockQuoteFreshness,
 				},
 			],
 		}).compile();
@@ -462,6 +471,84 @@ describe('PortfolioController', () => {
 					originalName: 'movimentacao.pdf',
 				})
 			);
+		});
+	});
+
+	// TRA-247: a carteira mostrava o fechamento do relatório, não a cotação.
+	describe('GET /portfolio/assets — marcação a mercado', () => {
+		it('usa a última cotação do cache para preço e valor da posição', async () => {
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						{
+							_id: 'a1',
+							portfolioId: 'p1',
+							symbol: 'VBBR3',
+							type: 'stock',
+							quantity: 73.9,
+							price: 25.33,
+							total: 1872.03,
+							currentPrice: null,
+							source: 'b3',
+						},
+					],
+				},
+			]);
+			(TradeModel.find as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					lean: jest.fn().mockResolvedValue([]),
+				}),
+			});
+			mockQuoteFreshness.findBySymbols.mockResolvedValue([
+				{
+					symbol: 'VBBR3',
+					lastQuoteAt: new Date('2026-09-26T11:49:00Z'),
+					lastPrice: 37.21,
+					source: 'primary',
+				},
+			]);
+
+			const [asset] = await controller.findAllAssets({
+				user: { userId: 'u1' },
+			});
+
+			expect(mockQuoteFreshness.findBySymbols).toHaveBeenCalledWith(['VBBR3']);
+			expect(asset.currentPrice).toBe(37.21);
+			expect(asset.total).toBe(2749.82);
+			expect(asset.quoteAsOf).toBe('2026-09-26T11:49:00.000Z');
+		});
+
+		it('se o cache falha, devolve a carteira com o preço gravado', async () => {
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						{
+							_id: 'a1',
+							portfolioId: 'p1',
+							symbol: 'VBBR3',
+							type: 'stock',
+							quantity: 10,
+							price: 20,
+							total: 200,
+							source: 'b3',
+						},
+					],
+				},
+			]);
+			(TradeModel.find as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					lean: jest.fn().mockResolvedValue([]),
+				}),
+			});
+			mockQuoteFreshness.findBySymbols.mockRejectedValue(
+				new Error('mongo fora')
+			);
+
+			const [asset] = await controller.findAllAssets({
+				user: { userId: 'u1' },
+			});
+
+			expect(asset.total).toBe(200);
 		});
 	});
 });

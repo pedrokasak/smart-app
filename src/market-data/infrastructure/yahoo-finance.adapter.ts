@@ -38,6 +38,11 @@ const QUOTE_SUMMARY_MODULES = [
 	'incomeStatementHistory',
 ] as const;
 
+/** Fração do Yahoo (0,068) para pontos percentuais (6,8). */
+export function fractionToPercent(value: number | null): number | null {
+	return value === null ? null : Math.round(value * 100 * 1e6) / 1e6;
+}
+
 @Injectable()
 export class YahooFinanceAdapter {
 	private readonly logger = new Logger(YahooFinanceAdapter.name);
@@ -369,9 +374,14 @@ export class YahooFinanceAdapter {
 		try {
 			const raw = await this.fetchQuoteSummary(yahooSymbol);
 
+			// O Yahoo devolve percentuais como fração (0,068); o resto do sistema
+			// usa a convenção da brapi, em pontos percentuais (6,8). Sem converter,
+			// o fallback mostrava "DY 0,1%" para quem paga 6,8% (TRA-247).
 			const snapshot: YahooFundamentalsSnapshot = {
 				price: this.toNullableNumber(raw?.price?.regularMarketPrice),
-				dividendYield: this.toNullableNumber(raw?.summaryDetail?.dividendYield),
+				dividendYield: fractionToPercent(
+					this.toNullableNumber(raw?.summaryDetail?.dividendYield)
+				),
 				sector: raw?.summaryProfile?.sector
 					? String(raw.summaryProfile.sector)
 					: null,
@@ -382,10 +392,12 @@ export class YahooFinanceAdapter {
 				priceToBook: this.toNullableNumber(
 					raw?.defaultKeyStatistics?.priceToBook
 				),
-				returnOnEquity: this.toNullableNumber(
-					raw?.financialData?.returnOnEquity
+				returnOnEquity: fractionToPercent(
+					this.toNullableNumber(raw?.financialData?.returnOnEquity)
 				),
-				netMargin: this.toNullableNumber(raw?.financialData?.profitMargins),
+				netMargin: fractionToPercent(
+					this.toNullableNumber(raw?.financialData?.profitMargins)
+				),
 				evEbitda: this.toNullableNumber(
 					raw?.defaultKeyStatistics?.enterpriseToEbitda
 				),

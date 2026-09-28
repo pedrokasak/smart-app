@@ -8,6 +8,9 @@ import { CoinGeckoAdapter } from 'src/portfolio/adapter/coingecko.adapter';
 import { FiisApiAdapter } from 'src/portfolio/adapter/fiis-adapter';
 import { TwelveDataEtfAdapter } from 'src/portfolio/adapter/twelvedata.adapter';
 import { MarketDataModule } from 'src/market-data/market-data.module';
+import { QuoteFreshnessModel } from 'src/market-data/quote-staleness/infrastructure/quote-freshness.model';
+import { MongoQuoteFreshnessRepository } from 'src/market-data/quote-staleness/infrastructure/mongo-quote-freshness.repository';
+import { QUOTE_FRESHNESS_STORE } from 'src/market-data/quote-staleness/application/ports/quote-freshness.port';
 import { PortfolioEnrichService } from 'src/portfolio/portfolio-enrich.service';
 import { PortfolioController } from 'src/portfolio/portfolio.controller';
 import { PortfolioIntelligenceService } from 'src/portfolio/intelligence/application/portfolio-intelligence.service';
@@ -44,6 +47,9 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 				name: 'PortfolioHistory',
 				schema: portfolioHistorySchema,
 			},
+			// Última cotação por símbolo, para marcar a carteira a mercado na
+			// leitura (TRA-247). Mesmo schema do QuoteStalenessModule.
+			{ name: 'QuoteFreshness', schema: QuoteFreshnessModel.schema },
 			// Negociações são lidas para derivar fluxo de caixa (TRA-146).
 			// Registradas localmente em vez de importar o FiscalModule inteiro —
 			// mesmo padrão já usado por privacy.module.ts (CLAUDE.md §11).
@@ -91,6 +97,11 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		PortfolioRiskContributionService,
 		PortfolioHistoryBackfillService,
 		UpcomingDividendsService,
+		MongoQuoteFreshnessRepository,
+		{
+			provide: QUOTE_FRESHNESS_STORE,
+			useExisting: MongoQuoteFreshnessRepository,
+		},
 
 		// Schedulers
 		// Backfill diário do setor dos ativos existentes (TRA-144): o

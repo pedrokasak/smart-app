@@ -15,6 +15,7 @@ import {
 	UploadedFile,
 	Logger,
 	UnprocessableEntityException,
+	Inject,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -38,6 +39,11 @@ import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 import { withDerivedAveragePrice } from 'src/portfolio/derive-average-price';
+import { applyLatestQuotes } from 'src/portfolio/valuation/market-quote-overlay';
+import {
+	QUOTE_FRESHNESS_STORE,
+	QuoteFreshnessStore,
+} from 'src/market-data/quote-staleness/application/ports/quote-freshness.port';
 import { buildDataHealthReport } from 'src/portfolio/portfolio-data-health';
 import { buildHistoryFromTrades } from 'src/portfolio/history-from-trades';
 import { Types } from 'mongoose';
@@ -85,7 +91,9 @@ export class PortfolioController {
 		private portfolioCompositionService: PortfolioCompositionService,
 		private portfolioRiskContributionService: PortfolioRiskContributionService,
 		private portfolioHistoryBackfillService: PortfolioHistoryBackfillService,
-		private upcomingDividendsService: UpcomingDividendsService
+		private upcomingDividendsService: UpcomingDividendsService,
+		@Inject(QUOTE_FRESHNESS_STORE)
+		private readonly quoteFreshness: QuoteFreshnessStore
 	) {}
 
 	@Post('create')
@@ -134,7 +142,23 @@ export class PortfolioController {
 			trades as any
 		);
 
-		return withAverage;
+		return this.markToMarket(withAverage);
+	}
+
+	/**
+	 * Marcação a mercado com a última cotação lida por símbolo (TRA-247).
+	 * Sem ela, posição, resultado e peso saíam do preço da importação — e as
+	 * três rotas que devolvem ativos precisam dar o mesmo número. Falha ao
+	 * ler o cache não derruba a carteira: fica o preço gravado.
+	 */
+	private async markToMarket<T extends AssetResponseDto>(
+		assets: T[]
+	): Promise<T[]> {
+		if (!assets.length) return assets;
+		const quotes = await this.quoteFreshness
+			.findBySymbols(assets.map((asset) => asset.symbol))
+			.catch(() => []);
+		return applyLatestQuotes(assets, quotes);
 	}
 
 	@Get('transactions')
@@ -246,9 +270,11 @@ export class PortfolioController {
 			const trades = await TradeModel.find({ userId })
 				.select('symbol side quantity price fees date')
 				.lean();
-			const [withAverage] = withDerivedAveragePrice(
-				[AssetMapper.toResponseDto(asset)],
-				trades as any
+			const [withAverage] = await this.markToMarket(
+				withDerivedAveragePrice(
+					[AssetMapper.toResponseDto(asset)],
+					trades as any
+				)
 			);
 			return withAverage;
 		}
@@ -400,7 +426,9 @@ export class PortfolioController {
 
 		return {
 			...dto,
-			assets: withDerivedAveragePrice(dto.assets, trades as any),
+			assets: await this.markToMarket(
+				withDerivedAveragePrice(dto.assets, trades as any)
+			),
 		};
 	}
 

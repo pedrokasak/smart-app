@@ -10,6 +10,8 @@ import { QuoteFreshnessScheduler } from './application/quote-freshness.scheduler
 import { QuoteRefreshService } from './application/quote-refresh.service';
 import { QuoteStaleProducer } from './application/quote-stale.producer';
 import { MongoQuoteFreshnessRepository } from './infrastructure/mongo-quote-freshness.repository';
+import { HELD_ASSET_PRICE_WRITER } from './application/ports/held-asset-price.port';
+import { MongoHeldAssetPriceWriter } from './infrastructure/mongo-held-asset-price.writer';
 import { QuoteFreshnessModel } from './infrastructure/quote-freshness.model';
 
 /**
@@ -41,6 +43,11 @@ import { QuoteFreshnessModel } from './infrastructure/quote-freshness.model';
 		{
 			provide: QUOTE_FRESHNESS_STORE,
 			useExisting: MongoQuoteFreshnessRepository,
+		},
+		MongoHeldAssetPriceWriter,
+		{
+			provide: HELD_ASSET_PRICE_WRITER,
+			useExisting: MongoHeldAssetPriceWriter,
 		},
 		QuoteRefreshService,
 		QuoteStaleProducer,

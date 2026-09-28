@@ -1,5 +1,6 @@
 import { HttpService } from '@nestjs/axios';
 import { firstValueFrom } from 'rxjs';
+import { brapiRequest, isBrapiRateLimit } from './brapi-request-gate';
 import { brapiApiKey } from 'src/env';
 import { StockApiAdapter } from './stockDataApi';
 import { Injectable } from '@nestjs/common/decorators';
@@ -40,13 +41,15 @@ export class BrapiAdapter implements StockApiAdapter {
 			if (div) params.append('dividends', 'true');
 
 			const url = `${this.baseUrl}/quote/${symbols}?${params.toString()}`;
-			return firstValueFrom(
-				this.httpService.get(url, {
-					headers: {
-						'User-Agent': 'SmartFolio App',
-						'Content-Type': 'application/json',
-					},
-				})
+			return brapiRequest(() =>
+				firstValueFrom(
+					this.httpService.get(url, {
+						headers: {
+							'User-Agent': 'SmartFolio App',
+							'Content-Type': 'application/json',
+						},
+					})
+				)
 			);
 		};
 
@@ -58,6 +61,11 @@ export class BrapiAdapter implements StockApiAdapter {
 			return response.data;
 		} catch (error) {
 			const errorData = error?.response?.data;
+
+			// 429 é limite de concorrência/volume, não restrição de plano:
+			// tirar fundamental/dividends e repetir só gastaria mais chamadas.
+			// A fila (`brapiRequest`) já repetiu; aqui só propaga (TRA-247).
+			if (isBrapiRateLimit(error)) throw error;
 
 			// INVALID_RANGE não tem relação com fundamental/dividends. Remover
 			// esses parâmetros e repetir a requisição com o mesmo range recusado
@@ -149,7 +157,9 @@ export class BrapiAdapter implements StockApiAdapter {
 			if (!apiKey) throw new Error('BRAPI_API_KEY não definida');
 
 			const url = `${this.baseUrl}/quote/list?search=${search}&sortBy=${sortBy}&sortOrder=${sortOrder}&limit=${limit}&page=${page}&type=stock${sector ? `&sector=${encodeURIComponent(sector)}` : ''}&token=${apiKey}`;
-			const response = await firstValueFrom(this.httpService.get(url));
+			const response = await brapiRequest(() =>
+				firstValueFrom(this.httpService.get(url))
+			);
 			return response.data;
 		} catch (error) {
 			console.error('Erro ao listar ações:', error);
