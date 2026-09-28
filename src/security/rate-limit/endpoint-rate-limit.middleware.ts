@@ -53,6 +53,10 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		'POST:/ai/chat': { limit: 20, windowMs: 60_000 },
 		'POST:/ai/chat/intelligent': { limit: 20, windowMs: 60_000 },
 		'POST:/ai/analyze': { limit: 20, windowMs: 60_000 },
+		// Resumo de RI por IA (TRA-238): baixa o PDF e chama o LLM a cada
+		// documento novo. O web guarda o resumo por documento no cliente, entao
+		// uso normal fica bem abaixo disto.
+		'POST:/ri-intelligence/summary': { limit: 20, windowMs: 10 * 60_000 },
 	};
 
 	/**

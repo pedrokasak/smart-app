@@ -94,11 +94,13 @@ export class RiIntelligenceController {
 	async summarize(@Body() body: RiSummaryBody) {
 		if (!body?.document) throw new BadRequestException('ri_document_required');
 
-		// Conteudo pode vir do cliente, mas na pratica o web nao consegue
-		// buscar o PDF do site de RI (CORS externo), entao a extracao acontece
-		// aqui, server-side (TRA-85). Se o cliente ja mandou content, respeita.
-		let content = body.content || null;
-		if (!content && body.document.source?.type === 'url') {
+		// O web nao consegue buscar o PDF do site de RI (CORS externo), entao a
+		// extracao acontece aqui, server-side (TRA-85). `content` enviado pelo
+		// cliente e ignorado desde TRA-238: com o resumo por IA ligado, aceitar
+		// texto arbitrario transformava a rota num resumidor de uso geral pago
+		// pelo projeto. O web nunca mandou esse campo.
+		let content: string | null = null;
+		if (body.document.source?.type === 'url') {
 			const fetched = await this.documentContent.fetchTextContent(
 				body.document.source.value
 			);
