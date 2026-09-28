@@ -3,8 +3,10 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
 	MARKET_DATA_PROVIDER,
+	type MarketAssetType,
 	type MarketDataProviderPort,
 } from 'src/market-data/application/market-data-provider.port';
+import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { PortfolioHistory } from 'src/portfolio/schema/portfolio-history.model';
 import { TradeDocument } from 'src/fiscal/schema/trade.model';
 import { backfillSeries, type PriceLookup } from './backfill-series';
@@ -49,8 +51,35 @@ export class PortfolioHistoryBackfillService {
 		@InjectModel('PortfolioHistory')
 		private readonly historyModel: Model<PortfolioHistory>,
 		@Inject(MARKET_DATA_PROVIDER)
-		private readonly marketData: MarketDataProviderPort
+		private readonly marketData: MarketDataProviderPort,
+		private readonly portfolioService: PortfolioService
 	) {}
+
+	/**
+	 * Tipo de cada símbolo, lido dos ativos do portfólio. A negociação só guarda
+	 * o símbolo; sem o tipo, cripto seria buscada como ação e a série viria
+	 * errada (TRA-141). Símbolo desconhecido cai em ação, o padrão anterior.
+	 */
+	private async assetTypesBySymbol(
+		portfolioId: string
+	): Promise<Map<string, MarketAssetType>> {
+		const types = new Map<string, MarketAssetType>();
+		try {
+			const portfolio: any =
+				await this.portfolioService.getPortfolioWithAssets(portfolioId);
+			for (const asset of portfolio?.assets ?? []) {
+				const symbol = String(asset?.symbol || '').toUpperCase();
+				if (symbol && asset?.type) {
+					types.set(symbol, asset.type as MarketAssetType);
+				}
+			}
+		} catch (error) {
+			this.logger.warn(
+				`Tipos dos ativos indisponíveis para ${portfolioId}: ${(error as Error)?.message || error}`
+			);
+		}
+		return types;
+	}
 
 	/** Janela pedida ao provedor, pela distância até a primeira negociação. */
 	private rangeForSpan(days: number): string {
@@ -100,6 +129,7 @@ export class PortfolioHistoryBackfillService {
 		);
 		const range = this.rangeForSpan(Math.max(0, spanDays));
 
+		const assetTypes = await this.assetTypesBySymbol(params.portfolioId);
 		const prices: PriceLookup = new Map();
 		const missingSymbols: string[] = [];
 		const fetched = await Promise.all(
@@ -107,7 +137,11 @@ export class PortfolioHistoryBackfillService {
 				try {
 					return [
 						symbol,
-						await this.marketData.getDailyCloses(symbol, range),
+						await this.marketData.getDailyCloses(
+							symbol,
+							range,
+							assetTypes.get(symbol) ?? 'stock'
+						),
 					] as const;
 				} catch (error) {
 					this.logger.warn(
