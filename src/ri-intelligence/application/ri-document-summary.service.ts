@@ -45,22 +45,10 @@ export class RiDocumentSummaryService {
 		const normalizedContent = this.normalizeContent(input.content);
 		const structuredSignals = this.extractStructuredSignals(normalizedContent);
 
-		if (normalizedContent.length < this.minContentLength) {
-			return this.buildOutput({
-				input,
-				structuredSignals,
-				summaryStatus: 'insufficient_content',
-				sourceLabel: 'structured_fallback',
-				highlights: [],
-				narrative: null,
-				limitations: ['ri_content_insufficient_for_summary'],
-				cache: { key: null, hit: false, ttlSeconds: null },
-				cost: { aiCalls: 0, tokenUsageEstimate: 0 },
-			});
-		}
-
 		// Sem a capability, nem o cache e lido: ele guarda resumo de IA, que e
-		// justamente o conteudo pago (TRA-238).
+		// justamente o conteudo pago (TRA-238). Vem antes da checagem de
+		// conteudo (TRA-253): quem nao tem o resumo no plano nem baixa o PDF,
+		// e a resposta certa para ele e "fora do plano", nao "sem conteudo".
 		if (input.allowAi === false) {
 			return this.buildOutput({
 				input,
@@ -70,6 +58,24 @@ export class RiDocumentSummaryService {
 				highlights: [],
 				narrative: null,
 				limitations: ['ri_ai_summary_not_in_plan'],
+				cache: { key: null, hit: false, ttlSeconds: null },
+				cost: { aiCalls: 0, tokenUsageEstimate: 0 },
+			});
+		}
+
+		if (normalizedContent.length < this.minContentLength) {
+			const reason = String(input.contentUnavailableReason ?? '').trim();
+			return this.buildOutput({
+				input,
+				structuredSignals,
+				summaryStatus: 'insufficient_content',
+				sourceLabel: 'structured_fallback',
+				highlights: [],
+				narrative: null,
+				limitations: [
+					'ri_content_insufficient_for_summary',
+					...(reason ? [`ri_content_${reason}`] : []),
+				],
 				cache: { key: null, hit: false, ttlSeconds: null },
 				cost: { aiCalls: 0, tokenUsageEstimate: 0 },
 			});

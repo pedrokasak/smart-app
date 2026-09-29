@@ -7,6 +7,7 @@ import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiDocumentQueryPort } from 'src/ri-intelligence/application/ri-document-query.port';
+import { RiDocumentContentResolver } from 'src/ri-intelligence/application/ri-document-content.resolver';
 import { StockService } from 'src/stocks/stocks.service';
 import {
 	FREE_ACCESS_LEVEL,
@@ -54,6 +55,16 @@ describe('ChatOrchestratorService', () => {
 		getPreviousComparable: jest.fn(),
 	};
 
+	// Sem PDF por padrao: os testes de RI que precisam do texto trocam isto.
+	const mockRiContentResolver = {
+		resolve: jest.fn(async (document: unknown) => ({
+			document,
+			content: null,
+			reason: 'not_cached',
+			from: null,
+		})),
+	} as unknown as RiDocumentContentResolver;
+
 	// Known-ticker universe covering every symbol referenced by question text
 	// across this suite, so the new known-ticker validation in extractSymbols
 	// doesn't silently drop symbols these pre-existing tests rely on.
@@ -87,6 +98,7 @@ describe('ChatOrchestratorService', () => {
 			mockStockService,
 			mockUserPlanResolver,
 			mockCompositionService,
+			mockRiContentResolver,
 			mockRiDocumentQuery
 		);
 
@@ -1639,6 +1651,191 @@ describe('ChatOrchestratorService', () => {
 				mockUserPlanResolver.resolveWithCapabilities
 			).not.toHaveBeenCalled();
 			expect(response.cache.key ?? '').not.toContain('ri:');
+		});
+	});
+
+	// TRA-253: o chat le o PDF pelo mesmo resolver da rota HTTP. Antes mandava
+	// texto vazio e todo resumo parava em insufficient_content.
+	describe('RI content resolved like the HTTP route (TRA-253)', () => {
+		const document = {
+			id: 'doc-current',
+			ticker: 'BBDC4',
+			company: 'Bradesco',
+			title: '4T25',
+			documentType: 'earnings_release',
+			period: '4T25',
+			publishedAt: '2026-02-10T00:00:00.000Z',
+			source: { type: 'url', value: 'https://example.com/current.pdf' },
+			classification: { method: 'provided', confidence: 'high' },
+			contentStatus: 'metadata_only',
+		};
+		let resolver: { resolve: jest.Mock };
+
+		const makeServiceWithResolver = () =>
+			new ChatOrchestratorService(
+				mockPortfolioService,
+				mockUnifiedFacade,
+				mockMarketDataProvider,
+				mockResponseCache,
+				mockCostObserver,
+				mockRiDocumentSummaryService,
+				mockStockService,
+				mockUserPlanResolver,
+				mockCompositionService,
+				resolver as unknown as RiDocumentContentResolver,
+				mockRiDocumentQuery
+			);
+
+		const premium = () =>
+			(
+				mockUserPlanResolver.resolveWithCapabilities as jest.Mock
+			).mockResolvedValueOnce({ tier: PREMIUM_ACCESS_LEVEL, capabilities: [] });
+
+		beforeEach(() => {
+			resolver = {
+				resolve: jest.fn().mockResolvedValue({
+					document: { ...document, contentStatus: 'extracted' },
+					content: 'texto real do release',
+					reason: null,
+					from: 'download',
+				}),
+			};
+			(mockRiDocumentQuery.getLatestByTicker as jest.Mock).mockResolvedValue({
+				document,
+				content: null,
+			});
+			(mockRiDocumentSummaryService.summarize as jest.Mock).mockResolvedValue({
+				summary: { status: 'ai_generated' },
+			});
+		});
+
+		it('summarizes the real text for a plan with ri.ai_summary', async () => {
+			premium();
+
+			await makeServiceWithResolver().orchestrate(
+				'user-1',
+				'O que mudou no último RI de BBDC4?'
+			);
+
+			expect(resolver.resolve).toHaveBeenCalledWith(document, {
+				download: true,
+			});
+			expect(mockRiDocumentSummaryService.summarize).toHaveBeenCalledWith(
+				expect.objectContaining({
+					content: 'texto real do release',
+					allowAi: true,
+					document: expect.objectContaining({ contentStatus: 'extracted' }),
+				})
+			);
+		});
+
+		// Plano sem IA: nem baixa. Usa o texto so se ja estiver em cache.
+		it('never downloads for a plan without ri.ai_summary', async () => {
+			(
+				mockUserPlanResolver.resolveWithCapabilities as jest.Mock
+			).mockResolvedValueOnce({ tier: FREE_ACCESS_LEVEL, capabilities: [] });
+			resolver.resolve.mockResolvedValue({
+				document,
+				content: null,
+				reason: 'not_cached',
+				from: null,
+			});
+
+			await makeServiceWithResolver().orchestrate(
+				'user-1',
+				'O que mudou no último RI de BBDC4?'
+			);
+
+			expect(resolver.resolve).toHaveBeenCalledWith(document, {
+				download: false,
+			});
+			expect(mockRiDocumentSummaryService.summarize).toHaveBeenCalledWith(
+				expect.objectContaining({ allowAi: false })
+			);
+		});
+
+		it('passes on why the PDF could not be read', async () => {
+			premium();
+			resolver.resolve.mockResolvedValue({
+				document,
+				content: null,
+				reason: 'not_pdf',
+				from: null,
+			});
+
+			const response = await makeServiceWithResolver().orchestrate(
+				'user-1',
+				'O que mudou no último RI de BBDC4?'
+			);
+
+			expect(response.intent).toBe('ri_summary');
+			expect(mockRiDocumentSummaryService.summarize).toHaveBeenCalledWith(
+				expect.objectContaining({ contentUnavailableReason: 'not_pdf' })
+			);
+		});
+
+		it('resolves both documents of a comparison', async () => {
+			premium();
+			const signal = { detected: false, direction: 'unknown', evidence: [] };
+			(mockRiDocumentSummaryService.summarize as jest.Mock).mockResolvedValue({
+				document,
+				summary: {
+					status: 'ai_generated',
+					highlights: [],
+					narrative: null,
+					limitations: [],
+					sourceLabel: 'ai_summary',
+				},
+				structuredSignals: Object.fromEntries(
+					[
+						'revenue',
+						'profit',
+						'margin',
+						'indebtedness',
+						'capex',
+						'guidance',
+						'risks',
+						'toneShift',
+					].map((key) => [key, signal])
+				),
+			});
+			const previous = {
+				...document,
+				id: 'doc-previous',
+				period: '3T25',
+				source: { type: 'url', value: 'https://example.com/previous.pdf' },
+			};
+			(
+				mockRiDocumentQuery.getPreviousComparable as jest.Mock
+			).mockResolvedValue({ document: previous, content: null });
+
+			await makeServiceWithResolver().orchestrate(
+				'user-1',
+				'Compare o RI atual com o anterior de BBDC4'
+			);
+
+			expect(resolver.resolve).toHaveBeenCalledTimes(2);
+			expect(resolver.resolve).toHaveBeenCalledWith(previous, {
+				download: true,
+			});
+		});
+
+		it('uses text the document query already has, without resolving', async () => {
+			premium();
+			(mockRiDocumentQuery.getLatestByTicker as jest.Mock).mockResolvedValue({
+				document,
+				content: 'texto que ja veio',
+			});
+
+			await makeServiceWithResolver().orchestrate(
+				'user-1',
+				'O que mudou no último RI de BBDC4?'
+			);
+
+			expect(resolver.resolve).not.toHaveBeenCalled();
+			expect(mockRiDocumentSummaryService.summarize).toHaveBeenCalledWith(
+				expect.objectContaining({ content: 'texto que ja veio' })
+			);
 		});
 	});
 

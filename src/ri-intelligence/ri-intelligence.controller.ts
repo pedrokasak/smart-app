@@ -2,7 +2,6 @@ import {
 	Body,
 	BadRequestException,
 	Controller,
-	Inject,
 	Get,
 	NotFoundException,
 	Param,
@@ -19,10 +18,7 @@ import {
 	RiDocumentType,
 } from 'src/ri-intelligence/domain/ri-document.types';
 import { CANONICAL_RI_DOCUMENT_TYPES } from 'src/ri-intelligence/domain/ri-document-classifier';
-import {
-	RI_DOCUMENT_CONTENT,
-	RiDocumentContentPort,
-} from 'src/ri-intelligence/application/ri-document-content.port';
+import { RiDocumentContentResolver } from 'src/ri-intelligence/application/ri-document-content.resolver';
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
 import { NotUserScoped } from 'src/auth/decorators/ownership.decorator';
@@ -36,8 +32,7 @@ export class RiIntelligenceController {
 	constructor(
 		private readonly catalogService: RiDocumentCatalogService,
 		private readonly summaryService: RiDocumentSummaryService,
-		@Inject(RI_DOCUMENT_CONTENT)
-		private readonly documentContent: RiDocumentContentPort
+		private readonly contentResolver: RiDocumentContentResolver
 	) {}
 
 	@Get('autocomplete')
@@ -95,24 +90,16 @@ export class RiIntelligenceController {
 		if (!body?.document) throw new BadRequestException('ri_document_required');
 
 		// O web nao consegue buscar o PDF do site de RI (CORS externo), entao a
-		// extracao acontece aqui, server-side (TRA-85). `content` enviado pelo
-		// cliente e ignorado desde TRA-238: com o resumo por IA ligado, aceitar
-		// texto arbitrario transformava a rota num resumidor de uso geral pago
-		// pelo projeto. O web nunca mandou esse campo.
-		let content: string | null = null;
-		if (body.document.source?.type === 'url') {
-			const fetched = await this.documentContent.fetchTextContent(
-				body.document.source.value
-			);
-			content = fetched.text;
-			if (content) {
-				body.document = { ...body.document, contentStatus: 'extracted' };
-			}
-		}
+		// extracao acontece server-side (TRA-85), no mesmo resolver que o chat
+		// usa (TRA-253). `content` enviado pelo cliente e ignorado desde
+		// TRA-238: com o resumo por IA ligado, aceitar texto arbitrario
+		// transformava a rota num resumidor de uso geral pago pelo projeto.
+		const resolved = await this.contentResolver.resolve(body.document);
 
 		return this.summaryService.summarize({
-			document: body.document,
-			content,
+			document: resolved.document,
+			content: resolved.content,
+			contentUnavailableReason: resolved.reason,
 		});
 	}
 
