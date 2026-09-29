@@ -121,6 +121,9 @@ import { HttpPdfRiDocumentContentAdapter } from 'src/ri-intelligence/infrastruct
 		RiDocumentSummaryService,
 		RI_SUMMARY_CACHE,
 		RI_DOCUMENT_QUERY,
+		// Vigia de RI (TRA-240): descoberta oficial (CVM) e extração do PDF.
+		CvmRiDocumentDiscoveryAdapter,
+		RI_DOCUMENT_CONTENT,
 	],
 })
 export class RiIntelligenceModule {}

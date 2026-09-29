@@ -45,6 +45,7 @@ import { ReportsModule } from './reports/reports.module';
 import { FinancialPlanModule } from './financial-plan/financial-plan.module';
 import { EventsModule } from './events/events.module';
 import { QuoteStalenessModule } from './market-data/quote-staleness/quote-staleness.module';
+import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 
 @Module({
 	imports: [
@@ -72,6 +73,7 @@ import { QuoteStalenessModule } from './market-data/quote-staleness/quote-stalen
 		TargetAllocationModule,
 		PortfolioEvaluationModule,
 		QuoteStalenessModule,
+		RiWatchModule,
 		FiscalModule,
 		AdminModule,
 		LeadsModule,

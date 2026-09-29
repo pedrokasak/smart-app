@@ -26,8 +26,11 @@ import { assertPublicHttpUrl } from 'src/common/net/public-http-url';
  * - Teto de bytes: um PDF de centenas de MB nao pode derrubar o processo. A
  *   resposta e truncada no limite e tratada como erro, nao silenciosamente
  *   parcial.
- * - So application/pdf: o resolver ja rejeita content-type invalido, mas a
- *   dupla checagem aqui evita passar um HTML de erro pro PDFParse.
+ * - So PDF de verdade, pelos BYTES (`%PDF-`), e nao pelo content-type: a
+ *   CVM serve o PDF oficial como `text/html` (o nome real vem no
+ *   `Content-Disposition`), e o resolver ja aceita isso. Checar o
+ *   content-type aqui rejeitava todo documento da CVM (TRA-240); checar os
+ *   bytes continua impedindo que um HTML de erro chegue ao PDFParse.
  * - Nunca lanca: falha de rede/parse vira `text: null` com motivo. O
  *   chamador (fluxo de resumo) trata ausencia de conteudo como caso
  *   esperado, nao como excecao.
@@ -53,12 +56,6 @@ export class HttpPdfRiDocumentContentAdapter implements RiDocumentContentPort {
 		const resolved = await this.linkResolver.resolve({ url });
 		if (!resolved.isValid || !resolved.resolvedUrl) {
 			return { text: null, reason: 'link_invalid' };
-		}
-		if (
-			resolved.contentType &&
-			!resolved.contentType.toLowerCase().includes('pdf')
-		) {
-			return { text: null, reason: 'not_pdf' };
 		}
 
 		try {
@@ -103,6 +100,10 @@ export class HttpPdfRiDocumentContentAdapter implements RiDocumentContentPort {
 			return { text: null, reason: 'too_large', bytes: buffer.length };
 		}
 
+		if (!HttpPdfRiDocumentContentAdapter.looksLikePdf(buffer)) {
+			return { text: null, reason: 'not_pdf', bytes: buffer.length };
+		}
+
 		try {
 			const parser = new PDFParse({ data: buffer });
 			const parsed = await parser.getText();
@@ -130,5 +131,13 @@ export class HttpPdfRiDocumentContentAdapter implements RiDocumentContentPort {
 			);
 			return { text: null, reason: 'extract_failed', bytes: buffer.length };
 		}
+	}
+
+	/**
+	 * A especificacao do PDF admite lixo antes do cabecalho, desde que
+	 * `%PDF-` apareca no primeiro KB — e o que os leitores aceitam.
+	 */
+	private static looksLikePdf(buffer: Buffer): boolean {
+		return buffer.subarray(0, 1024).includes('%PDF-');
 	}
 }

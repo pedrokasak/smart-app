@@ -1,5 +1,6 @@
 import { HttpService } from '@nestjs/axios';
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { createHash } from 'crypto';
 import { firstValueFrom } from 'rxjs';
 import yauzl from 'yauzl';
 import Papa from 'papaparse';
@@ -108,7 +109,7 @@ export class CvmRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 		});
 
 		const records = dedupedMatching
-			.map((row, index) => this.toRecord(row, ticker, issuer.company, index))
+			.map((row) => this.toRecord(row, ticker, issuer.company))
 			.filter((record): record is RiDocumentRecord => Boolean(record))
 			.sort(
 				(a, b) =>
@@ -122,8 +123,7 @@ export class CvmRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 	private toRecord(
 		row: Record<string, string>,
 		ticker: string,
-		company: string,
-		index: number
+		company: string
 	): RiDocumentRecord | null {
 		const link = String(row.Link_Download || '').trim();
 		const entregaIso = this.parseDateIso(row.Data_Entrega);
@@ -139,8 +139,17 @@ export class CvmRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 
 		const classified = classifyRiDocumentType({ title, url: link });
 
+		// O sufixo vem do link do ENET, e nao da posicao da linha (TRA-240): a
+		// posicao mudava com a janela de datas da consulta, e o mesmo documento
+		// ganhava ids diferentes — quebrando o cache de resumo e o dedupe do
+		// vigia de RI. O link ja e a chave de dedupe deste adapter.
+		const linkKey = createHash('sha256')
+			.update(link)
+			.digest('hex')
+			.slice(0, 12);
+
 		return {
-			id: `${ticker}:${classified.documentType}:${entregaIso}:${index}:cvm`,
+			id: `${ticker}:${classified.documentType}:${entregaIso}:${linkKey}:cvm`,
 			ticker,
 			company,
 			title,
