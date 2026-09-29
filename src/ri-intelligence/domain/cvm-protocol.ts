@@ -19,10 +19,11 @@ export function cvmDeliveryProtocol(
 }
 
 /**
- * O parametro `numProtocolo` do link de download do ENET. E o mesmo
- * parametro no link do dataset IPE e no que a consulta diaria monta — por
- * isso e a fonte preferida do protocolo: as duas fontes concordam por
- * construcao, sem depender de outro campo significar a mesma coisa.
+ * O parametro `numProtocolo` do link de download do ENET: o mesmo no link do
+ * dataset IPE e no que a consulta diaria monta (conferido em 25/09/2026: os
+ * 99 documentos do IPE achados no ENET tinham o mesmo `numProtocolo`, a
+ * mesma versao e o mesmo codigo CVM). O `Protocolo_Entrega` do IPE e OUTRO
+ * identificador (26 digitos) e nao serve para casar as fontes.
  */
 export function protocolFromCvmLink(link: unknown): string | null {
 	const match = LINK_PROTOCOL.exec(String(link ?? ''));
