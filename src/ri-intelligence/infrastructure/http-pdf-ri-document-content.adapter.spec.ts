@@ -19,6 +19,11 @@ jest.mock('pdf-parse', () => ({
 	})),
 }));
 
+/** Bytes que comecam como um PDF de verdade (o parser e mockado). */
+function pdfBytes(): Uint8Array {
+	return new TextEncoder().encode('%PDF-1.7\n%âãÏÓ\n1 0 obj\n');
+}
+
 describe('HttpPdfRiDocumentContentAdapter (TRA-85)', () => {
 	let httpService: { get: jest.Mock };
 	let linkResolver: { resolve: jest.Mock };
@@ -42,9 +47,7 @@ describe('HttpPdfRiDocumentContentAdapter (TRA-85)', () => {
 	});
 
 	it('extracts real text from a reachable PDF', async () => {
-		httpService.get.mockReturnValue(
-			of({ data: new Uint8Array([1, 2, 3]).buffer })
-		);
+		httpService.get.mockReturnValue(of({ data: pdfBytes().buffer }));
 		mockGetText.mockResolvedValue({
 			text: '  Release de resultados: receita +12%.  ',
 		});
@@ -73,14 +76,40 @@ describe('HttpPdfRiDocumentContentAdapter (TRA-85)', () => {
 		expect(httpService.get).not.toHaveBeenCalled();
 	});
 
-	it('rejects a non-pdf content-type before downloading (avoids parsing an HTML error page)', async () => {
+	// A CVM serve o PDF oficial com `Content-Type: text/html` e o nome real no
+	// `Content-Disposition` (filename=....pdf). O resolvedor de link ja aceita
+	// isso; rejeitar aqui pelo content-type descartava todo documento da CVM.
+	it('accepts the CVM download served as text/html when the body is a PDF', async () => {
 		linkResolver.resolve.mockResolvedValue({
 			...validLink,
+			resolvedUrl:
+				'https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?numProtocolo=1',
 			contentType: 'text/html',
 		});
+		httpService.get.mockReturnValue(of({ data: pdfBytes().buffer }));
+		mockGetText.mockResolvedValue({ text: 'Fato Relevante: aquisição.' });
+
+		const result = await adapter.fetchTextContent(
+			'https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?numProtocolo=1'
+		);
+
+		expect(result.text).toBe('Fato Relevante: aquisição.');
+	});
+
+	// A garantia de "nao parsear pagina HTML de erro" passa a vir do conteudo,
+	// que nao mente: PDF comeca com `%PDF-`.
+	it('rejects an HTML page served in place of the PDF, by its bytes', async () => {
+		httpService.get.mockReturnValue(
+			of({
+				data: new TextEncoder().encode('<html><body>Erro</body></html>').buffer,
+			})
+		);
+
 		const result = await adapter.fetchTextContent('https://x/notpdf');
+
 		expect(result.reason).toBe('not_pdf');
-		expect(httpService.get).not.toHaveBeenCalled();
+		const { PDFParse } = jest.requireMock('pdf-parse');
+		expect(PDFParse).not.toHaveBeenCalled();
 	});
 
 	it('maps an axios maxContentLength error to too_large', async () => {
@@ -98,7 +127,7 @@ describe('HttpPdfRiDocumentContentAdapter (TRA-85)', () => {
 	});
 
 	it('flags a scanned pdf with no text layer as empty_after_extract, not a false success', async () => {
-		httpService.get.mockReturnValue(of({ data: new Uint8Array([1]).buffer }));
+		httpService.get.mockReturnValue(of({ data: pdfBytes().buffer }));
 		mockGetText.mockResolvedValue({ text: '   ' });
 
 		const result = await adapter.fetchTextContent('https://x/scan.pdf');
@@ -108,7 +137,7 @@ describe('HttpPdfRiDocumentContentAdapter (TRA-85)', () => {
 	});
 
 	it('maps a parser exception to extract_failed and still destroys nothing it did not create', async () => {
-		httpService.get.mockReturnValue(of({ data: new Uint8Array([1]).buffer }));
+		httpService.get.mockReturnValue(of({ data: pdfBytes().buffer }));
 		mockGetText.mockRejectedValue(new Error('corrupt pdf'));
 
 		const result = await adapter.fetchTextContent('https://x/corrupt.pdf');
