@@ -37,6 +37,12 @@ export interface RiWatchConfig {
 	 * primeira rodada mandaria de uma vez os avisos de uma semana e meia.
 	 */
 	notifyMaxAgeDays: number;
+	/**
+	 * Acervo de RI (TRA-264): indexar no trackerr-ia o texto de cada documento
+	 * processado, para o chat responder citando documento e pagina.
+	 * Desligado por padrao: liga-se depois do trackerr-ia com o acervo no ar.
+	 */
+	indexEnabled: boolean;
 }
 
 export const RI_WATCH_CONFIG = Symbol('RI_WATCH_CONFIG');
@@ -48,6 +54,7 @@ export const RI_WATCH_DEFAULTS: RiWatchConfig = {
 	dailyFeedEnabled: true,
 	notifyEnabled: false,
 	notifyMaxAgeDays: 3,
+	indexEnabled: false,
 };
 
 const enabledSchema = z.enum(['true', 'false']);
@@ -94,5 +101,6 @@ export function loadRiWatchConfig(
 		notifyMaxAgeDays:
 			field(notifyMaxAgeSchema, env.RI_WATCH_NOTIFY_MAX_AGE_DAYS) ??
 			RI_WATCH_DEFAULTS.notifyMaxAgeDays,
+		indexEnabled: field(enabledSchema, env.RI_WATCH_INDEX_ENABLED) === 'true',
 	};
 }

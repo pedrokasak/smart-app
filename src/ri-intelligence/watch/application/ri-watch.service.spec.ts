@@ -1,5 +1,6 @@
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiDocumentContentPort } from 'src/ri-intelligence/application/ri-document-content.port';
+import { RiDocumentContentResolver } from 'src/ri-intelligence/application/ri-document-content.resolver';
 import { RiDocumentDiscoveryPort } from 'src/ri-intelligence/application/ri-document-discovery.port';
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 import { HeldTickerDirectory } from 'src/ri-intelligence/watch/application/ports/held-ticker-directory.port';
@@ -64,6 +65,12 @@ describe('RiWatchService (TRA-240)', () => {
 	let content: { fetchTextContent: jest.Mock };
 	let summaries: { summarize: jest.Mock };
 	let config: RiWatchConfig;
+	// Resolver de verdade (TRA-253), sem cache de texto: os testes seguem
+	// dizendo o que o PDF devolve.
+	const noTextCache = {
+		get: jest.fn().mockResolvedValue(null),
+		set: jest.fn().mockResolvedValue(undefined),
+	};
 
 	const makeService = () =>
 		new RiWatchService(
@@ -72,7 +79,10 @@ describe('RiWatchService (TRA-240)', () => {
 			discovery as unknown as RiDocumentDiscoveryPort,
 			dailyFeed,
 			issuerCodes,
-			content as unknown as RiDocumentContentPort,
+			new RiDocumentContentResolver(
+				content as unknown as RiDocumentContentPort,
+				noTextCache
+			),
 			summaries as unknown as RiDocumentSummaryService,
 			config
 		);
@@ -121,6 +131,7 @@ describe('RiWatchService (TRA-240)', () => {
 			dailyFeedEnabled: true,
 			notifyEnabled: false,
 			notifyMaxAgeDays: 3,
+			indexEnabled: false,
 		};
 	});
 

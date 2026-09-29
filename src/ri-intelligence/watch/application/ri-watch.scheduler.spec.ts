@@ -1,4 +1,5 @@
 import { RiWatchConfig } from 'src/ri-intelligence/watch/application/ri-watch.config';
+import { RiWatchIndexer } from 'src/ri-intelligence/watch/application/ri-watch.indexer';
 import { RiWatchNotifier } from 'src/ri-intelligence/watch/application/ri-watch.notifier';
 import { RiWatchScheduler } from 'src/ri-intelligence/watch/application/ri-watch.scheduler';
 import { RiWatchService } from 'src/ri-intelligence/watch/application/ri-watch.service';
@@ -6,12 +7,14 @@ import { RiWatchService } from 'src/ri-intelligence/watch/application/ri-watch.s
 describe('RiWatchScheduler (TRA-240)', () => {
 	let service: { scan: jest.Mock; processPending: jest.Mock };
 	let notifier: { notifyProcessed: jest.Mock };
+	let indexer: { indexProcessed: jest.Mock };
 	let config: RiWatchConfig;
 
 	const makeScheduler = () =>
 		new RiWatchScheduler(
 			service as unknown as RiWatchService,
 			notifier as unknown as RiWatchNotifier,
+			indexer as unknown as RiWatchIndexer,
 			config
 		);
 
@@ -32,6 +35,11 @@ describe('RiWatchScheduler (TRA-240)', () => {
 				.fn()
 				.mockResolvedValue({ documents: 1, events: 3, skipped: 0, failed: 0 }),
 		};
+		indexer = {
+			indexProcessed: jest
+				.fn()
+				.mockResolvedValue({ documents: 1, indexed: 1, failed: 0 }),
+		};
 		config = {
 			enabled: true,
 			lookbackDays: 3,
@@ -39,6 +47,7 @@ describe('RiWatchScheduler (TRA-240)', () => {
 			dailyFeedEnabled: true,
 			notifyEnabled: true,
 			notifyMaxAgeDays: 3,
+			indexEnabled: false,
 		};
 	});
 
@@ -67,10 +76,30 @@ describe('RiWatchScheduler (TRA-240)', () => {
 			order.push('notify');
 			return { documents: 0, events: 0, skipped: 0, failed: 0 };
 		});
+		indexer.indexProcessed.mockImplementation(async () => {
+			order.push('index');
+			return { documents: 0, indexed: 0, failed: 0 };
+		});
 
 		await makeScheduler().run();
 
-		expect(order).toEqual(['scan', 'process', 'notify']);
+		// TRA-264: o acervo por ultimo — embedar um DFP leva minutos, e o
+		// aviso nao espera por isso.
+		expect(order).toEqual(['scan', 'process', 'notify', 'index']);
+	});
+
+	it('still indexes when notifying fails', async () => {
+		notifier.notifyProcessed.mockRejectedValue(new Error('fila fora'));
+
+		await expect(makeScheduler().run()).resolves.toBeUndefined();
+
+		expect(indexer.indexProcessed).toHaveBeenCalled();
+	});
+
+	it('survives a failing index step', async () => {
+		indexer.indexProcessed.mockRejectedValue(new Error('trackerr-ia fora'));
+
+		await expect(makeScheduler().run()).resolves.toBeUndefined();
 	});
 
 	it('still notifies what was processed before when processing fails', async () => {

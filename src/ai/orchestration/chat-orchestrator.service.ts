@@ -32,6 +32,12 @@ import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-doc
 import { RiDocumentContentResolver } from 'src/ri-intelligence/application/ri-document-content.resolver';
 import { RiComparableDocumentInput } from 'src/ri-intelligence/application/ri-comparison.types';
 import {
+	RI_KNOWLEDGE,
+	RiKnowledgeAnswer,
+	RiKnowledgePort,
+} from 'src/ri-intelligence/application/ri-knowledge.port';
+import { issuerBaseCode } from 'src/ri-intelligence/domain/issuer-base-code';
+import {
 	RI_DOCUMENT_QUERY,
 	RiDocumentQueryPort,
 } from 'src/ri-intelligence/application/ri-document-query.port';
@@ -44,11 +50,18 @@ import {
 	UserPlanTier,
 } from 'src/subscription/application/user-plan.types';
 
-/** Intents que resumem documento de RI e, por isso, podem chamar IA. */
+/**
+ * Intents de RI que podem chamar IA — resumo, comparacao e pergunta ao
+ * acervo (TRA-264) —, todas atras da mesma capability paga `ri.ai_summary`.
+ */
 const RI_SUMMARY_INTENTS: ReadonlySet<ChatOrchestratorIntent> = new Set([
 	'ri_summary',
 	'ri_comparison',
+	'ri_question',
 ]);
+
+/** "Ultimo ITR": a busca no acervo olha so os documentos deste periodo. */
+const RI_LATEST_WINDOW_DAYS = 400;
 
 /**
  * Tudo que o preâmbulo de `orchestrate()` calcula uma vez e que todo ramo
@@ -96,6 +109,9 @@ export class ChatOrchestratorService {
 		// Obrigatorio de proposito (TRA-253): opcional, uma ligacao quebrada
 		// devolvia em silencio o chat que resume texto vazio.
 		private readonly riContentResolver: RiDocumentContentResolver,
+		// Acervo de documentos de RI (TRA-264). Obrigatorio pelo mesmo motivo
+		// do resolver: opcional, uma ligacao quebrada sumiria em silencio.
+		@Inject(RI_KNOWLEDGE) private readonly riKnowledge: RiKnowledgePort,
 		@Optional()
 		@Inject(RI_DOCUMENT_QUERY)
 		private readonly riDocumentQuery?: RiDocumentQueryPort
@@ -970,6 +986,54 @@ export class ChatOrchestratorService {
 			});
 		}
 
+		if (intent === 'ri_question' && primarySymbol) {
+			// Resposta por IA sobre documento de RI: mesma capability paga do
+			// resumo. Sem ela, nem busca no acervo.
+			if (riAiAllowed !== true) {
+				unavailable.push('ri_ai_answer_not_in_plan');
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: 'capability_not_available',
+					data: {},
+				});
+			}
+			const issuer = issuerBaseCode(primarySymbol);
+			if (!issuer) {
+				unavailable.push(primarySymbol);
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: 'insufficient_structured_data',
+					data: {},
+				});
+			}
+			let riAnswer: RiKnowledgeAnswer;
+			try {
+				riAnswer = await this.riKnowledge.ask({
+					issuer,
+					question: normalizedQuestion,
+					publishedAfter: this.riQuestionWindowStart(normalizedQuestion),
+				});
+			} catch (error: any) {
+				this.logger.warn(
+					`Acervo de RI indisponivel: ${error?.message || 'unknown_error'}`
+				);
+				warnings.push('ri_knowledge_unavailable');
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: 'insufficient_structured_data',
+					data: {},
+				});
+			}
+			if (riAnswer.notFound) warnings.push('ri_answer_not_found');
+			return this.finish(env, {
+				routeType: 'deterministic_no_llm',
+				routeReason: riAnswer.notFound
+					? 'insufficient_structured_data'
+					: 'rules_resolved',
+				data: { riAnswer: { ticker: primarySymbol, ...riAnswer } },
+			});
+		}
+
 		if (intent === 'market_screening') {
 			// Responder isto exigiria dados fundamentalistas de todo o mercado;
 			// o produto só tem indicadores dos ativos que o usuário possui.
@@ -1461,7 +1525,12 @@ export class ChatOrchestratorService {
 		// Um ano de fechamentos diários: muda uma vez por pregão.
 		if (intent === 'correlation_matrix' || intent === 'return_attribution')
 			return 300;
-		if (intent === 'ri_summary' || intent === 'ri_comparison') return 120;
+		if (
+			intent === 'ri_summary' ||
+			intent === 'ri_comparison' ||
+			intent === 'ri_question'
+		)
+			return 120;
 		if (intent === 'asset_comparison') return 90;
 		if (intent === 'sell_simulation' || intent === 'tax_estimation') return 60;
 		return 90;
@@ -1525,6 +1594,37 @@ export class ChatOrchestratorService {
 			allowAi,
 			contentUnavailableReason: resolved.reason,
 		});
+	}
+
+	/**
+	 * "O que a PETR4 disse sobre dividendos no ultimo ITR?" (TRA-264): verbo
+	 * de divulgacao ou nome de documento, com o assunto. "O que mudou no
+	 * ultimo RI" nao entra — e pedido de resumo, nao pergunta sobre um
+	 * assunto —, nem "o que o mercado acha": opiniao nao esta em documento.
+	 */
+	private asksRiDisclosure(text: string): boolean {
+		const disclosureVerb =
+			/\b(disse|falou|informou|divulgou|comunicou|declarou|anunciou|publicou|informa|divulga|comunica|anuncia)\b/.test(
+				text
+			);
+		const documentName =
+			/\b(itr|dfp|fatos? relevantes?|comunicados? ao mercado|release|aviso aos acionistas|formul[aá]rio de refer[eê]ncia|demonstra[cç](?:ao|ão|oes|ões)(?: financeiras?)?)\b/.test(
+				text
+			);
+		const topic = /\bsobre\b/.test(text);
+		return (
+			(disclosureVerb && (documentName || topic)) || (documentName && topic)
+		);
+	}
+
+	/** "Ultimo", "mais recente", "atual": so os documentos recentes. */
+	private riQuestionWindowStart(question: string): string | null {
+		const text = question.toLowerCase();
+		if (!/(ultim|últim|mais recente|\batual\b)/.test(text)) return null;
+		const start = new Date(
+			Date.now() - RI_LATEST_WINDOW_DAYS * 24 * 60 * 60 * 1000
+		);
+		return start.toISOString().slice(0, 10);
 	}
 
 	/** Negar em caso de duvida: e o comportamento seguro para feature paga. */
@@ -1666,6 +1766,13 @@ export class ChatOrchestratorService {
 			)
 		) {
 			return 'action_checklist';
+		}
+		// Pergunta sobre o que a empresa divulgou (TRA-264): responde pelo
+		// acervo de documentos de RI, citando documento e pagina. Antes da
+		// sintese narrativa: "explique o que a PETR4 disse sobre dividendos"
+		// tem resposta nos documentos, nao no LLM generico. Precisa de ticker.
+		if (symbols.length > 0 && this.asksRiDisclosure(text)) {
+			return 'ri_question';
 		}
 		// Síntese narrativa (LLM com contexto da carteira):
 		//  - "estratégia" SEMPRE vira narrativa (pedido de análise estratégica,

@@ -18,6 +18,7 @@ describe('loadRiWatchConfig (TRA-240)', () => {
 				RI_WATCH_ENET_ENABLED: 'false',
 				RI_WATCH_NOTIFY_ENABLED: 'true',
 				RI_WATCH_NOTIFY_MAX_AGE_DAYS: '5',
+				RI_WATCH_INDEX_ENABLED: 'true',
 			})
 		).toEqual({
 			enabled: true,
@@ -26,7 +27,15 @@ describe('loadRiWatchConfig (TRA-240)', () => {
 			dailyFeedEnabled: false,
 			notifyEnabled: true,
 			notifyMaxAgeDays: 5,
+			indexEnabled: true,
 		});
+	});
+
+	// TRA-264: indexar chama o trackerr-ia; so liga com o acervo no ar.
+	it.each([undefined, 'True', '1'])('keeps indexing off on %p', (value) => {
+		expect(
+			loadRiWatchConfig({ RI_WATCH_INDEX_ENABLED: value }).indexEnabled
+		).toBe(false);
 	});
 
 	// TRA-261: avisar gente e o passo com mais consequencia — so liga quando

@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Asset } from 'src/assets/schema/assets.model';
 import { Portfolio } from 'src/portfolio/schema/portfolio.model';
+import { issuerBaseCode } from 'src/ri-intelligence/domain/issuer-base-code';
 import {
 	RiHolder,
 	RiHolderDirectory,
@@ -15,15 +16,8 @@ function normalizeTicker(value: unknown): string {
 		.replace(/\.SA$/, '');
 }
 
-/**
- * Codigo do emissor: o ticker sem os digitos da classe (PETR4 -> PETR,
- * TAEE11 -> TAEE, B3SA3 -> B3SA). Mesma regra do registro da B3 que liga
- * ticker a CNPJ e a codigo CVM.
- */
-export function issuerBaseCode(ticker: string): string | null {
-	const match = /^([A-Z0-9]{4})\d{1,2}$/.exec(normalizeTicker(ticker));
-	return match ? match[1] : null;
-}
+// A regra mora no dominio (TRA-264): a pergunta do chat tambem precisa dela.
+export { issuerBaseCode };
 
 /** Detentores a partir das posicoes e das carteiras (TRA-261). */
 @Injectable()

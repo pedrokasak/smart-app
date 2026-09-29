@@ -35,6 +35,8 @@ import { RiDocumentContentResolver } from 'src/ri-intelligence/application/ri-do
 import { RI_DOCUMENT_TEXT_CACHE } from 'src/ri-intelligence/application/ri-document-text-cache.port';
 import { MongoRiDocumentTextCacheAdapter } from 'src/ri-intelligence/infrastructure/mongo-ri-document-text-cache.adapter';
 import { RiDocumentTextModel } from 'src/ri-intelligence/infrastructure/ri-document-text.model';
+import { RI_KNOWLEDGE } from 'src/ri-intelligence/application/ri-knowledge.port';
+import { TrackerrIaRiKnowledgeAdapter } from 'src/ri-intelligence/infrastructure/trackerr-ia-ri-knowledge.adapter';
 
 @Module({
 	imports: [
@@ -128,11 +130,16 @@ import { RiDocumentTextModel } from 'src/ri-intelligence/infrastructure/ri-docum
 			useExisting: MongoRiDocumentTextCacheAdapter,
 		},
 		RiDocumentContentResolver,
+		// Acervo de documentos de RI no trackerr-ia (TRA-264): o vigia indexa,
+		// o chat pergunta.
+		TrackerrIaRiKnowledgeAdapter,
+		{ provide: RI_KNOWLEDGE, useExisting: TrackerrIaRiKnowledgeAdapter },
 	],
 	exports: [
 		RiDocumentCatalogService,
 		RiDocumentSummaryService,
 		RiDocumentContentResolver,
+		RI_KNOWLEDGE,
 		RI_SUMMARY_CACHE,
 		RI_DOCUMENT_QUERY,
 		// Vigia de RI (TRA-240): descoberta oficial (CVM) e extração do PDF.

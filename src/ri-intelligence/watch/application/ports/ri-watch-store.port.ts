@@ -47,6 +47,16 @@ export interface RiWatchStore {
 		notification: RiWatchNotificationSnapshot,
 		now: Date
 	): Promise<void>;
+
+	/**
+	 * Processamento terminado e texto ainda fora do acervo de RI, mais
+	 * recentes primeiro (TRA-264). Inclui o que foi processado antes de o
+	 * acervo existir: e assim que ele se preenche.
+	 */
+	findUnindexed(limit: number): Promise<RiWatchDocument[]>;
+
+	/** Sai da fila do acervo (indexado, ou sem texto para indexar). */
+	markIndexed(key: string, now: Date): Promise<void>;
 }
 
 export const RI_WATCH_STORE = Symbol('RI_WATCH_STORE');
