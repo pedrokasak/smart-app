@@ -160,6 +160,32 @@ const ROUTING_CASES: RoutingCase[] = [
 			'"resumo" casaria com portfolio_summary, mas a regex de RI vem antes ' +
 			'na cadeia.',
 	},
+	{
+		question: 'O que a PETR4 disse sobre dividendos no último ITR?',
+		expectedIntent: 'ri_question',
+		why:
+			'TRA-264: pergunta sobre o que a empresa divulgou responde pelo ' +
+			'acervo de documentos, citando página. Sem a regra, "dividendos" ' +
+			'levava a outra intent, sem documento nenhum.',
+	},
+	{
+		question: 'O que o fato relevante da VALE3 fala sobre a barragem?',
+		expectedIntent: 'ri_question',
+	},
+	{
+		question: 'Explique o que a PETR4 informou sobre a dívida',
+		expectedIntent: 'ri_question',
+		why:
+			'"explique" levaria a narrative_synthesis (LLM genérico). O que a ' +
+			'empresa informou tem resposta nos documentos, com citação.',
+	},
+	{
+		question: 'O que mudou no último RI de BBDC4?',
+		expectedIntent: 'ri_summary',
+		why:
+			'TRA-264: sem assunto nem verbo de divulgação, continua pedido de ' +
+			'resumo — a regra da pergunta ao acervo não pode roubar o resumo.',
+	},
 
 	// --- Encaixe na carteira ------------------------------------------------
 	{
@@ -263,6 +289,11 @@ describe('Chat routing eval (TRA-75)', () => {
 					from: null,
 				})),
 			} as unknown as ConstructorParameters<typeof ChatOrchestratorService>[9],
+			// Acervo de RI (TRA-264): roteamento nao consulta.
+			{
+				index: jest.fn(),
+				ask: jest.fn().mockResolvedValue({ items: [], notFound: true }),
+			} as unknown as ConstructorParameters<typeof ChatOrchestratorService>[10],
 			mockRiDocumentQuery
 		);
 

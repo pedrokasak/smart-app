@@ -76,6 +76,11 @@ export interface RiWatchDocument {
 	/** Quando os detentores foram avisados; null enquanto nao (TRA-261). */
 	notifiedAt?: string | null;
 	notification?: RiWatchNotificationSnapshot | null;
+	/**
+	 * Quando o texto entrou no acervo de RI do chat (TRA-264), ou quando
+	 * ficou claro que nao ha texto para indexar. null enquanto nao.
+	 */
+	indexedAt?: string | null;
 }
 
 /**
@@ -184,6 +189,8 @@ export function isRelevantCvmFiling(
  * do ar e erro de parse passageiro ficam de fora — esses valem retry.
  */
 const PERMANENT_CONTENT_FAILURES: ReadonlySet<string> = new Set([
+	// Documento sem link de download (TRA-253): nao ha o que baixar.
+	'unsupported_source',
 	'empty_url',
 	'link_invalid',
 	'not_pdf',

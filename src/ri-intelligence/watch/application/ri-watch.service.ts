@@ -1,8 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
-import {
-	RI_DOCUMENT_CONTENT,
-	RiDocumentContentPort,
-} from 'src/ri-intelligence/application/ri-document-content.port';
+import { RiDocumentContentResolver } from 'src/ri-intelligence/application/ri-document-content.resolver';
 import { RiDocumentDiscoveryPort } from 'src/ri-intelligence/application/ri-document-discovery.port';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { deliveryToRecord } from 'src/ri-intelligence/watch/domain/ri-delivery';
@@ -88,8 +85,9 @@ export class RiWatchService {
 		private readonly dailyFeed: RiDeliveryFeedPort,
 		@Inject(ISSUER_CODE_DIRECTORY)
 		private readonly issuerCodes: IssuerCodeDirectory,
-		@Inject(RI_DOCUMENT_CONTENT)
-		private readonly content: RiDocumentContentPort,
+		// O mesmo resolver da tela e do chat (TRA-253): o texto que o vigia le
+		// fica em cache, e o chat acha o documento pronto.
+		private readonly contentResolver: RiDocumentContentResolver,
 		private readonly summaries: RiDocumentSummaryService,
 		@Inject(RI_WATCH_CONFIG) private readonly config: RiWatchConfig
 	) {}
@@ -242,12 +240,10 @@ export class RiWatchService {
 		// documento vale para todas as classes da empresa (PETR3 e PETR4 tem o
 		// mesmo CNPJ) e e registrado uma vez so, sob o primeiro ticker achado.
 		// Checar aquele ticker pularia o documento de quem tem a outra classe.
-		const fetched = await this.content.fetchTextContent(
-			doc.record.source.value
-		);
-		if (!fetched.text) {
-			const reason = `content_${fetched.reason ?? 'unavailable'}`;
-			if (isPermanentContentFailure(fetched.reason)) {
+		const resolved = await this.contentResolver.resolve(doc.record);
+		if (!resolved.content) {
+			const reason = `content_${resolved.reason ?? 'unavailable'}`;
+			if (isPermanentContentFailure(resolved.reason ?? undefined)) {
 				await this.store.markSkipped(doc.key, reason, now);
 				return 'skipped';
 			}
@@ -256,8 +252,8 @@ export class RiWatchService {
 		}
 
 		const output = await this.summaries.summarize({
-			document: { ...doc.record, contentStatus: 'extracted' },
-			content: fetched.text,
+			document: resolved.document,
+			content: resolved.content,
 			// Rotina do sistema: o custo e por documento, nao por usuario, e o
 			// acesso ao resumo continua travado por plano na hora da leitura.
 			allowAi: true,

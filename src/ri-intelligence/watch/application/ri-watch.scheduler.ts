@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { RI_WATCH_CONFIG, RiWatchConfig } from './ri-watch.config';
+import { RiWatchIndexer } from './ri-watch.indexer';
 import { RiWatchNotifier } from './ri-watch.notifier';
 import { RiWatchService } from './ri-watch.service';
 
@@ -14,9 +15,11 @@ import { RiWatchService } from './ri-watch.service';
  * adapter. E cada rodada da nova chance ao que falhou por motivo passageiro
  * (rede, IA fora do ar).
  *
- * Ordem da rodada: varrer, processar, avisar (TRA-261). O documento visto
- * pelo ENET ao meio-dia e resumido e avisado na mesma rodada. Uma etapa que
- * falha nao impede as seguintes de cuidar do que ja estava na fila delas.
+ * Ordem da rodada: varrer, processar, avisar (TRA-261), indexar no acervo
+ * (TRA-264). O documento visto pelo ENET ao meio-dia e resumido e avisado na
+ * mesma rodada; o acervo vem por ultimo porque embedar um DFP leva minutos, e
+ * o aviso nao espera por isso. Uma etapa que falha nao impede as seguintes
+ * de cuidar do que ja estava na fila delas.
  */
 @Injectable()
 export class RiWatchScheduler {
@@ -26,6 +29,7 @@ export class RiWatchScheduler {
 	constructor(
 		private readonly watch: RiWatchService,
 		private readonly notifier: RiWatchNotifier,
+		private readonly indexer: RiWatchIndexer,
 		@Inject(RI_WATCH_CONFIG) private readonly config: RiWatchConfig
 	) {}
 
@@ -79,6 +83,18 @@ export class RiWatchScheduler {
 				}
 			} catch (err) {
 				this.logger.error(`Vigia de RI: aviso falhou: ${this.messageOf(err)}`);
+			}
+
+			try {
+				const indexed = await this.indexer.indexProcessed();
+				if (indexed.documents || indexed.failed) {
+					this.logger.log(
+						`Vigia de RI: ${indexed.indexed} documento(s) no acervo ` +
+							`(${indexed.documents - indexed.indexed} sem texto, ${indexed.failed} com falha)`
+					);
+				}
+			} catch (err) {
+				this.logger.error(`Vigia de RI: acervo falhou: ${this.messageOf(err)}`);
 			}
 		} finally {
 			this.running = false;

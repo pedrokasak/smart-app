@@ -523,6 +523,8 @@ export class AiController {
 		};
 
 		switch (response.intent) {
+			case 'ri_question':
+				return this.buildRiAnswerMessage(response);
 			case 'correlation_matrix': {
 				const matrix = (data as any)?.correlationMatrix;
 				const symbols: string[] = matrix?.symbols || [];
@@ -771,6 +773,59 @@ export class AiController {
 			default:
 				return 'Analisei seus dados com sucesso e organizei os fatos no painel interativo abaixo.';
 		}
+	}
+
+	/**
+	 * Resposta do acervo de RI (TRA-264) no texto da bolha: cada afirmacao
+	 * com o documento e a pagina de onde saiu. Os documentos tambem viram os
+	 * chips de fonte (`buildAnswerSources`) — nada de componente novo no web.
+	 * Informativo, com fonte e sem recomendacao (CVM 20).
+	 */
+	private buildRiAnswerMessage(response: ChatOrchestratorResponse): string {
+		if (response.route.reason === 'capability_not_available') {
+			return 'Responder com base nos documentos de RI da empresa faz parte dos planos com resumo de RI por IA.';
+		}
+		if (response.warnings?.includes('ri_knowledge_unavailable')) {
+			return 'Não consegui consultar os documentos de RI agora. Tente de novo em instantes.';
+		}
+
+		const answer = (response.data as any)?.riAnswer as
+			| {
+					ticker?: string;
+					items?: {
+						text: string;
+						citation: {
+							title: string;
+							publishedAt: string;
+							page: number | null;
+						};
+					}[];
+			  }
+			| undefined;
+		const of = answer?.ticker ? ` de ${answer.ticker}` : '';
+		const items = answer?.items ?? [];
+		if (!items.length) {
+			return (
+				`Não encontrei isso nos documentos de RI${of} que tenho no acervo. ` +
+				'O acervo reúne os documentos recentes das ações que estão em carteira.'
+			);
+		}
+
+		const day = (iso: string) => {
+			const [year, month, dayOfMonth] = String(iso || '').split('-');
+			return year && month && dayOfMonth
+				? `${dayOfMonth.slice(0, 2)}/${month}/${year}`
+				: iso;
+		};
+		const lines = items.map(({ text, citation }) => {
+			const page = citation.page ? `, p. ${citation.page}` : '';
+			return `• ${text} (${citation.title}, ${day(citation.publishedAt)}${page})`;
+		});
+		return [
+			`Segundo os documentos de RI${of}:`,
+			...lines,
+			'Informação extraída dos documentos entregues à CVM; não é recomendação de investimento.',
+		].join('\n');
 	}
 
 	private isPortfolioAssetListQuestion(question: string): boolean {

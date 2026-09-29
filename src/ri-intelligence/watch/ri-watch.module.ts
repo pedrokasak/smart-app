@@ -18,6 +18,7 @@ import {
 	loadRiWatchConfig,
 	RI_WATCH_CONFIG,
 } from './application/ri-watch.config';
+import { RiWatchIndexer } from './application/ri-watch.indexer';
 import { RiWatchNotifier } from './application/ri-watch.notifier';
 import { RiWatchScheduler } from './application/ri-watch.scheduler';
 import { RiWatchService } from './application/ri-watch.service';
@@ -77,6 +78,8 @@ import { RiWatchDocumentModel } from './infrastructure/ri-watch-document.model';
 		PlanRiSummaryEntitlement,
 		{ provide: RI_SUMMARY_ENTITLEMENT, useExisting: PlanRiSummaryEntitlement },
 		RiWatchNotifier,
+		// Acervo de RI do chat (TRA-264), depois do aviso.
+		RiWatchIndexer,
 		RiWatchScheduler,
 	],
 })

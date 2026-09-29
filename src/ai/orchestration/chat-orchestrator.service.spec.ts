@@ -55,6 +55,12 @@ describe('ChatOrchestratorService', () => {
 		getPreviousComparable: jest.fn(),
 	};
 
+	// Acervo de RI (TRA-264): os testes de pergunta sobre documento trocam isto.
+	const mockRiKnowledge = {
+		index: jest.fn(),
+		ask: jest.fn().mockResolvedValue({ items: [], notFound: true }),
+	};
+
 	// Sem PDF por padrao: os testes de RI que precisam do texto trocam isto.
 	const mockRiContentResolver = {
 		resolve: jest.fn(async (document: unknown) => ({
@@ -99,6 +105,7 @@ describe('ChatOrchestratorService', () => {
 			mockUserPlanResolver,
 			mockCompositionService,
 			mockRiContentResolver,
+			mockRiKnowledge,
 			mockRiDocumentQuery
 		);
 
@@ -1656,6 +1663,87 @@ describe('ChatOrchestratorService', () => {
 
 	// TRA-253: o chat le o PDF pelo mesmo resolver da rota HTTP. Antes mandava
 	// texto vazio e todo resumo parava em insufficient_content.
+	// TRA-264: "o que a empresa disse sobre X" responde pelo acervo de
+	// documentos de RI, citando documento e pagina.
+	describe('RI question answered from the document base (TRA-264)', () => {
+		const question = 'O que a PETR4 disse sobre dividendos no último ITR?';
+		const answer = {
+			items: [
+				{
+					text: 'Dividendos de R$ 0,45 por ação aprovados.',
+					citation: {
+						documentKey: 'a1b2c3',
+						title: 'ITR 2T26',
+						category: 'Dados Econômico-Financeiros',
+						period: '2T26',
+						publishedAt: '2026-08-07',
+						sourceUrl: 'https://www.rad.cvm.gov.br/ENET/x',
+						page: 3,
+						excerpt: 'aprovou dividendos de R$ 0,45 por ação',
+					},
+				},
+			],
+			notFound: false,
+		};
+
+		const premium = () =>
+			(
+				mockUserPlanResolver.resolveWithCapabilities as jest.Mock
+			).mockResolvedValueOnce({ tier: PREMIUM_ACCESS_LEVEL, capabilities: [] });
+
+		beforeEach(() => {
+			mockRiKnowledge.ask.mockReset();
+			mockRiKnowledge.ask.mockResolvedValue(answer);
+		});
+
+		it('asks the base of the issuer, looking at recent documents for "último"', async () => {
+			premium();
+
+			const response = await makeService().orchestrate('user-1', question);
+
+			expect(response.intent).toBe('ri_question');
+			const [asked] = mockRiKnowledge.ask.mock.calls[0];
+			expect(asked.issuer).toBe('PETR');
+			expect(asked.question).toBe(question);
+			expect(asked.publishedAfter).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+			expect(response.route.reason).toBe('rules_resolved');
+			expect(response.data.riAnswer).toEqual({ ticker: 'PETR4', ...answer });
+		});
+
+		// Mesma capability paga do resumo de RI: sem ela, nem busca.
+		it('does not ask without ri.ai_summary in the plan', async () => {
+			(
+				mockUserPlanResolver.resolveWithCapabilities as jest.Mock
+			).mockResolvedValueOnce({ tier: FREE_ACCESS_LEVEL, capabilities: [] });
+
+			const response = await makeService().orchestrate('user-1', question);
+
+			expect(mockRiKnowledge.ask).not.toHaveBeenCalled();
+			expect(response.route.reason).toBe('capability_not_available');
+			expect(response.unavailable).toContain('ri_ai_answer_not_in_plan');
+		});
+
+		it('says when the documents do not answer', async () => {
+			premium();
+			mockRiKnowledge.ask.mockResolvedValue({ items: [], notFound: true });
+
+			const response = await makeService().orchestrate('user-1', question);
+
+			expect(response.warnings).toContain('ri_answer_not_found');
+			expect(response.route.reason).toBe('insufficient_structured_data');
+		});
+
+		it('never breaks the chat when the base is down', async () => {
+			premium();
+			mockRiKnowledge.ask.mockRejectedValue(new Error('trackerr-ia fora'));
+
+			const response = await makeService().orchestrate('user-1', question);
+
+			expect(response.intent).toBe('ri_question');
+			expect(response.warnings).toContain('ri_knowledge_unavailable');
+		});
+	});
+
 	describe('RI content resolved like the HTTP route (TRA-253)', () => {
 		const document = {
 			id: 'doc-current',
@@ -1683,6 +1771,7 @@ describe('ChatOrchestratorService', () => {
 				mockUserPlanResolver,
 				mockCompositionService,
 				resolver as unknown as RiDocumentContentResolver,
+				mockRiKnowledge,
 				mockRiDocumentQuery
 			);
 

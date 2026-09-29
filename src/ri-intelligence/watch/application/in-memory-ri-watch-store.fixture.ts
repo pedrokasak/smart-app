@@ -32,6 +32,7 @@ export class InMemoryRiWatchStore implements RiWatchStore {
 				discoveredAt: now.toISOString(),
 				notifiedAt: null,
 				notification: null,
+				indexedAt: null,
 			});
 			inserted += 1;
 		}
@@ -76,6 +77,19 @@ export class InMemoryRiWatchStore implements RiWatchStore {
 			)
 			.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
 			.slice(0, limit);
+	}
+
+	async findUnindexed(limit: number) {
+		return [...this.docs.values()]
+			.filter(
+				(d) => RI_WATCH_FINISHED_STATUSES.includes(d.status) && !d.indexedAt
+			)
+			.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
+			.slice(0, limit);
+	}
+
+	async markIndexed(key: string, now: Date) {
+		Object.assign(this.docs.get(key)!, { indexedAt: now.toISOString() });
 	}
 
 	async markNotified(

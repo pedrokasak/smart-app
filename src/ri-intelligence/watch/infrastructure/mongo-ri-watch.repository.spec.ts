@@ -218,6 +218,28 @@ describe('MongoRiWatchRepository (TRA-240)', () => {
 		);
 	});
 
+	// TRA-264: a fila do acervo. `indexedAt: null` casa o campo ausente: o
+	// que foi processado antes do acervo entra nela.
+	it('lists finished documents still out of the knowledge base', async () => {
+		await repo.findUnindexed(20);
+
+		expect(model.find).toHaveBeenCalledWith({
+			status: { $in: ['summarized', 'skipped', 'failed'] },
+			indexedAt: null,
+		});
+		expect(chain.sort).toHaveBeenCalledWith({ publishedAt: -1 });
+		expect(chain.limit).toHaveBeenCalledWith(20);
+	});
+
+	it('closes the index queue for a document', async () => {
+		await repo.markIndexed('k1', NOW);
+
+		expect(model.updateOne).toHaveBeenCalledWith(
+			{ key: 'k1' },
+			{ $set: { indexedAt: NOW } }
+		);
+	});
+
 	it('registers new documents as not notified yet', async () => {
 		await repo.registerNew([record('https://rad/a')], NOW);
 
@@ -225,6 +247,7 @@ describe('MongoRiWatchRepository (TRA-240)', () => {
 		expect(op.updateOne.update.$setOnInsert).toMatchObject({
 			notifiedAt: null,
 			notification: null,
+			indexedAt: null,
 		});
 	});
 });

@@ -85,6 +85,26 @@ const POLICY_INTENTS: ChatOrchestratorIntent[] = [
 	'action_checklist',
 ];
 
+/** Chips dos documentos citados pelo acervo de RI (TRA-264), no máximo 3. */
+const MAX_RI_DOCUMENT_SOURCES = 3;
+
+function riDocumentSources(riAnswer: unknown): string[] {
+	const items = (riAnswer as { items?: unknown[] } | undefined)?.items;
+	if (!Array.isArray(items)) return [];
+	const labels: string[] = [];
+	for (const item of items) {
+		const citation = (item as { citation?: Record<string, unknown> })?.citation;
+		const title = typeof citation?.title === 'string' ? citation.title : '';
+		if (!title) continue;
+		const page = Number(citation?.page);
+		const label =
+			Number.isInteger(page) && page > 0 ? `${title} · p. ${page}` : title;
+		if (!labels.includes(label)) labels.push(label);
+		if (labels.length === MAX_RI_DOCUMENT_SOURCES) break;
+	}
+	return labels;
+}
+
 /**
  * Chips de fonte da bolha, com os rótulos do protótipo ("Posições
  * consolidadas", "Política de investimento", "Séries de preço 252d"). Só lista
@@ -97,11 +117,17 @@ export function buildAnswerSources(input: {
 	ragChunkCount?: number | null;
 }): string[] {
 	const sources: string[] = [];
+	// A resposta do acervo de RI (TRA-264) nao usa as posicoes: a fonte dela
+	// sao os documentos citados, logo abaixo.
 	if (
 		input.positionsCount > 0 &&
-		input.intent !== 'unsupported_quant_analysis'
+		input.intent !== 'unsupported_quant_analysis' &&
+		input.intent !== 'ri_question'
 	) {
 		sources.push('Posições consolidadas');
+	}
+	if (input.intent === 'ri_question') {
+		sources.push(...riDocumentSources(input.data?.riAnswer));
 	}
 	const rebalancing = input.data?.rebalancing as
 		| { hasTarget?: boolean }

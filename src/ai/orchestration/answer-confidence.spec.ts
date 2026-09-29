@@ -135,4 +135,41 @@ describe('buildAnswerSources', () => {
 			})
 		).toEqual([]);
 	});
+
+	// TRA-264: a fonte da resposta do acervo são os documentos citados, não
+	// as posições.
+	it('pergunta ao acervo de RI cita os documentos e as páginas', () => {
+		const citation = (title: string, page: number | null) => ({
+			text: 'x',
+			citation: { title, page, publishedAt: '2026-08-07' },
+		});
+
+		expect(
+			buildAnswerSources({
+				intent: 'ri_question',
+				positionsCount: 2,
+				data: {
+					riAnswer: {
+						items: [
+							citation('ITR 2T26', 3),
+							citation('ITR 2T26', 3),
+							citation('Fato Relevante', null),
+							citation('ITR 2T26', 12),
+							citation('DFP 2025', 40),
+						],
+					},
+				},
+			})
+		).toEqual(['ITR 2T26 · p. 3', 'Fato Relevante', 'ITR 2T26 · p. 12']);
+	});
+
+	it('pergunta ao acervo sem resposta não cita nada', () => {
+		expect(
+			buildAnswerSources({
+				intent: 'ri_question',
+				positionsCount: 2,
+				data: { riAnswer: { items: [], notFound: true } },
+			})
+		).toEqual([]);
+	});
 });

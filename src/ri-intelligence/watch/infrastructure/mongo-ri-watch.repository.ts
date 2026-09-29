@@ -53,6 +53,7 @@ export class MongoRiWatchRepository implements RiWatchStore {
 							summary: null,
 							notifiedAt: null,
 							notification: null,
+							indexedAt: null,
 						},
 					},
 					upsert: true,
@@ -141,6 +142,24 @@ export class MongoRiWatchRepository implements RiWatchStore {
 		);
 	}
 
+	async findUnindexed(limit: number): Promise<RiWatchDocument[]> {
+		// `indexedAt: null` casa o campo ausente: o que o vigia processou
+		// antes do acervo existir entra na fila e o preenche aos poucos.
+		const docs = await this.model
+			.find({
+				status: { $in: [...RI_WATCH_FINISHED_STATUSES] },
+				indexedAt: null,
+			})
+			.sort({ publishedAt: -1 })
+			.limit(limit)
+			.lean<RiWatchDocumentSchema[]>();
+		return docs.map((doc) => this.toDomain(doc));
+	}
+
+	async markIndexed(key: string, now: Date): Promise<void> {
+		await this.model.updateOne({ key }, { $set: { indexedAt: now } });
+	}
+
 	private toDomain(doc: RiWatchDocumentSchema): RiWatchDocument {
 		return {
 			key: doc.key,
@@ -160,6 +179,7 @@ export class MongoRiWatchRepository implements RiWatchStore {
 				? new Date(doc.notifiedAt).toISOString()
 				: null,
 			notification: doc.notification ?? null,
+			indexedAt: doc.indexedAt ? new Date(doc.indexedAt).toISOString() : null,
 		};
 	}
 }

@@ -31,6 +31,8 @@ export interface RiWatchDocumentSchema {
 	/** TRA-261. So contagem e motivo: quem foi avisado fica nas notificacoes. */
 	notifiedAt: Date | null;
 	notification: RiWatchNotificationSnapshot | null;
+	/** TRA-264: texto no acervo de RI (ou nada a indexar). */
+	indexedAt: Date | null;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -55,6 +57,7 @@ const riWatchDocumentSchema = new Schema<RiWatchDocumentSchema>(
 		summary: { type: Schema.Types.Mixed, default: null },
 		notifiedAt: { type: Date, default: null },
 		notification: { type: Schema.Types.Mixed, default: null },
+		indexedAt: { type: Date, default: null },
 	},
 	{ timestamps: true, collection: 'ri_watch_documents', minimize: false }
 );
@@ -67,6 +70,11 @@ riWatchDocumentSchema.index(
 riWatchDocumentSchema.index(
 	{ status: 1, publishedAt: -1 },
 	{ name: 'ri_watch_pending' }
+);
+// A fila do acervo (TRA-264): processados e ainda nao indexados.
+riWatchDocumentSchema.index(
+	{ indexedAt: 1, status: 1, publishedAt: -1 },
+	{ name: 'ri_watch_unindexed' }
 );
 // A fila de aviso (TRA-261): processados e ainda nao avisados.
 riWatchDocumentSchema.index(

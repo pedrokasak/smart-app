@@ -317,6 +317,95 @@ describe('AiController', () => {
 		expect(typeof response.message).toBe('string');
 	});
 
+	// TRA-264: a resposta do acervo de RI vai no texto da bolha, cada
+	// afirmacao com documento e pagina, e os documentos viram os chips.
+	describe('RI question answered from the document base (TRA-264)', () => {
+		const riQuestion = (overrides: Record<string, unknown> = {}) => ({
+			intent: 'ri_question',
+			deterministic: true,
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			context: { positionsCount: 3 },
+			data: {
+				riAnswer: {
+					ticker: 'PETR4',
+					notFound: false,
+					items: [
+						{
+							text: 'Dividendos de R$ 0,45 por ação aprovados.',
+							citation: {
+								title: 'ITR 2T26',
+								publishedAt: '2026-08-07',
+								page: 3,
+							},
+						},
+					],
+				},
+			},
+			unavailable: [],
+			warnings: [],
+			assumptions: [],
+			...overrides,
+		});
+
+		const ask = () =>
+			controller.intelligentChat(
+				{ user: { userId: 'user-123' } },
+				{ question: 'O que a PETR4 disse sobre dividendos?' }
+			);
+
+		it('cites document, date and page for each claim', async () => {
+			mockChatOrchestratorService.orchestrate.mockResolvedValue(riQuestion());
+
+			const response = await ask();
+
+			expect(response.message).toBe(
+				[
+					'Segundo os documentos de RI de PETR4:',
+					'• Dividendos de R$ 0,45 por ação aprovados. (ITR 2T26, 07/08/2026, p. 3)',
+					'Informação extraída dos documentos entregues à CVM; não é recomendação de investimento.',
+				].join('\n')
+			);
+			expect(response.sources).toEqual(['ITR 2T26 · p. 3']);
+		});
+
+		it('says so when the documents do not answer', async () => {
+			mockChatOrchestratorService.orchestrate.mockResolvedValue(
+				riQuestion({
+					data: { riAnswer: { ticker: 'PETR4', items: [], notFound: true } },
+					warnings: ['ri_answer_not_found'],
+				})
+			);
+
+			const response = await ask();
+
+			expect(response.message).toContain(
+				'Não encontrei isso nos documentos de RI de PETR4'
+			);
+			expect(response.sources).toEqual([]);
+		});
+
+		it('explains the plan when ri.ai_summary is missing', async () => {
+			mockChatOrchestratorService.orchestrate.mockResolvedValue(
+				riQuestion({
+					route: {
+						type: 'deterministic_no_llm',
+						llmEligible: false,
+						reason: 'capability_not_available',
+					},
+					data: {},
+				})
+			);
+
+			const response = await ask();
+
+			expect(response.message).toContain('faz parte dos planos');
+		});
+	});
+
 	it('should return portfolio-aware list message when question asks for assets', async () => {
 		mockChatOrchestratorService.orchestrate.mockResolvedValueOnce({
 			intent: 'portfolio_summary',

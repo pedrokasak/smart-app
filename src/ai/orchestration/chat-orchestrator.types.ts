@@ -15,6 +15,9 @@ export type ChatOrchestratorIntent =
 	| 'opportunity_radar'
 	| 'ri_summary'
 	| 'ri_comparison'
+	// "O que a PETR4 disse sobre dividendos no último ITR?": responde pelo
+	// acervo de documentos de RI, citando documento e página (TRA-264).
+	| 'ri_question'
 	| 'investment_committee'
 	| 'narrative_synthesis'
 	| 'external_asset_question'
@@ -79,6 +82,7 @@ export interface ChatOrchestratorResponse {
 		futureSimulation?: unknown;
 		riSummary?: unknown;
 		riComparison?: unknown;
+		riAnswer?: unknown;
 		trackerrScore?: unknown;
 		tradePlaybook?: unknown;
 		riTimeline?: unknown;
