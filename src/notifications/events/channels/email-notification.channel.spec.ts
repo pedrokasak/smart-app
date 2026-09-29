@@ -44,6 +44,30 @@ describe('EmailNotificationChannel', () => {
 		expect(sender.send).not.toHaveBeenCalled();
 	});
 
+	// TRA-261: o aviso de RI traz texto de fora (titulo entregue a CVM,
+	// destaques de IA). Nada disso pode virar HTML no e-mail.
+	it('escapa o texto do template e mostra o link da fonte', async () => {
+		await channel.send({ email: 'x@y.com' } as any, {
+			type: NotificationType.RiMaterialFact,
+			ticker: 'PETR4',
+			company: 'Petrobras',
+			title: 'Aquisição <script>alert(1)</script> & "outros"',
+			publishedAt: '2026-09-28T00:00:00.000Z',
+			sourceUrl:
+				'https://www.rad.cvm.gov.br/ENETWeb/frmDownloadDocumento.aspx?Tela=ext&numProtocolo=1571942',
+		});
+
+		const { html, text } = sender.send.mock.calls[0][0];
+		expect(html).not.toContain('<script>');
+		expect(html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;');
+		expect(html).toContain('&amp; &quot;outros&quot;');
+		expect(html).toContain(
+			'href="https://www.rad.cvm.gov.br/ENETWeb/frmDownloadDocumento.aspx?Tela=ext&amp;numProtocolo=1571942"'
+		);
+		expect(html).toContain('Abrir o documento na CVM');
+		expect(text).toContain('numProtocolo=1571942');
+	});
+
 	it('captura excecao do sender e devolve success=false', async () => {
 		sender.send.mockRejectedValueOnce(new Error('boom'));
 		const result = await channel.send({ email: 'x@y.com' } as any, {

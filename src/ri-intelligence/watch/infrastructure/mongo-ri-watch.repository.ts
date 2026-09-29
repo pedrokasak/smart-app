@@ -4,8 +4,10 @@ import { Model } from 'mongoose';
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 import { RiWatchStore } from 'src/ri-intelligence/watch/application/ports/ri-watch-store.port';
 import {
+	RI_WATCH_FINISHED_STATUSES,
 	RI_WATCH_MAX_ATTEMPTS,
 	RiWatchDocument,
+	RiWatchNotificationSnapshot,
 	RiWatchSummarySnapshot,
 	watchDocumentKey,
 } from 'src/ri-intelligence/watch/domain/ri-watch';
@@ -49,6 +51,8 @@ export class MongoRiWatchRepository implements RiWatchStore {
 							processedAt: null,
 							lastError: null,
 							summary: null,
+							notifiedAt: null,
+							notification: null,
 						},
 					},
 					upsert: true,
@@ -105,6 +109,38 @@ export class MongoRiWatchRepository implements RiWatchStore {
 		);
 	}
 
+	async findUnnotified(
+		limit: number,
+		pendingSince: Date
+	): Promise<RiWatchDocument[]> {
+		// `notifiedAt: null` casa tambem o campo ausente: documento registrado
+		// antes da TRA-261 entra na fila de aviso (e o corte por idade o
+		// descarta se for velho).
+		const docs = await this.model
+			.find({
+				notifiedAt: null,
+				$or: [
+					{ status: { $in: [...RI_WATCH_FINISHED_STATUSES] } },
+					{ status: 'pending', discoveredAt: { $lte: pendingSince } },
+				],
+			})
+			.sort({ publishedAt: -1 })
+			.limit(limit)
+			.lean<RiWatchDocumentSchema[]>();
+		return docs.map((doc) => this.toDomain(doc));
+	}
+
+	async markNotified(
+		key: string,
+		notification: RiWatchNotificationSnapshot,
+		now: Date
+	): Promise<void> {
+		await this.model.updateOne(
+			{ key },
+			{ $set: { notifiedAt: now, notification } }
+		);
+	}
+
 	private toDomain(doc: RiWatchDocumentSchema): RiWatchDocument {
 		return {
 			key: doc.key,
@@ -120,6 +156,10 @@ export class MongoRiWatchRepository implements RiWatchStore {
 				: null,
 			lastError: doc.lastError ?? null,
 			summary: doc.summary ?? null,
+			notifiedAt: doc.notifiedAt
+				? new Date(doc.notifiedAt).toISOString()
+				: null,
+			notification: doc.notification ?? null,
 		};
 	}
 }

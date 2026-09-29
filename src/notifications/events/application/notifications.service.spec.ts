@@ -253,6 +253,46 @@ describe('NotificationsService', () => {
 	 * entao um doc sem a preferencia nao ganha `false` no banco, e
 	 * `userAllows` so consulta o default quando `typeof value !== 'boolean'`.
 	 */
+	// TRA-261: fato relevante e raro e urgente, sai por e-mail; os outros
+	// documentos de RI sao muitos por dia e ficam no in-app e no push diario.
+	describe('defaults dos avisos de RI (TRA-261)', () => {
+		const user = () => fakeUser({ notificationPreferences: {} }) as never;
+
+		it('fato relevante sai por e-mail e push por padrao', () => {
+			expect(
+				service.userAllows(
+					user(),
+					NotificationType.RiMaterialFact,
+					NotificationChannelName.Email
+				)
+			).toBe(true);
+			expect(
+				service.userAllows(
+					user(),
+					NotificationType.RiMaterialFact,
+					NotificationChannelName.Push
+				)
+			).toBe(true);
+		});
+
+		it('outro documento de RI nao sai por e-mail por padrao, so push', () => {
+			expect(
+				service.userAllows(
+					user(),
+					NotificationType.RiDocument,
+					NotificationChannelName.Email
+				)
+			).toBe(false);
+			expect(
+				service.userAllows(
+					user(),
+					NotificationType.RiDocument,
+					NotificationChannelName.Push
+				)
+			).toBe(true);
+		});
+	});
+
 	describe('virada dos defaults ligados (TRA-136, fase 7)', () => {
 		const LIGADOS_POR_PADRAO = [
 			NotificationType.AllocationBreached,

@@ -56,4 +56,14 @@ export const THRESHOLD_ROUTING: Record<DomainEventType, ThresholdRouting> = {
 		kind: 'discrete',
 		why: 'insight e conteudo novo a cada rodada, nao uma condicao continua',
 	},
+	// TRA-261: cada documento entregue a CVM e um fato. A repeticao do mesmo
+	// documento morre no id deterministico (usuario + documento) do vigia.
+	[DOMAIN_EVENT_TYPES.RiMaterialFactPublished]: {
+		kind: 'discrete',
+		why: 'fato relevante entregue a CVM e fato pontual — dois documentos sao dois avisos',
+	},
+	[DOMAIN_EVENT_TYPES.RiDocumentPublished]: {
+		kind: 'discrete',
+		why: 'documento entregue a CVM e fato pontual — dois documentos sao dois avisos',
+	},
 };

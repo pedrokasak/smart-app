@@ -66,6 +66,8 @@ export interface User extends Document {
 			aiInsightHigh?: boolean;
 			quoteStale?: boolean;
 			subscriptionExpiring?: boolean;
+			riMaterialFact?: boolean;
+			riDocument?: boolean;
 		};
 		push?: {
 			dividendReceived?: boolean;
@@ -74,6 +76,8 @@ export interface User extends Document {
 			aiInsightHigh?: boolean;
 			quoteStale?: boolean;
 			subscriptionExpiring?: boolean;
+			riMaterialFact?: boolean;
+			riDocument?: boolean;
 		};
 	};
 	/**
@@ -259,6 +263,8 @@ const userSchema = new Schema<User>(
 				aiInsightHigh: { type: Boolean, default: undefined },
 				quoteStale: { type: Boolean, default: undefined },
 				subscriptionExpiring: { type: Boolean, default: undefined },
+				riMaterialFact: { type: Boolean, default: undefined },
+				riDocument: { type: Boolean, default: undefined },
 			},
 			push: {
 				dividendReceived: { type: Boolean, default: undefined },
@@ -267,6 +273,8 @@ const userSchema = new Schema<User>(
 				aiInsightHigh: { type: Boolean, default: undefined },
 				quoteStale: { type: Boolean, default: undefined },
 				subscriptionExpiring: { type: Boolean, default: undefined },
+				riMaterialFact: { type: Boolean, default: undefined },
+				riDocument: { type: Boolean, default: undefined },
 			},
 		},
 

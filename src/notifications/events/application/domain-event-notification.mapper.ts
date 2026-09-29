@@ -7,6 +7,7 @@ import {
 	DividendReceivedPayload,
 	PortfolioScoreEvaluatedPayload,
 	QuoteStalePayload,
+	RiDocumentPublishedPayload,
 	SubscriptionExpiringPayload,
 	isDomainEventType,
 } from 'src/events/domain/event-types';
@@ -147,8 +148,49 @@ export function toNotificationPayload(
 			} as NotificationPayload;
 		}
 
+		case DOMAIN_EVENT_TYPES.RiMaterialFactPublished:
+		case DOMAIN_EVENT_TYPES.RiDocumentPublished: {
+			const p = payload as unknown as RiDocumentPublishedPayload;
+			if (
+				!isNonEmptyString(p.ticker) ||
+				!isNonEmptyString(p.company) ||
+				!isNonEmptyString(p.title) ||
+				!isValidIso(p.publishedAt) ||
+				!isHttpUrl(p.sourceUrl)
+			) {
+				return null;
+			}
+			// Texto de IA vindo da fila: so string nao vazia, no maximo 3.
+			const highlights = Array.isArray(p.highlights)
+				? p.highlights.filter(isNonEmptyString).slice(0, 3)
+				: [];
+			return {
+				type,
+				ticker: p.ticker,
+				company: p.company,
+				title: p.title,
+				publishedAt: p.publishedAt,
+				sourceUrl: p.sourceUrl,
+				...(highlights.length ? { highlights } : {}),
+			} as NotificationPayload;
+		}
+
 		default:
 			return null;
+	}
+}
+
+/**
+ * O link vai para o `href` do e-mail. So http(s): `javascript:` ou
+ * `data:` vindos de um payload adulterado na fila nao podem virar link.
+ */
+function isHttpUrl(value: unknown): value is string {
+	if (!isNonEmptyString(value)) return false;
+	try {
+		const url = new URL(value);
+		return url.protocol === 'https:' || url.protocol === 'http:';
+	} catch {
+		return false;
 	}
 }
 

@@ -5,16 +5,11 @@ import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 import { HeldTickerDirectory } from 'src/ri-intelligence/watch/application/ports/held-ticker-directory.port';
 import { IssuerCodeDirectory } from 'src/ri-intelligence/watch/application/ports/issuer-code-directory.port';
 import { RiDeliveryFeedPort } from 'src/ri-intelligence/watch/application/ports/ri-delivery-feed.port';
-import { RiWatchStore } from 'src/ri-intelligence/watch/application/ports/ri-watch-store.port';
+import { InMemoryRiWatchStore } from 'src/ri-intelligence/watch/application/in-memory-ri-watch-store.fixture';
 import { RiWatchConfig } from 'src/ri-intelligence/watch/application/ri-watch.config';
 import { RiWatchService } from 'src/ri-intelligence/watch/application/ri-watch.service';
 import { RiDelivery } from 'src/ri-intelligence/watch/domain/ri-delivery';
-import {
-	RI_WATCH_MAX_ATTEMPTS,
-	RiWatchDocument,
-	RiWatchSummarySnapshot,
-	watchDocumentKey,
-} from 'src/ri-intelligence/watch/domain/ri-watch';
+import { RI_WATCH_MAX_ATTEMPTS } from 'src/ri-intelligence/watch/domain/ri-watch';
 
 const NOW = new Date('2026-09-28T12:00:00.000Z');
 
@@ -58,58 +53,6 @@ function record(
 		contentStatus: 'metadata_only',
 		...over,
 	};
-}
-
-/** Store em memoria com a mesma semantica do repositorio Mongo. */
-class InMemoryRiWatchStore implements RiWatchStore {
-	readonly docs = new Map<string, RiWatchDocument>();
-
-	async registerNew(records: RiDocumentRecord[], now: Date) {
-		let inserted = 0;
-		for (const rec of records) {
-			const key = watchDocumentKey(rec);
-			if (!key || this.docs.has(key)) continue;
-			this.docs.set(key, {
-				key,
-				ticker: rec.ticker,
-				documentType: rec.documentType,
-				publishedAt: rec.publishedAt,
-				record: rec,
-				status: 'pending',
-				attempts: 0,
-				discoveredAt: now.toISOString(),
-			});
-			inserted += 1;
-		}
-		return inserted;
-	}
-
-	async findPending(limit: number) {
-		return [...this.docs.values()]
-			.filter(
-				(d) => d.status === 'pending' && d.attempts < RI_WATCH_MAX_ATTEMPTS
-			)
-			.sort((a, b) => b.publishedAt.localeCompare(a.publishedAt))
-			.slice(0, limit);
-	}
-
-	async markSummarized(key: string, summary: RiWatchSummarySnapshot) {
-		Object.assign(this.docs.get(key)!, { status: 'summarized', summary });
-	}
-
-	async markSkipped(key: string, reason: string) {
-		Object.assign(this.docs.get(key)!, {
-			status: 'skipped',
-			lastError: reason,
-		});
-	}
-
-	async recordFailure(key: string, reason: string) {
-		const doc = this.docs.get(key)!;
-		doc.attempts += 1;
-		doc.lastError = reason;
-		if (doc.attempts >= RI_WATCH_MAX_ATTEMPTS) doc.status = 'failed';
-	}
 }
 
 describe('RiWatchService (TRA-240)', () => {
@@ -176,6 +119,8 @@ describe('RiWatchService (TRA-240)', () => {
 			lookbackDays: 3,
 			maxSummariesPerRun: 20,
 			dailyFeedEnabled: true,
+			notifyEnabled: false,
+			notifyMaxAgeDays: 3,
 		};
 	});
 
