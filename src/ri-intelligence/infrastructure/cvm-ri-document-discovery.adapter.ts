@@ -170,11 +170,10 @@ export class CvmRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 			},
 			contentStatus: 'metadata_only',
 			// O protocolo e o que impede o vigia de processar o mesmo documento
-			// duas vezes (TRA-260). Do link primeiro: e o mesmo `numProtocolo`
-			// que a consulta diaria do ENET traz no link dela.
-			deliveryProtocol:
-				protocolFromCvmLink(link) ??
-				(String(row.Protocolo_Entrega || '').replace(/\D/g, '') || null),
+			// duas vezes (TRA-260). Sai do link: e o mesmo `numProtocolo` que a
+			// consulta diaria do ENET traz. NAO e o `Protocolo_Entrega` do IPE,
+			// outro identificador (26 digitos) que nenhuma outra fonte usa.
+			deliveryProtocol: protocolFromCvmLink(link),
 			cvmCategory: categoria || null,
 			cvmType: tipo || null,
 		} satisfies RiDocumentRecord;

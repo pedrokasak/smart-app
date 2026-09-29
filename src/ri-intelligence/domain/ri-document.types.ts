@@ -47,11 +47,11 @@ export interface RiDocumentRecord {
 	};
 	contentStatus: 'metadata_only' | 'extracted';
 	/**
-	 * Protocolo de entrega na CVM (TRA-260). Identifica o mesmo documento em
-	 * qualquer fonte da CVM — o dataset IPE semanal traz em
-	 * `Protocolo_Entrega`, a consulta diaria do ENET no link de download —
-	 * enquanto link e titulo mudam de uma fonte para outra. Ausente em
-	 * documento que nao veio da CVM.
+	 * Protocolo do documento na CVM (TRA-260): o `numProtocolo` do link de
+	 * download do ENET. Identifica o mesmo documento no dataset IPE semanal e
+	 * na consulta diaria do ENET (conferido em 25/09/2026: 99 de 99), enquanto
+	 * link e titulo mudam de uma fonte para outra. Nao e o `Protocolo_Entrega`
+	 * do IPE, que e outro identificador. Ausente em documento de fora da CVM.
 	 */
 	deliveryProtocol?: string | null;
 	/**
