@@ -1,13 +1,17 @@
 import { HttpService } from '@nestjs/axios';
 import { Injectable, Logger } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
+import { normalizeCvmCode } from 'src/ri-intelligence/domain/cvm-code';
 
 interface RegistryEntry {
 	cnpj: string;
 	company: string;
+	/** Codigo CVM no formato da B3 (TRA-260) — ver `normalizeCvmCode`. */
+	cvmCode: string | null;
 }
 
 interface B3CompanyRow {
+	codeCVM?: string;
 	issuingCompany?: string;
 	companyName?: string;
 	cnpj?: string;
@@ -153,7 +157,11 @@ export class B3RegistryCnpjResolverAdapter {
 			const cnpj = this.normalizeCnpj(row?.cnpj);
 			const company = String(row?.companyName || '').trim();
 			if (!baseCode || !cnpj || !company) continue;
-			target.set(baseCode, { cnpj, company });
+			target.set(baseCode, {
+				cnpj,
+				company,
+				cvmCode: normalizeCvmCode(row?.codeCVM),
+			});
 		}
 	}
 
@@ -168,5 +176,19 @@ export class B3RegistryCnpjResolverAdapter {
 		const entry = registry.get(this.baseCode(normalizedTicker));
 		if (!entry) return null;
 		return { cnpj: entry.cnpj, company: entry.company };
+	}
+
+	/**
+	 * Codigo CVM do emissor do ticker (TRA-260), para casar tickers em
+	 * carteira com a consulta diaria do ENET, que so traz o codigo CVM.
+	 * Mesmo registro e mesmo cache de `resolveCnpj`.
+	 */
+	async resolveCvmCode(ticker: string): Promise<string | null> {
+		const normalizedTicker = String(ticker || '')
+			.trim()
+			.toUpperCase();
+		if (!normalizedTicker) return null;
+		const registry = await this.loadRegistry();
+		return registry.get(this.baseCode(normalizedTicker))?.cvmCode ?? null;
 	}
 }

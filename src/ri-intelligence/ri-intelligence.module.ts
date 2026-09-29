@@ -124,6 +124,8 @@ import { HttpPdfRiDocumentContentAdapter } from 'src/ri-intelligence/infrastruct
 		// Vigia de RI (TRA-240): descoberta oficial (CVM) e extração do PDF.
 		CvmRiDocumentDiscoveryAdapter,
 		RI_DOCUMENT_CONTENT,
+		// Vigia de RI (TRA-260): código CVM dos tickers, para a fonte diária.
+		B3RegistryCnpjResolverAdapter,
 	],
 })
 export class RiIntelligenceModule {}

@@ -11,14 +11,22 @@ describe('RiWatchScheduler (TRA-240)', () => {
 
 	beforeEach(() => {
 		service = {
-			scan: jest
-				.fn()
-				.mockResolvedValue({ tickers: 2, registered: 1, failedTickers: 0 }),
+			scan: jest.fn().mockResolvedValue({
+				tickers: 2,
+				registered: 1,
+				failedTickers: 0,
+				dailyFeed: 'ok',
+			}),
 			processPending: jest
 				.fn()
 				.mockResolvedValue({ summarized: 1, skipped: 0, failed: 0 }),
 		};
-		config = { enabled: true, lookbackDays: 3, maxSummariesPerRun: 20 };
+		config = {
+			enabled: true,
+			lookbackDays: 3,
+			maxSummariesPerRun: 20,
+			dailyFeedEnabled: true,
+		};
 	});
 
 	it('does nothing while disabled', async () => {
@@ -34,7 +42,7 @@ describe('RiWatchScheduler (TRA-240)', () => {
 		const order: string[] = [];
 		service.scan.mockImplementation(async () => {
 			order.push('scan');
-			return { tickers: 0, registered: 0, failedTickers: 0 };
+			return { tickers: 0, registered: 0, failedTickers: 0, dailyFeed: 'ok' };
 		});
 		service.processPending.mockImplementation(async () => {
 			order.push('process');
@@ -60,7 +68,12 @@ describe('RiWatchScheduler (TRA-240)', () => {
 			() =>
 				new Promise((resolve) => {
 					release = () =>
-						resolve({ tickers: 0, registered: 0, failedTickers: 0 });
+						resolve({
+							tickers: 0,
+							registered: 0,
+							failedTickers: 0,
+							dailyFeed: 'ok',
+						});
 				})
 		);
 		const scheduler = makeScheduler();

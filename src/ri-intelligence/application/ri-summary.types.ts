@@ -26,6 +26,12 @@ export interface RiDocumentSummaryInput {
 	 * vale `true` — a rota HTTP ja e travada pelo `@RequiresCapability`.
 	 */
 	allowAi?: boolean;
+	/**
+	 * `true` so para rotina do servidor cujo documento saiu da propria
+	 * descoberta, nunca de corpo de requisicao (TRA-260). Publica o resumo
+	 * tambem pela chave do protocolo da CVM — ver `buildProtocolCacheKey`.
+	 */
+	serverDiscovered?: boolean;
 }
 
 /**

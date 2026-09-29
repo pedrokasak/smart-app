@@ -6,13 +6,12 @@ import { RiWatchService } from './ri-watch.service';
 /**
  * Relogio do vigia de RI (TRA-240).
  *
- * A fonte de hoje, o dataset IPE da CVM, e SEMANAL (o arquivo muda aos
- * domingos, ~07h), entao a varredura quase sempre rele o mesmo arquivo — que
- * o adapter guarda por 6h, e custa um download de ~2 MB. Rodar tres vezes ao
- * dia serve a outra coisa: a das 12h pega o arquivo de domingo mesmo quando
- * a das 7h chega antes da CVM publicar, e cada rodada da nova chance ao que
- * falhou por motivo passageiro (rede, IA fora do ar). Quando entrar uma fonte
- * diaria (consulta do ENET), a cadencia ja serve para ela.
+ * Tres rodadas ao dia por causa da fonte diaria (consulta do ENET, TRA-260):
+ * cada uma ve o que foi entregue na CVM desde a anterior, com uma consulta
+ * so. O dataset IPE, SEMANAL (o arquivo muda aos domingos, ~07h), segue como
+ * rede de seguranca e quase sempre e o mesmo arquivo, guardado 6h pelo
+ * adapter. E cada rodada da nova chance ao que falhou por motivo passageiro
+ * (rede, IA fora do ar).
  *
  * A varredura vem antes do processamento, mas uma falha nela nao impede
  * processar o que ja estava pendente de rodadas anteriores.
@@ -46,7 +45,8 @@ export class RiWatchScheduler {
 				const scan = await this.watch.scan();
 				this.logger.log(
 					`Vigia de RI: ${scan.registered} documento(s) novo(s) em ` +
-						`${scan.tickers} ticker(s) (${scan.failedTickers} com falha)`
+						`${scan.tickers} ticker(s) (${scan.failedTickers} com falha; ` +
+						`ENET: ${scan.dailyFeed})`
 				);
 			} catch (err) {
 				this.logger.error(

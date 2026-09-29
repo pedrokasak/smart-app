@@ -5,6 +5,7 @@ import {
 } from 'src/ri-intelligence/application/ri-document-content.port';
 import { RiDocumentDiscoveryPort } from 'src/ri-intelligence/application/ri-document-discovery.port';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
+import { deliveryToRecord } from 'src/ri-intelligence/watch/domain/ri-delivery';
 import {
 	isPermanentContentFailure,
 	isWatchRelevant,
@@ -14,18 +15,41 @@ import {
 	HELD_TICKER_DIRECTORY,
 	HeldTickerDirectory,
 } from './ports/held-ticker-directory.port';
+import {
+	ISSUER_CODE_DIRECTORY,
+	IssuerCodeDirectory,
+} from './ports/issuer-code-directory.port';
+import {
+	RI_DELIVERY_FEED,
+	RiDeliveryFeedPort,
+} from './ports/ri-delivery-feed.port';
 import { RI_WATCH_DISCOVERY } from './ports/ri-watch-discovery.port';
 import { RI_WATCH_STORE, RiWatchStore } from './ports/ri-watch-store.port';
 import { RI_WATCH_CONFIG, RiWatchConfig } from './ri-watch.config';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Janela da consulta diaria do ENET. Dois dias: a rodada das 7h ainda pega o
+ * que foi entregue na noite anterior, depois da rodada das 18h, e uma rodada
+ * perdida (deploy, queda) nao abre buraco. O que escapar mesmo assim, o IPE
+ * semanal reconcilia.
+ */
+const DAILY_FEED_WINDOW_DAYS = 2;
+
 type ProcessOutcome = 'summarized' | 'skipped' | 'failed';
+
+/**
+ * Consulta diaria do ENET nesta rodada (TRA-260). `skipped`: ligada, mas sem
+ * o que perguntar (nenhum ticker em carteira com codigo CVM conhecido).
+ */
+export type RiWatchDailyFeedStatus = 'ok' | 'failed' | 'disabled' | 'skipped';
 
 export interface RiWatchScanResult {
 	tickers: number;
 	registered: number;
 	failedTickers: number;
+	dailyFeed: RiWatchDailyFeedStatus;
 }
 
 export type RiWatchProcessResult = Record<ProcessOutcome, number>;
@@ -41,8 +65,10 @@ export type RiWatchProcessResult = Record<ProcessOutcome, number>;
  *   transitoria volta na proxima rodada; com falha permanente sai da fila.
  *
  * O resumo sai do mesmo `RiDocumentSummaryService` do RI Inteligente, com a
- * verificacao de fidelidade e as citacoes (TRA-239), e cai no mesmo cache.
- * Por isso a rotina ja entrega valor antes de notificar alguem: quem abrir o
+ * verificacao de fidelidade e as citacoes (TRA-239), e cai no mesmo cache —
+ * inclusive pela chave do protocolo da CVM (TRA-260), que acha o resumo
+ * quando a tela lista o documento pelo IPE e o vigia o viu pelo ENET. Por
+ * isso a rotina ja entrega valor antes de notificar alguem: quem abrir o
  * documento na tela encontra o resumo pronto, sem esperar a IA.
  *
  * Nunca lanca: roda em cron, e um ticker ou documento problematico nao pode
@@ -58,6 +84,10 @@ export class RiWatchService {
 		private readonly directory: HeldTickerDirectory,
 		@Inject(RI_WATCH_DISCOVERY)
 		private readonly discovery: RiDocumentDiscoveryPort,
+		@Inject(RI_DELIVERY_FEED)
+		private readonly dailyFeed: RiDeliveryFeedPort,
+		@Inject(ISSUER_CODE_DIRECTORY)
+		private readonly issuerCodes: IssuerCodeDirectory,
 		@Inject(RI_DOCUMENT_CONTENT)
 		private readonly content: RiDocumentContentPort,
 		private readonly summaries: RiDocumentSummaryService,
@@ -72,6 +102,25 @@ export class RiWatchService {
 
 		let registered = 0;
 		let failedTickers = 0;
+		let dailyFeed: RiWatchDailyFeedStatus = 'disabled';
+
+		// Primeiro a fonte diaria (TRA-260): e ela que ve o documento no dia
+		// da entrega. Falhou (fora do ar, formato mudou, captcha ligado)? A
+		// rodada segue com o IPE semanal logo abaixo — nada se perde, so
+		// chega mais tarde.
+		if (this.config.dailyFeedEnabled) {
+			try {
+				const feed = await this.scanDailyFeed(tickers, now);
+				registered += feed.registered;
+				dailyFeed = feed.status;
+			} catch (err) {
+				dailyFeed = 'failed';
+				this.logger.warn(
+					`Vigia de RI: consulta diaria do ENET indisponivel (${this.messageOf(err)}); seguindo so com o IPE semanal`
+				);
+			}
+		}
+
 		// Sequencial: o adapter da CVM compartilha um unico download do
 		// dataset anual; em paralelo, N tickers disparariam N downloads.
 		for (const ticker of tickers) {
@@ -95,7 +144,64 @@ export class RiWatchService {
 			}
 		}
 
-		return { tickers: tickers.length, registered, failedTickers };
+		return { tickers: tickers.length, registered, failedTickers, dailyFeed };
+	}
+
+	/**
+	 * Uma consulta com todas as companhias do periodo, filtrada pelas que
+	 * estao em carteira. Mesmo `registerNew` do IPE: a chave e o protocolo
+	 * de entrega, entao o documento que chegar de novo pelo IPE nao duplica.
+	 */
+	private async scanDailyFeed(
+		tickers: string[],
+		now: Date
+	): Promise<{ status: 'ok' | 'skipped'; registered: number }> {
+		if (!tickers.length) return { status: 'skipped', registered: 0 };
+
+		const tickerByCvmCode = await this.tickersByCvmCode(tickers);
+		if (!tickerByCvmCode.size) {
+			// Ha acoes em carteira e nenhuma tem codigo CVM: o registro da B3
+			// mudou ou veio incompleto. Sem este aviso, a fonte diaria ficaria
+			// muda sem ninguem notar.
+			this.logger.warn(
+				`Vigia de RI: nenhum codigo CVM para ${tickers.length} ticker(s); consulta diaria do ENET nao feita`
+			);
+			return { status: 'skipped', registered: 0 };
+		}
+
+		const deliveries = await this.dailyFeed.listDeliveries(
+			new Date(now.getTime() - DAILY_FEED_WINDOW_DAYS * DAY_MS),
+			now
+		);
+		const relevant = deliveries
+			.flatMap((delivery) => {
+				const ticker = tickerByCvmCode.get(delivery.cvmCode);
+				return ticker ? [deliveryToRecord(delivery, ticker)] : [];
+			})
+			.filter(isWatchRelevant);
+
+		return {
+			status: 'ok',
+			registered: relevant.length
+				? await this.store.registerNew(relevant, now)
+				: 0,
+		};
+	}
+
+	/**
+	 * Codigo CVM -> ticker. Tickers em ordem: com duas classes (PETR3/PETR4,
+	 * mesmo codigo CVM), o documento fica sempre sob a mesma, de forma
+	 * deterministica.
+	 */
+	private async tickersByCvmCode(
+		tickers: string[]
+	): Promise<Map<string, string>> {
+		const byCode = new Map<string, string>();
+		for (const ticker of [...tickers].sort()) {
+			const code = await this.issuerCodes.resolveCvmCode(ticker);
+			if (code && !byCode.has(code)) byCode.set(code, ticker);
+		}
+		return byCode;
 	}
 
 	async processPending(now: Date = new Date()): Promise<RiWatchProcessResult> {
@@ -155,6 +261,9 @@ export class RiWatchService {
 			// Rotina do sistema: o custo e por documento, nao por usuario, e o
 			// acesso ao resumo continua travado por plano na hora da leitura.
 			allowAi: true,
+			// Registro da propria descoberta: o resumo vale tambem para as
+			// outras listagens do mesmo documento da CVM (TRA-260).
+			serverDiscovered: true,
 		});
 
 		if (output.summary.sourceLabel === 'ai_summary') {

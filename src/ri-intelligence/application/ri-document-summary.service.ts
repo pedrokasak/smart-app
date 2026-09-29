@@ -15,13 +15,20 @@ import {
 	RiStructuredSignals,
 	RiSummaryCitation,
 } from 'src/ri-intelligence/application/ri-summary.types';
+import { cvmDeliveryProtocol } from 'src/ri-intelligence/domain/cvm-protocol';
+
+/**
+ * Versao do prompt nas chaves de cache. v2 (TRA-239): destaques passaram a
+ * vir com citacao verificada. Mudou o prompt no trackerr-ia? Suba aqui.
+ */
+const SUMMARY_CACHE_VERSION = 'v2';
 
 @Injectable()
 export class RiDocumentSummaryService {
 	private readonly minContentLength = 220;
 	// A chave carrega a hash do conteudo e o documento publicado nao muda:
 	// resumo vencido so faria pagar a mesma chamada de novo (TRA-238). Mudou
-	// o prompt no trackerr-ia? Suba o sufixo de versao de `buildCacheKey`.
+	// o prompt no trackerr-ia? Suba `SUMMARY_CACHE_VERSION`.
 	private readonly cacheTtlSeconds = 60 * 60 * 24 * 30;
 
 	constructor(
@@ -69,29 +76,32 @@ export class RiDocumentSummaryService {
 		}
 
 		const cacheKey = this.buildCacheKey(input.document, normalizedContent);
-		if (this.cache) {
-			try {
-				const cached = await this.cache.get(cacheKey);
-				if (cached) {
-					return {
-						...cached,
-						summary: {
-							...cached.summary,
-							status: 'cached_ai',
-						},
-						cache: {
-							key: cacheKey,
-							hit: true,
-							ttlSeconds: this.cacheTtlSeconds,
-						},
-						cost: {
-							aiCalls: 0,
-							tokenUsageEstimate: 0,
-						},
-					};
-				}
-			} catch (_error) {
-				// Cache is optional and must not break summary flow.
+		const protocolKey = this.buildProtocolCacheKey(
+			input.document,
+			normalizedContent
+		);
+		for (const key of [cacheKey, protocolKey]) {
+			const cached = key ? await this.readCache(key) : null;
+			if (cached) {
+				return {
+					...cached,
+					// O documento de quem pediu: pela chave do protocolo, o resumo
+					// pode ter sido gerado a partir de outra listagem do documento.
+					document: this.documentView(input.document),
+					summary: {
+						...cached.summary,
+						status: 'cached_ai',
+					},
+					cache: {
+						key,
+						hit: true,
+						ttlSeconds: this.cacheTtlSeconds,
+					},
+					cost: {
+						aiCalls: 0,
+						tokenUsageEstimate: 0,
+					},
+				};
 			}
 		}
 
@@ -131,12 +141,9 @@ export class RiDocumentSummaryService {
 					tokenUsageEstimate: Number(synthesized?.metadata?.tokenUsage || 0),
 				},
 			});
-			if (this.cache) {
-				try {
-					await this.cache.set(cacheKey, output, this.cacheTtlSeconds);
-				} catch (_error) {
-					// Ignore cache set errors.
-				}
+			await this.writeCache(cacheKey, output);
+			if (input.serverDiscovered && protocolKey) {
+				await this.writeCache(protocolKey, output);
 			}
 			return output;
 		} catch (_error) {
@@ -167,14 +174,7 @@ export class RiDocumentSummaryService {
 		cost: RiDocumentSummaryOutput['cost'];
 	}): RiDocumentSummaryOutput {
 		return {
-			document: {
-				id: params.input.document.id,
-				ticker: params.input.document.ticker,
-				company: params.input.document.company,
-				documentType: params.input.document.documentType,
-				period: params.input.document.period,
-				publishedAt: params.input.document.publishedAt,
-			},
+			document: this.documentView(params.input.document),
 			summary: {
 				status: params.summaryStatus,
 				highlights: params.highlights,
@@ -187,6 +187,43 @@ export class RiDocumentSummaryService {
 			cache: params.cache,
 			cost: params.cost,
 		};
+	}
+
+	private documentView(
+		document: RiDocumentSummaryInput['document']
+	): RiDocumentSummaryOutput['document'] {
+		return {
+			id: document.id,
+			ticker: document.ticker,
+			company: document.company,
+			documentType: document.documentType,
+			period: document.period,
+			publishedAt: document.publishedAt,
+		};
+	}
+
+	// O cache e opcional: falha nele nunca derruba o resumo.
+	private async readCache(
+		key: string
+	): Promise<RiDocumentSummaryOutput | null> {
+		if (!this.cache) return null;
+		try {
+			return (await this.cache.get(key)) ?? null;
+		} catch (_error) {
+			return null;
+		}
+	}
+
+	private async writeCache(
+		key: string,
+		output: RiDocumentSummaryOutput
+	): Promise<void> {
+		if (!this.cache) return;
+		try {
+			await this.cache.set(key, output, this.cacheTtlSeconds);
+		} catch (_error) {
+			// Ignore cache set errors.
+		}
 	}
 
 	private normalizeContent(content: string | null | undefined): string {
@@ -220,8 +257,34 @@ export class RiDocumentSummaryService {
 			.update(promptInputs)
 			.digest('hex')
 			.slice(0, 12);
-		// v2 (TRA-239): destaques passaram a vir com citacao verificada.
-		return `ri-summary:${document.id}:${inputsHash}:v2`;
+		return `ri-summary:${document.id}:${inputsHash}:${SUMMARY_CACHE_VERSION}`;
+	}
+
+	/**
+	 * O mesmo documento da CVM em qualquer listagem (TRA-260): protocolo de
+	 * entrega + hash do TEXTO. O vigia de RI ve o documento pela consulta
+	 * diaria do ENET, com id, titulo e empresa diferentes dos que a tela
+	 * recebe do IPE dias depois; pela chave de `buildCacheKey`, o resumo
+	 * pre-gerado nunca seria achado — e a IA rodaria de novo, com o usuario
+	 * esperando.
+	 *
+	 * So grava aqui quem passa `serverDiscovered` (rotina do servidor, com
+	 * metadado da propria descoberta). Qualquer chamada le, mas so acha o
+	 * resumo se o texto que o SERVIDOR extraiu for o mesmo: metadado vindo do
+	 * cliente nunca entra no que esta chave serve, e o risco que motivou
+	 * `buildCacheKey` (TRA-238) nao volta por aqui.
+	 */
+	private buildProtocolCacheKey(
+		document: RiDocumentSummaryInput['document'],
+		content: string
+	): string | null {
+		const protocol = cvmDeliveryProtocol(document);
+		if (!protocol) return null;
+		const contentHash = createHash('sha256')
+			.update(content)
+			.digest('hex')
+			.slice(0, 16);
+		return `ri-summary:cvm-protocol:${protocol}:${contentHash}:${SUMMARY_CACHE_VERSION}`;
 	}
 
 	private limitHighlights(items: string[]): string[] {

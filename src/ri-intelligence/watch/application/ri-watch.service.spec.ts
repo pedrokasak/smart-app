@@ -3,9 +3,12 @@ import { RiDocumentContentPort } from 'src/ri-intelligence/application/ri-docume
 import { RiDocumentDiscoveryPort } from 'src/ri-intelligence/application/ri-document-discovery.port';
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 import { HeldTickerDirectory } from 'src/ri-intelligence/watch/application/ports/held-ticker-directory.port';
+import { IssuerCodeDirectory } from 'src/ri-intelligence/watch/application/ports/issuer-code-directory.port';
+import { RiDeliveryFeedPort } from 'src/ri-intelligence/watch/application/ports/ri-delivery-feed.port';
 import { RiWatchStore } from 'src/ri-intelligence/watch/application/ports/ri-watch-store.port';
 import { RiWatchConfig } from 'src/ri-intelligence/watch/application/ri-watch.config';
 import { RiWatchService } from 'src/ri-intelligence/watch/application/ri-watch.service';
+import { RiDelivery } from 'src/ri-intelligence/watch/domain/ri-delivery';
 import {
 	RI_WATCH_MAX_ATTEMPTS,
 	RiWatchDocument,
@@ -14,6 +17,29 @@ import {
 } from 'src/ri-intelligence/watch/domain/ri-watch';
 
 const NOW = new Date('2026-09-28T12:00:00.000Z');
+
+/** Codigo CVM da Petrobras: as duas classes (PETR3/PETR4) compartilham. */
+const PETROBRAS_CVM = '9512';
+
+/** Entrega do ENET da Petrobras; relevante (fato relevante) por padrao. */
+function delivery(
+	protocol: string,
+	over: Partial<RiDelivery> = {}
+): RiDelivery {
+	return {
+		cvmCode: PETROBRAS_CVM,
+		company: 'PETROLEO BRASILEIRO S.A. PETROBRAS',
+		category: 'Fato Relevante',
+		type: null,
+		subject: 'Aquisição',
+		referenceDate: '2026-09-28',
+		deliveredOn: '2026-09-28',
+		protocol,
+		downloadUrl: `https://www.rad.cvm.gov.br/ENETWeb/frmDownloadDocumento.aspx?Tela=ext&numProtocolo=${protocol}`,
+		active: true,
+		...over,
+	};
+}
 
 function record(
 	link: string,
@@ -90,6 +116,8 @@ describe('RiWatchService (TRA-240)', () => {
 	let store: InMemoryRiWatchStore;
 	let directory: jest.Mocked<HeldTickerDirectory>;
 	let discovery: { discover: jest.Mock };
+	let dailyFeed: jest.Mocked<RiDeliveryFeedPort>;
+	let issuerCodes: jest.Mocked<IssuerCodeDirectory>;
 	let content: { fetchTextContent: jest.Mock };
 	let summaries: { summarize: jest.Mock };
 	let config: RiWatchConfig;
@@ -99,6 +127,8 @@ describe('RiWatchService (TRA-240)', () => {
 			store,
 			directory,
 			discovery as unknown as RiDocumentDiscoveryPort,
+			dailyFeed,
+			issuerCodes,
 			content as unknown as RiDocumentContentPort,
 			summaries as unknown as RiDocumentSummaryService,
 			config
@@ -127,13 +157,26 @@ describe('RiWatchService (TRA-240)', () => {
 			heldStockTickers: jest.fn().mockResolvedValue(['PETR4']),
 		};
 		discovery = { discover: jest.fn().mockResolvedValue([]) };
+		dailyFeed = { listDeliveries: jest.fn().mockResolvedValue([]) };
+		issuerCodes = {
+			resolveCvmCode: jest
+				.fn()
+				.mockImplementation(async (ticker: string) =>
+					ticker.startsWith('PETR') ? PETROBRAS_CVM : null
+				),
+		};
 		content = {
 			fetchTextContent: jest
 				.fn()
 				.mockResolvedValue({ text: 'A Companhia adquiriu 30%...' }),
 		};
 		summaries = { summarize: jest.fn().mockResolvedValue(aiSummary) };
-		config = { enabled: true, lookbackDays: 3, maxSummariesPerRun: 20 };
+		config = {
+			enabled: true,
+			lookbackDays: 3,
+			maxSummariesPerRun: 20,
+			dailyFeedEnabled: true,
+		};
 	});
 
 	describe('scan', () => {
@@ -159,7 +202,12 @@ describe('RiWatchService (TRA-240)', () => {
 			const first = await service.scan(NOW);
 			const second = await service.scan(NOW);
 
-			expect(first).toEqual({ tickers: 1, registered: 1, failedTickers: 0 });
+			expect(first).toEqual({
+				tickers: 1,
+				registered: 1,
+				failedTickers: 0,
+				dailyFeed: 'ok',
+			});
 			expect(second.registered).toBe(0);
 			expect(store.docs.size).toBe(1);
 		});
@@ -188,7 +236,130 @@ describe('RiWatchService (TRA-240)', () => {
 
 			const result = await makeService().scan(NOW);
 
-			expect(result).toEqual({ tickers: 2, registered: 1, failedTickers: 1 });
+			expect(result).toEqual({
+				tickers: 2,
+				registered: 1,
+				failedTickers: 1,
+				dailyFeed: 'ok',
+			});
+		});
+	});
+
+	describe('scan: daily ENET feed (TRA-260)', () => {
+		it('registers a held company delivery on the day it is delivered', async () => {
+			dailyFeed.listDeliveries.mockResolvedValue([
+				delivery('1001'),
+				// Companhia fora de qualquer carteira.
+				delivery('1002', { cvmCode: '99999', company: 'OUTRA S.A.' }),
+				// Comunicado que a propria CVM classifica como nao relevante.
+				delivery('1003', {
+					category: 'Comunicado ao Mercado',
+					type: 'Outros Comunicados Não Considerados Fatos Relevantes',
+				}),
+			]);
+
+			const result = await makeService().scan(NOW);
+
+			expect(result).toEqual({
+				tickers: 1,
+				registered: 1,
+				failedTickers: 0,
+				dailyFeed: 'ok',
+			});
+			const [doc] = [...store.docs.values()];
+			expect(doc.ticker).toBe('PETR4');
+			expect(doc.record.deliveryProtocol).toBe('1001');
+			expect(doc.record.source.value).toContain('numProtocolo=1001');
+		});
+
+		it('asks the ENET once per run, for the last two days', async () => {
+			directory.heldStockTickers.mockResolvedValue(['PETR4', 'VALE3']);
+			issuerCodes.resolveCvmCode.mockImplementation(async (ticker) =>
+				ticker === 'VALE3' ? '4170' : PETROBRAS_CVM
+			);
+
+			await makeService().scan(NOW);
+
+			expect(dailyFeed.listDeliveries).toHaveBeenCalledTimes(1);
+			expect(dailyFeed.listDeliveries).toHaveBeenCalledWith(
+				new Date('2026-09-26T12:00:00.000Z'),
+				NOW
+			);
+		});
+
+		// O mesmo documento chega de novo pelo IPE semanal, com outro link e
+		// outro titulo. A identidade e o protocolo de entrega: um registro so.
+		it('does not register again what the weekly IPE brings later', async () => {
+			dailyFeed.listDeliveries.mockResolvedValue([delivery('1001')]);
+			discovery.discover.mockResolvedValue([
+				record('https://dados.cvm.gov.br/ipe/1001', {
+					deliveryProtocol: '1001',
+					cvmCategory: 'Fato Relevante',
+				}),
+			]);
+
+			const result = await makeService().scan(NOW);
+
+			expect(result.registered).toBe(1);
+			expect(store.docs.size).toBe(1);
+		});
+
+		// PETR3 e PETR4 tem o mesmo codigo CVM: um registro so, e sempre sob
+		// a mesma classe, qualquer que seja a ordem da carteira.
+		it('files a two-class company delivery under one ticker, deterministically', async () => {
+			directory.heldStockTickers.mockResolvedValue(['PETR4', 'PETR3']);
+			dailyFeed.listDeliveries.mockResolvedValue([delivery('1001')]);
+
+			await makeService().scan(NOW);
+
+			expect([...store.docs.values()].map((d) => d.ticker)).toEqual(['PETR3']);
+		});
+
+		// Captcha ligado, fora do ar, formato novo: a rodada segue com o IPE.
+		it('falls back to the weekly IPE when the ENET fails', async () => {
+			dailyFeed.listDeliveries.mockRejectedValue(
+				new Error('enet_rejected: Captcha inválido')
+			);
+			discovery.discover.mockResolvedValue([record('https://rad/fato')]);
+
+			const result = await makeService().scan(NOW);
+
+			expect(result).toEqual({
+				tickers: 1,
+				registered: 1,
+				failedTickers: 0,
+				dailyFeed: 'failed',
+			});
+		});
+
+		it('does not query the ENET when switched off', async () => {
+			config.dailyFeedEnabled = false;
+
+			const result = await makeService().scan(NOW);
+
+			expect(dailyFeed.listDeliveries).not.toHaveBeenCalled();
+			expect(result.dailyFeed).toBe('disabled');
+			expect(discovery.discover).toHaveBeenCalled();
+		});
+
+		// Carteira com acoes e nenhum codigo CVM: registro da B3 mudou. O
+		// status diferente e o aviso no log evitam uma fonte muda em silencio.
+		it('skips the ENET when no held ticker has a known CVM code', async () => {
+			issuerCodes.resolveCvmCode.mockResolvedValue(null);
+
+			const result = await makeService().scan(NOW);
+
+			expect(dailyFeed.listDeliveries).not.toHaveBeenCalled();
+			expect(result.dailyFeed).toBe('skipped');
+		});
+
+		it('skips the ENET when nothing is held', async () => {
+			directory.heldStockTickers.mockResolvedValue([]);
+
+			const result = await makeService().scan(NOW);
+
+			expect(dailyFeed.listDeliveries).not.toHaveBeenCalled();
+			expect(result.dailyFeed).toBe('skipped');
 		});
 	});
 
@@ -209,6 +380,8 @@ describe('RiWatchService (TRA-240)', () => {
 			expect(input.document.id).toBe(onlyDoc().record.id);
 			expect(input.document.contentStatus).toBe('extracted');
 			expect(input.allowAi).toBe(true);
+			// TRA-260: publica tambem pela chave do protocolo da CVM.
+			expect(input.serverDiscovered).toBe(true);
 			expect(onlyDoc().status).toBe('summarized');
 			expect(onlyDoc().summary).toEqual({
 				highlights: aiSummary.summary.highlights,
