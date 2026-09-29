@@ -173,6 +173,57 @@ describe('CvmRiDocumentDiscoveryAdapter', () => {
 		expect(docs[0].publishedAt).toBe('2025-05-07T00:00:00.000Z');
 	});
 
+	// TRA-240: o id entrava com a POSICAO da linha no recorte filtrado, entao
+	// o mesmo documento mudava de id conforme a janela da consulta — e o id e
+	// chave do cache de resumo e do dedupe do vigia de RI.
+	it('keeps the same document id regardless of the date window', async () => {
+		const csv = [
+			IPE_HEADER,
+			ipeRow({
+				Data_Referencia: '2023-03-31',
+				Assunto: 'Resultados do 1T23',
+				Data_Entrega: '2023-05-08',
+				Link_Download: 'https://rad/1t23.pdf',
+			}),
+			ipeRow({
+				Data_Referencia: '2025-03-31',
+				Assunto: 'Resultados do 1T25',
+				Data_Entrega: '2025-05-07',
+				Link_Download: 'https://rad/1t25.pdf',
+			}),
+		].join('\n');
+		const adapter = new TestableCvmAdapter(
+			makeHttpService(),
+			makeCatalog(issuer),
+			{ 2023: csv, 2025: csv }
+		);
+
+		const narrow = await adapter.discover({
+			ticker: 'PETR4',
+			company: issuer.company,
+			origin: '',
+			dateFrom: '2025-01-01',
+			dateTo: '2025-12-31',
+		});
+		const wide = await adapter.discover({
+			ticker: 'PETR4',
+			company: issuer.company,
+			origin: '',
+			dateFrom: '2023-01-01',
+			dateTo: '2025-12-31',
+		});
+
+		const narrowId = narrow.find(
+			(doc) => doc.source.value === 'https://rad/1t25.pdf'
+		)?.id;
+		const wideId = wide.find(
+			(doc) => doc.source.value === 'https://rad/1t25.pdf'
+		)?.id;
+		expect(narrowId).toBeDefined();
+		expect(wideId).toBe(narrowId);
+		expect(new Set(wide.map((doc) => doc.id)).size).toBe(wide.length);
+	});
+
 	it('sorts documents by publishedAt descending and caps at maxDocuments', async () => {
 		const rows = [IPE_HEADER];
 		for (let i = 0; i < 45; i++) {
