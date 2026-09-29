@@ -8,8 +8,11 @@ import {
 /**
  * Documentos vistos pelo vigia de RI (TRA-240).
  *
- * Um documento por link de download (`key`, unico): e isso que torna a
- * varredura idempotente. Documento publico da CVM, sem dado de usuario —
+ * Um documento por identidade (`key`, unico; ver `watchDocumentKey`): o
+ * protocolo de entrega da CVM, que o ENET diario e o IPE semanal
+ * compartilham (TRA-260), ou o link de download para documento sem
+ * protocolo. E isso que torna a varredura idempotente, com qualquer das
+ * duas fontes. Documento publico da CVM, sem dado de usuario —
  * quem sera avisado sai das carteiras na hora de notificar, nao fica aqui.
  */
 export interface RiWatchDocumentSchema {

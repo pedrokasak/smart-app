@@ -47,6 +47,26 @@ describe('B3RegistryCnpjResolverAdapter', () => {
 		});
 	});
 
+	// TRA-260: a consulta diaria do ENET identifica a empresa pelo codigo CVM,
+	// nao pelo ticker. O registro da B3 traz os dois na mesma linha.
+	it('resolves the CVM code of a ticker, normalized', async () => {
+		const adapter = buildAdapter(() =>
+			of(
+				singlePageResponse([
+					{
+						codeCVM: '16101',
+						issuingCompany: 'GFSA',
+						companyName: 'GAFISA S.A.',
+						cnpj: '1545826000107',
+					},
+				])
+			)
+		);
+
+		await expect(adapter.resolveCvmCode('GFSA3')).resolves.toBe('16101');
+		await expect(adapter.resolveCvmCode('ZZZZ3')).resolves.toBeNull();
+	});
+
 	it('returns null when the ticker is not found in the registry', async () => {
 		const adapter = buildAdapter(() => of(singlePageResponse([])));
 		const result = await adapter.resolveCnpj('ZZZZ9');

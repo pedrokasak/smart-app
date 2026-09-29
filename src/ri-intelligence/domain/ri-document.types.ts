@@ -46,6 +46,22 @@ export interface RiDocumentRecord {
 		matchedAliases?: string[];
 	};
 	contentStatus: 'metadata_only' | 'extracted';
+	/**
+	 * Protocolo de entrega na CVM (TRA-260). Identifica o mesmo documento em
+	 * qualquer fonte da CVM — o dataset IPE semanal traz em
+	 * `Protocolo_Entrega`, a consulta diaria do ENET no link de download —
+	 * enquanto link e titulo mudam de uma fonte para outra. Ausente em
+	 * documento que nao veio da CVM.
+	 */
+	deliveryProtocol?: string | null;
+	/**
+	 * Classificacao OFICIAL da CVM (TRA-260), como o documento foi entregue:
+	 * categoria ("Fato Relevante", "Comunicado ao Mercado"...) e tipo. Mais
+	 * confiavel que `documentType`, que sai de palavra-chave no titulo e
+	 * rotula todo comunicado como fato relevante. Ausente fora da CVM.
+	 */
+	cvmCategory?: string | null;
+	cvmType?: string | null;
 }
 
 export interface RiDocumentQuery {

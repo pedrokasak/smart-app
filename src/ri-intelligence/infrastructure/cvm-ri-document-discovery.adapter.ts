@@ -12,7 +12,9 @@ import {
 	RI_ISSUER_CATALOG,
 	RiIssuerCatalogPort,
 } from 'src/ri-intelligence/application/ri-issuer-catalog.port';
+import { protocolFromCvmLink } from 'src/ri-intelligence/domain/cvm-protocol';
 import { classifyRiDocumentType } from 'src/ri-intelligence/domain/ri-document-classifier';
+import { periodFromReference } from 'src/ri-intelligence/domain/ri-document-period';
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 
 /**
@@ -154,7 +156,7 @@ export class CvmRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 			company,
 			title,
 			documentType: classified.documentType,
-			period: this.extractPeriod(row, title),
+			period: periodFromReference(row.Data_Referencia, title),
 			publishedAt: entregaIso,
 			source: {
 				type: 'url',
@@ -167,25 +169,15 @@ export class CvmRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 				matchedAliases: classified.matchedAliases,
 			},
 			contentStatus: 'metadata_only',
+			// O protocolo e o que impede o vigia de processar o mesmo documento
+			// duas vezes (TRA-260). Do link primeiro: e o mesmo `numProtocolo`
+			// que a consulta diaria do ENET traz no link dela.
+			deliveryProtocol:
+				protocolFromCvmLink(link) ??
+				(String(row.Protocolo_Entrega || '').replace(/\D/g, '') || null),
+			cvmCategory: categoria || null,
+			cvmType: tipo || null,
 		} satisfies RiDocumentRecord;
-	}
-
-	private extractPeriod(
-		row: Record<string, string>,
-		title: string
-	): string | null {
-		const ref = String(row.Data_Referencia || '').trim();
-		const refMatch = ref.match(/(\d{4})[-/](\d{1,2})/);
-		if (refMatch) {
-			return `${refMatch[2].padStart(2, '0')}T${refMatch[1].slice(-2)}`;
-		}
-		const year = ref.match(/(20\d{2})/);
-		if (year) return year[1];
-		const quarter = String(title || '')
-			.toUpperCase()
-			.match(/([1-4]T\d{2})/);
-		if (quarter) return quarter[1];
-		return null;
 	}
 
 	private resolveCandidateYears(

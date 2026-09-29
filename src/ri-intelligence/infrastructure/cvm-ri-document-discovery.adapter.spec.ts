@@ -124,6 +124,38 @@ describe('CvmRiDocumentDiscoveryAdapter', () => {
 		expect(doc.title).toContain('Comunicado ao Mercado');
 		expect(doc.title).toContain('Resultados do 1T25');
 		expect(doc.contentStatus).toBe('metadata_only');
+		// TRA-260: o protocolo de entrega identifica o documento em qualquer
+		// fonte da CVM (IPE semanal e consulta diaria do ENET).
+		expect(doc.deliveryProtocol).toBe('12345');
+		expect(doc.period).toBe('03T25');
+		expect(doc.cvmCategory).toBe('Comunicado ao Mercado');
+		expect(doc.cvmType).toBe('Resultados');
+	});
+
+	// TRA-260: o link do IPE e o que a consulta diaria do ENET monta trazem o
+	// mesmo `numProtocolo`. Tirar o protocolo do link faz as duas fontes
+	// concordarem por construcao.
+	it('takes the delivery protocol from the ENET download link first', async () => {
+		const csv = [
+			IPE_HEADER,
+			ipeRow({
+				Link_Download:
+					'https://www.rad.cvm.gov.br/ENET/frmDownloadDocumento.aspx?Tela=ext&numSequencia=1096648&numVersao=1&numProtocolo=1571942&descTipo=IPE&CodigoInstituicao=1',
+			}),
+		].join('\n');
+		const adapter = new TestableCvmAdapter(
+			makeHttpService(),
+			makeCatalog(issuer),
+			fillCandidateYears(csv)
+		);
+
+		const [doc] = await adapter.discover({
+			ticker: 'PETR4',
+			company: issuer.company,
+			origin: 'https://petrobras.com.br/ri',
+		});
+
+		expect(doc.deliveryProtocol).toBe('1571942');
 	});
 
 	it('returns [] when the issuer catalog has no CNPJ for the ticker', async () => {
