@@ -360,6 +360,44 @@ describe('RiDocumentSummaryService', () => {
 		});
 	});
 
+	describe('content that did not come (TRA-253)', () => {
+		const synthesizer = (): RiSummarySynthesizerPort => ({
+			summarize: jest.fn() as any,
+		});
+
+		// Plano sem IA nem baixa o PDF: a resposta certa e "fora do plano".
+		it('answers "not in plan" before "no content"', async () => {
+			const service = new RiDocumentSummaryService(synthesizer(), undefined);
+
+			const output = await service.summarize({
+				document: baseDocument,
+				content: null,
+				allowAi: false,
+				contentUnavailableReason: 'not_cached',
+			});
+
+			expect(output.summary.limitations).toEqual(['ri_ai_summary_not_in_plan']);
+		});
+
+		it('says why the text is missing', async () => {
+			const ai = synthesizer();
+			const service = new RiDocumentSummaryService(ai, undefined);
+
+			const output = await service.summarize({
+				document: baseDocument,
+				content: null,
+				contentUnavailableReason: 'not_pdf',
+			});
+
+			expect(output.summary.status).toBe('insufficient_content');
+			expect(output.summary.limitations).toEqual([
+				'ri_content_insufficient_for_summary',
+				'ri_content_not_pdf',
+			]);
+			expect(ai.summarize).not.toHaveBeenCalled();
+		});
+	});
+
 	// TRA-238: o cache e compartilhado entre usuarios. Metadado que entra no
 	// prompt e vem do cliente (empresa, titulo...) precisa mudar a chave, senao
 	// um resumo adulterado ocuparia a chave do documento legitimo.

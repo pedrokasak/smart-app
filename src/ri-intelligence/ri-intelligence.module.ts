@@ -31,6 +31,10 @@ import { PuppeteerRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrast
 import { PuppeteerBrowserPool } from 'src/ri-intelligence/infrastructure/puppeteer-browser-pool.service';
 import { RI_DOCUMENT_CONTENT } from 'src/ri-intelligence/application/ri-document-content.port';
 import { HttpPdfRiDocumentContentAdapter } from 'src/ri-intelligence/infrastructure/http-pdf-ri-document-content.adapter';
+import { RiDocumentContentResolver } from 'src/ri-intelligence/application/ri-document-content.resolver';
+import { RI_DOCUMENT_TEXT_CACHE } from 'src/ri-intelligence/application/ri-document-text-cache.port';
+import { MongoRiDocumentTextCacheAdapter } from 'src/ri-intelligence/infrastructure/mongo-ri-document-text-cache.adapter';
+import { RiDocumentTextModel } from 'src/ri-intelligence/infrastructure/ri-document-text.model';
 
 @Module({
 	imports: [
@@ -38,6 +42,7 @@ import { HttpPdfRiDocumentContentAdapter } from 'src/ri-intelligence/infrastruct
 		HttpModule,
 		MongooseModule.forFeature([
 			{ name: 'RiSummaryCache', schema: RiSummaryCacheModel.schema },
+			{ name: 'RiDocumentText', schema: RiDocumentTextModel.schema },
 		]),
 	],
 	controllers: [RiIntelligenceController],
@@ -115,10 +120,19 @@ import { HttpPdfRiDocumentContentAdapter } from 'src/ri-intelligence/infrastruct
 			provide: RI_DOCUMENT_CONTENT,
 			useExisting: HttpPdfRiDocumentContentAdapter,
 		},
+		// Texto do documento num lugar so, com cache (TRA-253): rota do
+		// resumo, chat e vigia de RI.
+		MongoRiDocumentTextCacheAdapter,
+		{
+			provide: RI_DOCUMENT_TEXT_CACHE,
+			useExisting: MongoRiDocumentTextCacheAdapter,
+		},
+		RiDocumentContentResolver,
 	],
 	exports: [
 		RiDocumentCatalogService,
 		RiDocumentSummaryService,
+		RiDocumentContentResolver,
 		RI_SUMMARY_CACHE,
 		RI_DOCUMENT_QUERY,
 		// Vigia de RI (TRA-240): descoberta oficial (CVM) e extração do PDF.

@@ -254,6 +254,15 @@ describe('Chat routing eval (TRA-75)', () => {
 			{
 				getComposition: jest.fn(),
 			} as unknown as ConstructorParameters<typeof ChatOrchestratorService>[8],
+			// Roteamento nao le PDF: resolver sem texto (TRA-253).
+			{
+				resolve: jest.fn(async (document: unknown) => ({
+					document,
+					content: null,
+					reason: 'not_cached',
+					from: null,
+				})),
+			} as unknown as ConstructorParameters<typeof ChatOrchestratorService>[9],
 			mockRiDocumentQuery
 		);
 

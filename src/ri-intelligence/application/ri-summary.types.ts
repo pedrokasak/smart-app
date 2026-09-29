@@ -32,6 +32,12 @@ export interface RiDocumentSummaryInput {
 	 * tambem pela chave do protocolo da CVM — ver `buildProtocolCacheKey`.
 	 */
 	serverDiscovered?: boolean;
+	/**
+	 * Por que o texto nao veio, quando nao veio (TRA-253): entra em
+	 * `limitations` como `ri_content_<motivo>`, para a tela e o chat dizerem
+	 * o que houve (PDF escaneado, arquivo que nao e PDF, fora do ar...).
+	 */
+	contentUnavailableReason?: string | null;
 }
 
 /**

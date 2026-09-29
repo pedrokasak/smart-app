@@ -29,6 +29,8 @@ import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
+import { RiDocumentContentResolver } from 'src/ri-intelligence/application/ri-document-content.resolver';
+import { RiComparableDocumentInput } from 'src/ri-intelligence/application/ri-comparison.types';
 import {
 	RI_DOCUMENT_QUERY,
 	RiDocumentQueryPort,
@@ -91,6 +93,9 @@ export class ChatOrchestratorService {
 		@Inject(USER_PLAN_RESOLVER)
 		private readonly userPlanResolver: UserPlanResolverPort,
 		private readonly compositionService: PortfolioCompositionService,
+		// Obrigatorio de proposito (TRA-253): opcional, uma ligacao quebrada
+		// devolvia em silencio o chat que resume texto vazio.
+		private readonly riContentResolver: RiDocumentContentResolver,
 		@Optional()
 		@Inject(RI_DOCUMENT_QUERY)
 		private readonly riDocumentQuery?: RiDocumentQueryPort
@@ -902,11 +907,10 @@ export class ChatOrchestratorService {
 					data: {},
 				});
 			}
-			const riSummary = await this.riDocumentSummaryService.summarize({
-				document: latestDocument.document,
-				content: latestDocument.content || '',
-				allowAi: riAiAllowed === true,
-			});
+			const riSummary = await this.summarizeRiDocument(
+				latestDocument,
+				riAiAllowed === true
+			);
 			return this.finish(env, {
 				routeType: 'deterministic_no_llm',
 				routeReason: 'rules_resolved',
@@ -945,19 +949,11 @@ export class ChatOrchestratorService {
 				});
 			}
 			// Em paralelo: com o resumo por IA ligado (TRA-238) cada chamada pode
-			// levar dezenas de segundos na primeira vez, e as duas sao
-			// independentes.
+			// levar dezenas de segundos na primeira vez — download do PDF
+			// incluido (TRA-253) —, e as duas sao independentes.
 			const [currentSummary, previousSummary] = await Promise.all([
-				this.riDocumentSummaryService.summarize({
-					document: latestDocument.document,
-					content: latestDocument.content || '',
-					allowAi: riAiAllowed === true,
-				}),
-				this.riDocumentSummaryService.summarize({
-					document: previousDocument.document,
-					content: previousDocument.content || '',
-					allowAi: riAiAllowed === true,
-				}),
+				this.summarizeRiDocument(latestDocument, riAiAllowed === true),
+				this.summarizeRiDocument(previousDocument, riAiAllowed === true),
 			]);
 			const riComparison = this.buildRiComparison(
 				currentSummary,
@@ -1495,6 +1491,40 @@ export class ChatOrchestratorService {
 			parts.push(`ri:${input.riAiAllowed ? 1 : 0}`);
 		}
 		return parts.join('|');
+	}
+
+	/**
+	 * Resumo de documento de RI no chat (TRA-253). O texto vem do mesmo
+	 * resolver da rota HTTP — antes o chat mandava texto vazio e todo resumo
+	 * parava em `insufficient_content`, mesmo no plano pago.
+	 *
+	 * Sem a capability, nao baixa o PDF: so aproveita o texto se ja estiver
+	 * em cache (os sinais do resumo estruturado saem dele). Falha ao obter o
+	 * texto vira resumo estruturado com o motivo em `limitations` — o chat
+	 * nunca quebra por causa do PDF.
+	 */
+	private async summarizeRiDocument(
+		found: RiComparableDocumentInput,
+		allowAi: boolean
+	) {
+		const provided = String(found.content ?? '').trim();
+		if (provided) {
+			return this.riDocumentSummaryService.summarize({
+				document: found.document,
+				content: provided,
+				allowAi,
+			});
+		}
+
+		const resolved = await this.riContentResolver.resolve(found.document, {
+			download: allowAi,
+		});
+		return this.riDocumentSummaryService.summarize({
+			document: resolved.document,
+			content: resolved.content,
+			allowAi,
+			contentUnavailableReason: resolved.reason,
+		});
 	}
 
 	/** Negar em caso de duvida: e o comportamento seguro para feature paga. */

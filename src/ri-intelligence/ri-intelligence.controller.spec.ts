@@ -1,5 +1,6 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { RiDocumentCatalogService } from 'src/ri-intelligence/application/ri-document-catalog.service';
+import { RiDocumentContentResolver } from 'src/ri-intelligence/application/ri-document-content.resolver';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiIntelligenceController } from 'src/ri-intelligence/ri-intelligence.controller';
 
@@ -16,6 +17,12 @@ describe('RiIntelligenceController', () => {
 	const mockDocumentContent = {
 		fetchTextContent: jest.fn(),
 	};
+	// Resolver de verdade (TRA-253), sem cache: os testes abaixo seguem
+	// dizendo o que o PDF devolve.
+	const noTextCache = {
+		get: jest.fn().mockResolvedValue(null),
+		set: jest.fn().mockResolvedValue(undefined),
+	};
 
 	let controller: RiIntelligenceController;
 
@@ -24,7 +31,10 @@ describe('RiIntelligenceController', () => {
 		controller = new RiIntelligenceController(
 			mockCatalogService as unknown as RiDocumentCatalogService,
 			mockSummaryService as unknown as RiDocumentSummaryService,
-			mockDocumentContent as never
+			new RiDocumentContentResolver(
+				mockDocumentContent as never,
+				noTextCache as never
+			)
 		);
 	});
 
@@ -299,5 +309,7 @@ describe('RiIntelligenceController', () => {
 		const passed = mockSummaryService.summarize.mock.calls[0][0];
 		expect(passed.content).toBeNull();
 		expect(passed.document.contentStatus).toBe('metadata_only');
+		// TRA-253: o motivo chega ao resumo, para a tela dizer o que houve.
+		expect(passed.contentUnavailableReason).toBe('empty_after_extract');
 	});
 });
