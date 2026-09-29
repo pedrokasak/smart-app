@@ -29,6 +29,25 @@ export const RI_WATCH_MAX_ATTEMPTS = 3;
 
 export type RiWatchStatus = 'pending' | 'summarized' | 'skipped' | 'failed';
 
+/**
+ * Estados em que o processamento terminou — com resumo ou sem (TRA-261).
+ * E so a partir deles que o documento vira aviso: quem tem o papel recebe
+ * o que houver, e um PDF escaneado nao pode segurar o aviso para sempre.
+ */
+export const RI_WATCH_FINISHED_STATUSES: readonly RiWatchStatus[] = [
+	'summarized',
+	'skipped',
+	'failed',
+];
+
+/** Como terminou o aviso de um documento (TRA-261). */
+export interface RiWatchNotificationSnapshot {
+	/** Quantos detentores receberam o evento. */
+	holders: number;
+	/** Por que ninguem foi avisado, quando for o caso. */
+	skippedReason: 'too_old' | 'no_holders' | null;
+}
+
 /** O que fica do resumo para os proximos passos (notificacao, acervo). */
 export interface RiWatchSummarySnapshot {
 	highlights: string[];
@@ -54,6 +73,9 @@ export interface RiWatchDocument {
 	processedAt?: string | null;
 	lastError?: string | null;
 	summary?: RiWatchSummarySnapshot | null;
+	/** Quando os detentores foram avisados; null enquanto nao (TRA-261). */
+	notifiedAt?: string | null;
+	notification?: RiWatchNotificationSnapshot | null;
 }
 
 /**
@@ -131,6 +153,17 @@ const RELEVANT_CVM_CATEGORIES: ReadonlySet<string> = new Set([
  * Assembleias, reunioes da administracao e documentos de oferta ficam de
  * fora: sao rotina, e virariam alerta diario de ruido.
  */
+/**
+ * Fato relevante pela categoria OFICIAL da entrega (TRA-261) — nunca pela
+ * palavra-chave, que chama todo comunicado de fato relevante. E o que
+ * decide o aviso que sai por e-mail por padrao.
+ */
+export function isMaterialFactFiling(
+	record: Pick<RiDocumentRecord, 'cvmCategory'>
+): boolean {
+	return fold(record?.cvmCategory) === 'fato relevante';
+}
+
 export function isRelevantCvmFiling(
 	category: string | null | undefined,
 	type: string | null | undefined

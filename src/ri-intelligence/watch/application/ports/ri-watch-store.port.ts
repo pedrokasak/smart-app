@@ -1,6 +1,7 @@
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 import {
 	RiWatchDocument,
+	RiWatchNotificationSnapshot,
 	RiWatchSummarySnapshot,
 } from 'src/ri-intelligence/watch/domain/ri-watch';
 
@@ -31,6 +32,21 @@ export interface RiWatchStore {
 
 	/** Conta a tentativa; no teto o documento vira `failed` e sai da fila. */
 	recordFailure(key: string, reason: string, now: Date): Promise<void>;
+
+	/**
+	 * Detentores ainda nao avisados, mais recentes primeiro (TRA-261): os
+	 * documentos com processamento terminado e os que ainda esperam o resumo
+	 * desde antes de `pendingSince`, para o aviso nao ficar preso ao teto de
+	 * resumos por rodada.
+	 */
+	findUnnotified(limit: number, pendingSince: Date): Promise<RiWatchDocument[]>;
+
+	/** Sai da fila de aviso, com o registro de como terminou. */
+	markNotified(
+		key: string,
+		notification: RiWatchNotificationSnapshot,
+		now: Date
+	): Promise<void>;
 }
 
 export const RI_WATCH_STORE = Symbol('RI_WATCH_STORE');

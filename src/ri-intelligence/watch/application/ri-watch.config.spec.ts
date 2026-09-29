@@ -16,13 +16,38 @@ describe('loadRiWatchConfig (TRA-240)', () => {
 				RI_WATCH_LOOKBACK_DAYS: '14',
 				RI_WATCH_MAX_SUMMARIES_PER_RUN: '8',
 				RI_WATCH_ENET_ENABLED: 'false',
+				RI_WATCH_NOTIFY_ENABLED: 'true',
+				RI_WATCH_NOTIFY_MAX_AGE_DAYS: '5',
 			})
 		).toEqual({
 			enabled: true,
 			lookbackDays: 14,
 			maxSummariesPerRun: 8,
 			dailyFeedEnabled: false,
+			notifyEnabled: true,
+			notifyMaxAgeDays: 5,
 		});
+	});
+
+	// TRA-261: avisar gente e o passo com mais consequencia — so liga quando
+	// alguem escreve exatamente "true", depois de validar o resto.
+	it.each([undefined, '', 'True', 'yes', '1'])(
+		'keeps notifications off on %p',
+		(value) => {
+			expect(
+				loadRiWatchConfig({ RI_WATCH_NOTIFY_ENABLED: value }).notifyEnabled
+			).toBe(false);
+		}
+	);
+
+	it('bounds the notification max age to a week', () => {
+		expect(RI_WATCH_DEFAULTS.notifyMaxAgeDays).toBe(3);
+		for (const value of ['0', '30', 'abc']) {
+			expect(
+				loadRiWatchConfig({ RI_WATCH_NOTIFY_MAX_AGE_DAYS: value })
+					.notifyMaxAgeDays
+			).toBe(RI_WATCH_DEFAULTS.notifyMaxAgeDays);
+		}
 	});
 
 	// TRA-260: a fonte diaria vem ligada junto com o vigia, mas desliga

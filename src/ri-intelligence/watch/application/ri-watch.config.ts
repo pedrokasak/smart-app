@@ -25,6 +25,18 @@ export interface RiWatchConfig {
 	 * CVM, captcha ligado, mudanca de formato) sem parar o vigia inteiro.
 	 */
 	dailyFeedEnabled: boolean;
+	/**
+	 * Aviso a quem tem o papel (TRA-261). Desligado por padrao, com
+	 * interruptor proprio: liga-se depois de ver a varredura e os resumos
+	 * funcionando, e desliga-se sem parar o vigia.
+	 */
+	notifyEnabled: boolean;
+	/**
+	 * Idade maxima, em dias, de um documento para ainda virar aviso. Ao ligar
+	 * o vigia ele registra os ultimos `lookbackDays` dias; sem este corte, a
+	 * primeira rodada mandaria de uma vez os avisos de uma semana e meia.
+	 */
+	notifyMaxAgeDays: number;
 }
 
 export const RI_WATCH_CONFIG = Symbol('RI_WATCH_CONFIG');
@@ -34,11 +46,14 @@ export const RI_WATCH_DEFAULTS: RiWatchConfig = {
 	lookbackDays: 10,
 	maxSummariesPerRun: 20,
 	dailyFeedEnabled: true,
+	notifyEnabled: false,
+	notifyMaxAgeDays: 3,
 };
 
 const enabledSchema = z.enum(['true', 'false']);
 const lookbackDaysSchema = z.coerce.number().int().min(8).max(30);
 const maxSummariesSchema = z.coerce.number().int().min(0).max(200);
+const notifyMaxAgeSchema = z.coerce.number().int().min(1).max(7);
 
 /**
  * Campo por campo: um valor invalido volta ao padrao sozinho, sem derrubar
@@ -75,5 +90,9 @@ export function loadRiWatchConfig(
 			field(maxSummariesSchema, env.RI_WATCH_MAX_SUMMARIES_PER_RUN) ??
 			RI_WATCH_DEFAULTS.maxSummariesPerRun,
 		dailyFeedEnabled: killSwitch(env.RI_WATCH_ENET_ENABLED),
+		notifyEnabled: field(enabledSchema, env.RI_WATCH_NOTIFY_ENABLED) === 'true',
+		notifyMaxAgeDays:
+			field(notifyMaxAgeSchema, env.RI_WATCH_NOTIFY_MAX_AGE_DAYS) ??
+			RI_WATCH_DEFAULTS.notifyMaxAgeDays,
 	};
 }

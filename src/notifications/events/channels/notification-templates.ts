@@ -1,6 +1,7 @@
 import {
 	NotificationPayload,
 	NotificationType,
+	RiDocumentNotificationPayload,
 } from '../domain/notification.types';
 
 export type NotificationTemplate = {
@@ -10,6 +11,11 @@ export type NotificationTemplate = {
 	description: string;
 	ctaLabel: string;
 	ctaPath: string; // caminho relativo — o canal prefixa com base url
+	/**
+	 * Link externo opcional, abaixo do CTA (TRA-261): a fonte oficial do
+	 * documento de RI na CVM. URL absoluta; so o e-mail renderiza.
+	 */
+	secondaryLink?: { label: string; url: string };
 	footerNote: string;
 	textFallback: string;
 };
@@ -157,5 +163,71 @@ export function buildTemplate(
 					payload.expiresAt
 				)} (${payload.daysUntilExpiration} dia(s)).`,
 			};
+		case NotificationType.RiMaterialFact:
+		case NotificationType.RiDocument:
+			return riDocumentTemplate(payload);
 	}
+}
+
+/**
+ * `publishedAt` do documento de RI e o DIA da entrega, gravado como
+ * meia-noite UTC (convencao do vigia e do IPE). Formatado no fuso de
+ * Brasilia, viraria o dia anterior — por isso UTC aqui, e so aqui.
+ */
+const fmtDeliveryDay = (iso: string) => {
+	const d = new Date(iso);
+	if (Number.isNaN(d.getTime())) return iso;
+	return new Intl.DateTimeFormat('pt-BR', {
+		day: '2-digit',
+		month: '2-digit',
+		year: 'numeric',
+		timeZone: 'UTC',
+	}).format(d);
+};
+
+/**
+ * Documento de RI de empresa em carteira (TRA-261).
+ *
+ * A frase de abertura vem primeiro e sozinha diz o que aconteceu: e ela que
+ * cabe na bandeja do push (120 caracteres). Os destaques, quando o plano
+ * inclui o resumo por IA, vem depois. O texto e factual e cita a fonte —
+ * nada de recomendacao (CVM 20).
+ */
+function riDocumentTemplate(
+	payload: RiDocumentNotificationPayload
+): NotificationTemplate {
+	const materialFact = payload.type === NotificationType.RiMaterialFact;
+	const highlights = (payload.highlights ?? []).slice(0, 3);
+	const lead = `${payload.company} (${payload.ticker}) entregou à CVM em ${fmtDeliveryDay(
+		payload.publishedAt
+	)}: ${payload.title}.`;
+
+	return {
+		subject: materialFact
+			? `Fato relevante de ${payload.ticker}`
+			: `Novo documento de RI de ${payload.ticker}`,
+		title: materialFact
+			? `Fato relevante de ${payload.ticker}`
+			: `Novo documento de ${payload.ticker}`,
+		hero: materialFact
+			? 'Uma empresa da sua carteira divulgou um fato relevante'
+			: 'Uma empresa da sua carteira divulgou um documento',
+		description: highlights.length
+			? `${lead} Destaques: ${highlights.join(' • ')}`
+			: lead,
+		ctaLabel: 'Ver no RI Inteligente',
+		ctaPath: `/ri-inteligente?ticker=${encodeURIComponent(payload.ticker)}`,
+		secondaryLink: {
+			label: 'Abrir o documento na CVM',
+			url: payload.sourceUrl,
+		},
+		footerNote: `Você recebe este aviso porque tem ${payload.ticker} na carteira. Conteúdo informativo, extraído do documento oficial entregue à CVM; não é recomendação de investimento.`,
+		textFallback: [
+			lead,
+			highlights.length ? `Destaques:\n- ${highlights.join('\n- ')}` : '',
+			`Documento na CVM: ${payload.sourceUrl}`,
+		]
+			.filter(Boolean)
+			.join('\n\n'),
+	};
 }

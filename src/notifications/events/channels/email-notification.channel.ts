@@ -14,6 +14,23 @@ import {
 } from './notification-channel.port';
 import { buildTemplate } from './notification-templates';
 
+const HTML_ESCAPES: Record<string, string> = {
+	'&': '&amp;',
+	'<': '&lt;',
+	'>': '&gt;',
+	'"': '&quot;',
+	"'": '&#39;',
+};
+
+/**
+ * Todo texto do template entra escapado (TRA-261). Ate aqui a copy era so
+ * nossa e numeros; o aviso de RI traz titulo de documento entregue a CVM e
+ * destaques de IA, texto de fora que nao pode virar HTML no e-mail.
+ */
+function escapeHtml(value: string): string {
+	return String(value ?? '').replace(/[&<>"']/g, (c) => HTML_ESCAPES[c]);
+}
+
 /**
  * Renderiza o template para HTML no mesmo estilo visual do EmailService
  * do digest (gradiente + CTA). Duplicado de proposito: o EmailService
@@ -21,7 +38,22 @@ import { buildTemplate } from './notification-templates';
  * `sendGeneric()`. Extrair um render base agora obriga refactor amplo em
  * EmailService — fora do escopo TRA-38.
  */
-function renderHtml(tpl: ReturnType<typeof buildTemplate>, ctaUrl: string) {
+function renderHtml(
+	template: ReturnType<typeof buildTemplate>,
+	ctaUrl: string
+) {
+	const tpl = {
+		hero: escapeHtml(template.hero),
+		title: escapeHtml(template.title),
+		description: escapeHtml(template.description),
+		ctaLabel: escapeHtml(template.ctaLabel),
+		footerNote: escapeHtml(template.footerNote),
+	};
+	const secondary = template.secondaryLink
+		? `<p style="margin:14px 0 0 0;font-size:13px;"><a href="${escapeHtml(
+				template.secondaryLink.url
+			)}" style="color:#93c5fd;">${escapeHtml(template.secondaryLink.label)}</a></p>`
+		: '';
 	return `
 		<div style="margin:0;padding:24px;background:#0b1220;font-family:Arial,sans-serif;color:#e5e7eb;">
 			<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:620px;margin:0 auto;background:#111827;border:1px solid #1f2937;border-radius:16px;overflow:hidden;">
@@ -35,9 +67,10 @@ function renderHtml(tpl: ReturnType<typeof buildTemplate>, ctaUrl: string) {
 					<td style="padding:24px 28px;">
 						<h2 style="margin:0 0 12px 0;color:#f9fafb;font-size:18px;">${tpl.title}</h2>
 						<p style="margin:0 0 20px 0;color:#d1d5db;font-size:14px;line-height:1.6;">${tpl.description}</p>
-						<a href="${ctaUrl}" style="display:inline-block;padding:12px 18px;background:#22c55e;color:#052e16;text-decoration:none;font-weight:700;border-radius:10px;">
+						<a href="${escapeHtml(ctaUrl)}" style="display:inline-block;padding:12px 18px;background:#22c55e;color:#052e16;text-decoration:none;font-weight:700;border-radius:10px;">
 							${tpl.ctaLabel}
 						</a>
+						${secondary}
 						<p style="margin:20px 0 0 0;color:#9ca3af;font-size:12px;line-height:1.5;">${tpl.footerNote}</p>
 					</td>
 				</tr>

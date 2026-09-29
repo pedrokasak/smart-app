@@ -1,5 +1,6 @@
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 import {
+	isMaterialFactFiling,
 	isPermanentContentFailure,
 	isWatchRelevant,
 	watchDocumentKey,
@@ -146,6 +147,24 @@ describe('ri-watch domain (TRA-240)', () => {
 		(cvmCategory, cvmType, documentType, expected) => {
 			expect(
 				isWatchRelevant(record({ documentType, cvmCategory, cvmType }))
+			).toBe(expected);
+		}
+	);
+
+	// TRA-261: e a categoria OFICIAL que decide o aviso por e-mail. A
+	// palavra-chave chama todo comunicado de fato relevante.
+	it.each([
+		['Fato Relevante', true],
+		['FATO RELEVANTE', true],
+		['Comunicado ao Mercado', false],
+		[null, false],
+	] as const)(
+		'CVM category %p is a material fact: %p',
+		(cvmCategory, expected) => {
+			expect(
+				isMaterialFactFiling(
+					record({ documentType: 'material_fact', cvmCategory })
+				)
 			).toBe(expected);
 		}
 	);

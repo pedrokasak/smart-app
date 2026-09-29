@@ -20,6 +20,16 @@ describe('toNotificationPayload', () => {
 			payload,
 		}) as DomainEvent;
 
+	const documentoRi = {
+		ticker: 'PETR4',
+		company: 'Petrobras',
+		title: 'Fato Relevante - Aquisição',
+		publishedAt: '2026-09-28T00:00:00.000Z',
+		sourceUrl:
+			'https://www.rad.cvm.gov.br/ENETWeb/frmDownloadDocumento.aspx?Tela=ext&numProtocolo=1571942',
+		highlights: ['Aquisição de 30% do ativo X por US$ 1,2 bi.'],
+	};
+
 	const validos: Record<string, unknown> = {
 		[DOMAIN_EVENT_TYPES.DividendReceived]: { symbol: 'PETR4', amount: 10 },
 		[DOMAIN_EVENT_TYPES.AllocationBreached]: {
@@ -42,6 +52,8 @@ describe('toNotificationPayload', () => {
 			expiresAt: '2026-09-12T00:00:00.000Z',
 			daysUntilExpiration: 7,
 		},
+		[DOMAIN_EVENT_TYPES.RiMaterialFactPublished]: documentoRi,
+		[DOMAIN_EVENT_TYPES.RiDocumentPublished]: documentoRi,
 	};
 
 	/**
@@ -139,8 +151,50 @@ describe('toNotificationPayload', () => {
 		[DOMAIN_EVENT_TYPES.AiInsightHighPriority, { title: '   ' }],
 		[DOMAIN_EVENT_TYPES.QuoteStale, { symbol: 'BBAS3' }],
 		[DOMAIN_EVENT_TYPES.SubscriptionExpiring, { planName: 'Pro' }],
+		[DOMAIN_EVENT_TYPES.RiDocumentPublished, { ticker: 'PETR4' }],
 	])('devolve null para payload incompleto de %s', (type, payload) => {
 		expect(toNotificationPayload(envelope(type, payload))).toBeNull();
+	});
+
+	// TRA-261: o link vai para o `href` do e-mail.
+	it.each(['javascript:alert(1)', 'data:text/html,oi', 'nao-e-url'])(
+		'recusa aviso de RI com link %p',
+		(sourceUrl) => {
+			expect(
+				toNotificationPayload(
+					envelope(DOMAIN_EVENT_TYPES.RiMaterialFactPublished, {
+						...documentoRi,
+						sourceUrl,
+					})
+				)
+			).toBeNull();
+		}
+	);
+
+	it('limpa os destaques de RI vindos da fila (so texto, no maximo 3)', () => {
+		const payload = toNotificationPayload(
+			envelope(DOMAIN_EVENT_TYPES.RiDocumentPublished, {
+				...documentoRi,
+				highlights: ['  ', 42, 'a', 'b', 'c', 'd'],
+			})
+		);
+
+		expect(payload).toMatchObject({
+			type: NotificationType.RiDocument,
+			highlights: ['a', 'b', 'c'],
+		});
+	});
+
+	it('aviso de RI sem destaques nao ganha lista vazia', () => {
+		const payload = toNotificationPayload(
+			envelope(DOMAIN_EVENT_TYPES.RiDocumentPublished, {
+				...documentoRi,
+				highlights: undefined,
+			})
+		);
+
+		expect(payload).not.toBeNull();
+		expect(payload).not.toHaveProperty('highlights');
 	});
 
 	it('devolve null quando o payload nem existe', () => {

@@ -14,6 +14,10 @@ export enum NotificationType {
 	AiInsightHigh = 'aiInsightHigh',
 	QuoteStale = 'quoteStale',
 	SubscriptionExpiring = 'subscriptionExpiring',
+	/** Fato relevante de empresa em carteira (TRA-261). */
+	RiMaterialFact = 'riMaterialFact',
+	/** Outro documento relevante de empresa em carteira (TRA-261). */
+	RiDocument = 'riDocument',
 }
 
 /**
@@ -90,7 +94,21 @@ export type NotificationPayload =
 			planName: string;
 			expiresAt: string; // ISO date
 			daysUntilExpiration: number;
-	  };
+	  }
+	| RiDocumentNotificationPayload;
+
+/** Documento de RI de empresa em carteira (TRA-261). */
+export type RiDocumentNotificationPayload = {
+	type: NotificationType.RiMaterialFact | NotificationType.RiDocument;
+	ticker: string;
+	company: string;
+	title: string;
+	publishedAt: string; // ISO date
+	/** Link oficial do documento na CVM. */
+	sourceUrl: string;
+	/** Destaques verificados, so para quem tem `ri.ai_summary`. */
+	highlights?: string[];
+};
 
 /**
  * Defaults por tipo. Criticos (assinatura expirando, insight IA de alta
@@ -120,6 +138,12 @@ export const DEFAULT_EMAIL_PREFS: Record<NotificationType, boolean> = {
 	[NotificationType.AiInsightHigh]: true,
 	[NotificationType.QuoteStale]: false,
 	[NotificationType.SubscriptionExpiring]: true,
+	// TRA-261: e-mail so para fato relevante — raro (9 no mercado inteiro em
+	// 28/09/2026) e o que o investidor quer saber na hora. Os outros
+	// documentos relevantes foram 69 no mesmo dia: por e-mail, virariam spam
+	// e empurrariam o usuario para a chave geral, que desliga tudo.
+	[NotificationType.RiMaterialFact]: true,
+	[NotificationType.RiDocument]: false,
 };
 
 export const DEFAULT_PUSH_PREFS: Record<NotificationType, boolean> = {
@@ -129,6 +153,9 @@ export const DEFAULT_PUSH_PREFS: Record<NotificationType, boolean> = {
 	[NotificationType.AiInsightHigh]: true,
 	[NotificationType.QuoteStale]: false,
 	[NotificationType.SubscriptionExpiring]: true,
+	// Push e o resumo diario agregado: volume nao vira ruido.
+	[NotificationType.RiMaterialFact]: true,
+	[NotificationType.RiDocument]: true,
 };
 
 export const DEDUPE_WINDOW_HOURS = 24;

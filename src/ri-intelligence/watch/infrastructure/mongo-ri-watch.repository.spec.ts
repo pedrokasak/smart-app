@@ -167,4 +167,64 @@ describe('MongoRiWatchRepository (TRA-240)', () => {
 			}
 		);
 	});
+
+	// TRA-261: a fila de aviso. `notifiedAt: null` casa tambem o campo
+	// ausente dos documentos registrados antes desta etapa.
+	it('lists documents nobody was told about, newest first', async () => {
+		chain.lean.mockResolvedValue([
+			{
+				key: 'k1',
+				ticker: 'PETR4',
+				documentType: 'material_fact',
+				publishedAt: new Date('2026-09-27T00:00:00.000Z'),
+				record: record('https://rad/a'),
+				status: 'summarized',
+				attempts: 0,
+				discoveredAt: NOW,
+				processedAt: NOW,
+				lastError: null,
+				summary: { highlights: ['x'], citations: [] },
+			},
+		]);
+
+		const since = new Date('2026-09-28T08:00:00.000Z');
+		const unnotified = await repo.findUnnotified(50, since);
+
+		// Terminados, ou esperando o resumo desde antes de `since`.
+		expect(model.find).toHaveBeenCalledWith({
+			notifiedAt: null,
+			$or: [
+				{ status: { $in: ['summarized', 'skipped', 'failed'] } },
+				{ status: 'pending', discoveredAt: { $lte: since } },
+			],
+		});
+		expect(chain.sort).toHaveBeenCalledWith({ publishedAt: -1 });
+		expect(chain.limit).toHaveBeenCalledWith(50);
+		expect(unnotified[0]).toMatchObject({
+			key: 'k1',
+			notifiedAt: null,
+			notification: null,
+		});
+	});
+
+	it('closes the notification with how it ended', async () => {
+		const notification = { holders: 12, skippedReason: null };
+
+		await repo.markNotified('k1', notification, NOW);
+
+		expect(model.updateOne).toHaveBeenCalledWith(
+			{ key: 'k1' },
+			{ $set: { notifiedAt: NOW, notification } }
+		);
+	});
+
+	it('registers new documents as not notified yet', async () => {
+		await repo.registerNew([record('https://rad/a')], NOW);
+
+		const [[op]] = model.bulkWrite.mock.calls[0];
+		expect(op.updateOne.update.$setOnInsert).toMatchObject({
+			notifiedAt: null,
+			notification: null,
+		});
+	});
 });

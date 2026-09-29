@@ -144,8 +144,8 @@ describe('contrato do envelope DomainEvent', () => {
 });
 
 describe('registro de tipos de evento', () => {
-	it('cobre os eventos de dominio da TRA-136', () => {
-		expect(DOMAIN_EVENT_TYPE_LIST).toHaveLength(6);
+	it('cobre os eventos de dominio da TRA-136 e do vigia de RI (TRA-261)', () => {
+		expect(DOMAIN_EVENT_TYPE_LIST).toHaveLength(8);
 		expect(DOMAIN_EVENT_TYPE_LIST).toEqual(
 			expect.arrayContaining([
 				'portfolio.dividend.received',
@@ -155,6 +155,9 @@ describe('registro de tipos de evento', () => {
 				'ai.insight.high_priority',
 				'market.quote.stale',
 				'subscription.expiring',
+				// TRA-261: documento de RI de empresa em carteira.
+				'ri.material_fact.published',
+				'ri.document.published',
 			])
 		);
 	});

@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { RI_WATCH_CONFIG, RiWatchConfig } from './ri-watch.config';
+import { RiWatchNotifier } from './ri-watch.notifier';
 import { RiWatchService } from './ri-watch.service';
 
 /**
@@ -13,8 +14,9 @@ import { RiWatchService } from './ri-watch.service';
  * adapter. E cada rodada da nova chance ao que falhou por motivo passageiro
  * (rede, IA fora do ar).
  *
- * A varredura vem antes do processamento, mas uma falha nela nao impede
- * processar o que ja estava pendente de rodadas anteriores.
+ * Ordem da rodada: varrer, processar, avisar (TRA-261). O documento visto
+ * pelo ENET ao meio-dia e resumido e avisado na mesma rodada. Uma etapa que
+ * falha nao impede as seguintes de cuidar do que ja estava na fila delas.
  */
 @Injectable()
 export class RiWatchScheduler {
@@ -23,6 +25,7 @@ export class RiWatchScheduler {
 
 	constructor(
 		private readonly watch: RiWatchService,
+		private readonly notifier: RiWatchNotifier,
 		@Inject(RI_WATCH_CONFIG) private readonly config: RiWatchConfig
 	) {}
 
@@ -64,6 +67,18 @@ export class RiWatchScheduler {
 				this.logger.error(
 					`Vigia de RI: processamento falhou: ${this.messageOf(err)}`
 				);
+			}
+
+			try {
+				const notified = await this.notifier.notifyProcessed();
+				if (notified.documents || notified.failed) {
+					this.logger.log(
+						`Vigia de RI: ${notified.events} aviso(s) de ${notified.documents} documento(s) ` +
+							`(${notified.skipped} sem aviso, ${notified.failed} com falha)`
+					);
+				}
+			} catch (err) {
+				this.logger.error(`Vigia de RI: aviso falhou: ${this.messageOf(err)}`);
 			}
 		} finally {
 			this.running = false;

@@ -185,7 +185,7 @@ export class ResendEmailAdapter implements EmailSender, OnModuleInit {
 		if (message.replyTo) payload.replyTo = message.replyTo;
 		if (message.attachments?.length) payload.attachments = message.attachments;
 
-		const { data, error } = await this.client.emails.send(payload);
+		const { data, error } = await this.sendPaced(this.client, payload);
 
 		if (error) {
 			this.logger.error(
@@ -195,5 +195,60 @@ export class ResendEmailAdapter implements EmailSender, OnModuleInit {
 		}
 
 		this.logger.log(`Resend email sent: ${data?.id ?? 'unknown id'}`);
+	}
+
+	/**
+	 * Ritmo de envio (TRA-261). O Resend aceita 10 requisicoes/s por time
+	 * (docs conferidas em 29/09/2026) e responde 429 acima disso. Ate aqui os
+	 * e-mails saiam um a um; o aviso de fato relevante e o primeiro envio em
+	 * RAJADA — uma acao popular vira centenas de jobs na fila, processados 20
+	 * por vez — e o 429 virava entrega `failed`, sem nova tentativa.
+	 *
+	 * Espacar no processo (8/s, com folga) evita o 429; se ele vier mesmo
+	 * assim (outra instancia, outro envio do time), espera o `retry-after` e
+	 * tenta de novo algumas vezes antes de desistir.
+	 */
+	private static readonly MIN_SEND_INTERVAL_MS = 125;
+	private static readonly RATE_LIMIT_RETRIES = 3;
+	private nextSendAt = 0;
+
+	private async sendPaced(
+		client: Resend,
+		payload: Parameters<Resend['emails']['send']>[0]
+	): ReturnType<Resend['emails']['send']> {
+		for (let attempt = 0; ; attempt += 1) {
+			await this.waitForSendSlot();
+			const response = await client.emails.send(payload);
+			const rateLimited = response.error?.name === 'rate_limit_exceeded';
+			if (!rateLimited || attempt >= ResendEmailAdapter.RATE_LIMIT_RETRIES) {
+				return response;
+			}
+			const waitMs =
+				this.retryAfterMs(response.headers) ?? 1000 * (attempt + 1);
+			this.logger.warn(
+				`Resend limitou o envio (429); nova tentativa em ${waitMs}ms`
+			);
+			await this.wait(waitMs);
+		}
+	}
+
+	private async waitForSendSlot(): Promise<void> {
+		const now = Date.now();
+		const slot = Math.max(now, this.nextSendAt);
+		this.nextSendAt = slot + ResendEmailAdapter.MIN_SEND_INTERVAL_MS;
+		if (slot > now) await this.wait(slot - now);
+	}
+
+	private retryAfterMs(headers: Record<string, string> | null): number | null {
+		const seconds = Number(headers?.['retry-after']);
+		// Teto de 10s: um header estranho nao pode segurar o job da fila.
+		return Number.isFinite(seconds) && seconds > 0
+			? Math.min(seconds, 10) * 1000
+			: null;
+	}
+
+	/** Separado para os testes nao esperarem de verdade. */
+	protected wait(ms: number): Promise<void> {
+		return new Promise((resolve) => setTimeout(resolve, ms));
 	}
 }

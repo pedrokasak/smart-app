@@ -1,6 +1,7 @@
 import { Schema, model } from 'mongoose';
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 import {
+	RiWatchNotificationSnapshot,
 	RiWatchStatus,
 	RiWatchSummarySnapshot,
 } from 'src/ri-intelligence/watch/domain/ri-watch';
@@ -27,6 +28,9 @@ export interface RiWatchDocumentSchema {
 	processedAt: Date | null;
 	lastError: string | null;
 	summary: RiWatchSummarySnapshot | null;
+	/** TRA-261. So contagem e motivo: quem foi avisado fica nas notificacoes. */
+	notifiedAt: Date | null;
+	notification: RiWatchNotificationSnapshot | null;
 	createdAt?: Date;
 	updatedAt?: Date;
 }
@@ -49,6 +53,8 @@ const riWatchDocumentSchema = new Schema<RiWatchDocumentSchema>(
 		processedAt: { type: Date, default: null },
 		lastError: { type: String, default: null },
 		summary: { type: Schema.Types.Mixed, default: null },
+		notifiedAt: { type: Date, default: null },
+		notification: { type: Schema.Types.Mixed, default: null },
 	},
 	{ timestamps: true, collection: 'ri_watch_documents', minimize: false }
 );
@@ -61,6 +67,11 @@ riWatchDocumentSchema.index(
 riWatchDocumentSchema.index(
 	{ status: 1, publishedAt: -1 },
 	{ name: 'ri_watch_pending' }
+);
+// A fila de aviso (TRA-261): processados e ainda nao avisados.
+riWatchDocumentSchema.index(
+	{ notifiedAt: 1, status: 1, publishedAt: -1 },
+	{ name: 'ri_watch_unnotified' }
 );
 
 export const RiWatchDocumentModel = model<RiWatchDocumentSchema>(

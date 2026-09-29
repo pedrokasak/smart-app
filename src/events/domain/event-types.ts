@@ -17,6 +17,8 @@ export const DOMAIN_EVENT_TYPES = {
 	AiInsightHighPriority: 'ai.insight.high_priority',
 	QuoteStale: 'market.quote.stale',
 	SubscriptionExpiring: 'subscription.expiring',
+	RiMaterialFactPublished: 'ri.material_fact.published',
+	RiDocumentPublished: 'ri.document.published',
 } as const;
 
 export type DomainEventType =
@@ -47,6 +49,8 @@ export const DOMAIN_EVENT_TO_NOTIFICATION_TYPE: Record<
 	[DOMAIN_EVENT_TYPES.QuoteStale]: NotificationType.QuoteStale,
 	[DOMAIN_EVENT_TYPES.SubscriptionExpiring]:
 		NotificationType.SubscriptionExpiring,
+	[DOMAIN_EVENT_TYPES.RiMaterialFactPublished]: NotificationType.RiMaterialFact,
+	[DOMAIN_EVENT_TYPES.RiDocumentPublished]: NotificationType.RiDocument,
 };
 
 /**
@@ -115,6 +119,32 @@ export interface SubscriptionExpiringPayload {
 	daysUntilExpiration: number;
 }
 
+/**
+ * Documento de RI novo de uma empresa que o usuario tem (TRA-261). Um
+ * evento por detentor, e o `ticker` e a classe que ELE tem (PETR4), mesmo
+ * quando o vigia registrou o documento sob a outra (PETR3).
+ *
+ * Dois tipos com o mesmo payload, e nao um campo "e fato relevante": o tipo
+ * e o que a preferencia do usuario enxerga, e fato relevante sai por e-mail
+ * por padrao enquanto o resto nao (ver `DEFAULT_EMAIL_PREFS`).
+ *
+ * `highlights` so vem para quem tem `ri.ai_summary`. Quem decide e o
+ * produtor: o doc da notificacao guarda o payload, entao o que entra aqui e
+ * o que o usuario vai ler.
+ */
+export interface RiDocumentPublishedPayload {
+	ticker: string;
+	company: string;
+	/** Titulo da entrega na CVM (categoria, tipo e assunto). */
+	title: string;
+	/** ISO-8601 do dia da entrega. */
+	publishedAt: string;
+	/** Link oficial de download na CVM. */
+	sourceUrl: string;
+	/** Destaques verificados do resumo por IA (TRA-239), no maximo 3. */
+	highlights?: string[];
+}
+
 export interface DomainEventPayloadMap {
 	[DOMAIN_EVENT_TYPES.DividendReceived]: DividendReceivedPayload;
 	[DOMAIN_EVENT_TYPES.AllocationBreached]: AllocationBreachedPayload;
@@ -122,6 +152,8 @@ export interface DomainEventPayloadMap {
 	[DOMAIN_EVENT_TYPES.AiInsightHighPriority]: AiInsightHighPriorityPayload;
 	[DOMAIN_EVENT_TYPES.QuoteStale]: QuoteStalePayload;
 	[DOMAIN_EVENT_TYPES.SubscriptionExpiring]: SubscriptionExpiringPayload;
+	[DOMAIN_EVENT_TYPES.RiMaterialFactPublished]: RiDocumentPublishedPayload;
+	[DOMAIN_EVENT_TYPES.RiDocumentPublished]: RiDocumentPublishedPayload;
 }
 
 /** Versao corrente do schema de cada evento. Subir ao quebrar o payload. */
@@ -132,4 +164,6 @@ export const DOMAIN_EVENT_VERSIONS: Record<DomainEventType, number> = {
 	[DOMAIN_EVENT_TYPES.AiInsightHighPriority]: 1,
 	[DOMAIN_EVENT_TYPES.QuoteStale]: 1,
 	[DOMAIN_EVENT_TYPES.SubscriptionExpiring]: 1,
+	[DOMAIN_EVENT_TYPES.RiMaterialFactPublished]: 1,
+	[DOMAIN_EVENT_TYPES.RiDocumentPublished]: 1,
 };
