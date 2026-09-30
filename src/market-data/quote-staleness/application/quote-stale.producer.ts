@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import { QuoteKind, assetTypesFor } from '../domain/quote-kind';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import { Asset } from 'src/assets/schema/assets.model';
@@ -63,9 +64,13 @@ export class QuoteStaleProducer {
 	 * manda o provider atualizar: nao se gasta requisicao com papel que
 	 * saiu de todas as carteiras.
 	 */
-	async heldSymbols(): Promise<string[]> {
+	async heldSymbols(kind: QuoteKind = 'market'): Promise<string[]> {
+		// Cada fonte só recebe os símbolos que ela cota (TRA-252).
 		const raw: unknown[] = await this.assetModel
-			.distinct('symbol', { quantity: { $gt: 0 } })
+			.distinct('symbol', {
+				quantity: { $gt: 0 },
+				type: { $in: [...assetTypesFor(kind)] },
+			})
 			.exec();
 		return Array.from(new Set(raw.map(normalizeSymbol).filter(Boolean)));
 	}

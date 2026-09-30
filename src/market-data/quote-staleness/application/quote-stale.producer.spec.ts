@@ -191,8 +191,20 @@ describe('QuoteStaleProducer (TRA-136, fase 7)', () => {
 		simbolosEmCarteira = [' petr4 ', 'PETR4', 'vale3', ''];
 
 		expect(await criar().heldSymbols()).toEqual(['PETR4', 'VALE3']);
+		// TRA-252: a cadeia de mercado so recebe acao, FII e ETF.
 		expect(assetModel.distinct).toHaveBeenCalledWith('symbol', {
 			quantity: { $gt: 0 },
+			type: { $in: ['stock', 'fii', 'etf'] },
+		});
+	});
+
+	it('heldSymbols de cripto so traz cripto', async () => {
+		simbolosEmCarteira = ['LUNC'];
+
+		expect(await criar().heldSymbols('crypto')).toEqual(['LUNC']);
+		expect(assetModel.distinct).toHaveBeenLastCalledWith('symbol', {
+			quantity: { $gt: 0 },
+			type: { $in: ['crypto'] },
 		});
 	});
 });

@@ -9,7 +9,12 @@ describe('QuoteFreshnessScheduler (TRA-136, fase 7)', () => {
 	let portfolioModel: any;
 	let refresh: { refresh: jest.Mock };
 	let producer: { heldSymbols: jest.Mock; evaluateForUser: jest.Mock };
-	let assetPrices: { applyLatestPrices: jest.Mock };
+	let assetPrices: {
+		applyLatestPrices: jest.Mock;
+		clearMisquotedCrypto: jest.Mock;
+	};
+	let cryptoQuotes: { quote: jest.Mock };
+	let freshness: { recordReads: jest.Mock; findBySymbols: jest.Mock };
 
 	const criar = () =>
 		new QuoteFreshnessScheduler(
@@ -17,7 +22,9 @@ describe('QuoteFreshnessScheduler (TRA-136, fase 7)', () => {
 			refresh as never,
 			producer as never,
 			SYSTEM_THRESHOLD_POLICY,
-			assetPrices as never
+			assetPrices as never,
+			cryptoQuotes as never,
+			freshness as never
 		);
 
 	beforeEach(() => {
@@ -35,7 +42,12 @@ describe('QuoteFreshnessScheduler (TRA-136, fase 7)', () => {
 				.fn()
 				.mockResolvedValue({ requested: 2, stamped: 2, records: [] }),
 		};
-		assetPrices = { applyLatestPrices: jest.fn().mockResolvedValue(0) };
+		assetPrices = {
+			applyLatestPrices: jest.fn().mockResolvedValue(0),
+			clearMisquotedCrypto: jest.fn().mockResolvedValue(0),
+		};
+		cryptoQuotes = { quote: jest.fn().mockResolvedValue([]) };
+		freshness = { recordReads: jest.fn(), findBySymbols: jest.fn() };
 		producer = {
 			heldSymbols: jest.fn().mockResolvedValue(['PETR4', 'VALE3']),
 			evaluateForUser: jest.fn().mockResolvedValue(1),
@@ -84,7 +96,10 @@ describe('QuoteFreshnessScheduler (TRA-136, fase 7)', () => {
 
 		await criar().refreshHeldSymbols(NOW);
 
-		expect(assetPrices.applyLatestPrices).toHaveBeenCalledWith(records);
+		expect(assetPrices.applyLatestPrices).toHaveBeenCalledWith(
+			records,
+			'market'
+		);
 	});
 
 	it('falha ao gravar nas posicoes nao derruba a varredura', async () => {
@@ -100,5 +115,44 @@ describe('QuoteFreshnessScheduler (TRA-136, fase 7)', () => {
 
 		expect(refresh.refresh).toHaveBeenCalled();
 		expect(assetPrices.applyLatestPrices).toHaveBeenCalled();
+	});
+
+	// TRA-252: a cadeia de acoes cotava "LUNC" como um papel homonimo.
+	describe('cripto', () => {
+		beforeEach(() => {
+			producer.heldSymbols.mockImplementation(async (kind = 'market') =>
+				kind === 'crypto' ? ['LUNC', 'XYZ'] : ['PETR4']
+			);
+		});
+
+		it('acoes vao para a cadeia de mercado; cripto so para a CoinGecko', async () => {
+			const lunc = {
+				symbol: 'LUNC',
+				lastQuoteAt: NOW,
+				lastPrice: 0.00027588,
+				source: 'coingecko',
+			};
+			cryptoQuotes.quote.mockResolvedValue([lunc]);
+
+			await criar().refreshHeldSymbols(NOW);
+
+			expect(refresh.refresh).toHaveBeenCalledWith(['PETR4'], NOW);
+			expect(cryptoQuotes.quote).toHaveBeenCalledWith(['LUNC', 'XYZ']);
+			expect(freshness.recordReads).toHaveBeenCalledWith([lunc]);
+			expect(assetPrices.applyLatestPrices).toHaveBeenCalledWith(
+				[lunc],
+				'crypto'
+			);
+			// XYZ nao tem cotacao de cripto: o preco errado que ele tenha e desfeito.
+			expect(assetPrices.clearMisquotedCrypto).toHaveBeenCalledWith(['LUNC']);
+		});
+
+		it('falha da CoinGecko nao derruba a varredura', async () => {
+			cryptoQuotes.quote.mockRejectedValue(new Error('fora'));
+
+			await expect(criar().refreshHeldSymbols(NOW)).resolves.toMatchObject({
+				stamped: 2,
+			});
+		});
 	});
 });

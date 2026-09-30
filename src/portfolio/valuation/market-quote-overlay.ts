@@ -34,7 +34,10 @@ export interface LatestQuote {
 	source?: string | null;
 }
 
-const NO_MARKET_QUOTE = new Set(['fund', 'other']);
+// Só a cadeia de mercado alimenta o cache por símbolo lido aqui. Cripto é
+// cotada pela CoinGecko direto na posição; o cache chegou a guardar um papel
+// homônimo para "LUNC" (TRA-252).
+const MARKET_QUOTED = new Set(['stock', 'fii', 'etf']);
 
 const toTime = (value: Date | string | undefined): number => {
 	if (!value) return 0;
@@ -53,7 +56,7 @@ export function applyLatestQuotes<T extends QuotableAsset>(
 	);
 
 	return assets.map((asset) => {
-		if (NO_MARKET_QUOTE.has(String(asset.type))) return asset;
+		if (!MARKET_QUOTED.has(String(asset.type))) return asset;
 
 		const quote = bySymbol.get(String(asset.symbol).toUpperCase());
 		const ownQuoteAt = asset.currentPriceAt ?? asset.lastEnrichedAt;

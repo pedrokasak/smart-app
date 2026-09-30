@@ -31,6 +31,8 @@ export interface Asset extends Document {
 	currentPrice?: number;
 	/** Quando `currentPrice` foi lido na fonte (varredura de cotação, TRA-247). */
 	currentPriceAt?: Date;
+	/** Quem cotou `currentPrice` (`coingecko`, `primary`...), TRA-252. */
+	currentPriceSource?: string;
 	change24h?: number;
 	dividendHistory?: {
 		date: Date;
@@ -93,6 +95,7 @@ export const assetSchema = new Schema<Asset>(
 			default: null,
 		},
 		currentPriceAt: { type: Date },
+		currentPriceSource: { type: String },
 		change24h: {
 			type: Number,
 			default: null,
