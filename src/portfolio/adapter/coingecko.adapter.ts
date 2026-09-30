@@ -1,6 +1,7 @@
 import { HttpService } from '@nestjs/axios';
 import { Injectable } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
+import { COINGECKO_IDS } from 'src/market-data/quote-staleness/infrastructure/coingecko-crypto-quote.source';
 import {
 	AssetQuote,
 	AssetWithIndicators,
@@ -13,26 +14,8 @@ export class CoinGeckoAdapter implements IAssetApiAdapter {
 
 	constructor(private readonly httpService: HttpService) {}
 
-	private readonly cryptoMap: Record<string, string> = {
-		BTC: 'bitcoin',
-		ETH: 'ethereum',
-		USDT: 'tether',
-		USDC: 'usd-coin',
-		BNB: 'binancecoin',
-		ADA: 'cardano',
-		DOGE: 'dogecoin',
-		SOL: 'solana',
-		XRP: 'ripple',
-		LTC: 'litecoin',
-		TRX: 'tron',
-		AVAX: 'avalanche-2',
-		LINK: 'chainlink',
-		DOT: 'polkadot',
-		MATIC: 'matic-network',
-		ARB: 'arbitrum',
-		OP: 'optimism',
-		SHIB: 'shiba-inu',
-	};
+	// Mesmo mapa da varredura de cotação: LUNC é Terra Classic (TRA-252).
+	private readonly cryptoMap: Record<string, string> = COINGECKO_IDS;
 
 	private async fetchSimplePrice(symbol: string): Promise<any> {
 		const coinId = this.cryptoMap[symbol];

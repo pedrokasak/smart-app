@@ -12,6 +12,8 @@ import { QuoteStaleProducer } from './application/quote-stale.producer';
 import { MongoQuoteFreshnessRepository } from './infrastructure/mongo-quote-freshness.repository';
 import { HELD_ASSET_PRICE_WRITER } from './application/ports/held-asset-price.port';
 import { MongoHeldAssetPriceWriter } from './infrastructure/mongo-held-asset-price.writer';
+import { CRYPTO_QUOTE_SOURCE } from './application/ports/crypto-quote.port';
+import { CoinGeckoCryptoQuoteSource } from './infrastructure/coingecko-crypto-quote.source';
 import { QuoteFreshnessModel } from './infrastructure/quote-freshness.model';
 
 /**
@@ -48,6 +50,11 @@ import { QuoteFreshnessModel } from './infrastructure/quote-freshness.model';
 		{
 			provide: HELD_ASSET_PRICE_WRITER,
 			useExisting: MongoHeldAssetPriceWriter,
+		},
+		CoinGeckoCryptoQuoteSource,
+		{
+			provide: CRYPTO_QUOTE_SOURCE,
+			useExisting: CoinGeckoCryptoQuoteSource,
 		},
 		QuoteRefreshService,
 		QuoteStaleProducer,

@@ -1,4 +1,5 @@
 import { QuoteFreshnessRecord } from '../../domain/quote-freshness';
+import { QuoteKind } from '../../domain/quote-kind';
 
 /**
  * Leva a última cotação lida para as posições de quem tem o símbolo
@@ -11,8 +12,21 @@ import { QuoteFreshnessRecord } from '../../domain/quote-freshness';
  * posições.
  */
 export interface HeldAssetPriceWriter {
-	/** Devolve quantas posições foram atualizadas. */
-	applyLatestPrices(records: QuoteFreshnessRecord[]): Promise<number>;
+	/**
+	 * Grava as leituras nas posições do tipo que aquela fonte cota — cotação
+	 * de ação nunca chega à cripto (TRA-252). Devolve quantas foram
+	 * atualizadas.
+	 */
+	applyLatestPrices(
+		records: QuoteFreshnessRecord[],
+		kind: QuoteKind
+	): Promise<number>;
+
+	/**
+	 * Desfaz o preço que a cadeia de ações gravou em cripto sem cotação na
+	 * CoinGecko (TRA-252). Devolve quantas posições foram limpas.
+	 */
+	clearMisquotedCrypto(pricedSymbols: string[]): Promise<number>;
 }
 
 export const HELD_ASSET_PRICE_WRITER = Symbol('HELD_ASSET_PRICE_WRITER');

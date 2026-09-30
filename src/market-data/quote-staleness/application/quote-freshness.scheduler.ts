@@ -10,6 +10,14 @@ import {
 	HELD_ASSET_PRICE_WRITER,
 	HeldAssetPriceWriter,
 } from './ports/held-asset-price.port';
+import {
+	CRYPTO_QUOTE_SOURCE,
+	CryptoQuoteSource,
+} from './ports/crypto-quote.port';
+import {
+	QUOTE_FRESHNESS_STORE,
+	QuoteFreshnessStore,
+} from './ports/quote-freshness.port';
 import { QuoteStaleProducer } from './quote-stale.producer';
 
 /**
@@ -49,7 +57,11 @@ export class QuoteFreshnessScheduler {
 		@Inject(THRESHOLD_SYSTEM_POLICY)
 		private readonly systemPolicy: ResolvedThresholdPolicy,
 		@Inject(HELD_ASSET_PRICE_WRITER)
-		private readonly assetPrices: HeldAssetPriceWriter
+		private readonly assetPrices: HeldAssetPriceWriter,
+		@Inject(CRYPTO_QUOTE_SOURCE)
+		private readonly cryptoQuotes: CryptoQuoteSource,
+		@Inject(QUOTE_FRESHNESS_STORE)
+		private readonly freshness: QuoteFreshnessStore
 	) {}
 
 	@Cron('0 */6 * * *', {
@@ -99,18 +111,47 @@ export class QuoteFreshnessScheduler {
 
 	/** Extraido para teste. Atualiza a cotacao dos simbolos em carteira. */
 	async refreshHeldSymbols(now: Date = new Date()) {
-		const symbols = await this.producer.heldSymbols();
+		const symbols = await this.producer.heldSymbols('market');
 		const result = await this.refresh.refresh(symbols, now);
 		// Falha ao gravar nas posicoes nao desfaz o carimbo: a leitura foi
 		// real, e a proxima varredura tenta de novo.
 		try {
-			const updated = await this.assetPrices.applyLatestPrices(result.records);
+			const updated = await this.assetPrices.applyLatestPrices(
+				result.records,
+				'market'
+			);
 			this.logger.log(`Cotacao aplicada em ${updated} posicao(oes)`);
 		} catch (err) {
 			const message = err instanceof Error ? err.message : String(err);
 			this.logger.error(`Falha ao aplicar cotacao nas posicoes: ${message}`);
 		}
+		await this.refreshCrypto();
 		return result;
+	}
+
+	/**
+	 * Cripto so pela CoinGecko (TRA-252). A cadeia de acoes resolvia "LUNC"
+	 * num papel homonimo e gravava R$ 24,90 na Terra Classic.
+	 */
+	private async refreshCrypto(): Promise<void> {
+		try {
+			const symbols = await this.producer.heldSymbols('crypto');
+			if (symbols.length === 0) return;
+			const records = await this.cryptoQuotes.quote(symbols);
+			if (records.length > 0) {
+				await this.freshness.recordReads(records);
+				await this.assetPrices.applyLatestPrices(records, 'crypto');
+			}
+			const cleared = await this.assetPrices.clearMisquotedCrypto(
+				records.map((record) => record.symbol)
+			);
+			this.logger.log(
+				`Cripto: ${records.length}/${symbols.length} cotada(s), ${cleared} preco(s) errado(s) desfeito(s)`
+			);
+		} catch (err) {
+			const message = err instanceof Error ? err.message : String(err);
+			this.logger.error(`Refresh de cripto falhou: ${message}`);
+		}
 	}
 
 	/** Extraido para teste. Devolve quantos eventos foram publicados. */

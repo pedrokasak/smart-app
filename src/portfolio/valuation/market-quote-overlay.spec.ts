@@ -95,4 +95,22 @@ describe('applyLatestQuotes', () => {
 		);
 		expect(lowercase.currentPrice).toBe(40);
 	});
+
+	// TRA-252: o cache chegou a guardar um papel homônimo para "LUNC".
+	it('cripto nunca recebe a cotação do cache de ações', () => {
+		const lunc: QuotableAsset = {
+			symbol: 'LUNC',
+			type: 'crypto',
+			quantity: 1092.963942,
+			price: 0.0003,
+			total: 0.33,
+		};
+
+		const [asset] = applyLatestQuotes(
+			[lunc],
+			[{ symbol: 'LUNC', lastQuoteAt: new Date(), lastPrice: 24.9 }]
+		);
+
+		expect(asset).toBe(lunc);
+	});
 });
