@@ -93,6 +93,18 @@ export class QuoteFreshnessScheduler {
 		await this.runRefresh();
 	}
 
+	/**
+	 * Cripto negocia 24 h por dia, 7 dias por semana: nao segue o pregao da
+	 * B3. Uma chamada a CoinGecko por rodada cabe folgado no limite publico.
+	 */
+	@Cron('*/15 * * * *', {
+		name: 'crypto-quote-refresh',
+		timeZone: 'America/Sao_Paulo',
+	})
+	async runCryptoRefresh(): Promise<void> {
+		await this.refreshCrypto();
+	}
+
 	@Cron('30 7 * * *', {
 		name: 'market-quote-staleness',
 		timeZone: 'America/Sao_Paulo',
