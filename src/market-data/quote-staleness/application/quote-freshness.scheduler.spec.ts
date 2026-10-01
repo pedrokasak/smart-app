@@ -147,6 +147,15 @@ describe('QuoteFreshnessScheduler (TRA-136, fase 7)', () => {
 			expect(assetPrices.clearMisquotedCrypto).toHaveBeenCalledWith(['LUNC']);
 		});
 
+		it('cripto tem varredura propria, fora do pregao', async () => {
+			cryptoQuotes.quote.mockResolvedValue([]);
+
+			await criar().runCryptoRefresh();
+
+			expect(cryptoQuotes.quote).toHaveBeenCalledWith(['LUNC', 'XYZ']);
+			expect(refresh.refresh).not.toHaveBeenCalled();
+		});
+
 		it('falha da CoinGecko nao derruba a varredura', async () => {
 			cryptoQuotes.quote.mockRejectedValue(new Error('fora'));
 
