@@ -268,6 +268,10 @@ export class RiWatchService {
 				{
 					highlights: output.summary.highlights,
 					citations: output.summary.citations ?? [],
+					cost: {
+						aiCalls: Number(output.cost?.aiCalls) || 0,
+						tokens: Number(output.cost?.tokenUsageEstimate) || 0,
+					},
 				},
 				now
 			);

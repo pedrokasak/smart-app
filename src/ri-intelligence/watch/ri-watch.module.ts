@@ -15,12 +15,18 @@ import { RI_DELIVERY_FEED } from './application/ports/ri-delivery-feed.port';
 import { RI_HOLDER_DIRECTORY } from './application/ports/ri-holder-directory.port';
 import { RI_SUMMARY_ENTITLEMENT } from './application/ports/ri-summary-entitlement.port';
 import { RI_WATCH_DISCOVERY } from './application/ports/ri-watch-discovery.port';
+import { RI_WATCH_METRICS_READER } from './application/ports/ri-watch-metrics.port';
 import { RI_WATCH_STORE } from './application/ports/ri-watch-store.port';
 import {
 	loadRiWatchConfig,
 	RI_WATCH_CONFIG,
 } from './application/ri-watch.config';
 import { RiWatchFiiScanner } from './application/ri-watch-fii.scanner';
+import {
+	loadCostPer1kTokensUsd,
+	RI_WATCH_COST_PER_1K_TOKENS,
+	RiWatchMetricsService,
+} from './application/ri-watch-metrics.service';
 import { RiWatchIndexer } from './application/ri-watch.indexer';
 import { RiWatchNotifier } from './application/ri-watch.notifier';
 import { RiWatchScheduler } from './application/ri-watch.scheduler';
@@ -30,7 +36,9 @@ import { EnetDeliveryFeedAdapter } from './infrastructure/enet-delivery-feed.ada
 import { FundosNetFilingFeedAdapter } from './infrastructure/fundosnet-filing-feed.adapter';
 import { MongoHeldTickerDirectory } from './infrastructure/mongo-held-ticker-directory';
 import { MongoRiHolderDirectory } from './infrastructure/mongo-ri-holder-directory';
+import { MongoRiWatchMetricsReader } from './infrastructure/mongo-ri-watch-metrics.reader';
 import { MongoRiWatchRepository } from './infrastructure/mongo-ri-watch.repository';
+import { RiWatchAdminController } from './admin/ri-watch-admin.controller';
 import { PlanRiSummaryEntitlement } from './infrastructure/plan-ri-summary-entitlement';
 import { RiWatchDocumentModel } from './infrastructure/ri-watch-document.model';
 
@@ -93,6 +101,18 @@ import { RiWatchDocumentModel } from './infrastructure/ri-watch-document.model';
 		// Acervo de RI do chat (TRA-264), depois do aviso.
 		RiWatchIndexer,
 		RiWatchScheduler,
+		// Painel admin (TRA-267): documentos, falhas e custo estimado.
+		MongoRiWatchMetricsReader,
+		{
+			provide: RI_WATCH_METRICS_READER,
+			useExisting: MongoRiWatchMetricsReader,
+		},
+		{
+			provide: RI_WATCH_COST_PER_1K_TOKENS,
+			useFactory: () => loadCostPer1kTokensUsd(),
+		},
+		RiWatchMetricsService,
 	],
+	controllers: [RiWatchAdminController],
 })
 export class RiWatchModule {}
