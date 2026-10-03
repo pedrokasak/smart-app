@@ -55,7 +55,16 @@ export class HttpPdfRiDocumentContentAdapter implements RiDocumentContentPort {
 
 		const resolved = await this.linkResolver.resolve({ url });
 		if (!resolved.isValid || !resolved.resolvedUrl) {
-			return { text: null, reason: 'link_invalid' };
+			// Sem resposta agora (timeout, rede) nao e link quebrado: vale nova
+			// tentativa. `link_invalid` e permanente e tiraria o documento da
+			// fila do vigia — a FundosNet as vezes trava a resposta (TRA-266).
+			return {
+				text: null,
+				reason:
+					resolved.rejectionReason === 'unreachable'
+						? 'fetch_failed'
+						: 'link_invalid',
+			};
 		}
 
 		try {

@@ -38,7 +38,9 @@ export class MongoRiHolderDirectory implements RiHolderDirectory {
 				symbol: { $regex: `^${base}\\d{1,2}(\\.SA)?$` },
 				// Posicao zerada nao e posicao: quem vendeu nao recebe aviso.
 				quantity: { $gt: 0 },
-				type: 'stock',
+				// FII entra com a FundosNet (TRA-266). O codigo de negociacao e
+				// unico na B3: acao e FII nunca dividem a base.
+				type: { $in: ['stock', 'fii'] },
 			})
 			.select('portfolioId symbol')
 			.lean<{ portfolioId: Types.ObjectId; symbol: string }[]>();

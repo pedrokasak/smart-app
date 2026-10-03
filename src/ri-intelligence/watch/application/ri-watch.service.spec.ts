@@ -108,6 +108,7 @@ describe('RiWatchService (TRA-240)', () => {
 		store = new InMemoryRiWatchStore();
 		directory = {
 			heldStockTickers: jest.fn().mockResolvedValue(['PETR4']),
+			heldFiiTickers: jest.fn().mockResolvedValue([]),
 		};
 		discovery = { discover: jest.fn().mockResolvedValue([]) };
 		dailyFeed = { listDeliveries: jest.fn().mockResolvedValue([]) };
@@ -132,6 +133,7 @@ describe('RiWatchService (TRA-240)', () => {
 			notifyEnabled: false,
 			notifyMaxAgeDays: 3,
 			indexEnabled: false,
+			fiiEnabled: false,
 		};
 	});
 

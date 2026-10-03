@@ -164,6 +164,45 @@ describe('HttpRiDocumentLinkResolverAdapter', () => {
 		);
 	});
 
+	// TRA-266: a FundosNet da B3 responde 520 ao HEAD e 200 com o PDF ao GET.
+	it('falls back to GET when HEAD fails with a server error', async () => {
+		const url =
+			'https://fnet.bmfbovespa.com.br/fnet/publico/downloadDocumento?id=1338095';
+		global.fetch = jest.fn(async (_url: string, init: { method: string }) =>
+			init.method === 'HEAD'
+				? fakeResponse({ status: 520, contentType: 'text/plain' })
+				: fakeResponse({
+						status: 200,
+						contentType: 'application/pdf; charset=UTF-8',
+						contentDisposition:
+							'attachment; filename="11728688000147-FRV01102026V01-001338095.pdf"',
+					})
+		) as any;
+
+		const output = await adapter.resolve({ url });
+
+		expect(global.fetch).toHaveBeenLastCalledWith(
+			url,
+			expect.objectContaining({ method: 'GET' })
+		);
+		expect(output.isValid).toBe(true);
+		expect(output.resolvedUrl).toBe(url);
+	});
+
+	it('still rejects when GET also fails after a server error on HEAD', async () => {
+		global.fetch = jest.fn(async () =>
+			fakeResponse({ status: 503, contentType: 'text/html' })
+		) as any;
+
+		const output = await adapter.resolve({
+			url: 'https://ri.example.com/fora-do-ar',
+		});
+
+		expect(global.fetch).toHaveBeenCalledTimes(2);
+		expect(output.isValid).toBe(false);
+		expect(output.rejectionReason).toBe('invalid_http_status');
+	});
+
 	it('accepts a quoted UTF-8 filename* disposition', async () => {
 		mockFetch({
 			status: 200,

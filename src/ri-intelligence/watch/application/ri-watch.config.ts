@@ -43,6 +43,12 @@ export interface RiWatchConfig {
 	 * Desligado por padrao: liga-se depois do trackerr-ia com o acervo no ar.
 	 */
 	indexEnabled: boolean;
+	/**
+	 * FIIs em carteira, pela FundosNet da B3 (TRA-266). Desligado por padrao:
+	 * e uma fonte nova e mais resumo de IA por rodada; liga-se depois de ver a
+	 * varredura de FII funcionando.
+	 */
+	fiiEnabled: boolean;
 }
 
 export const RI_WATCH_CONFIG = Symbol('RI_WATCH_CONFIG');
@@ -55,6 +61,7 @@ export const RI_WATCH_DEFAULTS: RiWatchConfig = {
 	notifyEnabled: false,
 	notifyMaxAgeDays: 3,
 	indexEnabled: false,
+	fiiEnabled: false,
 };
 
 const enabledSchema = z.enum(['true', 'false']);
@@ -102,5 +109,6 @@ export function loadRiWatchConfig(
 			field(notifyMaxAgeSchema, env.RI_WATCH_NOTIFY_MAX_AGE_DAYS) ??
 			RI_WATCH_DEFAULTS.notifyMaxAgeDays,
 		indexEnabled: field(enabledSchema, env.RI_WATCH_INDEX_ENABLED) === 'true',
+		fiiEnabled: field(enabledSchema, env.RI_WATCH_FII_ENABLED) === 'true',
 	};
 }

@@ -46,13 +46,14 @@ describe('MongoRiHolderDirectory (TRA-261)', () => {
 		expect(issuerBaseCode(ticker)).toBe(base);
 	});
 
-	it('looks up every class of the issuer, only open stock positions', async () => {
+	it('looks up every class of the issuer, only open stock and FII positions', async () => {
 		await directory.holdersOfIssuer('PETR3');
 
 		expect(assetModel.find).toHaveBeenCalledWith({
 			symbol: { $regex: '^PETR\\d{1,2}(\\.SA)?$' },
 			quantity: { $gt: 0 },
-			type: 'stock',
+			// TRA-266: quem tem FII tambem recebe o aviso.
+			type: { $in: ['stock', 'fii'] },
 		});
 		const regex = new RegExp(assetModel.find.mock.calls[0][0].symbol.$regex);
 		expect(['PETR3', 'PETR4', 'PETR4.SA'].every((s) => regex.test(s))).toBe(
