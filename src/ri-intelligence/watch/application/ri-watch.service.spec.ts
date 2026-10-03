@@ -344,7 +344,21 @@ describe('RiWatchService (TRA-240)', () => {
 			expect(onlyDoc().summary).toEqual({
 				highlights: aiSummary.summary.highlights,
 				citations: aiSummary.summary.citations,
+				// Sem `cost` na saida do resumo: zero, nunca NaN.
+				cost: { aiCalls: 0, tokens: 0 },
 			});
+		});
+
+		// TRA-267: o custo de IA do resumo fica no documento, para o painel admin.
+		it('keeps what the summary spent on AI', async () => {
+			summaries.summarize.mockResolvedValue({
+				...aiSummary,
+				cost: { aiCalls: 1, tokenUsageEstimate: 5400 },
+			});
+
+			await makeService().processPending(NOW);
+
+			expect(onlyDoc().summary?.cost).toEqual({ aiCalls: 1, tokens: 5400 });
 		});
 
 		it('skips for good when the PDF has no text layer', async () => {

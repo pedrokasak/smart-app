@@ -52,6 +52,11 @@ export interface RiWatchNotificationSnapshot {
 export interface RiWatchSummarySnapshot {
 	highlights: string[];
 	citations: { highlight: string; excerpt: string; page: number | null }[];
+	/**
+	 * O que o resumo gastou de IA (TRA-267): base do custo estimado no painel
+	 * admin. Zero quando veio do cache. Ausente nos resumos de antes.
+	 */
+	cost?: { aiCalls: number; tokens: number };
 }
 
 export interface RiWatchDocument {
