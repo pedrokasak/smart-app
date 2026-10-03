@@ -58,7 +58,8 @@ export interface RiDocumentRecord {
 	 * Classificacao OFICIAL da CVM (TRA-260), como o documento foi entregue:
 	 * categoria ("Fato Relevante", "Comunicado ao Mercado"...) e tipo. Mais
 	 * confiavel que `documentType`, que sai de palavra-chave no titulo e
-	 * rotula todo comunicado como fato relevante. Ausente fora da CVM.
+	 * rotula todo comunicado como fato relevante. Para FII, a categoria e o
+	 * tipo da FundosNet da B3 (TRA-266). Ausente fora dessas fontes.
 	 */
 	cvmCategory?: string | null;
 	cvmType?: string | null;

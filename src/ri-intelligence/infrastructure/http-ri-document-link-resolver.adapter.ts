@@ -117,7 +117,15 @@ export class HttpRiDocumentLinkResolverAdapter implements RiDocumentLinkResolver
 		if (head && head.response.ok) return head;
 
 		const status = head?.response.status;
-		if (!head || status === 403 || status === 405 || status === 406) {
+		// 5xx no HEAD: servidor que nao implementa HEAD direito. A FundosNet
+		// da B3 responde 520 ao HEAD e 200 com o PDF ao GET (TRA-266).
+		if (
+			!head ||
+			status === 403 ||
+			status === 405 ||
+			status === 406 ||
+			(status !== undefined && status >= 500)
+		) {
 			if (head) this.cancelBody(head.response);
 			return this.followRedirects(url, 'GET');
 		}

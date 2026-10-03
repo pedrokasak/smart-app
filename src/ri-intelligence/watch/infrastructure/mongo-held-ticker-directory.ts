@@ -18,9 +18,17 @@ export class MongoHeldTickerDirectory implements HeldTickerDirectory {
 		@InjectModel('Asset') private readonly assetModel: Model<Asset>
 	) {}
 
-	async heldStockTickers(): Promise<string[]> {
+	heldStockTickers(): Promise<string[]> {
+		return this.heldTickersOfType('stock');
+	}
+
+	heldFiiTickers(): Promise<string[]> {
+		return this.heldTickersOfType('fii');
+	}
+
+	private async heldTickersOfType(type: Asset['type']): Promise<string[]> {
 		const raw: unknown[] = await this.assetModel
-			.distinct('symbol', { quantity: { $gt: 0 }, type: 'stock' })
+			.distinct('symbol', { quantity: { $gt: 0 }, type })
 			.exec();
 		return Array.from(new Set(raw.map(normalizeTicker).filter(Boolean))).sort();
 	}

@@ -2,8 +2,8 @@ import { HttpService } from '@nestjs/axios';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'crypto';
 import { firstValueFrom } from 'rxjs';
-import yauzl from 'yauzl';
 import Papa from 'papaparse';
+import { readZipEntry } from 'src/common/zip/read-zip-entry';
 import {
 	RiDocumentDiscoveryInput,
 	RiDocumentDiscoveryPort,
@@ -31,7 +31,7 @@ import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
  *     Sem CNPJ, retorna [] (não dá para filtar server-side).
  *  2. Determina anos candidatos dado `[dateFrom, dateTo]` (ou últimos N quando
  *     ausente), baixa os zips relevantes.
- *  3. Streaming unzip via yauzl sobre o buffer (`responseType: 'arraybuffer'`),
+ *  3. Unzip via `readZipEntry` (yauzl) sobre o buffer (`responseType: 'arraybuffer'`),
  *     lê o CSV interno com Papa.parse, filtra por CNPJ normalizado + janela.
  *  4. Compõe `title = Categoria + ' - ' + Tipo + ' - ' + Especie + ' - ' + Assunto`
  *     antes de `classifyRiDocumentType` (o classifier opera por aliases de
@@ -262,71 +262,24 @@ export class CvmRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 	}
 
 	/**
-	 * Extrai o único CSV interno do zip IPE via yauzl. O zip de IPE contém
-	 * `ipe_cia_aberta_AAAA.csv`; lê seus bytes em memória (cada CSV anual é
-	 * ~10-50MB descomprimido — aceitável para descoberta eventual).
+	 * Extrai o único CSV interno do zip IPE (`readZipEntry`, com yauzl). O zip
+	 * de IPE contém `ipe_cia_aberta_AAAA.csv`; lê seus bytes em memória (cada
+	 * CSV anual é ~10-50MB descomprimido — aceitável para descoberta eventual).
 	 *
 	 * `protected` (não `private`) para permitir que testes sobrescrevam o
 	 * seam de unzip sem precisar sintetizar um zip real — basta uma subclasse
-	 * de teste que retorna o CSV texte. A path de produção com yauzl fica
-	 * coberta por type-check e smoke manual online. `year` é usado para aceitar
+	 * de teste que retorna o CSV texte. O unzip em si tem teste próprio, com
+	 * zip real (`read-zip-entry.spec.ts`). `year` é usado para aceitar
 	 * apenas a entry esperada (`ipe_cia_aberta_${year}.csv`) e é repassado à
 	 * subclasse de teste para despachar o CSV correto sem acoplar à URL.
 	 */
-	protected extractCsvFromZip(buffer: Buffer, year: number): Promise<string> {
-		return new Promise<string>((resolve, reject) => {
-			yauzl.fromBuffer(buffer, { lazyEntries: true }, (err, zipfile) => {
-				if (err || !zipfile) {
-					reject(err || new Error('ipe_zip_open_failed'));
-					return;
-				}
-				let resolved = false;
-				const finish = (error: Error | null, text: string) => {
-					if (resolved) return;
-					resolved = true;
-					zipfile.removeAllListeners();
-					try {
-						zipfile.close();
-					} catch {
-						// ignore
-					}
-					if (error) reject(error);
-					else resolve(text);
-				};
-
-				zipfile.on('error', (e) => finish(e, ''));
-
-				zipfile.readEntry();
-				zipfile.on('entry', (entry) => {
-					if (/\/$/.test(entry.fileName)) {
-						zipfile.readEntry();
-						return;
-					}
-					// Aceita apenas o CSV anual esperado; ignora metadados/outras
-					// entries não relacionadas ao ano solicitado.
-					if (entry.fileName !== `ipe_cia_aberta_${year}.csv`) {
-						zipfile.readEntry();
-						return;
-					}
-					zipfile.openReadStream(entry, (streamErr, stream) => {
-						if (streamErr || !stream) {
-							finish(streamErr || new Error('ipe_read_stream_failed'), '');
-							return;
-						}
-						const chunks: Buffer[] = [];
-						stream.on('data', (chunk: Buffer) => chunks.push(chunk));
-						stream.on('error', (e) => finish(e, ''));
-						stream.on('end', () => {
-							finish(null, Buffer.concat(chunks).toString('utf8'));
-						});
-					});
-				});
-				zipfile.on('end', () => {
-					// nenhuma entry de arquivo — resolve vazio para não travar.
-					finish(null, '');
-				});
-			});
-		});
+	protected async extractCsvFromZip(
+		buffer: Buffer,
+		year: number
+	): Promise<string> {
+		// Aceita apenas o CSV anual esperado; sem ele, resolve vazio.
+		const csv = await readZipEntry(buffer, `ipe_cia_aberta_${year}.csv`);
+		return csv ? csv.toString('utf8') : '';
 	}
 
 	private normalizeCnpj(cnpj?: string): string {

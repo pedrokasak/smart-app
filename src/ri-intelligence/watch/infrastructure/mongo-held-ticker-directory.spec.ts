@@ -25,4 +25,25 @@ describe('MongoHeldTickerDirectory (TRA-240)', () => {
 			type: 'stock',
 		});
 	});
+
+	// TRA-266: FIIs em carteira, pela FundosNet.
+	it('lists distinct held FII tickers, normalized', async () => {
+		const assetModel = {
+			distinct: jest.fn(() => ({
+				exec: jest.fn().mockResolvedValue(['hglg11', 'KNRI11.SA', 'HGLG11']),
+			})),
+		};
+		const directory = new MongoHeldTickerDirectory(
+			assetModel as unknown as Model<Asset>
+		);
+
+		await expect(directory.heldFiiTickers()).resolves.toEqual([
+			'HGLG11',
+			'KNRI11',
+		]);
+		expect(assetModel.distinct).toHaveBeenCalledWith('symbol', {
+			quantity: { $gt: 0 },
+			type: 'fii',
+		});
+	});
 });

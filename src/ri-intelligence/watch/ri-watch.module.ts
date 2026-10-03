@@ -7,6 +7,8 @@ import { B3RegistryCnpjResolverAdapter } from 'src/ri-intelligence/infrastructur
 import { CvmRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastructure/cvm-ri-document-discovery.adapter';
 import { RiIntelligenceModule } from 'src/ri-intelligence/ri-intelligence.module';
 import { SubscriptionModule } from 'src/subscription/subscription.module';
+import { FII_FILING_FEED } from './application/ports/fii-filing-feed.port';
+import { FII_FUND_DIRECTORY } from './application/ports/fii-fund-directory.port';
 import { HELD_TICKER_DIRECTORY } from './application/ports/held-ticker-directory.port';
 import { ISSUER_CODE_DIRECTORY } from './application/ports/issuer-code-directory.port';
 import { RI_DELIVERY_FEED } from './application/ports/ri-delivery-feed.port';
@@ -18,11 +20,14 @@ import {
 	loadRiWatchConfig,
 	RI_WATCH_CONFIG,
 } from './application/ri-watch.config';
+import { RiWatchFiiScanner } from './application/ri-watch-fii.scanner';
 import { RiWatchIndexer } from './application/ri-watch.indexer';
 import { RiWatchNotifier } from './application/ri-watch.notifier';
 import { RiWatchScheduler } from './application/ri-watch.scheduler';
 import { RiWatchService } from './application/ri-watch.service';
+import { CvmFiiRegistryAdapter } from './infrastructure/cvm-fii-registry.adapter';
 import { EnetDeliveryFeedAdapter } from './infrastructure/enet-delivery-feed.adapter';
+import { FundosNetFilingFeedAdapter } from './infrastructure/fundosnet-filing-feed.adapter';
 import { MongoHeldTickerDirectory } from './infrastructure/mongo-held-ticker-directory';
 import { MongoRiHolderDirectory } from './infrastructure/mongo-ri-holder-directory';
 import { MongoRiWatchRepository } from './infrastructure/mongo-ri-watch.repository';
@@ -38,7 +43,7 @@ import { RiWatchDocumentModel } from './infrastructure/ri-watch-document.model';
  * descoberta, o conteudo e o resumo do RI; o RI nao sabe que o vigia existe.
  * Etapa C (TRA-261): avisa quem tem o papel, publicando no barramento de
  * eventos (global); o plano de cada detentor vem do `SubscriptionModule`.
- * A proxima etapa (acervo no RAG) entra aqui.
+ * Etapa D (TRA-264): acervo de RI do chat. Etapa E1 (TRA-266): FIIs.
  *
  * Asset e Portfolio sao registrados localmente (mesmo schema; o Mongoose
  * deduplica por nome, entao nao ha colecao paralela).
@@ -72,6 +77,13 @@ import { RiWatchDocumentModel } from './infrastructure/ri-watch-document.model';
 		},
 		{ provide: RI_WATCH_CONFIG, useFactory: () => loadRiWatchConfig() },
 		RiWatchService,
+		// FIIs (TRA-266): documentos pela FundosNet da B3, fundo pelo CNPJ do
+		// informe mensal da CVM.
+		CvmFiiRegistryAdapter,
+		{ provide: FII_FUND_DIRECTORY, useExisting: CvmFiiRegistryAdapter },
+		FundosNetFilingFeedAdapter,
+		{ provide: FII_FILING_FEED, useExisting: FundosNetFilingFeedAdapter },
+		RiWatchFiiScanner,
 		// Aviso a quem tem o papel (TRA-261).
 		MongoRiHolderDirectory,
 		{ provide: RI_HOLDER_DIRECTORY, useExisting: MongoRiHolderDirectory },

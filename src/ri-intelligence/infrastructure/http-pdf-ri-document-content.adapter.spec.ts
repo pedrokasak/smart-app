@@ -76,6 +76,23 @@ describe('HttpPdfRiDocumentContentAdapter (TRA-85)', () => {
 		expect(httpService.get).not.toHaveBeenCalled();
 	});
 
+	// TRA-266: a FundosNet as vezes trava a resposta. Fora do ar agora nao e
+	// link quebrado — `link_invalid` tiraria o documento da fila para sempre.
+	it('maps an unreachable link to the transient fetch_failed', async () => {
+		linkResolver.resolve.mockResolvedValue({
+			isValid: false,
+			resolvedUrl: null,
+			rejectionReason: 'unreachable',
+		});
+
+		const result = await adapter.fetchTextContent(
+			'https://fnet.bmfbovespa.com.br/fnet/publico/downloadDocumento?id=1'
+		);
+
+		expect(result).toEqual({ text: null, reason: 'fetch_failed' });
+		expect(httpService.get).not.toHaveBeenCalled();
+	});
+
 	// A CVM serve o PDF oficial com `Content-Type: text/html` e o nome real no
 	// `Content-Disposition` (filename=....pdf). O resolvedor de link ja aceita
 	// isso; rejeitar aqui pelo content-type descartava todo documento da CVM.

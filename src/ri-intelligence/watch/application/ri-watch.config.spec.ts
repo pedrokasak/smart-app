@@ -19,6 +19,7 @@ describe('loadRiWatchConfig (TRA-240)', () => {
 				RI_WATCH_NOTIFY_ENABLED: 'true',
 				RI_WATCH_NOTIFY_MAX_AGE_DAYS: '5',
 				RI_WATCH_INDEX_ENABLED: 'true',
+				RI_WATCH_FII_ENABLED: 'true',
 			})
 		).toEqual({
 			enabled: true,
@@ -28,7 +29,15 @@ describe('loadRiWatchConfig (TRA-240)', () => {
 			notifyEnabled: true,
 			notifyMaxAgeDays: 5,
 			indexEnabled: true,
+			fiiEnabled: true,
 		});
+	});
+
+	// TRA-266: fonte nova e mais resumo de IA por rodada; so liga com "true".
+	it.each([undefined, '', 'True', '1'])('keeps FIIs off on %p', (value) => {
+		expect(loadRiWatchConfig({ RI_WATCH_FII_ENABLED: value }).fiiEnabled).toBe(
+			false
+		);
 	});
 
 	// TRA-264: indexar chama o trackerr-ia; so liga com o acervo no ar.

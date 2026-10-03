@@ -147,6 +147,24 @@ const RELEVANT_CVM_CATEGORIES: ReadonlySet<string> = new Set([
 	'dados economico-financeiros',
 	'aviso aos acionistas',
 	'relatorio proventos',
+	// FII (FundosNet, TRA-266): o "aviso aos acionistas" dos fundos. O aviso
+	// ESTRUTURADO (XML de rendimentos) e outra categoria e fica de fora.
+	'aviso aos cotistas',
+]);
+
+/**
+ * Categorias de FII (FundosNet, TRA-266) em que so alguns tipos importam: o
+ * relatorio gerencial e o resultado do fundo, e as demonstracoes sao o
+ * balanco auditado; o informe mensal estruturado, o regulamento e os
+ * relatorios de rotina (agencia de rating, representante) nao. Nomes que
+ * nao existem entre as categorias das companhias.
+ */
+const RELEVANT_TYPES_BY_CVM_CATEGORY: ReadonlyMap<
+	string,
+	ReadonlySet<string>
+> = new Map([
+	['relatorios', new Set(['relatorio gerencial', 'relatorio anual'])],
+	['informes periodicos', new Set(['demonstracoes financeiras'])],
 ]);
 
 /**
@@ -175,6 +193,8 @@ export function isRelevantCvmFiling(
 ): boolean {
 	const normalizedCategory = fold(category);
 	if (RELEVANT_CVM_CATEGORIES.has(normalizedCategory)) return true;
+	const relevantTypes = RELEVANT_TYPES_BY_CVM_CATEGORY.get(normalizedCategory);
+	if (relevantTypes) return relevantTypes.has(fold(type));
 	if (normalizedCategory === 'comunicado ao mercado') {
 		return (
 			fold(type) !== 'outros comunicados nao considerados fatos relevantes'

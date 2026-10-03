@@ -1,5 +1,6 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
+import { RiWatchFiiScanner } from './ri-watch-fii.scanner';
 import { RI_WATCH_CONFIG, RiWatchConfig } from './ri-watch.config';
 import { RiWatchIndexer } from './ri-watch.indexer';
 import { RiWatchNotifier } from './ri-watch.notifier';
@@ -15,8 +16,9 @@ import { RiWatchService } from './ri-watch.service';
  * adapter. E cada rodada da nova chance ao que falhou por motivo passageiro
  * (rede, IA fora do ar).
  *
- * Ordem da rodada: varrer, processar, avisar (TRA-261), indexar no acervo
- * (TRA-264). O documento visto pelo ENET ao meio-dia e resumido e avisado na
+ * Ordem da rodada: varrer as acoes, varrer os FIIs (TRA-266), processar,
+ * avisar (TRA-261), indexar no acervo (TRA-264). O documento visto pelo ENET
+ * ou pela FundosNet ao meio-dia e resumido e avisado na
  * mesma rodada; o acervo vem por ultimo porque embedar um DFP leva minutos, e
  * o aviso nao espera por isso. Uma etapa que falha nao impede as seguintes
  * de cuidar do que ja estava na fila delas.
@@ -28,6 +30,7 @@ export class RiWatchScheduler {
 
 	constructor(
 		private readonly watch: RiWatchService,
+		private readonly fiiScanner: RiWatchFiiScanner,
 		private readonly notifier: RiWatchNotifier,
 		private readonly indexer: RiWatchIndexer,
 		@Inject(RI_WATCH_CONFIG) private readonly config: RiWatchConfig
@@ -58,6 +61,21 @@ export class RiWatchScheduler {
 			} catch (err) {
 				this.logger.error(
 					`Vigia de RI: varredura falhou: ${this.messageOf(err)}`
+				);
+			}
+
+			try {
+				const fii = await this.fiiScanner.scan();
+				if (fii.status !== 'disabled') {
+					this.logger.log(
+						`Vigia de RI: ${fii.registered} documento(s) novo(s) de FII em ` +
+							`${fii.tickers} FII(s) (${fii.unresolved} sem CNPJ, ` +
+							`${fii.failedFunds} com falha; status: ${fii.status})`
+					);
+				}
+			} catch (err) {
+				this.logger.error(
+					`Vigia de RI: varredura de FII falhou: ${this.messageOf(err)}`
 				);
 			}
 
