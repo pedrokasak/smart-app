@@ -30,7 +30,11 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiDocumentQueryPort } from 'src/ri-intelligence/application/ri-document-query.port';
 import { StockService } from 'src/stocks/stocks.service';
-import { UserPlanResolverPort } from 'src/subscription/application/user-plan.types';
+import {
+	PRO_ACCESS_LEVEL,
+	UserPlanResolverPort,
+} from 'src/subscription/application/user-plan.types';
+import { ChatToolRouterService } from 'src/ai/orchestration/tool-routing/chat-tool-router.service';
 
 interface RoutingCase {
 	question: string;
@@ -278,7 +282,19 @@ describe('Chat routing eval (TRA-75)', () => {
 			mockStockService,
 			mockUserPlanResolver,
 			{
-				getComposition: jest.fn(),
+				// Composição mínima: as intenções de meta e proventos (TRA-141)
+				// precisam dela para responder, inclusive pelo roteador (TRA-241).
+				getComposition: jest.fn().mockResolvedValue({
+					rebalancing: { hasTarget: false, buckets: [] },
+					yield: {
+						assets: [],
+						estimatedAnnualIncome: 0,
+						portfolioYieldOnMarket: 0,
+						portfolioYieldOnCost: 0,
+						approximated: false,
+					},
+					unavailable: [],
+				}),
 			} as unknown as ConstructorParameters<typeof ChatOrchestratorService>[8],
 			// Roteamento nao le PDF: resolver sem texto (TRA-253).
 			{
@@ -426,5 +442,161 @@ describe('Chat routing eval (TRA-75)', () => {
 			const questions = ROUTING_CASES.map((c) => c.question);
 			expect(new Set(questions).size).toBe(questions.length);
 		});
+	});
+
+	/**
+	 * Roteador com tool-calling (TRA-241). O planner aqui é um gabarito: para
+	 * cada pergunta, as ferramentas certas. O que a suíte mede é o caminho —
+	 * pergunta que o regex não reconhece chega à intenção certa pelo
+	 * roteador — e o custo: pergunta que o regex já resolve não chama o LLM.
+	 * A taxa de acerto do LLM de verdade sobre o mesmo gabarito é a avaliação
+	 * offline do trackerr-ia (TRA-242).
+	 */
+	describe('tool-calling router (TRA-241)', () => {
+		interface ToolRoutingCase {
+			question: string;
+			expectedIntents: ChatOrchestratorIntent[];
+			plan: { intent: ChatOrchestratorIntent; tickers: string[] }[];
+		}
+
+		// Perguntas reais que o regex manda para `unknown`.
+		const TOOL_ROUTING_CASES: ToolRoutingCase[] = [
+			{
+				question: 'Estou muito exposto a bancos?',
+				expectedIntents: ['portfolio_risk'],
+				plan: [{ intent: 'portfolio_risk', tickers: [] }],
+			},
+			{
+				question: 'Como estão meus investimentos?',
+				expectedIntents: ['portfolio_summary'],
+				plan: [{ intent: 'portfolio_summary', tickers: [] }],
+			},
+			{
+				question: 'Meus FIIs pagaram bem no último ano?',
+				expectedIntents: ['dividends_received'],
+				plan: [{ intent: 'dividends_received', tickers: [] }],
+			},
+			{
+				question: 'Quanto ganhei com cada ação neste ano?',
+				expectedIntents: ['return_attribution'],
+				plan: [{ intent: 'return_attribution', tickers: [] }],
+			},
+		];
+
+		// O regex resolve uma parte; o roteador traz a outra.
+		const MULTI_REQUEST_CASE: ToolRoutingCase = {
+			question: 'Compare ITUB4 e BBDC4 e diga o impacto no meu risco',
+			expectedIntents: ['asset_comparison', 'portfolio_risk'],
+			plan: [
+				{ intent: 'asset_comparison', tickers: ['ITUB4', 'BBDC4'] },
+				{ intent: 'portfolio_risk', tickers: [] },
+			],
+		};
+
+		const goldenPlans = new Map(
+			[...TOOL_ROUTING_CASES, MULTI_REQUEST_CASE].map((c) => [
+				c.question,
+				c.plan,
+			])
+		);
+
+		const makeRouter = (planner: { plan: jest.Mock }) =>
+			new ChatToolRouterService(
+				makeService(),
+				planner,
+				{
+					resolve: jest.fn(),
+					resolveWithCapabilities: jest.fn().mockResolvedValue({
+						tier: PRO_ACCESS_LEVEL,
+						capabilities: [],
+						capabilitiesKnown: null,
+					}),
+				},
+				{ record: jest.fn(), recordToolRouting: jest.fn() },
+				{ enabled: true, maxCalls: 3 }
+			);
+
+		const goldenPlanner = () => ({
+			plan: jest.fn(async ({ question }: { question: string }) => ({
+				calls: goldenPlans.get(question) ?? [],
+				provider: 'golden',
+				inputTokens: 0,
+				outputTokens: 0,
+				reason: null,
+			})),
+		});
+
+		it.each(TOOL_ROUTING_CASES)(
+			'the regex alone leaves "$question" as unknown',
+			async ({ question }) => {
+				const response = await makeService().orchestrate('user-eval', question);
+
+				expect(response.intent).toBe('unknown');
+			}
+		);
+
+		it.each(TOOL_ROUTING_CASES)(
+			'the router answers "$question" with $expectedIntents',
+			async ({ question, expectedIntents }) => {
+				const answer = await makeRouter(goldenPlanner()).answer(
+					'user-eval',
+					question
+				);
+
+				expect(answer.parts.map((part) => part.intent)).toEqual(
+					expectedIntents
+				);
+				expect(answer.routing.mode).toBe('tool_calling');
+			}
+		);
+
+		it('answers both parts of a question with two requests', async () => {
+			const answer = await makeRouter(goldenPlanner()).answer(
+				'user-eval',
+				MULTI_REQUEST_CASE.question
+			);
+
+			expect(answer.parts.map((part) => part.intent)).toEqual(
+				MULTI_REQUEST_CASE.expectedIntents
+			);
+		});
+
+		// Aceite da TRA-241: a taxa de `unknown` cai de forma mensurável.
+		it('lowers the unknown rate of the suite', async () => {
+			const questions = [
+				...ROUTING_CASES.map((c) => c.question),
+				...TOOL_ROUTING_CASES.map((c) => c.question),
+			];
+			let unknownByRegex = 0;
+			let unknownByRouter = 0;
+			for (const question of questions) {
+				const regex = await makeService().orchestrate('user-eval', question);
+				if (regex.intent === 'unknown') unknownByRegex += 1;
+				const routed = await makeRouter(goldenPlanner()).answer(
+					'user-eval',
+					question
+				);
+				if (routed.parts[0].intent === 'unknown') unknownByRouter += 1;
+			}
+
+			expect(unknownByRegex).toBe(TOOL_ROUTING_CASES.length + 1);
+			// Sobra só a conversa sem intenção ("oi tudo bem?"), de propósito.
+			expect(unknownByRouter).toBe(1);
+		});
+
+		// Aceite da TRA-241: o que o regex roteia mantém a rota e custo zero.
+		it.each(ROUTING_CASES.filter((c) => c.expectedIntent !== 'unknown'))(
+			'keeps "$question" on the regex, without calling the LLM',
+			async ({ question, expectedIntent }) => {
+				const planner = goldenPlanner();
+
+				const answer = await makeRouter(planner).answer('user-eval', question);
+
+				expect(planner.plan).not.toHaveBeenCalled();
+				expect(answer.parts.map((part) => part.intent)).toEqual([
+					expectedIntent,
+				]);
+			}
+		);
 	});
 });

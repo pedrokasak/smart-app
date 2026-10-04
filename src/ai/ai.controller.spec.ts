@@ -4,6 +4,7 @@ import { REQUIRED_CAPABILITY_KEY } from 'src/subscription/capabilities/requires-
 import { AiService } from './ai.service';
 import { RagColdStartService } from 'src/ai/rag-ingestion/application/rag-cold-start.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
+import { ChatToolRouterService } from './orchestration/tool-routing/chat-tool-router.service';
 import { TrackerrScoreService } from 'src/intelligence/application/trackerr-score.service';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
@@ -76,6 +77,9 @@ const mockChatHistoryService = {
 	append: jest.fn(),
 };
 
+const mockChatToolPlanner = { plan: jest.fn() };
+const toolRouterConfig = { enabled: false, maxCalls: 3 };
+
 describe('AiController', () => {
 	let controller: AiController;
 
@@ -87,6 +91,19 @@ describe('AiController', () => {
 				{
 					provide: ChatOrchestratorService,
 					useValue: mockChatOrchestratorService,
+				},
+				// Roteador de verdade, desligado: o chat responde pelo regex,
+				// como antes da TRA-241. O caso ligado tem teste próprio abaixo.
+				{
+					provide: ChatToolRouterService,
+					useFactory: () =>
+						new ChatToolRouterService(
+							mockChatOrchestratorService as unknown as ChatOrchestratorService,
+							mockChatToolPlanner,
+							mockUserPlanResolver as any,
+							{ record: jest.fn(), recordToolRouting: jest.fn() },
+							toolRouterConfig
+						),
 				},
 				{
 					provide: TrackerrScoreService,
@@ -315,6 +332,83 @@ describe('AiController', () => {
 		);
 		expect(response.warnings).toContain('chat_orchestration_failed');
 		expect(typeof response.message).toBe('string');
+	});
+
+	// TRA-241: com o roteador ligado, a pergunta com dois pedidos recebe as
+	// duas respostas, cada uma da intenção determinística de sempre.
+	describe('tool-calling router (TRA-241)', () => {
+		const part = (intent: string, data: Record<string, unknown>) => ({
+			intent,
+			deterministic: true,
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			context: {
+				mentionedSymbols: [],
+				ownedSymbols: [],
+				externalSymbols: [],
+				positionsCount: 2,
+			},
+			data,
+			unavailable: [],
+			warnings: [],
+			assumptions: [],
+		});
+
+		beforeEach(() => {
+			toolRouterConfig.enabled = true;
+			mockUserPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: PREMIUM_ACCESS_LEVEL,
+				capabilities: [],
+				capabilitiesKnown: null,
+			});
+		});
+
+		afterEach(() => {
+			toolRouterConfig.enabled = false;
+		});
+
+		it('joins one answer per intent and reports the routing', async () => {
+			mockChatOrchestratorService.orchestrate
+				.mockResolvedValueOnce(part('asset_comparison', { comparison: {} }))
+				.mockResolvedValueOnce(
+					part('portfolio_risk', {
+						portfolioRisk: { risk: { score: 64 }, concentrationByAsset: [] },
+					})
+				);
+			mockChatToolPlanner.plan.mockResolvedValue({
+				calls: [
+					{ intent: 'asset_comparison', tickers: ['PETR4', 'VALE3'] },
+					{ intent: 'portfolio_risk', tickers: [] },
+				],
+				provider: 'openrouter',
+				inputTokens: 300,
+				outputTokens: 20,
+				reason: null,
+			});
+
+			const response = await controller.intelligentChat(
+				{ user: { userId: 'user-123' } },
+				{ question: 'Compare PETR4 e VALE3 e diga o impacto no meu risco' }
+			);
+
+			expect(response.intent).toBe('asset_comparison');
+			expect(response.message).toContain('comparativo detalhado');
+			expect(response.message).toContain('Score de Risco de 64/100');
+			expect(Object.keys(response.data ?? {}).sort()).toEqual([
+				'comparison',
+				'portfolioRisk',
+			]);
+			expect(response.routing).toEqual({
+				mode: 'tool_calling',
+				trigger: 'multi_intent',
+				intents: ['asset_comparison', 'portfolio_risk'],
+			});
+			// A comparação já veio do regex: não roda de novo.
+			expect(mockChatOrchestratorService.orchestrate).toHaveBeenCalledTimes(2);
+		});
 	});
 
 	// TRA-264: a resposta do acervo de RI vai no texto da bolha, cada
