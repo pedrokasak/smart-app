@@ -141,22 +141,41 @@ export class ChatOrchestratorService {
 				quantity?: number;
 				sellPrice?: number;
 			} | null;
+			/**
+			 * Intenção escolhida pelo roteador com tool-calling (TRA-241), no
+			 * lugar da classificação por regex. O ramo da intenção é o mesmo, e
+			 * os valores (quantidade, preço, aporte) continuam saindo da
+			 * pergunta. Tickers do roteador passam pela mesma validação dos da
+			 * pergunta; sem nenhum válido, valem os da pergunta.
+			 */
+			plannedCall?: {
+				intent: ChatOrchestratorIntent;
+				symbols: string[];
+			} | null;
 		}
 	): Promise<ChatOrchestratorResponse> {
 		const normalizedQuestion = String(question || '').trim();
+		const plannedCall = options?.plannedCall ?? null;
 		const copilotFlow =
 			options?.copilotFlow ||
 			this.mapDecisionFlowToCopilot(options?.decisionFlow || null);
+		const plannedSymbols = plannedCall?.symbols?.length
+			? await this.validatePlannedSymbols(plannedCall.symbols)
+			: [];
 		const symbols = options?.decisionFlow?.ticker
 			? [this.normalizeTicker(options.decisionFlow.ticker)]
-			: await this.extractSymbols(normalizedQuestion);
+			: plannedSymbols.length
+				? plannedSymbols
+				: await this.extractSymbols(normalizedQuestion);
 		const investorProfile = this.resolveInvestorProfile(
 			options?.investorProfile || null,
 			normalizedQuestion
 		);
-		const intent = this.classifyIntent(normalizedQuestion, symbols, {
-			copilotFlow: copilotFlow || null,
-		});
+		const intent =
+			plannedCall?.intent ??
+			this.classifyIntent(normalizedQuestion, symbols, {
+				copilotFlow: copilotFlow || null,
+			});
 		const predictedRouteType =
 			intent === 'narrative_synthesis' || intent === 'unknown'
 				? 'synthesis_required'
@@ -202,6 +221,10 @@ export class ChatOrchestratorService {
 			marketDataVersion,
 			responseMode: predictedRouteType,
 			riAiAllowed,
+			// A mesma pergunta responde a mais de uma intenção pelo roteador:
+			// sem a intenção na chave, uma parte leria do cache a outra.
+			plannedIntent: plannedCall ? intent : undefined,
+			plannedSymbols: plannedCall ? symbols : undefined,
 		});
 		const ttlSeconds = this.resolveCacheTtl(intent, predictedRouteType);
 		const canCache = this.canCacheIntent(intent, marketDataVersion);
@@ -1544,6 +1567,9 @@ export class ChatOrchestratorService {
 		responseMode: 'deterministic_no_llm' | 'synthesis_required';
 		/** So nas intents de RI; nas demais a chave fica como sempre foi. */
 		riAiAllowed?: boolean;
+		/** So nas chamadas do roteador (TRA-241); no regex, como sempre foi. */
+		plannedIntent?: ChatOrchestratorIntent;
+		plannedSymbols?: string[];
 	}): string {
 		const normalizedQuestion = String(input.question || '')
 			.trim()
@@ -1559,7 +1585,31 @@ export class ChatOrchestratorService {
 		if (input.riAiAllowed !== undefined) {
 			parts.push(`ri:${input.riAiAllowed ? 1 : 0}`);
 		}
+		if (input.plannedIntent) {
+			parts.push(
+				`tool:${input.plannedIntent}:${(input.plannedSymbols ?? []).join(',')}`
+			);
+		}
 		return parts.join('|');
+	}
+
+	/**
+	 * Tickers escolhidos pelo roteador com tool-calling (TRA-241), conferidos
+	 * como os da pergunta em `extractSymbols`: formato de ticker da B3 passa;
+	 * o resto só se for ticker conhecido. Ticker inventado pelo LLM some aqui.
+	 */
+	private async validatePlannedSymbols(symbols: string[]): Promise<string[]> {
+		const knownTickers = await this.getKnownTickers();
+		const valid = symbols
+			.map((symbol) => this.normalizeTicker(symbol))
+			.filter(Boolean)
+			.map((symbol) =>
+				/^[A-Z]{4}\d{1,2}$/.test(symbol)
+					? symbol
+					: this.resolveKnownTicker(symbol, knownTickers)
+			)
+			.filter((symbol): symbol is string => !!symbol);
+		return Array.from(new Set(valid)).slice(0, 6);
 	}
 
 	/**

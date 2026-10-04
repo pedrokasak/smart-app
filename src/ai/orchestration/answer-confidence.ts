@@ -73,6 +73,23 @@ export function computeAnswerConfidence(input: {
 	};
 }
 
+/**
+ * Confiança de uma resposta com várias partes (TRA-241): a menor delas. Uma
+ * parte fraca não fica escondida atrás de uma forte. Só recusa quando todas
+ * são recusas.
+ */
+export function mergeAnswerConfidence(
+	confidences: AnswerConfidence[]
+): AnswerConfidence {
+	const scored = confidences.filter((item) => item.score !== null);
+	if (!scored.length) {
+		return confidences[0] ?? { score: null, basis: 'refusal' };
+	}
+	return scored.reduce((lowest, item) =>
+		(item.score as number) < (lowest.score as number) ? item : lowest
+	);
+}
+
 const PRICE_SERIES_INTENTS: ChatOrchestratorIntent[] = [
 	'correlation_matrix',
 	'return_attribution',

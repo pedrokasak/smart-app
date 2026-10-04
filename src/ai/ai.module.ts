@@ -14,7 +14,14 @@ import { IntelligentChatService } from './intelligence/intelligent-chat.service'
 import { CHAT_COST_OBSERVER } from './orchestration/chat-cost-observer.port';
 import { CHAT_RESPONSE_CACHE } from './orchestration/chat-response-cache.port';
 import { InMemoryChatResponseCacheAdapter } from './orchestration/infrastructure/in-memory-chat-response-cache.adapter';
-import { NoopChatCostObserverAdapter } from './orchestration/infrastructure/noop-chat-cost-observer.adapter';
+import { LoggingChatCostObserverAdapter } from './orchestration/infrastructure/logging-chat-cost-observer.adapter';
+import { TrackerrIaChatToolPlannerAdapter } from './orchestration/infrastructure/trackerr-ia-chat-tool-planner.adapter';
+import { CHAT_TOOL_PLANNER } from './orchestration/tool-routing/chat-tool-planner.port';
+import {
+	CHAT_TOOL_ROUTER_CONFIG,
+	loadChatToolRouterConfig,
+} from './orchestration/tool-routing/chat-tool-router.config';
+import { ChatToolRouterService } from './orchestration/tool-routing/chat-tool-router.service';
 import { TrackerrIaRagSynthesizerAdapter } from './orchestration/infrastructure/trackerr-ia-rag-synthesizer.adapter';
 import { CHAT_NARRATIVE_SYNTHESIZER } from './orchestration/chat-narrative-synthesizer.port';
 import { ChatNarrativeSynthesisService } from './orchestration/chat-narrative-synthesis.service';
@@ -42,7 +49,7 @@ import { AiInsightProducer } from './events/ai-insight.producer';
 		IntelligentChatService,
 		ChatOrchestratorService,
 		InMemoryChatResponseCacheAdapter,
-		NoopChatCostObserverAdapter,
+		LoggingChatCostObserverAdapter,
 		ChatNarrativeSynthesisService,
 		TrackerrIaRagSynthesizerAdapter,
 		{
@@ -55,8 +62,19 @@ import { AiInsightProducer } from './events/ai-insight.producer';
 		},
 		{
 			provide: CHAT_COST_OBSERVER,
-			useExisting: NoopChatCostObserverAdapter,
+			useExisting: LoggingChatCostObserverAdapter,
 		},
+		// Roteador do chat com tool-calling (TRA-241).
+		TrackerrIaChatToolPlannerAdapter,
+		{
+			provide: CHAT_TOOL_PLANNER,
+			useExisting: TrackerrIaChatToolPlannerAdapter,
+		},
+		{
+			provide: CHAT_TOOL_ROUTER_CONFIG,
+			useFactory: () => loadChatToolRouterConfig(),
+		},
+		ChatToolRouterService,
 	],
 	exports: [AiService, IntelligentChatService, ChatOrchestratorService],
 })

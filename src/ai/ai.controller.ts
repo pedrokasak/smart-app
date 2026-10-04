@@ -26,10 +26,11 @@ import { AiSimulateRequestDto } from 'src/ai/dto/ai-simulate-request.dto';
 import { AiAnalysisRequestDto } from './dto/ai-analysis-request.dto';
 import { FutureSimulatorRequestDto } from './dto/future-simulator-request.dto';
 import { IntelligentChatRequestDto } from './intelligence/dto/intelligent-chat-request.dto';
-import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
+import { ChatToolRouterService } from './orchestration/tool-routing/chat-tool-router.service';
 import {
 	buildAnswerSources,
 	computeAnswerConfidence,
+	mergeAnswerConfidence,
 } from './orchestration/answer-confidence';
 import { RagColdStartService } from 'src/ai/rag-ingestion/application/rag-cold-start.service';
 import { ChatOrchestratorResponse } from './orchestration/chat-orchestrator.types';
@@ -66,7 +67,8 @@ export class AiController {
 
 	constructor(
 		private readonly aiService: AiService,
-		private readonly chatOrchestratorService: ChatOrchestratorService,
+		// Regex primeiro; tool-calling só quando ele não resolve (TRA-241).
+		private readonly chatToolRouter: ChatToolRouterService,
 		private readonly trackerrScoreService: TrackerrScoreService,
 		private readonly portfolioScoreService: PortfolioScoreService,
 		private readonly portfolioErrorRadarService: PortfolioErrorRadarService,
@@ -208,7 +210,7 @@ export class AiController {
 		// estaria vazio. Só afeta Pro+ (gate no scheduler) e é barato por hash.
 		this.ragColdStart.trigger(userId);
 		try {
-			const orchestration = await this.chatOrchestratorService.orchestrate(
+			const { parts, routing } = await this.chatToolRouter.answer(
 				userId,
 				body?.question || '',
 				{
@@ -217,29 +219,45 @@ export class AiController {
 					decisionFlow: body?.decisionFlow,
 				}
 			);
+			const [orchestration] = parts;
+			const union = (pick: (part: ChatOrchestratorResponse) => string[]) =>
+				Array.from(new Set(parts.flatMap(pick)));
 			return {
 				intent: orchestration.intent,
 				deterministic: orchestration.deterministic,
 				route: orchestration.route,
-				message: this.buildIntelligentMessage(orchestration),
-				data: orchestration.data,
-				unavailable: orchestration.unavailable,
-				warnings: orchestration.warnings,
-				assumptions: orchestration.assumptions,
+				// Uma intenção por parágrafo, cada uma com a mensagem de sempre:
+				// pergunta com dois pedidos recebe as duas respostas (TRA-241).
+				message: parts
+					.map((part) => this.buildIntelligentMessage(part))
+					.join('\n\n'),
+				data: Object.assign({}, ...parts.map((part) => part.data)),
+				unavailable: union((part) => part.unavailable),
+				warnings: union((part) => part.warnings),
+				assumptions: union((part) => part.assumptions),
 				// "confiança 92%" e chips de fonte da bolha do handoff (TRA-141).
 				// Este endpoint não passa pelo RAG: toda resposta aqui é
-				// determinística, e a confiança mede a cobertura do dado.
-				confidence: computeAnswerConfidence({
-					routeType: orchestration.route.type,
-					routeReason: orchestration.route.reason,
-					unavailable: orchestration.unavailable,
-					assumptions: orchestration.assumptions,
-				}),
-				sources: buildAnswerSources({
-					intent: orchestration.intent,
-					positionsCount: orchestration.context?.positionsCount ?? 0,
-					data: orchestration.data,
-				}),
+				// determinística, e a confiança mede a cobertura do dado. Com
+				// mais de uma parte, vale a menor.
+				confidence: mergeAnswerConfidence(
+					parts.map((part) =>
+						computeAnswerConfidence({
+							routeType: part.route.type,
+							routeReason: part.route.reason,
+							unavailable: part.unavailable,
+							assumptions: part.assumptions,
+						})
+					)
+				),
+				sources: union((part) =>
+					buildAnswerSources({
+						intent: part.intent,
+						positionsCount: part.context?.positionsCount ?? 0,
+						data: part.data,
+					})
+				),
+				// Campo aditivo: o web ignora; serve a suporte e avaliação.
+				routing,
 			};
 		} catch (error: any) {
 			this.logger.error(
