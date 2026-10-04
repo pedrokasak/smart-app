@@ -25,6 +25,7 @@ import { StockModule } from './stocks/stocks.module';
 import { MacroIndicatorsModule } from 'src/macro-indicators/macro-indicators.module';
 import { AssetsModule } from './assets/assets.module';
 import { AiModule } from './ai/ai.module';
+import { AiEvaluationModule } from './ai/evaluation/ai-evaluation.module';
 import { RagIngestionModule } from './ai/rag-ingestion/rag-ingestion.module';
 import { TwoFactorModule } from './two-factor/two-factor.module';
 import { BrokerSyncModule } from './broker-sync/broker-sync.module';
@@ -66,6 +67,8 @@ import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 		MacroIndicatorsModule,
 		AssetsModule,
 		AiModule,
+		// Avaliação semanal das respostas de IA (TRA-242).
+		AiEvaluationModule,
 		RagIngestionModule,
 		TwoFactorModule,
 		BrokerSyncModule,
