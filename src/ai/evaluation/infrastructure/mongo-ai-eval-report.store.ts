@@ -37,19 +37,26 @@ export class MongoAiEvalReportStore implements AiEvalReportStore {
 	) {}
 
 	async latest(): Promise<StoredAiEvalReport | null> {
-		const doc = await this.model
-			.findOne({})
+		const [report] = await this.recent(1);
+		return report ?? null;
+	}
+
+	async recent(limit: number): Promise<StoredAiEvalReport[]> {
+		// No Mongo, limit(0) é "sem limite": devolveria todos os relatórios.
+		if (limit <= 0) return [];
+		const docs = await this.model
+			.find({})
 			.sort({ createdAt: -1 })
-			.lean<AiEvalReportDocument | null>()
+			.limit(limit)
+			.lean<AiEvalReportDocument[]>()
 			.exec();
-		if (!doc) return null;
-		return {
+		return docs.map((doc) => ({
 			createdAt: new Date(doc.createdAt).toISOString(),
 			windowDays: doc.windowDays,
 			chatSamples: doc.chatSamples,
 			report: doc.report,
 			regressions: doc.regressions ?? [],
-		};
+		}));
 	}
 
 	async save(report: StoredAiEvalReport): Promise<void> {

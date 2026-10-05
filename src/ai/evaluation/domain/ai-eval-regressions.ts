@@ -57,16 +57,22 @@ function compare(
 }
 
 /**
- * O que piorou desde o relatório anterior. Rubrica diferente não se
- * compara: a mudança de nota viria da régua, não da resposta.
+ * Dois relatórios só se comparam na mesma rubrica: com régua diferente, a
+ * mudança de nota viria da régua, não da resposta.
  */
+export function isComparable(
+	previous: AiEvalRunReport | null | undefined,
+	current: AiEvalRunReport
+): previous is AiEvalRunReport {
+	return !!previous && previous.rubric_version === current.rubric_version;
+}
+
+/** O que piorou desde o relatório anterior. */
 export function findRegressions(
 	previous: AiEvalRunReport | null,
 	current: AiEvalRunReport
 ): AiEvalRegression[] {
-	if (!previous || previous.rubric_version !== current.rubric_version) {
-		return [];
-	}
+	if (!isComparable(previous, current)) return [];
 	const regressions = [
 		...compare('route', previous.by_route, current.by_route),
 		...compare('intent', previous.by_intent, current.by_intent),
