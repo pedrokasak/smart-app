@@ -13,6 +13,8 @@ export interface StoredAiEvalReport {
 
 export interface AiEvalReportStore {
 	latest(): Promise<StoredAiEvalReport | null>;
+	/** Os `limit` mais recentes, do mais novo para o mais antigo. */
+	recent(limit: number): Promise<StoredAiEvalReport[]>;
 	save(report: StoredAiEvalReport): Promise<void>;
 	/** Retenção: só os `keep` mais recentes ficam. */
 	prune(keep: number): Promise<void>;

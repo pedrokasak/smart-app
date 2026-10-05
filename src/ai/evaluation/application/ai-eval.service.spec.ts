@@ -48,6 +48,7 @@ describe('AiEvalService (TRA-242)', () => {
 		runner = { run: jest.fn().mockResolvedValue(REPORT) };
 		store = {
 			latest: jest.fn().mockResolvedValue(null),
+			recent: jest.fn().mockResolvedValue([]),
 			save: jest.fn().mockResolvedValue(undefined),
 			prune: jest.fn().mockResolvedValue(undefined),
 		};
@@ -163,5 +164,97 @@ describe('AiEvalService (TRA-242)', () => {
 
 		expect(service.isRunning).toBe(false);
 		expect(store.save).not.toHaveBeenCalled();
+	});
+
+	describe('overview (TRA-268)', () => {
+		const stored = (
+			createdAt: string,
+			rubric = REPORT.rubric_version
+		): StoredAiEvalReport => ({
+			createdAt,
+			windowDays: 7,
+			chatSamples: 60,
+			report: { ...REPORT, rubric_version: rubric },
+			regressions: [],
+		});
+
+		it('returns the latest report with the previous one for the weekly change', async () => {
+			const latest = stored('2026-10-05T09:00:00.000Z');
+			const previous = stored('2026-09-28T09:00:00.000Z');
+			store.recent.mockResolvedValue([latest, previous]);
+
+			await expect(makeService().overview()).resolves.toEqual({
+				report: latest,
+				previous,
+				running: false,
+				scheduled: true,
+			});
+			expect(store.recent).toHaveBeenCalledWith(2);
+		});
+
+		// Rubrica nova: a variação viria da régua, não da resposta.
+		it('drops the previous report when the rubric changed', async () => {
+			const latest = stored('2026-10-05T09:00:00.000Z', '2026-11-v2');
+			store.recent.mockResolvedValue([
+				latest,
+				stored('2026-09-28T09:00:00.000Z'),
+			]);
+
+			await expect(makeService().overview()).resolves.toEqual({
+				report: latest,
+				previous: null,
+				running: false,
+				scheduled: true,
+			});
+		});
+
+		it('handles the first report and the empty history', async () => {
+			const only = stored('2026-10-05T09:00:00.000Z');
+			store.recent.mockResolvedValueOnce([only]).mockResolvedValueOnce([]);
+			const service = makeService();
+
+			await expect(service.overview()).resolves.toEqual({
+				report: only,
+				previous: null,
+				running: false,
+				scheduled: true,
+			});
+			await expect(service.overview()).resolves.toEqual({
+				report: null,
+				previous: null,
+				running: false,
+				scheduled: true,
+			});
+		});
+
+		// Sem AI_EVAL_ENABLED a tela não pode prometer a rodada de segunda.
+		it('tells when the weekly run is off', async () => {
+			const service = new AiEvalService(source, runner, store, {
+				...AI_EVAL_DEFAULTS,
+				enabled: false,
+			});
+
+			await expect(service.overview()).resolves.toMatchObject({
+				scheduled: false,
+			});
+		});
+
+		it('tells a run is in progress', async () => {
+			let release!: (report: AiEvalRunReport) => void;
+			runner.run.mockReturnValue(new Promise((resolve) => (release = resolve)));
+			const service = makeService();
+
+			const run = service.run(NOW);
+			await new Promise((resolve) => setImmediate(resolve));
+			await expect(service.overview()).resolves.toMatchObject({
+				running: true,
+			});
+			release(REPORT);
+			await run;
+
+			await expect(service.overview()).resolves.toMatchObject({
+				running: false,
+			});
+		});
 	});
 });

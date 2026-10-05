@@ -1,6 +1,9 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { scrubPii } from 'src/common/privacy/scrub-pii';
-import { findRegressions } from 'src/ai/evaluation/domain/ai-eval-regressions';
+import {
+	findRegressions,
+	isComparable,
+} from 'src/ai/evaluation/domain/ai-eval-regressions';
 import {
 	AI_EVAL_REPORT_STORE,
 	AiEvalReportStore,
@@ -18,6 +21,19 @@ const DAY_MS = 24 * 60 * 60 * 1000;
 // derrubaria o lote inteiro com 422, e a semana ficaria sem relatório.
 const MAX_QUESTION = 2000;
 const MAX_ANSWER = 6000;
+
+/**
+ * O que a tela do admin mostra (TRA-268): o último relatório, o anterior
+ * para as variações da semana e se há uma rodada em andamento.
+ */
+export interface AiEvalOverview {
+	report: StoredAiEvalReport | null;
+	/** O relatório anterior, só quando tem a mesma rubrica do último. */
+	previous: StoredAiEvalReport | null;
+	running: boolean;
+	/** Rodada semanal ligada (`AI_EVAL_ENABLED`); o "Rodar agora" funciona sem ela. */
+	scheduled: boolean;
+}
 
 /**
  * Avaliação semanal das respostas de IA (TRA-242).
@@ -88,7 +104,20 @@ export class AiEvalService {
 		}
 	}
 
-	latest(): Promise<StoredAiEvalReport | null> {
-		return this.store.latest();
+	/**
+	 * `running` vem da trava em memória: vale enquanto o server roda numa
+	 * instância só, como no deploy atual.
+	 */
+	async overview(): Promise<AiEvalOverview> {
+		const [report = null, previous = null] = await this.store.recent(2);
+		return {
+			report,
+			previous:
+				report && isComparable(previous?.report, report.report)
+					? previous
+					: null,
+			running: this.running,
+			scheduled: this.config.enabled,
+		};
 	}
 }

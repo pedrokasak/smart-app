@@ -1,4 +1,4 @@
-import { ExecutionContext } from '@nestjs/common';
+import { ExecutionContext, Logger } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Role } from 'src/auth/enums/role.enum';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
@@ -17,13 +17,16 @@ function contextFor(role: Role, handler: unknown): ExecutionContext {
 
 describe('AiEvalAdminController (TRA-242)', () => {
 	const guard = new RolesGuard(new Reflector());
-	let evaluation: { latest: jest.Mock; run: jest.Mock; isRunning: boolean };
+	let evaluation: { overview: jest.Mock; run: jest.Mock; isRunning: boolean };
 
 	beforeEach(() => {
 		evaluation = {
-			latest: jest
-				.fn()
-				.mockResolvedValue({ createdAt: '2026-10-05T09:00:00.000Z' }),
+			overview: jest.fn().mockResolvedValue({
+				report: { createdAt: '2026-10-05T09:00:00.000Z' },
+				previous: { createdAt: '2026-09-28T09:00:00.000Z' },
+				running: false,
+				scheduled: true,
+			}),
 			run: jest.fn().mockResolvedValue(null),
 			isRunning: false,
 		};
@@ -41,21 +44,35 @@ describe('AiEvalAdminController (TRA-242)', () => {
 		expect(() => guard.canActivate(contextFor(Role.User, handler))).toThrow();
 	});
 
-	it('returns the latest report', async () => {
+	it('returns the latest report, the previous one and the run state', async () => {
 		await expect(controller().latest()).resolves.toEqual({
 			report: { createdAt: '2026-10-05T09:00:00.000Z' },
+			previous: { createdAt: '2026-09-28T09:00:00.000Z' },
+			running: false,
+			scheduled: true,
 		});
 	});
 
-	it('starts a run in the background', () => {
-		expect(controller().run()).toEqual({ status: 'started' });
+	// Cada rodada custa LLM: o log guarda quem pediu (TRA-268).
+	it('starts a run in the background and logs which admin asked', () => {
+		const log = jest
+			.spyOn(Logger.prototype, 'log')
+			.mockImplementation(() => undefined);
+
+		expect(controller().run({ user: { userId: 'admin-1' } })).toEqual({
+			status: 'started',
+		});
 		expect(evaluation.run).toHaveBeenCalled();
+		expect(log).toHaveBeenCalledWith(expect.stringContaining('admin-1'));
+		log.mockRestore();
 	});
 
 	it('does not start a second run', () => {
 		evaluation.isRunning = true;
 
-		expect(controller().run()).toEqual({ status: 'already_running' });
+		expect(controller().run({ user: { userId: 'admin-1' } })).toEqual({
+			status: 'already_running',
+		});
 		expect(evaluation.run).not.toHaveBeenCalled();
 	});
 });
