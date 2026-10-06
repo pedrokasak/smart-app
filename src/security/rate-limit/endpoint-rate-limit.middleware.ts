@@ -52,6 +52,8 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		// Cada chamada destas custa uma requisição paga de LLM.
 		'POST:/ai/chat': { limit: 20, windowMs: 60_000 },
 		'POST:/ai/chat/intelligent': { limit: 20, windowMs: 60_000 },
+		// Cada veredito pode custar uma chamada de LLM (TRA-269).
+		'POST:/fixed-income/comparison/verdict': { limit: 10, windowMs: 60_000 },
 		'POST:/ai/analyze': { limit: 20, windowMs: 60_000 },
 		// Resumo de RI por IA (TRA-238): baixa o PDF e chama o LLM a cada
 		// documento novo. O web guarda o resumo por documento no cliente, entao

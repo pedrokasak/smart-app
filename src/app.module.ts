@@ -23,6 +23,7 @@ import { SubscriptionModule } from './subscription/subscription.module';
 import { PixModule } from './payments/pix/pix.module';
 import { StockModule } from './stocks/stocks.module';
 import { MacroIndicatorsModule } from 'src/macro-indicators/macro-indicators.module';
+import { FixedIncomeModule } from 'src/fixed-income/fixed-income.module';
 import { AssetsModule } from './assets/assets.module';
 import { AiModule } from './ai/ai.module';
 import { AiEvaluationModule } from './ai/evaluation/ai-evaluation.module';
@@ -65,6 +66,8 @@ import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 		SubscriptionModule,
 		StockModule,
 		MacroIndicatorsModule,
+		// Comparador de renda fixa com Tesouro Direto e taxas do BACEN (TRA-269).
+		FixedIncomeModule,
 		AssetsModule,
 		AiModule,
 		// Avaliação semanal das respostas de IA (TRA-242).
