@@ -17,6 +17,7 @@ import { Role } from 'src/auth/enums/role.enum';
 import { CreateSubscriptionDto } from 'src/subscription/dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from 'src/subscription/dto/update-subscription.dto';
 import { AdminService } from './admin.service';
+import { AdminRoleService } from './application/admin-role.service';
 import { ManualGrantDto } from './dto/manual-grant.dto';
 import { ListManualGrantsQueryDto } from './dto/list-manual-grants.dto';
 import { UpdateUserRoleByEmailDto } from './dto/update-user-role-by-email.dto';
@@ -26,7 +27,10 @@ import { UpdateUserRoleByEmailDto } from './dto/update-user-role-by-email.dto';
 @ApiBearerAuth('access-token')
 @UseGuards(RolesGuard)
 export class AdminController {
-	constructor(private readonly adminService: AdminService) {}
+	constructor(
+		private readonly adminService: AdminService,
+		private readonly adminRoleService: AdminRoleService
+	) {}
 
 	@Get('overview')
 	@Roles(Role.Admin)
@@ -83,8 +87,12 @@ export class AdminController {
 	@Post('users/role')
 	@Roles(Role.Admin)
 	@ApiOperation({ summary: 'Promove usuário para admin/editor via email' })
-	updateUserRole(@Body() body: UpdateUserRoleByEmailDto) {
-		return this.adminService.updateUserRoleByEmail(body.email, body.role);
+	updateUserRole(@Req() req: any, @Body() body: UpdateUserRoleByEmailDto) {
+		return this.adminRoleService.updateUserRoleByEmail(
+			req.user.userId,
+			body.email,
+			body.role
+		);
 	}
 
 	@Post('grants')

@@ -26,7 +26,7 @@ import {
 	matchesRefreshTokenDigest,
 } from 'src/authentication/security/refresh-token-hash';
 import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
-import { INITIAL_ADMIN_EMAIL } from 'src/admin/constants/admin.constants';
+import { isBootstrapAdminEmail } from 'src/admin/application/admin-bootstrap.policy';
 import { Role } from 'src/auth/enums/role.enum';
 import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
 import {
@@ -207,7 +207,7 @@ export class AuthenticationService {
 				lastName,
 				avatar: tokenInfo.picture || undefined,
 				isEmailVerified: true,
-				role: email === INITIAL_ADMIN_EMAIL ? Role.Admin : Role.User,
+				role: isBootstrapAdminEmail(email) ? Role.Admin : Role.User,
 			});
 		} else {
 			const updates: Record<string, unknown> = {};
@@ -222,6 +222,11 @@ export class AuthenticationService {
 			}
 			if (!user.isEmailVerified) {
 				updates.isEmailVerified = true;
+			}
+			// O Google acabou de provar a posse do e-mail: o dono que cadastrou
+			// por senha antes (nasce User) é promovido aqui, sem esperar um boot.
+			if (isBootstrapAdminEmail(email) && user.role !== Role.Admin) {
+				updates.role = Role.Admin;
 			}
 			if (Object.keys(updates).length > 0) {
 				await UserModel.updateOne({ _id: user._id }, { $set: updates }).exec();

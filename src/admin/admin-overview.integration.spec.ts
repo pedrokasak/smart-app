@@ -6,6 +6,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { AdminController } from 'src/admin/admin.controller';
 import { AdminService } from 'src/admin/admin.service';
+import { AdminRoleService } from 'src/admin/application/admin-role.service';
 import { daysAgo } from 'src/admin/application/user-activity-metrics';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { jwtSecret } from 'src/env';
@@ -75,6 +76,7 @@ describe('GET /admin/overview — contagem de usuários (integração)', () => {
 				},
 				{ provide: StripeService, useValue: {} },
 				{ provide: EmailService, useValue: {} },
+				{ provide: AdminRoleService, useValue: {} },
 			],
 		}).compile();
 
