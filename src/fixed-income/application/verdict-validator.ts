@@ -102,9 +102,12 @@ export function validateVerdictText(
 	}
 
 	const knownText = [...names, ...facts.points].join(' ').toLowerCase();
-	const mentionsUnknownProduct = (
-		trimmed.match(PRODUCT_WORD_PATTERN) ?? []
-	).some((word) => !knownText.includes(word.toLowerCase()));
+	// Tipo explícito: sem strictNullChecks, `match(...) ?? []` vira uma união de
+	// arrays em que `word` é inferido como `never`.
+	const productWords: string[] = trimmed.match(PRODUCT_WORD_PATTERN) ?? [];
+	const mentionsUnknownProduct = productWords.some(
+		(word) => !knownText.includes(word.toLowerCase())
+	);
 	if (mentionsUnknownProduct) {
 		return { valid: false, reason: 'unknown_product' };
 	}
