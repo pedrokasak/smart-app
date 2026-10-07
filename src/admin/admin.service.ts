@@ -4,7 +4,6 @@ import {
 	InternalServerErrorException,
 	Logger,
 	NotFoundException,
-	OnModuleInit,
 } from '@nestjs/common';
 import { ALL_PLAN_CAPABILITIES } from 'src/subscription/application/user-plan.types';
 import {
@@ -13,7 +12,6 @@ import {
 } from 'src/admin/application/user-activity-metrics';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
-import { Role } from 'src/auth/enums/role.enum';
 import {
 	isStripeResourceMissing,
 	StripeService,
@@ -23,10 +21,7 @@ import { EmailService } from 'src/notifications/email/email.service';
 import { CreateSubscriptionDto } from 'src/subscription/dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from 'src/subscription/dto/update-subscription.dto';
 import { User } from 'src/users/schema/user.model';
-import {
-	INITIAL_ADMIN_EMAIL,
-	ManualGrantType,
-} from './constants/admin.constants';
+import { ManualGrantType } from './constants/admin.constants';
 import { ManualGrantAudit } from './schema/manual-grant-audit.model';
 import { ManualGrantDto } from './dto/manual-grant.dto';
 import {
@@ -39,7 +34,7 @@ import {
 } from './dto/list-manual-grants.dto';
 
 @Injectable()
-export class AdminService implements OnModuleInit {
+export class AdminService {
 	private readonly logger = new Logger(AdminService.name);
 
 	constructor(
@@ -53,21 +48,6 @@ export class AdminService implements OnModuleInit {
 		private readonly stripeService: StripeService,
 		private readonly emailService: EmailService
 	) {}
-
-	async onModuleInit() {
-		await this.ensureInitialAdminRole();
-	}
-
-	async ensureInitialAdminRole() {
-		const user = await this.userModel.findOne({ email: INITIAL_ADMIN_EMAIL });
-		if (!user || user.role === Role.Admin) {
-			return;
-		}
-
-		user.role = Role.Admin;
-		await user.save();
-		this.logger.log(`Role admin garantida para ${INITIAL_ADMIN_EMAIL}`);
-	}
 
 	async createPlan(dto: CreateSubscriptionDto) {
 		let stripeProductId = dto.stripeProductId;
@@ -388,32 +368,6 @@ export class AdminService implements OnModuleInit {
 		await plan.save();
 
 		return { message: 'Plano desativado com sucesso' };
-	}
-
-	async updateUserRoleByEmail(email: string, role: Role) {
-		const normalizedEmail = email.trim().toLowerCase();
-		if (![Role.Admin, Role.Editor].includes(role)) {
-			throw new BadRequestException(
-				'Apenas roles admin e editor podem ser atribuídas no painel'
-			);
-		}
-
-		const user = await this.userModel.findOne({ email: normalizedEmail });
-		if (!user) {
-			throw new NotFoundException('Usuário não encontrado');
-		}
-
-		user.role = role;
-		await user.save();
-
-		return {
-			message: 'Role atualizada com sucesso',
-			user: {
-				id: String(user._id),
-				email: user.email,
-				role: user.role,
-			},
-		};
 	}
 
 	async grantSubscriptionByEmail(adminUserId: string, dto: ManualGrantDto) {

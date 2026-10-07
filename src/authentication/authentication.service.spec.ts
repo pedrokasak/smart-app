@@ -545,6 +545,84 @@ describe('AuthenticationService', () => {
 			expect(result.accessToken).toBe('token');
 		});
 
+		describe('bootstrap admin no login existente (TRA-184)', () => {
+			const originalBootstrap = process.env.ADMIN_BOOTSTRAP_EMAIL;
+
+			afterEach(() => {
+				if (originalBootstrap === undefined) {
+					delete process.env.ADMIN_BOOTSTRAP_EMAIL;
+				} else {
+					process.env.ADMIN_BOOTSTRAP_EMAIL = originalBootstrap;
+				}
+			});
+
+			function mockExistingGoogleUser(email: string) {
+				(global as any).fetch = jest.fn().mockResolvedValue({
+					ok: true,
+					json: async () => ({
+						aud: 'any-aud',
+						email,
+						email_verified: 'true',
+						given_name: 'Dono',
+						family_name: 'Da Conta',
+					}),
+				});
+				const stored = {
+					id: 'u-owner',
+					_id: 'u-owner',
+					email,
+					firstName: 'Dono',
+					lastName: 'Da Conta',
+					role: 'user',
+					isEmailVerified: false,
+					twoFactorEnabled: false,
+					save: jest.fn().mockResolvedValue(undefined),
+				};
+				(UserModel.findOne as jest.Mock).mockReturnValue({
+					select: jest
+						.fn()
+						.mockReturnValue({ exec: jest.fn().mockResolvedValue(stored) }),
+				});
+				(UserModel.updateOne as jest.Mock).mockReturnValue({
+					exec: jest.fn().mockResolvedValue({ acknowledged: true }),
+				});
+				(UserModel.findById as jest.Mock).mockReturnValue({
+					select: jest
+						.fn()
+						.mockReturnValue({ exec: jest.fn().mockResolvedValue(stored) }),
+				});
+				mockJwtService.sign.mockReturnValue('token');
+			}
+
+			it('promove a conta do dono, que provou o e-mail pelo Google', async () => {
+				process.env.ADMIN_BOOTSTRAP_EMAIL = 'dono@exemplo.com';
+				mockExistingGoogleUser('dono@exemplo.com');
+
+				await service.googleSignin({
+					idToken: 'id-token',
+					keepConnected: false,
+				});
+
+				expect(UserModel.updateOne).toHaveBeenCalledWith(
+					{ _id: 'u-owner' },
+					{ $set: expect.objectContaining({ role: 'admin' }) }
+				);
+			});
+
+			it('não promove outra conta', async () => {
+				process.env.ADMIN_BOOTSTRAP_EMAIL = 'dono@exemplo.com';
+				mockExistingGoogleUser('outra@exemplo.com');
+
+				await service.googleSignin({
+					idToken: 'id-token',
+					keepConnected: false,
+				});
+
+				const [, update] = (UserModel.updateOne as jest.Mock).mock.calls[0];
+				expect(update.$set).not.toHaveProperty('role');
+			});
+		});
+
 		it('should reject google signin when email is not verified', async () => {
 			(global as any).fetch = jest.fn().mockResolvedValue({
 				ok: true,

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
+import { AdminRoleService } from './application/admin-role.service';
 import { Role } from 'src/auth/enums/role.enum';
 import { ManualGrantType } from './constants/admin.constants';
 
@@ -14,12 +15,13 @@ describe('AdminController', () => {
 		createPlan: jest.fn(),
 		updatePlan: jest.fn(),
 		deactivatePlan: jest.fn(),
-		updateUserRoleByEmail: jest.fn(),
 		grantSubscriptionByEmail: jest.fn(),
 		listManualGrants: jest.fn(),
 		getWebhookStatus: jest.fn(),
 		listWebhookEvents: jest.fn(),
 	};
+
+	const mockAdminRoleService = { updateUserRoleByEmail: jest.fn() };
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
@@ -28,6 +30,10 @@ describe('AdminController', () => {
 				{
 					provide: AdminService,
 					useValue: mockAdminService,
+				},
+				{
+					provide: AdminRoleService,
+					useValue: mockAdminRoleService,
 				},
 			],
 		}).compile();
@@ -87,18 +93,19 @@ describe('AdminController', () => {
 		});
 	});
 
-	it('delegates user role update by email', async () => {
-		service.updateUserRoleByEmail.mockResolvedValue({
+	it('delegates user role update passing the authenticated admin for the audit trail', async () => {
+		mockAdminRoleService.updateUserRoleByEmail.mockResolvedValue({
 			message: 'Role atualizada com sucesso',
 		});
 
 		await expect(
-			controller.updateUserRole({
-				email: 'editor@example.com',
-				role: Role.Editor,
-			})
+			controller.updateUserRole(
+				{ user: { userId: 'admin-1' } },
+				{ email: 'editor@example.com', role: Role.Editor }
+			)
 		).resolves.toEqual({ message: 'Role atualizada com sucesso' });
-		expect(service.updateUserRoleByEmail).toHaveBeenCalledWith(
+		expect(mockAdminRoleService.updateUserRoleByEmail).toHaveBeenCalledWith(
+			'admin-1',
 			'editor@example.com',
 			Role.Editor
 		);

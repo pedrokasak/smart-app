@@ -16,7 +16,6 @@ import { JwtService } from '@nestjs/jwt';
 import { Role } from 'src/auth/enums/role.enum';
 import { EmailService } from 'src/notifications/email/email.service';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
-import { INITIAL_ADMIN_EMAIL } from 'src/admin/constants/admin.constants';
 import {
 	RAG_ERASURE,
 	RagErasurePort,
@@ -64,7 +63,9 @@ export class UsersService {
 				lastName,
 				email,
 				password: hashedPassword,
-				role: email === INITIAL_ADMIN_EMAIL ? Role.Admin : Role.User,
+				// Cadastro por senha não verifica e-mail, então nunca nasce admin:
+				// o bootstrap exige e-mail verificado (TRA-184).
+				role: Role.User,
 				// O cadastro já devolve access token e abre a primeira sessão sem
 				// passar por `issueSessionTokens`: sem isto, todo usuário recém
 				// cadastrado contaria como inativo no painel admin (TRA-192).
