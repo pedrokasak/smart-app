@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { isErasedUser } from 'src/common/erased-user';
 import { pixPeriodFor } from 'src/payments/pix/domain/pix-billing';
 import { PixCharge } from 'src/payments/pix/infrastructure/pix-charge.model';
 import { UserSubscription } from 'src/subscription/schema';
@@ -123,6 +124,13 @@ export class PixPaymentConfirmationService {
 				charge,
 				`valor recebido ${received} menor que o cobrado ${charge.amount}`
 			);
+		}
+
+		// QR emitido antes de o pagador excluir a conta (TRA-127). Liberar plano
+		// criaria uma assinatura ativa para ninguém e o dinheiro ficaria sem
+		// dono: precisa de estorno manual.
+		if (isErasedUser(charge.user)) {
+			return this.flagForReview(charge, 'conta do pagador excluída');
 		}
 
 		const current = await this.userSubscriptionModel.findOne({
