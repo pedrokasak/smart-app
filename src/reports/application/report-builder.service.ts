@@ -8,7 +8,14 @@ import { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
 import { computeReceivedDividends } from 'src/reports/domain/received-dividends';
-import { ReportDocument } from 'src/reports/domain/report-document';
+import {
+	ReportDocument,
+	ReportTable,
+} from 'src/reports/domain/report-document';
+import {
+	computeConcentration,
+	type PeriodTableRow,
+} from 'src/portfolio/history/performance-metrics';
 import { REPORT_CATALOG, ReportKind } from 'src/reports/domain/report-catalog';
 
 const MONTHS = [
@@ -52,6 +59,23 @@ const money = (value: number) => brl.format(value);
 const fraction = (value: number | null | undefined) =>
 	value === null || value === undefined ? '—' : pct.format(value);
 const round2 = (value: number) => Math.round(value * 100) / 100;
+
+/** Tabela de rentabilidade com CDI e índice lado a lado (TRA-274). */
+const periodTable = (title: string, rows: PeriodTableRow[]): ReportTable => ({
+	title,
+	columns: [
+		{ key: 'period', label: 'Período', format: 'text' },
+		{ key: 'portfolio', label: 'Carteira', format: 'percent' },
+		{ key: 'cdi', label: 'CDI', format: 'percent' },
+		{ key: 'benchmark', label: 'Índice', format: 'percent' },
+	],
+	rows: rows.map((row) => ({
+		period: row.partial ? `${row.period} (parcial)` : row.period,
+		portfolio: row.portfolio,
+		cdi: row.cdi,
+		benchmark: row.benchmark,
+	})),
+});
 
 interface UserData {
 	assets: Asset[];
@@ -445,11 +469,22 @@ export class ReportBuilderService {
 		userId: string,
 		generatedAt: string
 	): Promise<ReportDocument> {
-		const [returns, contribution] = await Promise.all([
+		const [returns, contribution, userData] = await Promise.all([
 			this.returnsService.getReturns(userId),
 			this.riskContributionService.getRiskContribution(userId),
+			this.loadUserData(userId),
 		]);
 		const { sharpe, valueAtRisk, drawdown } = returns.risk;
+		const { performance } = returns;
+		const { monthStats } = performance;
+		// Mesma regra de `/portfolio/composition`: valor a mercado por posição.
+		const concentration = computeConcentration(
+			userData.assets.map(
+				(asset: any) =>
+					(Number(asset?.quantity) || 0) *
+					(Number(asset?.currentPrice) || Number(asset?.price) || 0)
+			)
+		);
 		const number = (value: number | null | undefined, digits = 2) =>
 			value === null || value === undefined
 				? '—'
@@ -483,8 +518,14 @@ export class ReportBuilderService {
 							value: fraction(returns.twr.value),
 						},
 						{
-							metric: 'Retorno anualizado',
+							metric: 'Retorno anualizado (CAGR)',
 							value: fraction(returns.twr.annualized),
+						},
+						{
+							// XIRR: o retorno do SEU dinheiro, com o calendário dos aportes.
+							// Ao lado do TWR, a diferença mostra se aportou em boa hora.
+							metric: 'Retorno do seu dinheiro (XIRR)',
+							value: fraction(returns.irr),
 						},
 						{ metric: 'Sharpe (rf = CDI)', value: number(sharpe.sharpe) },
 						{ metric: 'VaR (perda)', value: fraction(valueAtRisk.varPct) },
@@ -523,7 +564,77 @@ export class ReportBuilderService {
 							metric: 'Volatilidade anualizada',
 							value: fraction(contribution.portfolioVolatility),
 						},
+						// Performance (TRA-274).
+						{
+							metric: 'Sortino (rf = CDI)',
+							value: number(performance.sortino),
+						},
+						{ metric: 'Calmar', value: number(performance.calmar) },
+						{
+							metric: `Captura de alta vs ${returns.benchmark.label}`,
+							value: fraction(performance.upCapture),
+						},
+						{
+							metric: `Captura de baixa vs ${returns.benchmark.label}`,
+							value: fraction(performance.downCapture),
+						},
+						{
+							metric: 'Information ratio',
+							value: number(performance.informationRatio),
+						},
+						{
+							metric: 'Recuperação do drawdown',
+							value:
+								drawdown.recoveryDays !== null
+									? `${drawdown.recoveryDays} pregões`
+									: drawdown.troughDate
+										? 'ainda não recuperou'
+										: '—',
+						},
+						{
+							metric: 'Melhor mês',
+							value: monthStats.best
+								? `${monthStats.best.period} · ${fraction(monthStats.best.value)}`
+								: '—',
+						},
+						{
+							metric: 'Pior mês',
+							value: monthStats.worst
+								? `${monthStats.worst.period} · ${fraction(monthStats.worst.value)}`
+								: '—',
+						},
+						{
+							metric: 'Meses positivos',
+							value:
+								monthStats.positiveShare !== null
+									? `${fraction(monthStats.positiveShare)} de ${monthStats.months}`
+									: '—',
+						},
+						{
+							metric: 'Número efetivo de ativos',
+							value: number(concentration.effectiveAssets, 1),
+						},
+						{
+							metric: 'Maior peso',
+							value:
+								concentration.topWeightPct !== null
+									? fraction(concentration.topWeightPct / 100)
+									: '—',
+						},
 					],
+				},
+				periodTable('Rentabilidade mês a mês', performance.monthly),
+				periodTable('Rentabilidade por ano', performance.annual),
+				{
+					title: 'Retorno móvel de 12 meses',
+					columns: [
+						{ key: 'period', label: 'Fim da janela', format: 'text' },
+						{ key: 'value', label: 'Retorno 12M', format: 'percent' },
+					],
+					rows: performance.rolling12m.map((row) => ({
+						period: row.period,
+						value: row.value,
+					})),
 				},
 				{
 					title: 'Contribuição de risco por ativo',
@@ -541,6 +652,7 @@ export class ReportBuilderService {
 			],
 			notes: [
 				'Métricas sobre retornos diários ajustados por aportes e resgates.',
+				'Períodos marcados como parciais cobrem só parte do mês ou do ano (início do histórico e período corrente) e ficam fora de melhor/pior mês e do retorno móvel.',
 				...(contribution.missingSymbols.length
 					? [
 							`Sem histórico suficiente para: ${contribution.missingSymbols.join(', ')}.`,

@@ -44,6 +44,17 @@ import {
 	type RealReturnResult,
 } from './real-return';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import {
+	buildPeriodTable,
+	computeCalmar,
+	computeMonthStats,
+	computeRecoveryDays,
+	computeRelativePerformance,
+	computeSortino,
+	rollingTwelveMonths,
+	type MonthStats,
+	type PeriodTableRow,
+} from 'src/portfolio/history/performance-metrics';
 
 /**
  * Monta os retornos da carteira a partir da série diária e das negociações
@@ -97,7 +108,27 @@ export interface PortfolioReturnsOutput {
 	risk: {
 		sharpe: SharpeResult;
 		valueAtRisk: HistoricalVarResult;
-		drawdown: DrawdownResult;
+		drawdown: DrawdownResult & {
+			/** Pregões do fundo à volta ao topo; `null` se não recuperou. */
+			recoveryDays: number | null;
+		};
+	};
+	/**
+	 * Performance para os níveis intermediário e avançado (TRA-274). Tudo sobre
+	 * a mesma série ajustada por fluxo; `null` onde não há base suficiente.
+	 */
+	performance: {
+		/** TWR anualizado: crescimento anual composto da carteira. */
+		cagr: number | null;
+		sortino: number | null;
+		calmar: number | null;
+		upCapture: number | null;
+		downCapture: number | null;
+		informationRatio: number | null;
+		monthly: PeriodTableRow[];
+		annual: PeriodTableRow[];
+		monthStats: MonthStats;
+		rolling12m: { period: string; value: number }[];
 	};
 	/**
 	 * Por que algum número não pôde ser calculado. Vazio quando tudo saiu.
@@ -389,6 +420,26 @@ export class PortfolioReturnsService {
 		}
 		const drawdown = computeDrawdown(portfolioReturns);
 
+		// Performance (TRA-274): mesma série, mesmas comparações do bloco acima.
+		const benchmarkReturns = closesToReturns(benchmark.closes);
+		const { sortino } = computeSortino(portfolioReturns, riskFreeDaily);
+		const relative = computeRelativePerformance(
+			portfolioReturns,
+			benchmarkReturns
+		);
+		const periodSeries = {
+			portfolio: portfolioReturns,
+			cdi: riskFreeDaily,
+			benchmark: benchmarkReturns,
+		};
+		const monthly = buildPeriodTable({ ...periodSeries, granularity: 'month' });
+		const annual = buildPeriodTable({ ...periodSeries, granularity: 'year' });
+		const monthlyPortfolio = monthly.map((row) => ({
+			period: row.period,
+			value: row.portfolio,
+			partial: row.partial,
+		}));
+
 		return {
 			from,
 			to,
@@ -413,7 +464,30 @@ export class PortfolioReturnsService {
 				benchmarkReturn: benchmarkMetrics.benchmarkReturn,
 				alpha: benchmarkMetrics.alpha,
 			},
-			risk: { sharpe, valueAtRisk, drawdown },
+			risk: {
+				sharpe,
+				valueAtRisk,
+				drawdown: {
+					...drawdown,
+					recoveryDays: computeRecoveryDays(
+						portfolioReturns,
+						drawdown.troughDate,
+						drawdown.recoveryDate
+					),
+				},
+			},
+			performance: {
+				cagr: annualized,
+				sortino,
+				calmar: computeCalmar(annualized, drawdown.maxDrawdown),
+				upCapture: relative.upCapture,
+				downCapture: relative.downCapture,
+				informationRatio: relative.informationRatio,
+				monthly,
+				annual,
+				monthStats: computeMonthStats(monthlyPortfolio),
+				rolling12m: rollingTwelveMonths(monthlyPortfolio),
+			},
 			unavailable,
 			staleDays,
 		};
