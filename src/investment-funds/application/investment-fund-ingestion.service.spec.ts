@@ -44,25 +44,21 @@ function daily(sha: string): SourceRead<DailyReport> {
 
 function setup() {
 	const ingestions = new Map<string, IngestionRecord>();
-	const source: jest.Mocked<InvestmentFundDataSource> = {
-		fetchDailyReport: jest.fn(async (_competence: string, _sha?: string) =>
-			daily('sha-1')
-		),
-		fetchRegistry: jest.fn(async (_sha?: string) => ({
+	const source = {
+		fetchDailyReport: jest.fn(async () => daily('sha-1')),
+		fetchRegistry: jest.fn(async () => ({
 			status: 'parsed' as const,
 			sourceUrl: 'https://dados.cvm.gov.br/r.zip',
 			sha256: 'reg-1',
 			data: [fundClass],
 		})),
-	};
+	} as unknown as jest.Mocked<InvestmentFundDataSource>;
 	const store = {
 		replaceClasses: jest.fn(async (list: InvestmentFundClass[]) => list.length),
-		upsertLatestQuotes: jest.fn(
-			async (list: FundQuote[], _sourceUrl: string) => list.length
-		),
+		upsertLatestQuotes: jest.fn(async (list: FundQuote[]) => list.length),
 		findClass: jest.fn(),
 		searchClasses: jest.fn(),
-		findClassQuotes: jest.fn(async (_cnpjs: string[]) => [
+		findClassQuotes: jest.fn(async () => [
 			{ ...quote, sourceUrl: 'https://dados.cvm.gov.br/x.zip' },
 		]),
 		countClasses: jest.fn(async () => 0),
@@ -70,11 +66,11 @@ function setup() {
 		saveIngestion: jest.fn(async (record: IngestionRecord) => {
 			ingestions.set(record.key, record);
 		}),
-	} satisfies InvestmentFundStore;
+	} as unknown as jest.Mocked<InvestmentFundStore>;
 	const holdings = {
 		heldCnpjs: jest.fn(async () => ['00017024000153']),
-		applyQuotes: jest.fn(async (_quotes: unknown[]) => 1),
-	} satisfies FundHoldingPriceWriter;
+		applyQuotes: jest.fn(async () => 1),
+	} as unknown as jest.Mocked<FundHoldingPriceWriter>;
 	const service = new InvestmentFundIngestionService(source, store, holdings);
 	return { service, source, store, holdings, ingestions };
 }
