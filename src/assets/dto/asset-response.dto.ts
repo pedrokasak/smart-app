@@ -35,6 +35,10 @@ export class AssetResponseDto {
 		pvpRatio?: number;
 		beta?: number;
 	};
+	/** Ativo usado como mercado no beta (`indicators.beta`), TRA-251. */
+	betaBenchmark?: string;
+	/** Último pregão usado no cálculo do beta, YYYY-MM-DD. */
+	betaAsOf?: string;
 	signal?: string;
 	source: 'manual' | 'b3' | 'webscrape';
 	lastEnrichedAt?: Date;

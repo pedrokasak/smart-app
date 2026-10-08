@@ -20,12 +20,27 @@ export class AssetMapper {
 			currentPriceAt: (asset as any).currentPriceAt ?? undefined,
 			change24h: asset.change24h,
 			dividendHistory: (asset as any).dividendHistory ?? undefined,
-			indicators: asset.indicators,
+			indicators: AssetMapper.indicatorsWithBeta(asset),
+			betaBenchmark: asset.betaBenchmark ?? undefined,
+			betaAsOf: asset.betaAsOf ?? undefined,
 			source: asset.source,
 			lastEnrichedAt: asset.lastEnrichedAt,
 			createdAt: asset.createdAt,
 			updatedAt: asset.updatedAt,
 		};
+	}
+
+	/**
+	 * O beta mora em campo próprio do ativo (o enriquecimento troca
+	 * `indicators` inteiro), mas o contrato com o front é `indicators.beta`.
+	 * Sem beta calculado devolve `indicators` como está.
+	 */
+	private static indicatorsWithBeta(
+		asset: Asset
+	): AssetResponseDto['indicators'] {
+		const base = asset.indicators as AssetResponseDto['indicators'];
+		if (typeof asset.beta !== 'number') return base;
+		return { ...base, beta: asset.beta };
 	}
 
 	static toResponseDtoArray(assets: Asset[]): AssetResponseDto[] {

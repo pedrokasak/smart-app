@@ -34,6 +34,16 @@ export interface Asset extends Document {
 	/** Quem cotou `currentPrice` (`coingecko`, `primary`...), TRA-252. */
 	currentPriceSource?: string;
 	change24h?: number;
+	/**
+	 * Beta contra o mercado, calculado dos fechamentos do COTAHIST (TRA-251).
+	 * Fica em campos próprios porque `enrichAsset` troca `indicators` inteiro
+	 * a cada enriquecimento; o mapper expõe como `indicators.beta`.
+	 */
+	beta?: number | null;
+	/** Último pregão usado no cálculo (YYYY-MM-DD). */
+	betaAsOf?: string | null;
+	/** Ativo usado como mercado (o IBOV não está no COTAHIST). */
+	betaBenchmark?: string | null;
 	dividendHistory?: {
 		date: Date;
 		value: number;
@@ -96,6 +106,9 @@ export const assetSchema = new Schema<Asset>(
 		},
 		currentPriceAt: { type: Date },
 		currentPriceSource: { type: String },
+		beta: { type: Number, default: null },
+		betaAsOf: { type: String, default: null },
+		betaBenchmark: { type: String, default: null },
 		change24h: {
 			type: Number,
 			default: null,
