@@ -100,7 +100,58 @@ describe('onePerDocument (TRA-277)', () => {
 		expect(onePerDocument(rows)).toHaveLength(2);
 	});
 
-	// "Inglês" sai do IPE como latin1 lido em utf8: "Ingl�s".
+	// Caso real do ABCB4: a v2 do Ato Homologatorio acrescentou um assunto.
+	it('replaces the only older version even when the subject changed', () => {
+		const ato = {
+			Categoria: 'Ato Homologatório emitido pelo Banco Central',
+			Tipo: '',
+			Especie: '',
+			Data_Referencia: '2026-06-12',
+			Data_Entrega: '2026-06-12',
+		};
+		const rows = [
+			row({
+				...ato,
+				Assunto: 'Eleição Conselho de Administração',
+				Link_Download: 'https://rad/v1',
+			}),
+			row({
+				...ato,
+				Assunto: 'Eleição Conselho de Administração||Eleição de Diretor(es)',
+				Versao: '2',
+				Link_Download: 'https://rad/v2',
+			}),
+		];
+
+		expect(links(onePerDocument(rows))).toEqual(['https://rad/v2']);
+	});
+
+	it('keeps older versions when it is unclear which one was resubmitted', () => {
+		const ata = {
+			Categoria: 'Reunião da Administração',
+			Tipo: 'Conselho de Administração',
+			Especie: 'Ata',
+			Data_Referencia: '2026-03-23',
+		};
+		const rows = [
+			row({
+				...ata,
+				Assunto: 'Aumento de capital',
+				Link_Download: 'https://rad/a',
+			}),
+			row({ ...ata, Assunto: 'Proposta AGO', Link_Download: 'https://rad/b' }),
+			row({
+				...ata,
+				Assunto: 'Proposta AGO/E',
+				Versao: '2',
+				Link_Download: 'https://rad/c',
+			}),
+		];
+
+		expect(onePerDocument(rows)).toHaveLength(3);
+	});
+
+	// Defesa: um CSV lido com a codificacao errada vira "Ingl�s".
 	it('recognizes the English marker even with a broken accent', () => {
 		const rows = [
 			row({ Assunto: 'Release Ingl�s', Link_Download: 'https://rad/en' }),

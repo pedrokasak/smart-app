@@ -15,7 +15,7 @@
  * BR GAAP traduzidas, cuja versao em portugues vem pelo ITR e nao pelo IPE)
  * continua na lista.
  */
-type IpeRow = Record<string, string>;
+export type IpeRow = Record<string, string>;
 
 const ENGLISH = /\benglish\b|\bingl\S{1,3}s\b/i;
 
@@ -57,7 +57,30 @@ export function latestVersionPerDocument(rows: IpeRow[]): IpeRow[] {
 		const current = latest.get(key);
 		if (!current || isNewer(row, current)) latest.set(key, row);
 	}
-	return rows.filter((row) => latest.get(documentKey(row)) === row);
+	const kept = rows.filter((row) => latest.get(documentKey(row)) === row);
+	return dropReplacedWithNewSubject(kept);
+}
+
+/**
+ * Reapresentacao que mudou o assunto (ex.: v2 acrescenta "Eleicao de
+ * Diretor(es)") nao cai na chave exata. Ela substitui a versao anterior
+ * quando, no mesmo grupo (categoria, tipo, especie, data de referencia), ha
+ * UMA so linha de versao menor: com duas ou mais, nao da para saber qual foi
+ * reapresentada, e as duas ficam.
+ */
+function dropReplacedWithNewSubject(rows: IpeRow[]): IpeRow[] {
+	const replaced = new Set<IpeRow>();
+	for (const row of rows) {
+		if (versionOf(row) <= 1) continue;
+		const older = rows.filter(
+			(other) =>
+				other !== row &&
+				languageGroupKey(other) === languageGroupKey(row) &&
+				versionOf(other) < versionOf(row)
+		);
+		if (older.length === 1) replaced.add(older[0]);
+	}
+	return rows.filter((row) => !replaced.has(row));
 }
 
 export function dropEnglishWhenPortugueseExists(rows: IpeRow[]): IpeRow[] {

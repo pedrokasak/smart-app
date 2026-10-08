@@ -16,7 +16,10 @@ import { protocolFromCvmLink } from 'src/ri-intelligence/domain/cvm-protocol';
 import { classifyRiDocumentType } from 'src/ri-intelligence/domain/ri-document-classifier';
 import { periodFromReference } from 'src/ri-intelligence/domain/ri-document-period';
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
-import { onePerDocument } from 'src/ri-intelligence/infrastructure/ipe-row-dedupe';
+import {
+	IpeRow,
+	onePerDocument,
+} from 'src/ri-intelligence/infrastructure/ipe-row-dedupe';
 
 /**
  * Descoberta de documentos corporativos via dataset IPE da CVM
@@ -112,17 +115,21 @@ export class CvmRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 		});
 
 		// Depois do link, o documento: reapresentacao e versao em ingles sao
-		// entregas diferentes do mesmo documento (TRA-277). So linhas validas
-		// entram, para uma linha sem link nao ocupar o lugar da versao boa.
-		const valid = dedupedMatching.filter(
-			(row) =>
-				String(row.Link_Download || '').trim() &&
-				this.parseDateIso(row.Data_Entrega)
-		);
+		// entregas diferentes do mesmo documento (TRA-277). O registro e
+		// montado antes, para uma linha sem link nao ocupar o lugar da versao
+		// boa.
+		const rows = dedupedMatching
+			.map((row) => ({
+				row,
+				record: this.toRecord(row, ticker, issuer.company),
+			}))
+			.filter((item): item is { row: IpeRow; record: RiDocumentRecord } =>
+				Boolean(item.record)
+			);
+		const recordByRow = new Map(rows.map((item) => [item.row, item.record]));
 
-		const records = onePerDocument(valid)
-			.map((row) => this.toRecord(row, ticker, issuer.company))
-			.filter((record): record is RiDocumentRecord => Boolean(record))
+		const records = onePerDocument(rows.map((item) => item.row))
+			.map((row) => recordByRow.get(row) as RiDocumentRecord)
 			.sort(
 				(a, b) =>
 					new Date(b.publishedAt).getTime() - new Date(a.publishedAt).getTime()
@@ -289,7 +296,10 @@ export class CvmRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 	): Promise<string> {
 		// Aceita apenas o CSV anual esperado; sem ele, resolve vazio.
 		const csv = await readZipEntry(buffer, `ipe_cia_aberta_${year}.csv`);
-		return csv ? csv.toString('utf8') : '';
+		// O CSV do IPE e Latin-1, nao UTF-8 (TRA-277): lido como UTF-8, todo
+		// acento virava U+FFFD ("Econ?mico") e os aliases acentuados do
+		// classificador nunca casavam com o titulo.
+		return csv ? csv.toString('latin1') : '';
 	}
 
 	private normalizeCnpj(cnpj?: string): string {
