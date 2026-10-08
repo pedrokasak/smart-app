@@ -1,5 +1,6 @@
 import {
 	IsNumber,
+	IsPositive,
 	Min,
 	IsOptional,
 	IsArray,
@@ -17,7 +18,7 @@ export class UpdateAssetDto extends PartialType(CreateAssetDto) {
 
 	@IsOptional()
 	@IsNumber()
-	@Min(0.01)
+	@IsPositive()
 	price?: number;
 
 	@IsOptional()

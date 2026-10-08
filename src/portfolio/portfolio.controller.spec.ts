@@ -15,6 +15,7 @@ import { TradeModel } from 'src/fiscal/schema/trade.model';
 import * as xlsx from 'xlsx';
 import { BrokerageNoteUploadModel } from 'src/broker-sync/schema/brokerage-note-upload.model';
 import { extractPdfText } from 'src/common/pdf/extract-pdf-text';
+import { InvestmentFundsService } from 'src/investment-funds/application/investment-funds.service';
 
 jest.mock('src/authentication/jwt-auth.guard', () => ({
 	JwtAuthGuard: jest.fn().mockImplementation(() => true),
@@ -87,6 +88,10 @@ describe('PortfolioController', () => {
 		replaceForPortfolio: jest.fn(),
 		listUpcoming: jest.fn(),
 	};
+	const mockInvestmentFunds = {
+		marketQuotes: jest.fn().mockResolvedValue([]),
+		resolveForNewPosition: jest.fn(),
+	};
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
@@ -129,6 +134,7 @@ describe('PortfolioController', () => {
 					provide: QUOTE_FRESHNESS_STORE,
 					useValue: mockQuoteFreshness,
 				},
+				{ provide: InvestmentFundsService, useValue: mockInvestmentFunds },
 			],
 		}).compile();
 
@@ -641,6 +647,124 @@ describe('PortfolioController', () => {
 			});
 
 			expect(asset.total).toBe(200);
+		});
+
+		it('cota fundo pela CVM e ação pela varredura, cada um na sua fonte (TRA-276)', async () => {
+			mockPortfolioService.getUserPortfolios.mockResolvedValue([
+				{
+					assets: [
+						{
+							_id: 'a1',
+							portfolioId: 'p1',
+							symbol: 'VBBR3',
+							type: 'stock',
+							quantity: 10,
+							price: 20,
+							total: 200,
+						},
+						{
+							_id: 'a2',
+							portfolioId: 'p1',
+							symbol: '00017024000153',
+							type: 'investment_fund',
+							quantity: 1000,
+							price: 40.12,
+							total: 40120,
+						},
+					],
+				},
+			]);
+			(TradeModel.find as jest.Mock).mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					lean: jest.fn().mockResolvedValue([]),
+				}),
+			});
+			mockQuoteFreshness.findBySymbols.mockResolvedValue([]);
+			mockInvestmentFunds.marketQuotes.mockResolvedValue([
+				{
+					symbol: '00017024000153',
+					lastQuoteAt: new Date('2026-09-30T03:00:00Z'),
+					lastPrice: 44.6557555,
+					source: 'CVM — Informe Diário',
+				},
+			]);
+
+			const assets = await controller.findAllAssets({
+				user: { userId: 'u1' },
+			});
+
+			expect(mockQuoteFreshness.findBySymbols).toHaveBeenCalledWith(['VBBR3']);
+			expect(mockInvestmentFunds.marketQuotes).toHaveBeenCalledWith([
+				'00017024000153',
+			]);
+			expect(assets[1].total).toBe(44655.76);
+			expect(assets[0].total).toBe(200);
+		});
+	});
+
+	describe('addAsset de fundo (TRA-276)', () => {
+		it('grava o CNPJ em 14 dígitos e o nome oficial do cadastro da CVM', async () => {
+			mockPortfolioService.assertPortfolioOwnership = jest.fn();
+			mockPortfolioService.addAssetToPortfolio = jest.fn().mockResolvedValue({
+				_id: 'a9',
+				portfolioId: 'p1',
+				symbol: '00017024000153',
+				name: 'FUNDO EXEMPLO',
+				type: 'investment_fund',
+				quantity: 100,
+				price: 44.6,
+				total: 4460,
+			});
+			mockInvestmentFunds.resolveForNewPosition.mockResolvedValue({
+				symbol: '00017024000153',
+				name: 'FUNDO EXEMPLO',
+			});
+
+			await controller.addAsset(
+				'p1',
+				{
+					symbol: '00.017.024/0001-53',
+					name: 'nome digitado',
+					type: 'investment_fund',
+					quantity: 100,
+					price: 44.6,
+				},
+				reqFor('u1')
+			);
+
+			expect(mockInvestmentFunds.resolveForNewPosition).toHaveBeenCalledWith(
+				'00.017.024/0001-53'
+			);
+			expect(mockPortfolioService.addAssetToPortfolio).toHaveBeenCalledWith(
+				'p1',
+				expect.objectContaining({
+					symbol: '00017024000153',
+					name: 'FUNDO EXEMPLO',
+					type: 'investment_fund',
+				})
+			);
+		});
+
+		it('não consulta o cadastro de fundos para outros tipos', async () => {
+			mockPortfolioService.assertPortfolioOwnership = jest.fn();
+			mockPortfolioService.addAssetToPortfolio = jest.fn().mockResolvedValue({
+				_id: 'a10',
+				portfolioId: 'p1',
+				symbol: 'PETR4',
+				type: 'stock',
+				quantity: 1,
+				price: 30,
+				total: 30,
+			});
+			mockInvestmentFunds.resolveForNewPosition.mockClear();
+
+			await controller.addAsset(
+				'p1',
+				{ symbol: 'PETR4', type: 'stock', quantity: 1, price: 30 },
+				reqFor('u1')
+			);
+
+			expect(mockInvestmentFunds.resolveForNewPosition).not.toHaveBeenCalled();
 		});
 	});
 });

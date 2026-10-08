@@ -63,6 +63,8 @@ import {
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 
 import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
+import { InvestmentFundsService } from 'src/investment-funds/application/investment-funds.service';
+import { INVESTMENT_FUND_ASSET_TYPE } from 'src/investment-funds/domain/investment-fund-asset';
 /**
  * Planilha da B3 é pequena; o limite existe pra impedir que um upload
  * arbitrariamente grande seja carregado inteiro em memória antes do parse.
@@ -95,7 +97,8 @@ export class PortfolioController {
 		private upcomingDividendsService: UpcomingDividendsService,
 		@Inject(QUOTE_FRESHNESS_STORE)
 		private readonly quoteFreshness: QuoteFreshnessStore,
-		private readonly planQuota: PlanQuotaService
+		private readonly planQuota: PlanQuotaService,
+		private readonly investmentFunds: InvestmentFundsService
 	) {}
 
 	@Post('create')
@@ -152,15 +155,30 @@ export class PortfolioController {
 	 * Sem ela, posição, resultado e peso saíam do preço da importação — e as
 	 * três rotas que devolvem ativos precisam dar o mesmo número. Falha ao
 	 * ler o cache não derruba a carteira: fica o preço gravado.
+	 *
+	 * Fundo (`investment_fund`) é cotado pela cota diária da CVM (TRA-276),
+	 * não pela varredura de mercado: o símbolo dele é o CNPJ da classe.
 	 */
 	private async markToMarket<T extends AssetResponseDto>(
 		assets: T[]
 	): Promise<T[]> {
 		if (!assets.length) return assets;
-		const quotes = await this.quoteFreshness
-			.findBySymbols(assets.map((asset) => asset.symbol))
-			.catch(() => []);
-		return applyLatestQuotes(assets, quotes);
+		const fundSymbols = assets
+			.filter((asset) => asset.type === INVESTMENT_FUND_ASSET_TYPE)
+			.map((asset) => asset.symbol);
+		const marketSymbols = assets
+			.filter((asset) => asset.type !== INVESTMENT_FUND_ASSET_TYPE)
+			.map((asset) => asset.symbol);
+
+		const [marketQuotes, fundQuotes] = await Promise.all([
+			marketSymbols.length
+				? this.quoteFreshness.findBySymbols(marketSymbols).catch(() => [])
+				: [],
+			fundSymbols.length
+				? this.investmentFunds.marketQuotes(fundSymbols).catch(() => [])
+				: [],
+		]);
+		return applyLatestQuotes(assets, [...marketQuotes, ...fundQuotes]);
 	}
 
 	@Get('transactions')
@@ -1146,9 +1164,20 @@ export class PortfolioController {
 			resolveUserId(req),
 			portfolioId
 		);
+		// Fundo entra pelo CNPJ de uma classe do cadastro da CVM (TRA-276):
+		// símbolo vira os 14 dígitos e o nome é o oficial.
+		const dto =
+			createAssetDto.type === INVESTMENT_FUND_ASSET_TYPE
+				? {
+						...createAssetDto,
+						...(await this.investmentFunds.resolveForNewPosition(
+							createAssetDto.symbol
+						)),
+					}
+				: createAssetDto;
 		const asset = await this.portfolioService.addAssetToPortfolio(
 			portfolioId,
-			createAssetDto
+			dto
 		);
 		return AssetMapper.toResponseDto(asset);
 	}

@@ -26,6 +26,7 @@ import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns
 import { SectorBackfillScheduler } from 'src/portfolio/sector/sector-backfill.scheduler';
 import { RISK_FREE_RATE_PROVIDER } from 'src/portfolio/returns/risk-free-rate.port';
 import { MacroIndicatorsModule } from 'src/macro-indicators/macro-indicators.module';
+import { InvestmentFundsModule } from 'src/investment-funds/investment-funds.module';
 import { INFLATION_PROVIDER } from 'src/portfolio/returns/inflation.port';
 import {
 	MacroInflationAdapter,
@@ -68,6 +69,8 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		// Exporta TargetAllocationService e não importa PortfolioModule de
 		// volta, então a dependência é de mão única — sem ciclo.
 		TargetAllocationModule,
+		// Cota diária de fundo (TRA-276); o módulo de fundos não importa a carteira.
+		InvestmentFundsModule,
 		MarketDataModule,
 		// Séries macro do BACEN (TRA-227): CDI do Sharpe e IPCA do retorno real.
 		MacroIndicatorsModule,
