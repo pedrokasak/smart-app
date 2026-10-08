@@ -9,6 +9,14 @@ import {
 	MarketAssetType,
 	MarketDataProviderPort,
 } from 'src/market-data/application/market-data-provider.port';
+import {
+	DAILY_CLOSE_STORE,
+	DailyCloseStore,
+} from 'src/market-data/daily-closes/application/ports';
+import {
+	coversRange,
+	rangeStart,
+} from 'src/market-data/daily-closes/domain/range';
 import { FundamentusFallbackAdapter } from 'src/stocks/adapter/fundamentus-fallback.adapter';
 import { StockService } from 'src/stocks/stocks.service';
 
@@ -21,7 +29,10 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 		private readonly fundamentusFallback: FundamentusFallbackAdapter,
 		@Optional()
 		@Inject(B3_MARKET_DATA_PROVIDER)
-		private readonly b3Provider?: B3MarketDataProviderPort
+		private readonly b3Provider?: B3MarketDataProviderPort,
+		@Optional()
+		@Inject(DAILY_CLOSE_STORE)
+		private readonly dailyCloses?: DailyCloseStore
 	) {}
 
 	async getManyAssetSnapshots(
@@ -50,6 +61,11 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 	/**
 	 * Fechamentos diários, para beta e tracking error (TRA-141).
 	 *
+	 * Ação, FII e ETF saem primeiro do COTAHIST guardado (TRA-251): fonte
+	 * oficial, sem limite de taxa. O Yahoo (que responde 429 a partir da VPS)
+	 * só entra quando a série guardada não cobre o período, e a série parcial
+	 * ainda vale mais que nada se ele não responder.
+	 *
 	 * Devolve `[]` em qualquer falha — a fonte é rate-limited e uma métrica
 	 * indisponível é melhor que uma exceção derrubando a rota de retornos.
 	 */
@@ -58,13 +74,43 @@ export class TrackerrMarketDataFacade implements MarketDataProviderPort {
 		range: string,
 		assetType: MarketAssetType = 'stock'
 	): Promise<DailyClose[]> {
+		const stored = await this.readStoredCloses(symbol, range, assetType);
+		if (stored && coversRange(stored, range, new Date())) return stored;
+
 		try {
-			return await this.stockService.getDailyCloses(symbol, range, assetType);
+			const fetched = await this.stockService.getDailyCloses(
+				symbol,
+				range,
+				assetType
+			);
+			if (fetched.length || !stored) return fetched;
 		} catch (error: any) {
 			this.logger.warn(
 				`getDailyCloses(${symbol}, ${range}) falhou: ${error?.message || 'unknown_error'}`
 			);
-			return [];
+		}
+		return stored ?? [];
+	}
+
+	/** `null` quando a série guardada não se aplica (índice, cripto) ou falhou. */
+	private async readStoredCloses(
+		symbol: string,
+		range: string,
+		assetType: MarketAssetType
+	): Promise<DailyClose[] | null> {
+		const listed = ['stock', 'fii', 'etf'].includes(assetType);
+		if (!this.dailyCloses || !listed || symbol.startsWith('^')) return null;
+		try {
+			const closes = await this.dailyCloses.find(
+				symbol,
+				rangeStart(range, new Date())
+			);
+			return closes.length ? closes : null;
+		} catch (error: any) {
+			this.logger.warn(
+				`Série guardada de ${symbol} indisponível: ${error?.message || 'unknown_error'}`
+			);
+			return null;
 		}
 	}
 
