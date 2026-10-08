@@ -7,37 +7,27 @@ import {
 import { InjectConnection } from '@nestjs/mongoose';
 import mongoose, { Connection, Model } from 'mongoose';
 import { SubscriptionService } from 'src/subscription/subscription.service';
-
-/**
- * Coleções com dado pessoal ou preferência do titular, sem obrigação de
- * retenção: saem junto com a conta (LGPD art. 18, VI). Registro fiscal
- * (Trade, Portfolio, PortfolioHistory, Asset, PixCharge, UserSubscription)
- * fica de fora até a decisão de retenção do TRA-127.
- */
-export const ERASABLE_COLLECTIONS: ReadonlyArray<{
-	model: string;
-	ownerField: string;
-}> = [
-	{ model: 'BrokerConnection', ownerField: 'userId' },
-	{ model: 'BrokerageNoteUpload', ownerField: 'userId' },
-	{ model: 'Profile', ownerField: 'user' },
-	{ model: 'InvestorProfile', ownerField: 'userId' },
-	{ model: 'Address', ownerField: 'userId' },
-	{ model: 'ChatMessage', ownerField: 'userId' },
-	{ model: 'Notification', ownerField: 'user' },
-	{ model: 'PushSubscription', ownerField: 'user' },
-	{ model: 'ReportSchedule', ownerField: 'userId' },
-	{ model: 'ThresholdState', ownerField: 'user' },
-	{ model: 'FinancialPlan', ownerField: 'userId' },
-	{ model: 'PortfolioTargetAllocation', ownerField: 'user' },
-];
+import {
+	ERASABLE_COLLECTIONS,
+	ERASED_USER_ID,
+	PORTFOLIO_OWNED_COLLECTION,
+	RETAINED_COLLECTIONS,
+	RetainedCollection,
+} from './account-erasure.policy';
 
 export interface ErasureReport {
 	subscription: 'cancel_scheduled' | 'none';
 	deleted: Record<string, number>;
+	anonymized: Record<string, number>;
 	skipped: string[];
 }
 
+/**
+ * Cada passo é idempotente e a ordem deixa o `User` por último: se algo falhar
+ * no meio, o usuário ainda existe, repete a exclusão e o que já foi feito não
+ * é refeito. Por isso não depende de transação (o Mongo do deploy não precisa
+ * ser replica set).
+ */
 @Injectable()
 export class AccountErasureService {
 	private readonly logger = new Logger(AccountErasureService.name);
@@ -50,25 +40,23 @@ export class AccountErasureService {
 	/** Tudo o que depende do usuário, exceto o próprio documento `User`. */
 	async eraseDependents(userId: string): Promise<ErasureReport> {
 		const subscription = await this.stopBilling(userId);
-		const deleted: Record<string, number> = {};
-		const skipped: string[] = [];
+		const report: ErasureReport = {
+			subscription,
+			deleted: {},
+			anonymized: {},
+			skipped: [],
+		};
 
-		for (const { model, ownerField } of ERASABLE_COLLECTIONS) {
-			const target = this.modelFor(model);
-			if (!target) {
-				skipped.push(model);
-				continue;
-			}
-			const result = await target.deleteMany({ [ownerField]: userId });
-			deleted[model] = result.deletedCount ?? 0;
-		}
+		await this.erasePortfolioAssets(userId, report);
+		await this.eraseOwned(userId, report);
+		await this.anonymizeRetained(userId, report);
 
-		if (skipped.length) {
+		if (report.skipped.length) {
 			this.logger.error(
-				`Exclusão de conta sem model registrado para: ${skipped.join(', ')}`
+				`Exclusão de conta sem model registrado para: ${report.skipped.join(', ')}`
 			);
 		}
-		return { subscription, deleted, skipped };
+		return report;
 	}
 
 	/**
@@ -90,6 +78,58 @@ export class AccountErasureService {
 				'Não foi possível cancelar sua assinatura agora. Tente excluir a conta novamente em instantes.'
 			);
 		}
+	}
+
+	private async erasePortfolioAssets(userId: string, report: ErasureReport) {
+		const { model, portfolioModel, portfolioOwnerField, field } =
+			PORTFOLIO_OWNED_COLLECTION;
+		const portfolios = this.modelFor(portfolioModel);
+		const assets = this.modelFor(model);
+		if (!portfolios || !assets) {
+			report.skipped.push(model);
+			return;
+		}
+		const portfolioIds = await portfolios.distinct('_id', {
+			[portfolioOwnerField]: userId,
+		});
+		const result = await assets.deleteMany({ [field]: { $in: portfolioIds } });
+		report.deleted[model] = result.deletedCount ?? 0;
+	}
+
+	private async eraseOwned(userId: string, report: ErasureReport) {
+		for (const { model, ownerField } of ERASABLE_COLLECTIONS) {
+			const target = this.modelFor(model);
+			if (!target) {
+				report.skipped.push(model);
+				continue;
+			}
+			const result = await target.deleteMany({ [ownerField]: userId });
+			report.deleted[model] = result.deletedCount ?? 0;
+		}
+	}
+
+	private async anonymizeRetained(userId: string, report: ErasureReport) {
+		for (const collection of RETAINED_COLLECTIONS) {
+			const target = this.modelFor(collection.model);
+			if (!target) {
+				report.skipped.push(collection.model);
+				continue;
+			}
+			const result = await target.updateMany(
+				{ [collection.ownerField]: userId },
+				this.anonymization(collection)
+			);
+			report.anonymized[collection.model] = result.modifiedCount ?? 0;
+		}
+	}
+
+	private anonymization({ ownerField, scrub, unset }: RetainedCollection) {
+		return {
+			$set: { ...scrub, [ownerField]: ERASED_USER_ID },
+			...(unset?.length
+				? { $unset: Object.fromEntries(unset.map((f) => [f, ''])) }
+				: {}),
+		};
 	}
 
 	// Parte dos models é registrada pelo Nest e parte é estática (`model()`

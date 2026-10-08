@@ -73,9 +73,10 @@ export class PrivacyService {
 	}
 
 	/**
-	 * Exclusão da própria conta (LGPD, TRA-122/TRA-213): encerra a cobrança,
-	 * apaga dado pessoal e credenciais de corretora e, por fim, o `User` e a
-	 * cópia no RAG. Registro fiscal segue a decisão de retenção do TRA-127.
+	 * Exclusão da própria conta (LGPD, TRA-122/TRA-213/TRA-127): encerra a
+	 * cobrança, apaga os dados do titular, anonimiza cobrança e auditoria (que
+	 * o Trackerr precisa guardar) e, por fim, apaga o `User` e a cópia no RAG.
+	 * A classificação de cada coleção está em `account-erasure.policy.ts`.
 	 */
 	async deleteOwnAccount(userId: string, bearerToken?: string) {
 		this.logger.warn(

@@ -1,4 +1,5 @@
 import { Types } from 'mongoose';
+import { ERASED_USER_ID } from 'src/common/erased-user';
 import { InMemoryModel } from 'src/payments/pix/testing/in-memory-model';
 import { PixPaymentConfirmationService } from './pix-payment-confirmation.service';
 
@@ -157,6 +158,16 @@ describe('PixPaymentConfirmationService (TRA-195)', () => {
 			await expect(service.handle(paid(), now)).resolves.toBe('needs_review');
 			expect(subscription().stripeSubscriptionId).toBe('sub_1');
 			expect(subscription().paymentProvider).toBeUndefined();
+		});
+
+		it('PIX pago depois de o pagador excluir a conta não cria assinatura', async () => {
+			charges.docs[0].user = ERASED_USER_ID;
+
+			await expect(service.handle(paid(), now)).resolves.toBe('needs_review');
+
+			expect(userSubscriptions.docs).toHaveLength(0);
+			expect(charges.docs[0].status).toBe('needs_review');
+			expect(charges.docs[0].reviewReason).toMatch(/conta do pagador excluída/);
 		});
 
 		it('pagamento desconhecido é ignorado (200 para o provedor parar de reenviar)', async () => {
