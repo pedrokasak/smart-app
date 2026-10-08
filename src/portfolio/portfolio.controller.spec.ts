@@ -8,6 +8,7 @@ import { SubscriptionService } from 'src/subscription/subscription.service';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
+import { PortfolioCorrelationService } from 'src/portfolio/risk/portfolio-correlation.service';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
 import { QUOTE_FRESHNESS_STORE } from 'src/market-data/quote-staleness/application/ports/quote-freshness.port';
@@ -71,6 +72,10 @@ describe('PortfolioController', () => {
 		getRiskContribution: jest.fn(),
 	};
 
+	const mockPortfolioCorrelationService = {
+		getCorrelation: jest.fn(),
+	};
+
 	const mockPortfolioHistoryBackfillService = {
 		backfill: jest.fn(),
 	};
@@ -118,6 +123,10 @@ describe('PortfolioController', () => {
 					useValue: mockPortfolioRiskContributionService,
 				},
 				{
+					provide: PortfolioCorrelationService,
+					useValue: mockPortfolioCorrelationService,
+				},
+				{
 					provide: PortfolioHistoryBackfillService,
 					useValue: mockPortfolioHistoryBackfillService,
 				},
@@ -153,6 +162,18 @@ describe('PortfolioController', () => {
 			userId: 'user7',
 			portfolioId: 'p1',
 		});
+	});
+
+	it('entrega a matriz de correlação do usuário autenticado', async () => {
+		const payload = { symbols: [], matrix: [] };
+		mockPortfolioCorrelationService.getCorrelation.mockResolvedValue(payload);
+
+		await expect(controller.getCorrelation(reqFor('user9'))).resolves.toBe(
+			payload
+		);
+		expect(mockPortfolioCorrelationService.getCorrelation).toHaveBeenCalledWith(
+			'user9'
+		);
 	});
 
 	it('entrega a contribuição de risco do usuário autenticado', async () => {

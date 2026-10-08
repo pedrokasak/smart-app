@@ -32,6 +32,7 @@ import {
 	MacroRiskFreeRateAdapter,
 } from 'src/portfolio/returns/macro-series.adapters';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
+import { PortfolioCorrelationService } from 'src/portfolio/risk/portfolio-correlation.service';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { upcomingDividendSchema } from 'src/portfolio/upcoming-dividends/upcoming-dividend.model';
 import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
@@ -95,6 +96,7 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		MacroInflationAdapter,
 		{ provide: INFLATION_PROVIDER, useExisting: MacroInflationAdapter },
 		PortfolioRiskContributionService,
+		PortfolioCorrelationService,
 		PortfolioHistoryBackfillService,
 		UpcomingDividendsService,
 		MongoQuoteFreshnessRepository,

@@ -33,6 +33,7 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
 import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio-composition.service';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
+import { PortfolioCorrelationService } from 'src/portfolio/risk/portfolio-correlation.service';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
@@ -91,6 +92,7 @@ export class PortfolioController {
 		private portfolioReturnsService: PortfolioReturnsService,
 		private portfolioCompositionService: PortfolioCompositionService,
 		private portfolioRiskContributionService: PortfolioRiskContributionService,
+		private portfolioCorrelationService: PortfolioCorrelationService,
 		private portfolioHistoryBackfillService: PortfolioHistoryBackfillService,
 		private upcomingDividendsService: UpcomingDividendsService,
 		@Inject(QUOTE_FRESHNESS_STORE)
@@ -383,6 +385,16 @@ export class PortfolioController {
 	}
 
 	@RequiresCapability('risk.analytics')
+	/**
+	 * Matriz de correlação das seis maiores posições (TRA-274), para a seção
+	 * "Performance e risco". Antes de `@Get(':id')`, pela ordem de rotas.
+	 */
+	@Get('correlation')
+	async getCorrelation(@Req() req: any) {
+		const userId = resolveUserId(req);
+		return this.portfolioCorrelationService.getCorrelation(userId);
+	}
+
 	@Get('risk-contribution')
 	async getRiskContribution(@Req() req: any) {
 		const userId = resolveUserId(req);
