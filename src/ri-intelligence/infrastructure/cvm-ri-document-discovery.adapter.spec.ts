@@ -128,7 +128,8 @@ describe('CvmRiDocumentDiscoveryAdapter', () => {
 		// teste nao tem. O `Protocolo_Entrega` do IPE e outro identificador e
 		// nao pode ser usado no lugar.
 		expect(doc.deliveryProtocol).toBeNull();
-		expect(doc.period).toBe('03T25');
+		// TRA-277: trimestre, nao mes ("03T25").
+		expect(doc.period).toBe('1T25');
 		expect(doc.cvmCategory).toBe('Comunicado ao Mercado');
 		expect(doc.cvmType).toBe('Resultados');
 	});

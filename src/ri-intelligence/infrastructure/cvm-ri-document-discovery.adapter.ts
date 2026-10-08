@@ -16,6 +16,7 @@ import { protocolFromCvmLink } from 'src/ri-intelligence/domain/cvm-protocol';
 import { classifyRiDocumentType } from 'src/ri-intelligence/domain/ri-document-classifier';
 import { periodFromReference } from 'src/ri-intelligence/domain/ri-document-period';
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
+import { onePerDocument } from 'src/ri-intelligence/infrastructure/ipe-row-dedupe';
 
 /**
  * Descoberta de documentos corporativos via dataset IPE da CVM
@@ -110,7 +111,16 @@ export class CvmRiDocumentDiscoveryAdapter implements RiDocumentDiscoveryPort {
 			return true;
 		});
 
-		const records = dedupedMatching
+		// Depois do link, o documento: reapresentacao e versao em ingles sao
+		// entregas diferentes do mesmo documento (TRA-277). So linhas validas
+		// entram, para uma linha sem link nao ocupar o lugar da versao boa.
+		const valid = dedupedMatching.filter(
+			(row) =>
+				String(row.Link_Download || '').trim() &&
+				this.parseDateIso(row.Data_Entrega)
+		);
+
+		const records = onePerDocument(valid)
 			.map((row) => this.toRecord(row, ticker, issuer.company))
 			.filter((record): record is RiDocumentRecord => Boolean(record))
 			.sort(
