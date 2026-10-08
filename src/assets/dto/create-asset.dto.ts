@@ -8,8 +8,15 @@ export class CreateAssetDto {
 	@IsString()
 	name?: string;
 
-	@IsEnum(['stock', 'fii', 'crypto', 'etf', 'fund', 'other'])
-	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
+	@IsEnum(['stock', 'fii', 'crypto', 'etf', 'fund', 'investment_fund', 'other'])
+	type:
+		| 'stock'
+		| 'fii'
+		| 'crypto'
+		| 'etf'
+		| 'fund'
+		| 'investment_fund'
+		| 'other';
 
 	@IsNumber()
 	@Min(0.00001)

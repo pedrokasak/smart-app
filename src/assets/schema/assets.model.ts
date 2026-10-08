@@ -23,7 +23,14 @@ export interface Asset extends Document {
 	 * conhecido ou não aplicável (cripto, renda fixa).
 	 */
 	sector?: string | null;
-	type: 'stock' | 'fii' | 'crypto' | 'etf' | 'fund' | 'other';
+	type:
+		| 'stock'
+		| 'fii'
+		| 'crypto'
+		| 'etf'
+		| 'fund'
+		| 'investment_fund'
+		| 'other';
 	quantity: number;
 	price: number; // Preço de entrada
 	avgPrice?: number; // Preço médio/custo (quando conhecido)
@@ -77,7 +84,15 @@ export const assetSchema = new Schema<Asset>(
 		},
 		type: {
 			type: String,
-			enum: ['stock', 'fii', 'crypto', 'etf', 'fund', 'other'],
+			enum: [
+				'stock',
+				'fii',
+				'crypto',
+				'etf',
+				'fund',
+				'investment_fund',
+				'other',
+			],
 			required: true,
 		},
 		quantity: {

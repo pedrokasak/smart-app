@@ -68,7 +68,10 @@ export class PortfolioEnrichService {
 	 */
 	async enrichAsset(asset: any) {
 		try {
-			if (asset.type === 'other') return asset;
+			// Fundo é cotado pela CVM (TRA-276), não pelos adapters de mercado.
+			if (asset.type === 'other' || asset.type === 'investment_fund') {
+				return asset;
+			}
 
 			// Usa o tipo já definido quando disponível para evitar sobrescrever (ex: ETF)
 			const assetType =

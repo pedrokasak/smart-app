@@ -82,6 +82,40 @@ describe('applyLatestQuotes', () => {
 		expect(asset).toBe(lca);
 	});
 
+	describe('fundo de investimento (TRA-276)', () => {
+		const fund: QuotableAsset = {
+			symbol: '00017024000153',
+			type: 'investment_fund',
+			quantity: 1000,
+			price: 40.12,
+			total: 40120,
+		};
+		const cvmQuote = {
+			symbol: '00017024000153',
+			lastQuoteAt: new Date('2026-09-30T03:00:00Z'),
+			lastPrice: 44.6557555,
+			source: 'CVM — Informe Diário',
+		};
+
+		it('vale cotas × cota da CVM', () => {
+			const [asset] = applyLatestQuotes([fund], [cvmQuote]);
+
+			expect(asset.currentPrice).toBe(44.6557555);
+			expect(asset.total).toBe(44655.76);
+			expect(asset.quoteAsOf).toBe('2026-09-30T03:00:00.000Z');
+			expect(asset.quoteSource).toBe('CVM — Informe Diário');
+		});
+
+		it('ignora a cota quando o preço informado é o valor aplicado', () => {
+			const typedAmount = { ...fund, quantity: 1, price: 10000, total: 10000 };
+
+			const [asset] = applyLatestQuotes([typedAmount], [cvmQuote]);
+
+			expect(asset.total).toBe(10000);
+			expect(asset.currentPrice).toBeUndefined();
+		});
+	});
+
 	it('ignora leitura sem preço e casa símbolo sem diferenciar maiúsculas', () => {
 		const [withoutPrice] = applyLatestQuotes(
 			[vbbr3],
