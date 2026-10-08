@@ -154,6 +154,26 @@ export function computeDailyReturns(params: {
 	return { returns, skipped };
 }
 
+/**
+ * TWR acumulado dia a dia, para desenhar a curva de retorno da carteira.
+ *
+ * Começa com a base (0) em `baseDate`: sem ela a curva já nasce no retorno do
+ * primeiro dia e o cliente, ao recortar a janela, não tem de onde rebasear.
+ */
+export function cumulativeReturns(
+	returns: DatedReturn[],
+	baseDate: string | null
+): DatedReturn[] {
+	if (returns.length === 0) return [];
+	const out: DatedReturn[] = baseDate ? [{ date: baseDate, value: 0 }] : [];
+	let growth = 1;
+	for (const point of returns) {
+		growth *= 1 + point.value;
+		out.push({ date: point.date, value: round6(growth - 1) });
+	}
+	return out;
+}
+
 export function computeTwr(params: {
 	series: DailyValuePoint[];
 	flows: DailyCashFlow[];
