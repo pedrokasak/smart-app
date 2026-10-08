@@ -15,6 +15,7 @@ import { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import { PortfolioHistory } from 'src/portfolio/schema/portfolio-history.model';
 import { computePortfolioSnapshot } from 'src/portfolio/history/compute-snapshot';
 import { nonTradingReason } from 'src/portfolio/history/trading-calendar';
+import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
 
 @Injectable()
 export class PortfolioService {
@@ -25,7 +26,8 @@ export class PortfolioService {
 		@InjectModel('PortfolioHistory')
 		private portfolioHistoryModel: Model<PortfolioHistory>,
 		@InjectModel('Asset') private assetModel: Model<Asset>,
-		private portfolioEnrichService: PortfolioEnrichService
+		private portfolioEnrichService: PortfolioEnrichService,
+		private readonly planQuota: PlanQuotaService
 	) {}
 
 	async findPortfolioById(portfolioId: string) {
@@ -217,39 +219,32 @@ export class PortfolioService {
 		return this.portfolioModel.findById(portfolioId);
 	}
 
+	/**
+	 * O limite de carteiras vem da cota do plano (TRA-197), não do nome do
+	 * plano: o controller antes passava o NOME ("Essencial", "Pro") e só
+	 * `'free'` era limitado, então quem tinha a assinatura do plano gratuito
+	 * escapava do limite. `userPlan` fica só como rótulo gravado na carteira.
+	 */
 	async createPortfolio(
 		userId: string,
 		createDto: CreatePortfolioDto,
 		userPlan: string = 'free'
 	) {
-		const portfolio = await this.portfolioModel.create({
+		return this.planQuota.createWithinQuota(
 			userId,
-			name: createDto.name,
-			ownerType: createDto.ownerType, // 'self', 'spouse', 'child'
-			ownerName: createDto.ownerName,
-			cpf: createDto.cpf ?? null,
-			assets: [],
-			plan: userPlan,
-		});
-
-		// Limite conferido DEPOIS de gravar, e desfeito se estourou (TRA-89).
-		//
-		// A ordem anterior era `countDocuments` e então `create`: duas
-		// requisições simultâneas contavam zero antes de qualquer uma gravar,
-		// e as duas passavam — plano free terminava com N carteiras. Contar
-		// depois da escrita faz a corrida ser observável: quem criou a
-		// segunda enxerga as duas e desfaz a própria.
-		if (userPlan === 'free') {
-			const count = await this.portfolioModel.countDocuments({ userId });
-			if (count > 1) {
-				await this.portfolioModel.deleteOne({ _id: portfolio._id });
-				throw new ForbiddenException(
-					'Limite de portfólios atingido. Faça upgrade para o plano Premium para criar mais portfólios.'
-				);
-			}
-		}
-
-		return portfolio;
+			'portfolios',
+			() =>
+				this.portfolioModel.create({
+					userId,
+					name: createDto.name,
+					ownerType: createDto.ownerType, // 'self', 'spouse', 'child'
+					ownerName: createDto.ownerName,
+					cpf: createDto.cpf ?? null,
+					assets: [],
+					plan: userPlan,
+				}),
+			(created) => this.portfolioModel.deleteOne({ _id: created._id })
+		);
 	}
 
 	async addAssetToPortfolio(
@@ -257,16 +252,30 @@ export class PortfolioService {
 		createAssetDto: CreateAssetDto,
 		source: 'manual' | 'b3' | 'webscrape' = 'manual'
 	) {
-		const asset = await this.assetModel.create({
-			portfolioId,
-			symbol: createAssetDto.symbol,
-			name: createAssetDto.name ?? null,
-			type: createAssetDto.type,
-			quantity: createAssetDto.quantity,
-			price: createAssetDto.price,
-			total: createAssetDto.quantity * createAssetDto.price,
-			source,
-		});
+		const owner = await this.portfolioModel
+			.findById(portfolioId)
+			.select('userId')
+			.lean();
+		if (!owner) {
+			throw new NotFoundException('Portfólio não encontrado.');
+		}
+
+		const asset = await this.planQuota.createWithinQuota(
+			String(owner.userId),
+			'assets',
+			() =>
+				this.assetModel.create({
+					portfolioId,
+					symbol: createAssetDto.symbol,
+					name: createAssetDto.name ?? null,
+					type: createAssetDto.type,
+					quantity: createAssetDto.quantity,
+					price: createAssetDto.price,
+					total: createAssetDto.quantity * createAssetDto.price,
+					source,
+				}),
+			(created) => this.assetModel.deleteOne({ _id: created._id })
+		);
 
 		const enriched = await this.portfolioEnrichService.enrichAsset(asset);
 

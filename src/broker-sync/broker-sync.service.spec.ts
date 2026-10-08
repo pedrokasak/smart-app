@@ -1,6 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BrokerSyncService } from './broker-sync.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
+import { unlimitedPlanQuota } from 'src/subscription/quotas/testing/unlimited-plan-quota';
+import { ForbiddenException } from '@nestjs/common';
 import { AssetsService } from 'src/assets/assets.service';
 import { BrokerConnectionModel } from './schema/broker-connection.model';
 import { Types } from 'mongoose';
@@ -48,6 +51,19 @@ describe('BrokerSyncService', () => {
 		addAssetToPortfolio: jest.fn(),
 	};
 
+	const mockPlanQuota = {
+		...unlimitedPlanQuota,
+		createWithinQuota: jest.fn<
+			Promise<unknown>,
+			[
+				string,
+				string,
+				() => Promise<unknown>,
+				(created: any) => Promise<unknown>,
+			]
+		>(async (_userId, _resource, create) => create()),
+	};
+
 	const mockAssetsService = {
 		findAssetBySymbolAndPortfolio: jest.fn(),
 		update: jest.fn(),
@@ -65,6 +81,7 @@ describe('BrokerSyncService', () => {
 					provide: AssetsService,
 					useValue: mockAssetsService,
 				},
+				{ provide: PlanQuotaService, useValue: mockPlanQuota },
 			],
 		}).compile();
 
@@ -256,6 +273,88 @@ describe('BrokerSyncService', () => {
 
 			expect(conexao.lastError).toBeNull();
 			expect(conexao.lastErrorCode).toBeNull();
+		});
+	});
+
+	describe('connect — cota de contas de corretora (TRA-197)', () => {
+		const userId = new Types.ObjectId().toString();
+		const dto = {
+			provider: 'binance',
+			apiKey: 'k',
+			apiSecret: 's',
+		} as any;
+
+		beforeEach(() => {
+			mockPlanQuota.createWithinQuota.mockClear();
+			jest.spyOn(service as any, 'encrypt').mockReturnValue('cifrado');
+		});
+
+		it('conexão nova passa pela cota de corretoras', async () => {
+			jest
+				.spyOn(BrokerConnectionModel, 'findOne')
+				.mockResolvedValue(null as any);
+			const create = jest
+				.spyOn(BrokerConnectionModel, 'create')
+				.mockResolvedValue({ _id: 'c1' } as any);
+
+			const result = await service.connect(userId, dto);
+
+			expect(mockPlanQuota.createWithinQuota).toHaveBeenCalledWith(
+				userId,
+				'broker_connections',
+				expect.any(Function),
+				expect.any(Function)
+			);
+			expect(create).toHaveBeenCalled();
+			expect(result.id).toBe('c1');
+		});
+
+		it('atualizar credencial de corretora já conectada não consome cota', async () => {
+			const existing = {
+				_id: 'c1',
+				save: jest.fn().mockResolvedValue(undefined),
+			};
+			jest
+				.spyOn(BrokerConnectionModel, 'findOne')
+				.mockResolvedValue(existing as any);
+
+			await service.connect(userId, dto);
+
+			expect(mockPlanQuota.createWithinQuota).not.toHaveBeenCalled();
+			expect(existing.save).toHaveBeenCalled();
+		});
+
+		it('cota estourada recusa sem gravar a conexão', async () => {
+			jest
+				.spyOn(BrokerConnectionModel, 'findOne')
+				.mockResolvedValue(null as any);
+			const create = jest.spyOn(BrokerConnectionModel, 'create');
+			mockPlanQuota.createWithinQuota.mockRejectedValueOnce(
+				new ForbiddenException('cota')
+			);
+
+			await expect(service.connect(userId, dto)).rejects.toThrow(
+				ForbiddenException
+			);
+			expect(create).not.toHaveBeenCalled();
+		});
+
+		it('desfazer a conexão que estourou a cota apaga só ela', async () => {
+			jest
+				.spyOn(BrokerConnectionModel, 'findOne')
+				.mockResolvedValue(null as any);
+			jest
+				.spyOn(BrokerConnectionModel, 'create')
+				.mockResolvedValue({ _id: 'c1' } as any);
+			const deleteOne = jest
+				.spyOn(BrokerConnectionModel, 'deleteOne')
+				.mockResolvedValue({} as any);
+			await service.connect(userId, dto);
+
+			const undo = mockPlanQuota.createWithinQuota.mock.calls[0][3];
+			await undo({ _id: 'c1' });
+
+			expect(deleteOne).toHaveBeenCalledWith({ _id: 'c1' });
 		});
 	});
 });

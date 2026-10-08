@@ -10,6 +10,7 @@ import { StripeService } from 'src/subscription/stripe.service';
 import { IS_PUBLIC_KEY } from 'src/utils/constants';
 import { RolesGuard } from 'src/auth/guards/roles.guard';
 import { Role } from 'src/auth/enums/role.enum';
+import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
 import { CheckoutConfirmationService } from './application/checkout-confirmation.service';
 import {
 	FREE_ACCESS_LEVEL,
@@ -73,6 +74,7 @@ describe('SubscriptionController', () => {
 	};
 
 	const req = { user: { userId: 'token-user' } };
+	const mockPlanQuotaService = { usageFor: jest.fn() };
 	const mockPlanResolver = {
 		resolve: jest.fn(),
 		resolveWithCapabilities: jest.fn(),
@@ -95,6 +97,7 @@ describe('SubscriptionController', () => {
 				{ provide: StripeService, useValue: mockStripeService },
 				{ provide: WebhooksService, useValue: mockWebhooksService },
 				{ provide: USER_PLAN_RESOLVER, useValue: mockPlanResolver },
+				{ provide: PlanQuotaService, useValue: mockPlanQuotaService },
 				{
 					provide: CheckoutConfirmationService,
 					useValue: mockCheckoutConfirmation,
@@ -390,6 +393,20 @@ describe('SubscriptionController', () => {
 				expect(rolesGuard.canActivate(context)).toBe(true);
 			}
 		);
+	});
+
+	describe('GET /subscription/quotas (TRA-197)', () => {
+		it('devolve uso e limite do usuário do token', async () => {
+			const usage = [{ resource: 'assets', used: 7, limit: 10 }];
+			mockPlanQuotaService.usageFor.mockResolvedValue(usage);
+
+			await expect(controller.getQuotas(req)).resolves.toEqual(usage);
+			expect(mockPlanQuotaService.usageFor).toHaveBeenCalledWith('token-user');
+		});
+
+		it('sem usuário autenticado é barrado', () => {
+			expect(() => controller.getQuotas({ user: {} })).toThrow();
+		});
 	});
 
 	describe('confirmação de checkout (incidente 27/09/2026)', () => {

@@ -7,6 +7,11 @@ import {
 } from '@nestjs/common';
 import { ALL_PLAN_CAPABILITIES } from 'src/subscription/application/user-plan.types';
 import {
+	ALL_PLAN_QUOTA_RESOURCES,
+	effectivePlanQuotas,
+	normalizePlanQuotas,
+} from 'src/subscription/application/plan-quotas';
+import {
 	countUsers,
 	UserCounter,
 } from 'src/admin/application/user-activity-metrics';
@@ -122,6 +127,10 @@ export class AdminService {
 		return plans.map((plan) => ({
 			...plan.toObject(),
 			activeSubscriberCount: countsByPlanId.get(String(plan._id)) || 0,
+			effectiveQuotas: effectivePlanQuotas(
+				normalizePlanQuotas(plan.quotas),
+				plan.accessLevel ?? 0
+			),
 		}));
 	}
 
@@ -264,6 +273,14 @@ export class AdminService {
 			// capability criada depois não fica negada por não estar na lista
 			// — cai no patamar padrão até o próximo save (TRA-193).
 			plan.capabilitiesKnown = [...ALL_PLAN_CAPABILITIES];
+		}
+		if (dto.quotas) {
+			// Por recurso: salvar só "ativos" não apaga o que o admin decidiu
+			// antes sobre carteiras e corretoras (TRA-197).
+			for (const resource of ALL_PLAN_QUOTA_RESOURCES) {
+				const value = dto.quotas[resource];
+				if (value !== undefined) plan.set(`quotas.${resource}`, value);
+			}
 		}
 		if (dto.maxUsers !== undefined) {
 			plan.maxUsers = dto.maxUsers;

@@ -10,6 +10,9 @@ import { UsersController } from 'src/users/users.controller';
 import { UsersModule } from 'src/users/users.module';
 import Stripe from 'stripe';
 import { USER_PLAN_RESOLVER } from 'src/subscription/application/user-plan.types';
+import { PLAN_QUOTA_USAGE } from 'src/subscription/application/plan-quotas';
+import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
+import { MongoPlanQuotaUsage } from 'src/subscription/quotas/mongo-plan-quota-usage';
 import { SubscriptionUserPlanResolver } from 'src/subscription/application/subscription-user-plan.resolver';
 import { PlanSyncService } from 'src/subscription/plan-sync/plan-sync.service';
 import { SubscriptionExpiryScheduler } from 'src/subscription/application/subscription-expiry.scheduler';
@@ -39,6 +42,8 @@ import { CheckoutConfirmationService } from 'src/subscription/application/checko
 		// Liberação do plano sem depender só do webhook (incidente 27/09/2026).
 		StripeSubscriptionSyncService,
 		CheckoutConfirmationService,
+		PlanQuotaService,
+		{ provide: PLAN_QUOTA_USAGE, useClass: MongoPlanQuotaUsage },
 		{
 			provide: Stripe,
 			useFactory: () =>
@@ -53,6 +58,7 @@ import { CheckoutConfirmationService } from 'src/subscription/application/checko
 		WebhooksService,
 		PlanSyncService,
 		USER_PLAN_RESOLVER,
+		PlanQuotaService,
 	],
 })
 export class SubscriptionModule {}

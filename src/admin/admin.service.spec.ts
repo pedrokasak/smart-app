@@ -38,6 +38,12 @@ describe('AdminService — updatePlan', () => {
 			...overrides,
 		};
 		plan.save = jest.fn().mockResolvedValue(plan);
+		// Mongoose grava caminho aninhado ("quotas.assets") com set().
+		plan.set = jest.fn((path: string, value: unknown) => {
+			const [root, key] = path.split('.');
+			plan[root] = { ...(plan[root] ?? {}), [key]: value };
+		});
+		plan.toObject = () => ({ ...plan });
 		return plan;
 	}
 
@@ -98,6 +104,65 @@ describe('AdminService — updatePlan', () => {
 			})
 		);
 	}
+
+	describe('cotas do plano (TRA-197)', () => {
+		it('grava só os recursos enviados e preserva o que já estava decidido', async () => {
+			const plan = buildPlan({ quotas: { portfolios: 3 } });
+			mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+			await service.updatePlan('plan_1', { quotas: { assets: 50 } } as any);
+
+			expect(plan.quotas).toEqual({ portfolios: 3, assets: 50 });
+			expect(plan.save).toHaveBeenCalled();
+		});
+
+		it('null grava "ilimitado" (não é o mesmo que não enviar)', async () => {
+			const plan = buildPlan();
+			mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+			await service.updatePlan('plan_1', {
+				quotas: { broker_connections: null },
+			} as any);
+
+			expect(plan.quotas).toEqual({ broker_connections: null });
+		});
+
+		it('payload sem quotas não mexe nas cotas', async () => {
+			const plan = buildPlan({ quotas: { assets: 7 } });
+			mockSubscriptionModel.findById.mockResolvedValue(plan);
+
+			await service.updatePlan('plan_1', { name: 'Outro nome' } as any);
+
+			expect(plan.set).not.toHaveBeenCalled();
+			expect(plan.quotas).toEqual({ assets: 7 });
+		});
+
+		it('a listagem mostra o limite efetivo: gravado manda, o resto vem do nível', async () => {
+			const essencial = buildPlan({
+				_id: 'p-free',
+				accessLevel: 0,
+				quotas: { assets: 25 },
+			});
+			const pro = buildPlan({ _id: 'p-pro', accessLevel: 10 });
+			mockSubscriptionModel.find = jest
+				.fn()
+				.mockReturnValue({ sort: async () => [essencial, pro] });
+			mockUserSubscriptionModel.aggregate = jest.fn().mockResolvedValue([]);
+
+			const plans = await service.listPlans();
+
+			expect(plans[0].effectiveQuotas).toEqual({
+				assets: 25,
+				portfolios: 1,
+				broker_connections: 1,
+			});
+			expect(plans[1].effectiveQuotas).toEqual({
+				assets: null,
+				portfolios: null,
+				broker_connections: 5,
+			});
+		});
+	});
 
 	it('provisiona o preço anual no Stripe e ignora annualStripePriceId vindo do cliente', async () => {
 		const plan = buildPlan();

@@ -9,6 +9,8 @@ import { SubscriptionController } from 'src/subscription/subscription.controller
 import { CreateSubscriptionDto } from 'src/subscription/dto';
 import { USER_PLAN_RESOLVER } from 'src/subscription/application/user-plan.types';
 import { CheckoutConfirmationService } from 'src/subscription/application/checkout-confirmation.service';
+import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
+import { unlimitedPlanQuota } from 'src/subscription/quotas/testing/unlimited-plan-quota';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -380,6 +382,7 @@ describe('SubscriptionController', () => {
 			providers: [
 				{ provide: SubscriptionService, useValue: mockSubscriptionService },
 				{ provide: USER_PLAN_RESOLVER, useValue: {} },
+				{ provide: PlanQuotaService, useValue: unlimitedPlanQuota },
 				{ provide: CheckoutConfirmationService, useValue: {} },
 			],
 		}).compile();

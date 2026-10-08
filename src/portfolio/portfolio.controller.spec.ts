@@ -1,7 +1,8 @@
-import { NotFoundException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PortfolioController } from './portfolio.controller';
 import { PortfolioService } from './portfolio.service';
+import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
 import { AssetsService } from 'src/assets/assets.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { PortfolioReturnsService } from 'src/portfolio/returns/portfolio-returns.service';
@@ -74,6 +75,10 @@ describe('PortfolioController', () => {
 		backfill: jest.fn(),
 	};
 
+	const mockPlanQuota = {
+		assertCanAdd: jest.fn().mockResolvedValue(undefined),
+	};
+
 	const mockQuoteFreshness = {
 		findBySymbols: jest.fn().mockResolvedValue([]),
 		recordReads: jest.fn(),
@@ -95,6 +100,7 @@ describe('PortfolioController', () => {
 					provide: AssetsService,
 					useValue: mockAssetsService,
 				},
+				{ provide: PlanQuotaService, useValue: mockPlanQuota },
 				{
 					provide: SubscriptionService,
 					useValue: mockSubscriptionService,
@@ -345,6 +351,92 @@ describe('PortfolioController', () => {
 				NotFoundException
 			);
 			expect(mockPortfolioService.deletePortfolio).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('importB3Report — cota de ativos (TRA-197)', () => {
+		const stockSheet = (symbols: string[]) => {
+			const workbook = xlsx.utils.book_new();
+			xlsx.utils.book_append_sheet(
+				workbook,
+				xlsx.utils.aoa_to_sheet([
+					[
+						'CNPJ da Empresa',
+						'Código de Negociação',
+						'Quantidade',
+						'Preço de Fechamento',
+						'Valor Atualizado',
+					],
+					...symbols.map((symbol) => [
+						'00.000.000/0001-00',
+						symbol,
+						10,
+						20,
+						200,
+					]),
+				]),
+				'Acoes'
+			);
+			return {
+				originalname: 'posicao-2026-09-14-09-56-05.xlsx',
+				mimetype:
+					'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+				buffer: xlsx.write(workbook, { type: 'buffer', bookType: 'xlsx' }),
+			};
+		};
+
+		beforeEach(() => {
+			mockPlanQuota.assertCanAdd.mockClear();
+			mockPortfolioService.addAssetToPortfolio = jest.fn();
+			(mockAssetsService as any).findAssetBySymbolAndPortfolio = jest.fn();
+		});
+
+		it('confere a cota com o número de ativos NOVOS antes de gravar qualquer um', async () => {
+			// PETR4 já existe na carteira; VALE3 e ITUB4 são novos.
+			(
+				mockAssetsService as any
+			).findAssetBySymbolAndPortfolio.mockImplementation(
+				async (_id: string, symbol: string) =>
+					symbol === 'PETR4' ? { _id: 'a1' } : null
+			);
+			mockPlanQuota.assertCanAdd.mockRejectedValueOnce(
+				new ForbiddenException('cota')
+			);
+
+			await expect(
+				controller.importB3Report(
+					'carteira-1',
+					stockSheet(['PETR4', 'VALE3', 'ITUB4']),
+					reqFor('user1')
+				)
+			).rejects.toThrow(ForbiddenException);
+
+			expect(mockPlanQuota.assertCanAdd).toHaveBeenCalledWith(
+				'user1',
+				'assets',
+				2
+			);
+			expect(mockPortfolioService.addAssetToPortfolio).not.toHaveBeenCalled();
+		});
+
+		it('relatório só com ativos que já existem não consome cota', async () => {
+			(
+				mockAssetsService as any
+			).findAssetBySymbolAndPortfolio.mockResolvedValue({
+				_id: 'a1',
+			});
+			(mockAssetsService as any).update = jest.fn().mockResolvedValue(null);
+			(mockAssetsService as any).upsertDividendHistoryEntries = jest.fn();
+
+			await controller
+				.importB3Report('carteira-1', stockSheet(['PETR4']), reqFor('user1'))
+				.catch(() => undefined);
+
+			expect(mockPlanQuota.assertCanAdd).toHaveBeenCalledWith(
+				'user1',
+				'assets',
+				0
+			);
 		});
 	});
 

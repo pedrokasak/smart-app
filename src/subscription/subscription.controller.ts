@@ -18,6 +18,7 @@ import { UpdateFeaturesDto } from './dto/update-features.dto';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { ConfirmCheckoutDto } from './dto/confirm-checkout.dto';
 import { CheckoutConfirmationService } from './application/checkout-confirmation.service';
+import { PlanQuotaService } from './quotas/plan-quota.service';
 import {
 	ApiBearerAuth,
 	ApiOperation,
@@ -57,7 +58,8 @@ export class SubscriptionController {
 		private readonly subscriptionService: SubscriptionService,
 		@Inject(USER_PLAN_RESOLVER)
 		private readonly planResolver: UserPlanResolverPort,
-		private readonly checkoutConfirmation: CheckoutConfirmationService
+		private readonly checkoutConfirmation: CheckoutConfirmationService,
+		private readonly planQuota: PlanQuotaService
 	) {}
 
 	@Get('current')
@@ -76,6 +78,14 @@ export class SubscriptionController {
 			// adivinhar por nome/nível de plano (TRA-200).
 			capabilities: effectiveCapabilities(access),
 		};
+	}
+
+	@Get('quotas')
+	@ApiOperation({
+		summary: 'Uso e limite de ativos, carteiras e contas de corretora',
+	})
+	getQuotas(@Req() req: any) {
+		return this.planQuota.usageFor(requireUserId(req));
 	}
 
 	@Get('invoices')

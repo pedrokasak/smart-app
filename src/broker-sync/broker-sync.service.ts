@@ -11,6 +11,7 @@ import { Types } from 'mongoose';
 import * as ccxt from 'ccxt';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { AssetsService } from 'src/assets/assets.service';
+import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
 import { UserModel } from 'src/users/schema/user.model';
 import { ProviderRegistry } from 'src/broker-sync/providers/provider-registry';
 import { createBrokerCredentialCipher } from 'src/broker-sync/security/credential-cipher.factory';
@@ -32,7 +33,8 @@ import {
 export class BrokerSyncService {
 	constructor(
 		private readonly portfolioService: PortfolioService,
-		private readonly assetsService: AssetsService
+		private readonly assetsService: AssetsService,
+		private readonly planQuota: PlanQuotaService
 	) {}
 
 	private readonly logger = new Logger(BrokerSyncService.name);
@@ -210,7 +212,14 @@ export class BrokerSyncService {
 			};
 		}
 
-		const connection = await BrokerConnectionModel.create(payload);
+		// Atualizar credencial de corretora já conectada não consome cota; só
+		// uma conexão nova conta (TRA-197).
+		const connection = await this.planQuota.createWithinQuota(
+			userId,
+			'broker_connections',
+			() => BrokerConnectionModel.create(payload),
+			(created) => BrokerConnectionModel.deleteOne({ _id: created._id })
+		);
 		return {
 			message: `${dto.provider} conectado com sucesso!`,
 			id: connection._id,

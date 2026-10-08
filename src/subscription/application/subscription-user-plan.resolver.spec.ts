@@ -148,6 +148,30 @@ describe('SubscriptionUserPlanResolver (TRA-79, TRA-182)', () => {
 			).toHaveBeenCalledTimes(1);
 		});
 
+		it('devolve as cotas gravadas no plano, ignorando valor inválido (TRA-197)', async () => {
+			subscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+				plan: {
+					name: 'Pro',
+					accessLevel: PRO_ACCESS_LEVEL,
+					quotas: { assets: 50, portfolios: null, broker_connections: -2 },
+				},
+			});
+
+			const access = await resolver.resolveWithCapabilities('user-1');
+
+			expect(access.quotas).toEqual({ assets: 50, portfolios: null });
+		});
+
+		it('plano sem cotas gravadas devolve quotas indefinido (vale o padrão do nível)', async () => {
+			subscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
+				plan: { name: 'Pro', accessLevel: PRO_ACCESS_LEVEL },
+			});
+
+			expect(
+				(await resolver.resolveWithCapabilities('user-1')).quotas
+			).toBeUndefined();
+		});
+
 		it('devolve capabilities vazio quando o plano nunca foi configurado', async () => {
 			subscriptionService.findCurrentSubscriptionByUser.mockResolvedValue({
 				plan: { name: 'Pro', accessLevel: PRO_ACCESS_LEVEL },
@@ -181,6 +205,9 @@ describe('SubscriptionUserPlanResolver (TRA-79, TRA-182)', () => {
 				{
 					tier: FREE_ACCESS_LEVEL,
 					capabilities: [],
+					// O nível gratuito é precaução, não leitura do plano (as cotas
+					// não podem ser cobradas com ele).
+					degraded: true,
 				}
 			);
 		});
