@@ -82,6 +82,41 @@ describe('CreateSubscriptionDto', () => {
 		expect(errors).toHaveLength(0);
 	});
 
+	describe('quotas (TRA-197)', () => {
+		const base = { name: 'Plano', price: 10, interval: 'month' };
+
+		it('aceita limites inteiros, zero e null (ilimitado)', async () => {
+			const dto = plainToInstance(CreateSubscriptionDto, {
+				...base,
+				quotas: { assets: 10, portfolios: 0, broker_connections: null },
+			});
+
+			expect(await validate(dto)).toHaveLength(0);
+			expect(dto.quotas?.broker_connections).toBeNull();
+		});
+
+		it('aceita informar só um recurso', async () => {
+			const dto = plainToInstance(CreateSubscriptionDto, {
+				...base,
+				quotas: { assets: 25 },
+			});
+
+			expect(await validate(dto)).toHaveLength(0);
+		});
+
+		it.each([
+			['negativo', { assets: -1 }],
+			['fracionado', { portfolios: 1.5 }],
+			['texto', { broker_connections: 'muitos' }],
+		])('recusa limite %s', async (_label, quotas) => {
+			const dto = plainToInstance(CreateSubscriptionDto, { ...base, quotas });
+
+			const errors = await validate(dto);
+
+			expect(errors.some((error) => error.property === 'quotas')).toBe(true);
+		});
+	});
+
 	it('rejects an unknown capability key', async () => {
 		const dto = plainToInstance(CreateSubscriptionDto, {
 			name: 'Plano',

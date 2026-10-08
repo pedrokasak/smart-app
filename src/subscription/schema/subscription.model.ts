@@ -1,4 +1,5 @@
 import { Schema, Document, model } from 'mongoose';
+import type { PlanQuotas } from '../application/plan-quotas';
 
 export interface Subscription extends Document {
 	name: string;
@@ -34,6 +35,12 @@ export interface Subscription extends Document {
 	 * `planHasCapability`.
 	 */
 	capabilitiesKnown?: string[];
+	/**
+	 * Cotas por recurso (TRA-197). `null` = ilimitado; recurso ausente = o
+	 * admin ainda não decidiu e vale o padrão do `accessLevel`. Ver
+	 * `planQuotaLimit`.
+	 */
+	quotas?: PlanQuotas;
 	maxUsers?: number;
 	/**
 	 * `true` (padrão): conteúdo do plano (nome, preço, features...) ainda é
@@ -73,6 +80,19 @@ const subscriptionSchema = new Schema<Subscription>({
 	capabilities: [{ type: String }],
 	// Sem `default: []`: ausência significa "gravado antes do TRA-193".
 	capabilitiesKnown: { type: [String], default: undefined },
+	// Sem default por campo: ausência significa "não decidido", e `null`
+	// significa "ilimitado" — os dois não podem se confundir.
+	quotas: {
+		type: new Schema(
+			{
+				assets: { type: Number, min: 0, default: undefined },
+				portfolios: { type: Number, min: 0, default: undefined },
+				broker_connections: { type: Number, min: 0, default: undefined },
+			},
+			{ _id: false }
+		),
+		default: undefined,
+	},
 	maxUsers: { type: Number },
 	catalogManaged: { type: Boolean, default: true },
 	createdAt: { type: Date, default: Date.now },

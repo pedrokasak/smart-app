@@ -8,9 +8,12 @@ import {
 	IsIn,
 	IsInt,
 	Min,
+	ValidateNested,
 } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ALL_PLAN_CAPABILITIES } from 'src/subscription/application/user-plan.types';
+import { PlanQuotasDto } from './plan-quotas.dto';
 
 export class CreateSubscriptionDto {
 	@ApiProperty({ description: 'Nome da assinatura' })
@@ -115,6 +118,16 @@ export class CreateSubscriptionDto {
 	@IsArray()
 	@IsIn(ALL_PLAN_CAPABILITIES, { each: true })
 	capabilities?: string[];
+
+	@ApiPropertyOptional({
+		description:
+			'Cotas do plano (TRA-197): ativos, carteiras e contas de corretora.',
+		type: PlanQuotasDto,
+	})
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => PlanQuotasDto)
+	quotas?: PlanQuotasDto;
 
 	@ApiPropertyOptional({ description: 'Número máximo de usuários permitidos' })
 	@IsOptional()

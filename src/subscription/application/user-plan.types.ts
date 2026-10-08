@@ -1,3 +1,5 @@
+import type { PlanQuotas } from './plan-quotas';
+
 /**
  * Nivel de acesso do usuario, em ordem crescente (TRA-79, TRA-182).
  *
@@ -149,6 +151,14 @@ export interface PlanAccess {
 	capabilities: string[];
 	/** Capabilities sobre as quais o admin decidiu ao salvar o plano. */
 	capabilitiesKnown?: string[];
+	/** Cotas gravadas no plano (TRA-197); ausente = padrão por `tier`. */
+	quotas?: PlanQuotas;
+	/**
+	 * A consulta do plano falhou e `tier` é o gratuito por precaução. Serve
+	 * para negar capability (falhar fechado), mas não é prova de que o usuário
+	 * é gratuito: cota não pode ser cobrada com esse nível.
+	 */
+	degraded?: boolean;
 }
 
 /** Capabilities que o plano libera de fato — mesma regra do gate. */

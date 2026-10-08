@@ -35,6 +35,7 @@ import { PortfolioCompositionService } from 'src/portfolio/composition/portfolio
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
+import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
@@ -93,7 +94,8 @@ export class PortfolioController {
 		private portfolioHistoryBackfillService: PortfolioHistoryBackfillService,
 		private upcomingDividendsService: UpcomingDividendsService,
 		@Inject(QUOTE_FRESHNESS_STORE)
-		private readonly quoteFreshness: QuoteFreshnessStore
+		private readonly quoteFreshness: QuoteFreshnessStore,
+		private readonly planQuota: PlanQuotaService
 	) {}
 
 	@Post('create')
@@ -732,6 +734,22 @@ export class PortfolioController {
 			dividendsBySymbol,
 			hasDatedDividends,
 		} = parseB3Workbook(workbook, reportDate);
+
+		// Tudo ou nada: sem isto, estourar a cota no meio deixava a carteira
+		// com metade do relatório (TRA-197).
+		const userId = resolveUserId(req);
+		const newSymbols = new Set<string>();
+		for (const { symbol } of parsedAssets) {
+			const key = String(symbol).toUpperCase();
+			if (newSymbols.has(key)) continue;
+			if (
+				!(await this.assetService.findAssetBySymbolAndPortfolio(id, symbol))
+			) {
+				newSymbols.add(key);
+			}
+		}
+		await this.planQuota.assertCanAdd(userId, 'assets', newSymbols.size);
+
 		const importedAssets = [];
 		let assetsCreated = 0;
 		let assetsUpdated = 0;

@@ -5,6 +5,7 @@ import { Model } from 'mongoose';
 import { Portfolio } from './schema/portfolio.model';
 import { PortfolioEnrichService } from './portfolio-enrich.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
+import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
 
 describe('PortfolioService', () => {
 	let service: PortfolioService;
@@ -24,6 +25,20 @@ describe('PortfolioService', () => {
 
 	const mockAssetModel = {
 		create: jest.fn(),
+		deleteOne: jest.fn(),
+	};
+
+	// Passa direto pela criação; a lógica da cota é testada em plan-quota.service.spec.
+	const mockPlanQuota = {
+		createWithinQuota: jest.fn<
+			Promise<unknown>,
+			[
+				string,
+				string,
+				() => Promise<unknown>,
+				(created: any) => Promise<unknown>,
+			]
+		>(async (_userId, _resource, create) => create()),
 	};
 
 	const mockPortfolioHistoryModel = {
@@ -35,6 +50,12 @@ describe('PortfolioService', () => {
 	};
 
 	beforeEach(async () => {
+		mockPlanQuota.createWithinQuota.mockClear();
+		mockPortfolioModel.create.mockClear();
+		mockPortfolioModel.deleteOne.mockClear();
+		mockAssetModel.create.mockClear();
+		mockAssetModel.deleteOne.mockClear();
+		mockPortfolioEnrichService.enrichAsset.mockClear();
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [
 				PortfolioService,
@@ -54,6 +75,7 @@ describe('PortfolioService', () => {
 					provide: PortfolioEnrichService,
 					useValue: mockPortfolioEnrichService,
 				},
+				{ provide: PlanQuotaService, useValue: mockPlanQuota },
 			],
 		}).compile();
 
@@ -65,67 +87,140 @@ describe('PortfolioService', () => {
 		expect(service).toBeDefined();
 	});
 
-	describe('createPortfolio', () => {
+	describe('createPortfolio (cota do plano, TRA-197)', () => {
 		const createDto = {
 			name: 'My Portfolio',
 			cpf: '123.456.789-00',
 			ownerType: 'self' as any,
 		};
 
-		it('should create a portfolio if user is free and has 0 portfolios', async () => {
-			// A contagem acontece DEPOIS da escrita: com uma carteira só, é a
-			// que acabou de ser criada.
-			mockPortfolioModel.countDocuments.mockResolvedValue(1);
+		it('cria a carteira pela cota de carteiras do usuário', async () => {
 			mockPortfolioModel.create.mockResolvedValue({ id: '1', ...createDto });
 
-			const result = await service.createPortfolio('user1', createDto, 'free');
-			expect(result).toBeDefined();
-			expect(mockPortfolioModel.create).toHaveBeenCalled();
+			const result = await service.createPortfolio('user1', createDto, 'Pro');
+
+			expect(mockPlanQuota.createWithinQuota).toHaveBeenCalledWith(
+				'user1',
+				'portfolios',
+				expect.any(Function),
+				expect.any(Function)
+			);
+			expect(mockPortfolioModel.create).toHaveBeenCalledWith(
+				expect.objectContaining({ userId: 'user1', plan: 'Pro' })
+			);
+			expect(result).toMatchObject({ id: '1' });
 		});
 
-		it('should throw ForbiddenException if user is free and has 1 or more portfolios', async () => {
-			mockPortfolioModel.create.mockResolvedValue({
-				_id: 'nova',
-				...createDto,
-			});
-			// Já existia uma; com a recém-criada são duas.
-			mockPortfolioModel.countDocuments.mockResolvedValue(2);
+		it('o nome do plano não decide o limite: quem assina o gratuito também passa pela cota', async () => {
+			mockPortfolioModel.create.mockResolvedValue({ id: '1', ...createDto });
+
+			await service.createPortfolio('user1', createDto, 'Essencial');
+
+			expect(mockPlanQuota.createWithinQuota).toHaveBeenCalledWith(
+				'user1',
+				'portfolios',
+				expect.any(Function),
+				expect.any(Function)
+			);
+		});
+
+		it('recusa quando a cota estoura, sem criar nada', async () => {
+			mockPlanQuota.createWithinQuota.mockRejectedValueOnce(
+				new ForbiddenException('cota')
+			);
 
 			await expect(
 				service.createPortfolio('user1', createDto, 'free')
 			).rejects.toThrow(ForbiddenException);
+			expect(mockPortfolioModel.create).not.toHaveBeenCalled();
 		});
 
-		it('desfaz a carteira que estourou o limite numa corrida (TRA-89)', async () => {
-			// Duas requisições simultâneas contavam zero antes de qualquer uma
-			// gravar e as duas passavam. Contando depois da escrita, a segunda
-			// enxerga as duas e remove a própria.
+		it('desfazer a carteira que estourou a cota apaga só ela', async () => {
 			mockPortfolioModel.create.mockResolvedValue({
 				_id: 'nova',
 				...createDto,
 			});
-			mockPortfolioModel.countDocuments.mockResolvedValue(2);
+			await service.createPortfolio('user1', createDto, 'free');
 
-			await expect(
-				service.createPortfolio('user1', createDto, 'free')
-			).rejects.toThrow(ForbiddenException);
+			const undo = mockPlanQuota.createWithinQuota.mock.calls[0][3];
+			await undo({ _id: 'nova' });
 
 			expect(mockPortfolioModel.deleteOne).toHaveBeenCalledWith({
 				_id: 'nova',
 			});
 		});
+	});
 
-		it('should create a portfolio if user is premium and has multiple portfolios', async () => {
-			mockPortfolioModel.countDocuments.mockResolvedValue(5);
-			mockPortfolioModel.create.mockResolvedValue({ id: '2', ...createDto });
+	describe('addAssetToPortfolio (cota do plano, TRA-197)', () => {
+		const assetDto = {
+			symbol: 'PETR4',
+			type: 'stock' as any,
+			quantity: 10,
+			price: 30,
+		};
 
-			const result = await service.createPortfolio(
-				'user1',
-				createDto,
-				'premium'
+		function ownerIs(userId: string | null) {
+			mockPortfolioModel.findById.mockReturnValue({
+				select: () => ({
+					lean: () => Promise.resolve(userId ? { userId } : null),
+				}),
+			});
+		}
+
+		it('conta o ativo na cota do DONO da carteira', async () => {
+			ownerIs('dono-1');
+			mockAssetModel.create.mockResolvedValue({ _id: 'a1' });
+			mockPortfolioEnrichService.enrichAsset.mockResolvedValue({ _id: 'a1' });
+			mockPortfolioModel.findByIdAndUpdate.mockResolvedValue({});
+			jest
+				.spyOn(service as any, 'recordHistorySnapshot')
+				.mockResolvedValue(undefined);
+
+			await service.addAssetToPortfolio('carteira-1', assetDto);
+
+			expect(mockPlanQuota.createWithinQuota).toHaveBeenCalledWith(
+				'dono-1',
+				'assets',
+				expect.any(Function),
+				expect.any(Function)
 			);
-			expect(result).toBeDefined();
-			expect(mockPortfolioModel.create).toHaveBeenCalled();
+		});
+
+		it('carteira inexistente não cria ativo órfão', async () => {
+			ownerIs(null);
+
+			await expect(
+				service.addAssetToPortfolio('fantasma', assetDto)
+			).rejects.toThrow(NotFoundException);
+			expect(mockAssetModel.create).not.toHaveBeenCalled();
+		});
+
+		it('cota estourada interrompe antes de enriquecer o ativo', async () => {
+			ownerIs('dono-1');
+			mockPlanQuota.createWithinQuota.mockRejectedValueOnce(
+				new ForbiddenException('cota')
+			);
+
+			await expect(
+				service.addAssetToPortfolio('carteira-1', assetDto)
+			).rejects.toThrow(ForbiddenException);
+			expect(mockPortfolioEnrichService.enrichAsset).not.toHaveBeenCalled();
+		});
+
+		it('desfazer o ativo que estourou a cota apaga só ele', async () => {
+			ownerIs('dono-1');
+			mockAssetModel.create.mockResolvedValue({ _id: 'a1' });
+			mockPortfolioEnrichService.enrichAsset.mockResolvedValue({ _id: 'a1' });
+			mockPortfolioModel.findByIdAndUpdate.mockResolvedValue({});
+			jest
+				.spyOn(service as any, 'recordHistorySnapshot')
+				.mockResolvedValue(undefined);
+			await service.addAssetToPortfolio('carteira-1', assetDto);
+
+			const undo = mockPlanQuota.createWithinQuota.mock.calls[0][3];
+			await undo({ _id: 'a1' });
+
+			expect(mockAssetModel.deleteOne).toHaveBeenCalledWith({ _id: 'a1' });
 		});
 	});
 
