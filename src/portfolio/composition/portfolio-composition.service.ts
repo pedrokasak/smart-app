@@ -3,6 +3,10 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { TargetAllocationService } from 'src/portfolio/target-allocation/target-allocation.service';
 import { computeYieldOnCost, type YieldOnCostResult } from './yield-on-cost';
 import {
+	computeConcentration,
+	type ConcentrationResult,
+} from 'src/portfolio/history/performance-metrics';
+import {
 	computeRebalancingGap,
 	type RebalancingGapResult,
 } from './rebalancing-gap';
@@ -19,6 +23,11 @@ import {
 export interface PortfolioCompositionOutput {
 	yield: YieldOnCostResult;
 	rebalancing: RebalancingGapResult;
+	/**
+	 * Concentração a valor de mercado (TRA-274): número efetivo de ativos,
+	 * HHI e maior peso. Contar posições engana; isto não.
+	 */
+	concentration: ConcentrationResult;
 	/** Por que algum bloco não pôde ser calculado. */
 	unavailable: string[];
 }
@@ -55,6 +64,20 @@ export class PortfolioCompositionService {
 			unavailable.push('dividend_history_missing');
 		}
 
-		return { yield: yieldResult, rebalancing, unavailable };
+		// Valor a MERCADO por símbolo; `total` é custo de aquisição.
+		const valueBySymbol = new Map<string, number>();
+		for (const asset of assets) {
+			const quantity = Number(asset?.quantity) || 0;
+			const price = Number(asset?.currentPrice) || Number(asset?.price) || 0;
+			const symbol = String(asset?.symbol || '').toUpperCase();
+			if (!symbol || !(quantity * price > 0)) continue;
+			valueBySymbol.set(
+				symbol,
+				(valueBySymbol.get(symbol) || 0) + quantity * price
+			);
+		}
+		const concentration = computeConcentration([...valueBySymbol.values()]);
+
+		return { yield: yieldResult, rebalancing, concentration, unavailable };
 	}
 }
