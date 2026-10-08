@@ -1,5 +1,6 @@
 import { HttpService } from '@nestjs/axios';
 import { of } from 'rxjs';
+import { buildZip } from 'src/common/zip/zip-builder.fixture';
 import { CvmRiDocumentDiscoveryAdapter } from 'src/ri-intelligence/infrastructure/cvm-ri-document-discovery.adapter';
 import {
 	RiIssuerCatalogPort,
@@ -128,7 +129,8 @@ describe('CvmRiDocumentDiscoveryAdapter', () => {
 		// teste nao tem. O `Protocolo_Entrega` do IPE e outro identificador e
 		// nao pode ser usado no lugar.
 		expect(doc.deliveryProtocol).toBeNull();
-		expect(doc.period).toBe('03T25');
+		// TRA-277: trimestre, nao mes ("03T25").
+		expect(doc.period).toBe('1T25');
 		expect(doc.cvmCategory).toBe('Comunicado ao Mercado');
 		expect(doc.cvmType).toBe('Resultados');
 	});
@@ -317,5 +319,46 @@ describe('CvmRiDocumentDiscoveryAdapter', () => {
 		});
 
 		expect(docs).toHaveLength(1);
+	});
+
+	// TRA-277: o IPE e Latin-1. Este teste passa pelo unzip de verdade.
+	it('reads the IPE CSV as Latin-1', async () => {
+		const year = new Date().getFullYear();
+		const csv = [
+			IPE_HEADER,
+			ipeRow({
+				Categoria: 'Dados Econômico-Financeiros',
+				Tipo: 'Press-release',
+				Especie: '',
+				Assunto: 'Earnings Release versão Português',
+				Data_Entrega: `${year}-01-15`,
+			}),
+		].join('\n');
+		const zip = buildZip([
+			{
+				name: `ipe_cia_aberta_${year}.csv`,
+				content: Buffer.from(csv, 'latin1'),
+			},
+		]);
+		const httpService = {
+			get: jest.fn().mockReturnValue(of({ data: zip } as any)),
+		} as unknown as HttpService;
+		const adapter = new CvmRiDocumentDiscoveryAdapter(
+			httpService,
+			makeCatalog(issuer)
+		);
+
+		const docs = await adapter.discover({
+			ticker: 'PETR4',
+			company: issuer.company,
+			origin: '',
+			dateFrom: `${year}-01-01`,
+			dateTo: `${year}-12-31`,
+		});
+
+		expect(docs).toHaveLength(1);
+		expect(docs[0].title).toBe(
+			'Dados Econômico-Financeiros - Press-release - Earnings Release versão Português'
+		);
 	});
 });

@@ -31,7 +31,8 @@ describe('deliveryToRecord (TRA-260)', () => {
 			documentType: 'material_fact',
 			// Data da entrega a meia-noite UTC, igual ao IPE (`Data_Entrega`).
 			publishedAt: '2026-09-28T00:00:00.000Z',
-			period: '09T26',
+			// TRA-277: data de um fato relevante nao e periodo ("09T26").
+			period: null,
 			source: { type: 'url', value: delivery().downloadUrl },
 			contentStatus: 'metadata_only',
 			deliveryProtocol: '1571942',
