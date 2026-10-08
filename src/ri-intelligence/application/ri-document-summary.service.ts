@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { createHash } from 'crypto';
 import {
 	RI_SUMMARY_CACHE,
@@ -6,6 +6,7 @@ import {
 } from 'src/ri-intelligence/application/ri-summary-cache.port';
 import {
 	RI_SUMMARY_SYNTHESIZER,
+	RiSummarySynthesisError,
 	RiSummarySynthesizerPort,
 } from 'src/ri-intelligence/application/ri-summary-synthesizer.port';
 import {
@@ -25,6 +26,7 @@ const SUMMARY_CACHE_VERSION = 'v2';
 
 @Injectable()
 export class RiDocumentSummaryService {
+	private readonly logger = new Logger(RiDocumentSummaryService.name);
 	private readonly minContentLength = 220;
 	// A chave carrega a hash do conteudo e o documento publicado nao muda:
 	// resumo vencido so faria pagar a mesma chamada de novo (TRA-238). Mudou
@@ -152,7 +154,22 @@ export class RiDocumentSummaryService {
 				await this.writeCache(protocolKey, output);
 			}
 			return output;
-		} catch (_error) {
+		} catch (error) {
+			// Antes o erro era descartado aqui, sem log: "IA falhou" não dizia se
+			// era cota do provedor, modelo inexistente, timeout ou o guardrail
+			// (TRA-275). Só o motivo vai para o log, nunca o conteúdo.
+			const failure =
+				error instanceof RiSummarySynthesisError
+					? error
+					: new RiSummarySynthesisError(
+							'provider_unavailable',
+							(error as Error)?.name || 'unknown'
+						);
+			this.logger.warn(
+				`Resumo de RI por IA falhou (${input.document.ticker || 'sem ticker'}): ` +
+					`${failure.kind} · ${failure.reason}` +
+					(failure.status ? ` · HTTP ${failure.status}` : '')
+			);
 			return this.buildOutput({
 				input,
 				structuredSignals,
@@ -160,7 +177,14 @@ export class RiDocumentSummaryService {
 				sourceLabel: 'structured_fallback',
 				highlights: [],
 				narrative: null,
-				limitations: ['ri_ai_summary_failed'],
+				// O genérico continua primeiro: o painel RI Watch lê o primeiro
+				// código. O segundo diz o que fazer.
+				limitations: [
+					'ri_ai_summary_failed',
+					failure.kind === 'rejected'
+						? 'ri_ai_summary_rejected'
+						: 'ri_ai_provider_unavailable',
+				],
 				cache: { key: cacheKey, hit: false, ttlSeconds: this.cacheTtlSeconds },
 				cost: { aiCalls: 1, tokenUsageEstimate: 0 },
 			});

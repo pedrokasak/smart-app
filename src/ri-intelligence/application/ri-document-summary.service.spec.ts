@@ -1,7 +1,12 @@
 import { describe, it, expect, jest } from '@jest/globals';
 import { RiDocumentSummaryService } from 'src/ri-intelligence/application/ri-document-summary.service';
 import { RiSummaryCachePort } from 'src/ri-intelligence/application/ri-summary-cache.port';
-import { RiSummarySynthesizerPort } from 'src/ri-intelligence/application/ri-summary-synthesizer.port';
+import { Logger } from '@nestjs/common';
+import {
+	RiSummaryFailureKind,
+	RiSummarySynthesisError,
+	RiSummarySynthesizerPort,
+} from 'src/ri-intelligence/application/ri-summary-synthesizer.port';
 import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 
 describe('RiDocumentSummaryService', () => {
@@ -108,6 +113,61 @@ describe('RiDocumentSummaryService', () => {
 			expect.arrayContaining(['ri_ai_summary_failed'])
 		);
 		expect(output.structuredSignals.profit.detected).toBe(true);
+	});
+
+	// TRA-275: o genérico continua primeiro (o painel RI Watch lê o primeiro
+	// código) e o segundo diz o que fazer.
+	it.each<[RiSummaryFailureKind, string]>([
+		['provider_unavailable', 'ri_ai_provider_unavailable'],
+		['rejected', 'ri_ai_summary_rejected'],
+	])('separa a falha %s em %s', async (kind, code) => {
+		const synthesizer: RiSummarySynthesizerPort = {
+			summarize: jest.fn(async () => {
+				throw new RiSummarySynthesisError(kind, 'motivo');
+			}) as any,
+		};
+		const service = new RiDocumentSummaryService(synthesizer, {
+			get: jest.fn(async () => null) as any,
+			set: jest.fn() as any,
+		});
+
+		const output = await service.summarize({
+			document: baseDocument,
+			content: longContent,
+		});
+
+		expect(output.summary.limitations).toEqual(['ri_ai_summary_failed', code]);
+	});
+
+	it('loga a falha com o motivo e sem o conteúdo', async () => {
+		const warn = jest
+			.spyOn(Logger.prototype, 'warn')
+			.mockImplementation(() => undefined);
+		const synthesizer: RiSummarySynthesizerPort = {
+			summarize: jest.fn(async () => {
+				throw new RiSummarySynthesisError(
+					'provider_unavailable',
+					'ri_summary_failed',
+					500
+				);
+			}) as any,
+		};
+		const service = new RiDocumentSummaryService(synthesizer, {
+			get: jest.fn(async () => null) as any,
+			set: jest.fn() as any,
+		});
+
+		await service.summarize({ document: baseDocument, content: longContent });
+
+		expect(warn).toHaveBeenCalledWith(
+			expect.stringContaining(
+				'provider_unavailable · ri_summary_failed · HTTP 500'
+			)
+		);
+		expect(String(warn.mock.calls[0][0])).not.toContain(
+			longContent.slice(0, 40)
+		);
+		warn.mockRestore();
 	});
 
 	it('returns cached summary when cache hit occurs', async () => {
