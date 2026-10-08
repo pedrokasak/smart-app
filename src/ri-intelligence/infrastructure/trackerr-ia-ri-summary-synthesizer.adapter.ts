@@ -3,6 +3,7 @@ import { Injectable } from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { trackerrIaHeaders } from 'src/ai/infrastructure/trackerr-ia-request';
 import {
+	RiSummarySynthesisError,
 	RiSummarySynthesisInput,
 	RiSummarySynthesisOutput,
 	RiSummarySynthesizerPort,
@@ -17,6 +18,53 @@ import { RiSummaryCitation } from 'src/ri-intelligence/application/ri-summary.ty
  * no mesmo ponto, entao mandar mais so gastaria rede.
  */
 export const RI_SYNTHESIS_MAX_CHARS = 60_000;
+
+/** `detail` do trackerr-ia vira motivo de log só se for um código curto. */
+const SAFE_REASON = /^[a-z0-9_]{1,60}$/;
+
+/**
+ * Traduz a falha da chamada HTTP em um motivo acionável (TRA-275). Antes, o
+ * erro subia cru e o serviço o descartava: "IA falhou" sem dizer se era cota
+ * do provedor, modelo inexistente, timeout ou o guardrail.
+ */
+export function classifySynthesisFailure(
+	error: unknown
+): RiSummarySynthesisError {
+	if (error instanceof RiSummarySynthesisError) return error;
+	const err = error as {
+		code?: string;
+		message?: string;
+		response?: { status?: number; data?: { detail?: unknown } };
+	};
+	const status = Number(err?.response?.status) || null;
+	const detail = err?.response?.data?.detail;
+	const safeDetail =
+		typeof detail === 'string' && SAFE_REASON.test(detail) ? detail : null;
+
+	if (status === 422) {
+		// Guardrail do trackerr-ia barrou a saída do modelo.
+		return new RiSummarySynthesisError(
+			'rejected',
+			safeDetail ?? 'rejected',
+			422
+		);
+	}
+	if (status !== null) {
+		return new RiSummarySynthesisError(
+			'provider_unavailable',
+			safeDetail ?? `http_${status}`,
+			status
+		);
+	}
+	const timedOut =
+		err?.code === 'ECONNABORTED' ||
+		err?.code === 'ETIMEDOUT' ||
+		/timeout/i.test(String(err?.message || ''));
+	return new RiSummarySynthesisError(
+		'provider_unavailable',
+		timedOut ? 'timeout' : 'network'
+	);
+}
 
 interface TrackerrIaRiSummaryResponse {
 	highlights?: unknown;
@@ -86,30 +134,38 @@ export class TrackerrIaRiSummarySynthesizerAdapter implements RiSummarySynthesiz
 		input: RiSummarySynthesisInput
 	): Promise<RiSummarySynthesisOutput> {
 		const { document } = input;
-		const response = await firstValueFrom(
-			this.httpService.post<TrackerrIaRiSummaryResponse>(
-				`${this.trackerIaUrl}/api/ri/summarize`,
-				{
-					// Cortes nos mesmos limites do schema do trackerr-ia: um titulo
-					// raspado longo demais viraria 422 e o documento nunca teria
-					// resumo por IA.
-					document: {
-						ticker: String(document.ticker || '').slice(0, 20),
-						company: String(document.company || '').slice(0, 200),
-						document_type: document.documentType,
-						title: document.title ? document.title.slice(0, 300) : null,
-						period: document.period ? document.period.slice(0, 40) : null,
-						published_at: document.publishedAt ?? null,
+		let response: { data?: TrackerrIaRiSummaryResponse };
+		try {
+			response = await firstValueFrom(
+				this.httpService.post<TrackerrIaRiSummaryResponse>(
+					`${this.trackerIaUrl}/api/ri/summarize`,
+					{
+						// Cortes nos mesmos limites do schema do trackerr-ia: um titulo
+						// raspado longo demais viraria 422 e o documento nunca teria
+						// resumo por IA.
+						document: {
+							ticker: String(document.ticker || '').slice(0, 20),
+							company: String(document.company || '').slice(0, 200),
+							document_type: document.documentType,
+							title: document.title ? document.title.slice(0, 300) : null,
+							period: document.period ? document.period.slice(0, 40) : null,
+							published_at: document.publishedAt ?? null,
+						},
+						content: String(input.content || '').slice(
+							0,
+							RI_SYNTHESIS_MAX_CHARS
+						),
+						structured_signals: input.structuredSignals,
 					},
-					content: String(input.content || '').slice(0, RI_SYNTHESIS_MAX_CHARS),
-					structured_signals: input.structuredSignals,
-				},
-				{
-					headers: trackerrIaHeaders(),
-					timeout: TrackerrIaRiSummarySynthesizerAdapter.TIMEOUT_MS,
-				}
-			)
-		);
+					{
+						headers: trackerrIaHeaders(),
+						timeout: TrackerrIaRiSummarySynthesizerAdapter.TIMEOUT_MS,
+					}
+				)
+			);
+		} catch (error) {
+			throw classifySynthesisFailure(error);
+		}
 
 		const data = response.data ?? {};
 		const highlights = Array.isArray(data.highlights)
@@ -122,7 +178,7 @@ export class TrackerrIaRiSummarySynthesizerAdapter implements RiSummarySynthesiz
 			typeof data.narrative === 'string' ? data.narrative.trim() : '';
 
 		if (!highlights.length && !narrative) {
-			throw new Error('ri_summary_empty');
+			throw new RiSummarySynthesisError('rejected', 'ri_summary_empty');
 		}
 
 		return {

@@ -4,6 +4,7 @@ import {
 	RI_SYNTHESIS_MAX_CHARS,
 	TrackerrIaRiSummarySynthesizerAdapter,
 } from 'src/ri-intelligence/infrastructure/trackerr-ia-ri-summary-synthesizer.adapter';
+import { RiSummarySynthesisError } from 'src/ri-intelligence/application/ri-summary-synthesizer.port';
 import { RiSummarySynthesisInput } from 'src/ri-intelligence/application/ri-summary-synthesizer.port';
 import { RiStructuredSignalItem } from 'src/ri-intelligence/application/ri-summary.types';
 
@@ -208,6 +209,83 @@ describe('TrackerrIaRiSummarySynthesizerAdapter (TRA-238)', () => {
 		);
 
 		await expect(adapter.summarize(makeInput())).rejects.toThrow();
+	});
+
+	// TRA-275: a falha precisa dizer o que fazer. Cota do provedor e modelo
+	// inexistente se resolvem com configuração; guardrail, não.
+	describe('classificação da falha', () => {
+		const httpError = (status: number, detail?: unknown) =>
+			Object.assign(new Error(`Request failed with status code ${status}`), {
+				response: { status, data: { detail } },
+			});
+
+		const failureOf = async () => {
+			try {
+				await adapter.summarize(makeInput());
+			} catch (error) {
+				return error as RiSummarySynthesisError;
+			}
+			throw new Error('esperava falha');
+		};
+
+		it('422 do guardrail vira rejected com o motivo', async () => {
+			httpService.post.mockReturnValue(
+				throwError(() => httpError(422, 'unsupported_claims'))
+			);
+
+			const failure = await failureOf();
+			expect(failure).toBeInstanceOf(RiSummarySynthesisError);
+			expect(failure.kind).toBe('rejected');
+			expect(failure.reason).toBe('unsupported_claims');
+		});
+
+		it('500 do trackerr-ia (provedor com cota esgotada) vira provider_unavailable', async () => {
+			httpService.post.mockReturnValue(
+				throwError(() => httpError(500, 'ri_summary_failed'))
+			);
+
+			const failure = await failureOf();
+			expect(failure.kind).toBe('provider_unavailable');
+			expect(failure.reason).toBe('ri_summary_failed');
+			expect(failure.status).toBe(500);
+		});
+
+		it('timeout vira provider_unavailable · timeout', async () => {
+			httpService.post.mockReturnValue(
+				throwError(() =>
+					Object.assign(new Error('timeout of 45000ms exceeded'), {
+						code: 'ECONNABORTED',
+					})
+				)
+			);
+
+			const failure = await failureOf();
+			expect(failure.kind).toBe('provider_unavailable');
+			expect(failure.reason).toBe('timeout');
+		});
+
+		it('erro de rede vira provider_unavailable · network', async () => {
+			httpService.post.mockReturnValue(
+				throwError(() =>
+					Object.assign(new Error('connect ECONNREFUSED'), {
+						code: 'ECONNREFUSED',
+					})
+				)
+			);
+
+			expect((await failureOf()).reason).toBe('network');
+		});
+
+		// O detail vai para o log: texto livre ali poderia carregar conteúdo.
+		it('descarta detail que não é um código curto', async () => {
+			httpService.post.mockReturnValue(
+				throwError(() =>
+					httpError(500, 'Erro: texto livre com dado do documento')
+				)
+			);
+
+			expect((await failureOf()).reason).toBe('http_500');
+		});
 	});
 
 	it('throws when trackerr-ia answers without content', async () => {
