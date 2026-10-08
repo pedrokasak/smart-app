@@ -144,9 +144,10 @@ export class InvestmentFundIngestionService {
 			});
 		}
 
-		if (results.some((result) => result.status === 'parsed')) {
-			await this.syncHoldings();
-		}
+		// Toda rodada, mesmo sem arquivo novo: posição criada depois da última
+		// leitura também precisa da cota gravada (histórico e digest leem
+		// `currentPrice` direto). É barato: só os CNPJs que alguém tem.
+		await this.syncHoldings();
 		return results;
 	}
 

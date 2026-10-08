@@ -154,7 +154,8 @@ describe('InvestmentFundIngestionService', () => {
 		expect(source.fetchDailyReport).toHaveBeenLastCalledWith('202610', 'sha-1');
 		expect(results).toEqual([{ competence: '202610', status: 'unchanged' }]);
 		expect(store.upsertLatestQuotes).not.toHaveBeenCalled();
-		expect(holdings.applyQuotes).not.toHaveBeenCalled();
+		// Posição criada depois da última leitura recebe a cota mesmo assim.
+		expect(holdings.applyQuotes).toHaveBeenCalled();
 	});
 
 	it('reports a missing month and keeps going', async () => {
