@@ -26,17 +26,15 @@ import { backfillSeries, type PriceLookup } from './backfill-series';
  * Com as negociações e os fechamentos históricos reais, a série de um ano sai
  * de uma vez.
  *
- * ## Não sobrescreve snapshot com cotação
+ * ## Nunca sobrescreve snapshot existente
  *
  * O snapshot do dia foi calculado com a cotação daquele momento e é a fonte
  * mais próxima da verdade. O backfill usa `$setOnInsert`: preenche o buraco.
  *
- * A exceção é o ponto gravado a custo (TRA-279): o que saiu de uma reconstrução
- * sem fechamento (`stale`) ou é anterior à TRA-143 (sem `investedValue`). Ele
- * não é cotação de ninguém; deixá-lo no lugar faz a diferença inteira entre
- * custo e mercado aparecer como rendimento de um dia só, quando o snapshot a
- * mercado começa. Esse ponto é trocado quando a reconstrução nova tiver menos
- * símbolos sem cotação.
+ * A única linha que ele troca é a que ele mesmo gravou a custo, por não ter
+ * achado fechamento naquela rodada (TRA-279). Ela é reconhecida sem ambiguidade
+ * (ver `ownCostOnlyPoint`), e a troca é entre duas reconstruções do mesmo
+ * conjunto de ativos — o snapshot, que valoriza a carteira inteira, nunca casa.
  *
  * ## Sem negociação, não reconstrói
  *
@@ -46,21 +44,34 @@ import { backfillSeries, type PriceLookup } from './backfill-series';
  */
 
 /**
- * Filtro do ponto existente que a reconstrução pode trocar: anterior à TRA-143
- * (valor era custo, sem `investedValue`) ou `stale` com mais símbolos sem
- * cotação do que a reconstrução nova. Snapshot com cotação nunca casa.
+ * Filtro da linha que esta reconstrução pode trocar (TRA-279): gravada por uma
+ * reconstrução anterior e toda a custo.
+ *
+ * - `createdAt` mais de dois dias depois de `date`: o snapshot diário grava o
+ *   próprio dia; só a reconstrução escreve no passado;
+ * - `stale` e valor igual ao custo: nenhuma cotação naquele ponto;
+ * - mais símbolos sem cotação do que o ponto novo: só troca se melhorar.
  */
-export function replaceableCostPoint(newStaleCount: number) {
+export function ownCostOnlyPoint(date: string, newStaleCount: number) {
+	const writtenAfter = new Date(`${date}T00:00:00.000Z`);
+	writtenAfter.setUTCDate(writtenAfter.getUTCDate() + 2);
 	return {
-		$or: [
-			{ investedValue: { $exists: false } },
-			{
-				stale: true,
-				$expr: {
+		stale: true,
+		investedValue: { $exists: true, $ne: null },
+		createdAt: { $gt: writtenAfter },
+		$expr: {
+			$and: [
+				{
+					$lte: [
+						{ $abs: { $subtract: ['$totalValue', '$investedValue'] } },
+						0.01,
+					],
+				},
+				{
 					$gt: [{ $size: { $ifNull: ['$staleSymbols', []] } }, newStaleCount],
 				},
-			},
-		],
+			],
+		},
 	};
 }
 
@@ -119,7 +130,7 @@ export class PortfolioHistoryBackfillService {
 	async backfill(params: { userId: string; portfolioId: string }): Promise<{
 		covered: boolean;
 		written: number;
-		/** Pontos a custo trocados por valor com fechamento (TRA-279). */
+		/** Linhas a custo da reconstrução anterior trocadas por mercado. */
 		replaced: number;
 		from: string | null;
 		to: string | null;
@@ -217,9 +228,6 @@ export class PortfolioHistoryBackfillService {
 				stale: point.stale,
 				staleSymbols: point.staleSymbols,
 				tradingDay: point.tradingDay,
-				...(point.nonTradingReason
-					? { nonTradingReason: point.nonTradingReason }
-					: {}),
 			};
 			return [
 				{
@@ -231,25 +239,21 @@ export class PortfolioHistoryBackfillService {
 								portfolioId: params.portfolioId,
 								date: point.date,
 								...fields,
+								nonTradingReason: point.nonTradingReason,
 							},
 						},
 						upsert: true,
 					},
 				},
 				{
-					// Sem upsert: só casa ponto que já existe e foi gravado a custo.
+					// Sem upsert: só casa a linha a custo da reconstrução anterior.
 					updateOne: {
 						filter: {
 							portfolioId: params.portfolioId,
 							date: point.date,
-							...replaceableCostPoint(point.staleSymbols.length),
+							...ownCostOnlyPoint(point.date, point.staleSymbols.length),
 						},
-						update: {
-							$set: fields,
-							...(point.nonTradingReason
-								? {}
-								: { $unset: { nonTradingReason: '' } }),
-						},
+						update: { $set: fields },
 					},
 				},
 			];
@@ -262,7 +266,7 @@ export class PortfolioHistoryBackfillService {
 		const replaced = Number(bulk?.modifiedCount) || 0;
 
 		this.logger.log(
-			`Histórico reconstruído para o portfólio ${params.portfolioId}: ${written} dia(s) gravado(s), ${replaced} ponto(s) a custo corrigido(s), de ${result.points.length} reconstruído(s).`
+			`Histórico reconstruído para o portfólio ${params.portfolioId}: ${written} dia(s) novo(s), ${replaced} dia(s) a custo trocado(s) por fechamento, de ${result.points.length} reconstruído(s).`
 		);
 
 		return {
