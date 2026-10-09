@@ -9,3 +9,16 @@ updates:
     groups:
       patch-and-minor:
         update-types: ["patch", "minor"]
+    # Bloqueios conhecidos (TRA-278). Sair deles exige migração, não bump.
+    ignore:
+      # A partir da 12 os pacotes do Nest são só ESM; o app é Nest 11 em CommonJS.
+      - dependency-name: "@nestjs/*"
+        update-types: ["version-update:semver-major"]
+      # Versões depois da 4.5.47 puxam @noble/curves só ESM e quebram o jest.
+      - dependency-name: "ccxt"
+      # A 0.45 não tem binário pré-compilado para o ambiente atual; é o hash de senha.
+      - dependency-name: "argon2"
+        update-types: ["version-update:semver-minor"]
+      # ESLint 9+ exige flat config (eslint.config.js); o projeto usa .eslintrc.js.
+      - dependency-name: "eslint"
+        update-types: ["version-update:semver-major"]
