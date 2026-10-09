@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { TaxEngineService } from 'src/fiscal/tax-engine/application/tax-engine.service';
+import type { InvestmentPolicy } from 'src/investment-policy/domain/investment-policy';
 import { PortfolioIntelligenceService } from 'src/portfolio/intelligence/application/portfolio-intelligence.service';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
 import {
@@ -6,6 +8,21 @@ import {
 	PortfolioErrorRadarAlertType,
 	PortfolioErrorRadarOutput,
 } from 'src/intelligence/application/portfolio-error-radar.types';
+import {
+	RadarHolding,
+	classLabel,
+	formatPctBr,
+	withEvidence,
+} from 'src/intelligence/application/radar-evidence';
+import type { PortfolioIntelligenceOutput } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
+
+export interface RadarUserContext {
+	policy: InvestmentPolicy;
+	holdings: RadarHolding[];
+	/** Data da cotação mais recente entre as posições (ISO), se houver. */
+	pricesAsOf: string | null;
+	now?: Date;
+}
 
 const CONCENTRATION_CODES = new Set([
 	'ASSET_CONCENTRATION_HIGH',
@@ -51,21 +68,83 @@ type TopEntries = {
 @Injectable()
 export class PortfolioErrorRadarService {
 	constructor(
-		private readonly portfolioIntelligenceService: PortfolioIntelligenceService
+		private readonly portfolioIntelligenceService: PortfolioIntelligenceService,
+		private readonly taxEngineService: TaxEngineService
 	) {}
 
 	detect(
 		positions: PortfolioIntelligencePosition[]
 	): PortfolioErrorRadarOutput {
+		return this.run(positions).output;
+	}
+
+	/**
+	 * O radar com o contexto do usuário (Insights IA): cada alerta traz o
+	 * número, o limite da política e, quando dá, a venda que volta ao limite
+	 * com o IR estimado. A política também gera alertas próprios.
+	 */
+	detectForUser(
+		positions: PortfolioIntelligencePosition[],
+		context: RadarUserContext
+	): PortfolioErrorRadarOutput {
+		const { output, analysis } = this.run(positions);
+		if (!analysis) return { ...output, pricesAsOf: context.pricesAsOf };
+
+		const count = analysis.facts.positionsCount;
+		const basis = context.pricesAsOf
+			? `Valor de mercado de ${count} posição(ões), com cotações até ${new Date(context.pricesAsOf).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}.`
+			: `Valor de mercado de ${count} posição(ões), com a última cotação gravada de cada uma.`;
+		const now = context.now ?? new Date();
+
+		return {
+			...output,
+			pricesAsOf: context.pricesAsOf,
+			alerts: withEvidence(output.alerts, {
+				analysis,
+				policy: context.policy,
+				holdings: context.holdings,
+				basis,
+				estimateTax: (holding, quantity) => {
+					try {
+						const impact = this.taxEngineService.simulateSaleImpact({
+							symbol: holding.symbol,
+							assetType: holding.assetType,
+							quantityToSell: quantity,
+							sellPrice: holding.price,
+							simulatedSellDate: now.toISOString(),
+							currentPosition: {
+								quantity: holding.quantity,
+								totalCost: holding.totalCost ?? 0,
+							},
+						});
+						return {
+							estimatedTax: impact.estimatedTax,
+							classification: impact.classification,
+						};
+					} catch {
+						return null;
+					}
+				},
+			}),
+		};
+	}
+
+	private run(positions: PortfolioIntelligencePosition[]): {
+		output: PortfolioErrorRadarOutput;
+		analysis: PortfolioIntelligenceOutput | null;
+	} {
 		const safePositions = positions || [];
 
 		if (safePositions.length === 0) {
 			return {
-				modelVersion: 'portfolio_error_radar_v1',
-				status: 'insufficient_data',
-				riskLevel: null,
-				alerts: [],
-				positionsCount: 0,
+				analysis: null,
+				output: {
+					modelVersion: 'portfolio_error_radar_v1',
+					status: 'insufficient_data',
+					riskLevel: null,
+					alerts: [],
+					positionsCount: 0,
+				},
 			};
 		}
 
@@ -88,11 +167,14 @@ export class PortfolioErrorRadarService {
 		);
 
 		return {
-			modelVersion: 'portfolio_error_radar_v1',
-			status: 'ok',
-			riskLevel: risk.level,
-			alerts,
-			positionsCount: safePositions.length,
+			analysis,
+			output: {
+				modelVersion: 'portfolio_error_radar_v1',
+				status: 'ok',
+				riskLevel: risk.level,
+				alerts,
+				positionsCount: safePositions.length,
+			},
 		};
 	}
 
@@ -121,7 +203,7 @@ export class PortfolioErrorRadarService {
 
 	private resolveMessage(code: string, top: TopEntries): string {
 		const pct = (value: number | undefined) =>
-			typeof value === 'number' ? value.toFixed(1) : null;
+			typeof value === 'number' ? formatPctBr(value) : null;
 
 		switch (code) {
 			case 'ASSET_CONCENTRATION_HIGH':
@@ -135,7 +217,7 @@ export class PortfolioErrorRadarService {
 			case 'CLASS_CONCENTRATION_HIGH': {
 				const p = pct(top.classPct);
 				return p
-					? `${top.classKey} representa ${p}% da carteira, acima do limite recomendado.`
+					? `${classLabel(top.classKey)} representa ${p}% da carteira, acima do limite recomendado.`
 					: 'Uma classe de ativo concentra uma parcela alta da carteira, acima do limite recomendado.';
 			}
 			case 'SECTOR_CONCENTRATION_HIGH':
