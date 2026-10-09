@@ -3,6 +3,7 @@ import {
 	computeTwr,
 	computeDailyReturns,
 	computeXirr,
+	costOfPositionsWithoutTrades,
 	cumulativeReturns,
 	decomposeContribution,
 } from './returns';
@@ -421,5 +422,44 @@ describe('computeDailyReturns: só encadeia dias comparáveis (TRA-279)', () => 
 		expect(result.twr).not.toBeNull();
 		expect(result.twr as number).toBeGreaterThan(-0.05);
 		expect(result.twr as number).toBeLessThan(0.1);
+	});
+});
+
+describe('costOfPositionsWithoutTrades (TRA-279)', () => {
+	// O caso real: CEBR3, GOLD11 e a LCA vieram do relatório consolidado, sem
+	// nota. Fora do aportado, o valor delas virava "o mercado rendeu +170%".
+	it('soma o custo de entrada só das posições sem negociação', () => {
+		const cost = costOfPositionsWithoutTrades(
+			[
+				{ symbol: 'BBAS3', quantity: 69, price: 21.92 },
+				{ symbol: 'CEBR3', quantity: 20, price: 26.79 },
+				{ symbol: 'GOLD11', quantity: 3, price: 24.77 },
+				{ symbol: '25F08539417', quantity: 1, price: 1068.35 },
+			],
+			new Set(['BBAS3'])
+		);
+
+		expect(cost).toBeCloseTo(20 * 26.79 + 3 * 24.77 + 1068.35, 2);
+	});
+
+	it('casa símbolo sem diferenciar maiúscula', () => {
+		expect(
+			costOfPositionsWithoutTrades(
+				[{ symbol: 'petr4', quantity: 10, price: 30 }],
+				new Set(['PETR4'])
+			)
+		).toBe(0);
+	});
+
+	it('ignora posição zerada ou sem preço de entrada', () => {
+		expect(
+			costOfPositionsWithoutTrades(
+				[
+					{ symbol: 'BTTC', quantity: 65, price: 0 },
+					{ symbol: 'VALE3', quantity: 0, price: 60 },
+				],
+				new Set()
+			)
+		).toBe(0);
 	});
 });

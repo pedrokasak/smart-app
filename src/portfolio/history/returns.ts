@@ -96,6 +96,37 @@ export function decomposeContribution(params: {
 	};
 }
 
+export interface HeldPosition {
+	symbol: string;
+	quantity: number;
+	/** Preço de entrada: o mesmo que o snapshot usa como custo. */
+	price: number;
+}
+
+/**
+ * Custo das posições que nenhuma negociação explica (TRA-279): ativos vindos
+ * do relatório consolidado da B3, de sincronização de cripto ou de cadastro
+ * manual. Sem isso o aportado só via as notas, e o valor inteiro dessas
+ * posições aparecia como rendimento ("o mercado rendeu +170%").
+ *
+ * O custo é o mesmo do `investedValue` do snapshot (quantidade × preço de
+ * entrada) — para o consolidado, o preço da data do relatório.
+ */
+export function costOfPositionsWithoutTrades(
+	positions: HeldPosition[],
+	tradedSymbols: Set<string>
+): number {
+	let total = 0;
+	for (const position of positions || []) {
+		const symbol = String(position?.symbol || '').toUpperCase();
+		if (!symbol || tradedSymbols.has(symbol)) continue;
+		const quantity = Number(position?.quantity) || 0;
+		const price = Number(position?.price) || 0;
+		if (quantity > 0 && price > 0) total += quantity * price;
+	}
+	return round2(total);
+}
+
 /**
  * TWR por encadeamento diário.
  *

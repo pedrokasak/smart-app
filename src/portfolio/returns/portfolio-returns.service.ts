@@ -9,6 +9,7 @@ import {
 	computeDailyReturns,
 	computeTwr,
 	computeXirr,
+	costOfPositionsWithoutTrades,
 	cumulativeReturns,
 	decomposeContribution,
 	type DailyValuePoint,
@@ -186,30 +187,34 @@ export class PortfolioReturnsService {
 		private readonly portfolioService: PortfolioService
 	) {}
 
-	/** Peso de FII na carteira, a valor de mercado. 0 quando não dá pra saber. */
-	private async fiiSharePct(userId: string): Promise<number> {
+	/** Ativos de todas as carteiras do usuário. Falha vira lista vazia. */
+	private async userAssets(userId: string): Promise<any[]> {
 		try {
 			const portfolios = await this.portfolioService.getUserPortfolios(userId);
-			const assets = (portfolios || []).flatMap((portfolio: any) =>
+			return (portfolios || []).flatMap((portfolio: any) =>
 				Array.isArray(portfolio?.assets) ? portfolio.assets : []
 			);
-			let total = 0;
-			let fii = 0;
-			for (const asset of assets) {
-				const quantity = Number(asset?.quantity) || 0;
-				const price = Number(asset?.currentPrice) || Number(asset?.price) || 0;
-				const value = quantity * price;
-				if (!(value > 0)) continue;
-				total += value;
-				if (String(asset?.type) === 'fii') fii += value;
-			}
-			return total > 0 ? (fii / total) * 100 : 0;
 		} catch (error) {
 			this.logger.warn(
-				`Não foi possível medir a fatia de FII: ${(error as Error)?.message || error}`
+				`Ativos do usuário indisponíveis: ${(error as Error)?.message || error}`
 			);
-			return 0;
+			return [];
 		}
+	}
+
+	/** Peso de FII na carteira, a valor de mercado. 0 quando não dá pra saber. */
+	private fiiSharePct(assets: any[]): number {
+		let total = 0;
+		let fii = 0;
+		for (const asset of assets) {
+			const quantity = Number(asset?.quantity) || 0;
+			const price = Number(asset?.currentPrice) || Number(asset?.price) || 0;
+			const value = quantity * price;
+			if (!(value > 0)) continue;
+			total += value;
+			if (String(asset?.type) === 'fii') fii += value;
+		}
+		return total > 0 ? (fii / total) * 100 : 0;
 	}
 
 	/**
@@ -217,13 +222,13 @@ export class PortfolioReturnsService {
 	 * provedor pode não ter o IFIX), cai para o IBOV e avisa — nunca devolve
 	 * beta contra um índice que não foi o usado.
 	 */
-	private async resolveBenchmark(userId: string): Promise<{
+	private async resolveBenchmark(assets: any[]): Promise<{
 		symbol: string;
 		label: string;
 		closes: { date: string; close: number }[];
 		fallback: boolean;
 	}> {
-		const fiiShare = await this.fiiSharePct(userId);
+		const fiiShare = this.fiiSharePct(assets);
 		const preferred = fiiShare > FII_DOMINANCE_PCT ? IFIX : IBOV;
 
 		const closes = await this.marketData.getDailyCloses(
@@ -363,9 +368,19 @@ export class PortfolioReturnsService {
 			unavailable.push('cash_flows_missing');
 		}
 
+		const assets = await this.userAssets(userId);
+		const untradedCost = costOfPositionsWithoutTrades(
+			assets.map((asset: any) => ({
+				symbol: asset?.symbol,
+				quantity: asset?.quantity,
+				price: asset?.price,
+			})),
+			new Set(trades.map((trade) => String(trade.symbol || '').toUpperCase()))
+		);
+
 		const contribution = decomposeContribution({
 			currentValue,
-			netContribution: flows.netContribution,
+			netContribution: flows.netContribution + untradedCost,
 		});
 
 		const twrResult = computeTwr({ series, flows: flows.byDay });
@@ -387,7 +402,10 @@ export class PortfolioReturnsService {
 		}
 
 		let irr: number | null = null;
-		if (flows.covered && to && currentValue > 0) {
+		// Posição sem nota não tem data de entrada do dinheiro: a TIR ignoraria
+		// esse aporte e sairia inflada. Melhor declarar a lacuna (TRA-279).
+		if (untradedCost > 0) unavailable.push('irr_positions_without_trades');
+		if (flows.covered && untradedCost === 0 && to && currentValue > 0) {
 			const irrFlows: IrrCashFlow[] = flows.byDay.map((point) => ({
 				date: point.date,
 				amount: point.flow,
@@ -407,7 +425,7 @@ export class PortfolioReturnsService {
 		});
 		const twrSeries = cumulativeReturns(portfolioReturns, baseDate);
 		const [benchmark, riskFreeDaily, ipca] = await Promise.all([
-			this.resolveBenchmark(userId),
+			this.resolveBenchmark(assets),
 			this.fetchRiskFreeDaily(
 				portfolioReturns[0]?.date,
 				portfolioReturns[portfolioReturns.length - 1]?.date
