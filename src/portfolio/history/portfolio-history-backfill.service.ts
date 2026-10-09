@@ -29,7 +29,12 @@ import { backfillSeries, type PriceLookup } from './backfill-series';
  * ## Nunca sobrescreve snapshot existente
  *
  * O snapshot do dia foi calculado com a cotação daquele momento e é a fonte
- * mais próxima da verdade. O backfill usa `$setOnInsert`: preenche só o buraco.
+ * mais próxima da verdade. O backfill usa `$setOnInsert`: preenche o buraco.
+ *
+ * A única linha que ele troca é a que ele mesmo gravou a custo, por não ter
+ * achado fechamento naquela rodada (TRA-279). Ela é reconhecida sem ambiguidade
+ * (ver `ownCostOnlyPoint`), e a troca é entre duas reconstruções do mesmo
+ * conjunto de ativos — o snapshot, que valoriza a carteira inteira, nunca casa.
  *
  * ## Sem negociação, não reconstrói
  *
@@ -37,6 +42,38 @@ import { backfillSeries, type PriceLookup } from './backfill-series';
  * devolve `covered: false` e nada é gravado — projetar a posição de hoje para
  * trás seria ficção (precedente TRA-55).
  */
+
+/**
+ * Filtro da linha que esta reconstrução pode trocar (TRA-279): gravada por uma
+ * reconstrução anterior e toda a custo.
+ *
+ * - `createdAt` mais de dois dias depois de `date`: o snapshot diário grava o
+ *   próprio dia; só a reconstrução escreve no passado;
+ * - `stale` e valor igual ao custo: nenhuma cotação naquele ponto;
+ * - mais símbolos sem cotação do que o ponto novo: só troca se melhorar.
+ */
+export function ownCostOnlyPoint(date: string, newStaleCount: number) {
+	const writtenAfter = new Date(`${date}T00:00:00.000Z`);
+	writtenAfter.setUTCDate(writtenAfter.getUTCDate() + 2);
+	return {
+		stale: true,
+		investedValue: { $exists: true, $ne: null },
+		createdAt: { $gt: writtenAfter },
+		$expr: {
+			$and: [
+				{
+					$lte: [
+						{ $abs: { $subtract: ['$totalValue', '$investedValue'] } },
+						0.01,
+					],
+				},
+				{
+					$gt: [{ $size: { $ifNull: ['$staleSymbols', []] } }, newStaleCount],
+				},
+			],
+		},
+	};
+}
 
 /** Teto de símbolos por reconstrução: a fonte de preço é rate-limited. */
 const MAX_SYMBOLS = 40;
@@ -93,6 +130,8 @@ export class PortfolioHistoryBackfillService {
 	async backfill(params: { userId: string; portfolioId: string }): Promise<{
 		covered: boolean;
 		written: number;
+		/** Linhas a custo da reconstrução anterior trocadas por mercado. */
+		replaced: number;
 		from: string | null;
 		to: string | null;
 		missingSymbols: string[];
@@ -100,6 +139,7 @@ export class PortfolioHistoryBackfillService {
 		const empty = {
 			covered: false,
 			written: 0,
+			replaced: 0,
 			from: null,
 			to: null,
 			missingSymbols: [] as string[],
@@ -181,38 +221,58 @@ export class PortfolioHistoryBackfillService {
 			return { ...empty, missingSymbols };
 		}
 
-		const operations = result.points.map((point) => ({
-			updateOne: {
-				filter: { portfolioId: params.portfolioId, date: point.date },
-				update: {
-					$setOnInsert: {
-						userId: params.userId,
-						portfolioId: params.portfolioId,
-						date: point.date,
-						totalValue: point.totalValue,
-						investedValue: point.investedValue,
-						stale: point.stale,
-						staleSymbols: point.staleSymbols,
-						tradingDay: point.tradingDay,
-						nonTradingReason: point.nonTradingReason,
+		const operations = result.points.flatMap((point) => {
+			const fields = {
+				totalValue: point.totalValue,
+				investedValue: point.investedValue,
+				stale: point.stale,
+				staleSymbols: point.staleSymbols,
+				tradingDay: point.tradingDay,
+			};
+			return [
+				{
+					updateOne: {
+						filter: { portfolioId: params.portfolioId, date: point.date },
+						update: {
+							$setOnInsert: {
+								userId: params.userId,
+								portfolioId: params.portfolioId,
+								date: point.date,
+								...fields,
+								nonTradingReason: point.nonTradingReason,
+							},
+						},
+						upsert: true,
 					},
 				},
-				upsert: true,
-			},
-		}));
+				{
+					// Sem upsert: só casa a linha a custo da reconstrução anterior.
+					updateOne: {
+						filter: {
+							portfolioId: params.portfolioId,
+							date: point.date,
+							...ownCostOnlyPoint(point.date, point.staleSymbols.length),
+						},
+						update: { $set: fields },
+					},
+				},
+			];
+		});
 
 		const bulk = await this.historyModel.bulkWrite(operations as any, {
 			ordered: false,
 		});
 		const written = Number(bulk?.upsertedCount) || 0;
+		const replaced = Number(bulk?.modifiedCount) || 0;
 
 		this.logger.log(
-			`Histórico reconstruído para o portfólio ${params.portfolioId}: ${written} dia(s) gravado(s) de ${result.points.length} reconstruído(s).`
+			`Histórico reconstruído para o portfólio ${params.portfolioId}: ${written} dia(s) novo(s), ${replaced} dia(s) a custo trocado(s) por fechamento, de ${result.points.length} reconstruído(s).`
 		);
 
 		return {
 			covered: true,
 			written,
+			replaced,
 			from: result.points[0].date,
 			to: result.points[result.points.length - 1].date,
 			missingSymbols,
