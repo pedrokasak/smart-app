@@ -39,8 +39,8 @@ import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.
 import { AssetOpinionOutput } from 'src/intelligence/application/asset-opinion.types';
 import { AssetOpinionRequestDto } from './dto/asset-opinion-request.dto';
 import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
-import { PortfolioErrorRadarService } from 'src/intelligence/application/portfolio-error-radar.service';
 import { PortfolioErrorRadarOutput } from 'src/intelligence/application/portfolio-error-radar.types';
+import { UserErrorRadarService } from 'src/intelligence/application/user-error-radar.service';
 import { PortfolioScoreOutput } from 'src/intelligence/application/portfolio-score.types';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import {
@@ -71,7 +71,7 @@ export class AiController {
 		private readonly chatToolRouter: ChatToolRouterService,
 		private readonly trackerrScoreService: TrackerrScoreService,
 		private readonly portfolioScoreService: PortfolioScoreService,
-		private readonly portfolioErrorRadarService: PortfolioErrorRadarService,
+		private readonly userErrorRadarService: UserErrorRadarService,
 		private readonly assetOpinionService: AssetOpinionService,
 		private readonly unifiedIntelligenceFacade: UnifiedIntelligenceFacade,
 		private readonly portfolioService: PortfolioService,
@@ -386,7 +386,13 @@ export class AiController {
 			Array.isArray(portfolio?.assets) ? portfolio.assets : []
 		);
 
-		return this.portfolioErrorRadarService.detect(this.toPositions(assets));
+		// Com a política e o custo do usuário: cada alerta traz número, limite
+		// e a venda que volta ao limite (Insights IA).
+		return this.userErrorRadarService.detect(
+			userId,
+			assets,
+			this.toPositions(assets)
+		);
 	}
 
 	/**

@@ -1,4 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { TaxEngineService } from 'src/fiscal/tax-engine/application/tax-engine.service';
 import { PortfolioErrorRadarService } from './portfolio-error-radar.service';
 import { PortfolioIntelligenceService } from 'src/portfolio/intelligence/application/portfolio-intelligence.service';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
@@ -18,15 +19,133 @@ function position(
 
 describe('PortfolioErrorRadarService', () => {
 	let service: PortfolioErrorRadarService;
+	const simulateSaleImpact = jest.fn();
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
-			providers: [PortfolioErrorRadarService, PortfolioIntelligenceService],
+			providers: [
+				PortfolioErrorRadarService,
+				PortfolioIntelligenceService,
+				{
+					provide: TaxEngineService,
+					useValue: { simulateSaleImpact },
+				},
+			],
 		}).compile();
 
 		service = module.get<PortfolioErrorRadarService>(
 			PortfolioErrorRadarService
 		);
+	});
+
+	describe('detectForUser (Insights IA)', () => {
+		it('traz evidência com a política, a venda e o IR do motor fiscal', () => {
+			simulateSaleImpact.mockReturnValue({
+				estimatedTax: 120,
+				classification: 'tributavel',
+			});
+			// PETR4 em 12% da carteira: abaixo do limiar do motor (20%), acima da
+			// política (8%).
+			const positions = [
+				position({ symbol: 'PETR4', totalValue: 12000, sector: 'Petroleo' }),
+				...[
+					'ITUB4',
+					'BBAS3',
+					'VALE3',
+					'WEGE3',
+					'ABEV3',
+					'RENT3',
+					'SUZB3',
+					'EGIE3',
+					'RADL3',
+					'TOTS3',
+				].map((symbol, i) =>
+					position({ symbol, totalValue: 8800, sector: `Setor${i}` })
+				),
+			];
+
+			const result = service.detectForUser(positions, {
+				policy: {
+					maxAssetWeightPct: 8,
+					maxSectorWeightPct: 25,
+					fixedIncomeTargetPct: 25,
+					brStocksTargetPct: 28,
+					maxCryptoPct: 5,
+					benchmark: 'IBOV_CDI',
+				},
+				holdings: [
+					{
+						symbol: 'PETR4',
+						assetType: 'stock',
+						quantity: 400,
+						price: 30,
+						totalCost: 400 * 25,
+					},
+				],
+				pricesAsOf: '2026-10-08T21:00:00.000Z',
+				now: new Date('2026-10-09T12:00:00Z'),
+			});
+
+			const petr4 = result.alerts.find((a) => a.code === 'POLICY_ASSET_LIMIT');
+			expect(petr4?.message).toBe(
+				'PETR4 está em 12% da carteira, acima do limite de 8% da sua política.'
+			);
+			expect(petr4?.evidence?.basis).toBe(
+				'Valor de mercado de 11 posição(ões), com cotações até 08/10/2026.'
+			);
+			expect(petr4?.action).toMatchObject({
+				symbol: 'PETR4',
+				estimatedTax: 120,
+				taxClassification: 'tributavel',
+			});
+			expect(simulateSaleImpact).toHaveBeenCalledWith(
+				expect.objectContaining({
+					symbol: 'PETR4',
+					sellPrice: 30,
+					currentPosition: { quantity: 400, totalCost: 10000 },
+				})
+			);
+			expect(result.pricesAsOf).toBe('2026-10-08T21:00:00.000Z');
+		});
+
+		it('não quebra o radar quando o motor fiscal falha', () => {
+			simulateSaleImpact.mockImplementation(() => {
+				throw new Error('fiscal');
+			});
+			const result = service.detectForUser(
+				[
+					position({ symbol: 'PETR4', totalValue: 9000 }),
+					position({ symbol: 'ITUB4', sector: 'Bancos', totalValue: 1000 }),
+				],
+				{
+					policy: {
+						maxAssetWeightPct: 8,
+						maxSectorWeightPct: 25,
+						fixedIncomeTargetPct: 25,
+						brStocksTargetPct: 28,
+						maxCryptoPct: 5,
+						benchmark: 'IBOV_CDI',
+					},
+					holdings: [
+						{
+							symbol: 'PETR4',
+							assetType: 'stock',
+							quantity: 300,
+							price: 30,
+							totalCost: 6000,
+						},
+					],
+					pricesAsOf: null,
+				}
+			);
+
+			const alert = result.alerts.find((a) => a.symbol === 'PETR4');
+			expect(alert?.action?.estimatedTax).toBeNull();
+			expect(alert?.action?.assumptions).toEqual([
+				'O motor fiscal não conseguiu estimar o IR desta venda agora.',
+			]);
+			expect(alert?.evidence?.basis).toContain('última cotação gravada');
+		});
 	});
 
 	describe('carteira sem posicao', () => {
@@ -60,7 +179,7 @@ describe('PortfolioErrorRadarService', () => {
 			expect(alert!.type).toBe('concentration');
 			expect(alert!.severity).toBe('high');
 			expect(alert!.message).toContain('PETR4');
-			expect(alert!.message).toContain('90.0%');
+			expect(alert!.message).toContain('90%');
 		});
 
 		it('nao emite alerta de ativo quando a carteira e bem distribuida', () => {

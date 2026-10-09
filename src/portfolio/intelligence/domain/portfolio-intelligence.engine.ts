@@ -456,6 +456,8 @@ export class PortfolioIntelligenceEngine {
 				score: 0,
 				level: 'low' as const,
 				flags: [],
+				weightedVolatility: 0,
+				weightedBeta: 0,
 			};
 		}
 
@@ -591,6 +593,8 @@ export class PortfolioIntelligenceEngine {
 			score,
 			level: this.resolveRiskLevel(score),
 			flags,
+			weightedVolatility,
+			weightedBeta,
 		};
 	}
 

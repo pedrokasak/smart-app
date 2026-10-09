@@ -9,7 +9,7 @@ import { TrackerrScoreService } from 'src/intelligence/application/trackerr-scor
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
 import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
-import { PortfolioErrorRadarService } from 'src/intelligence/application/portfolio-error-radar.service';
+import { UserErrorRadarService } from 'src/intelligence/application/user-error-radar.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
@@ -59,7 +59,7 @@ const mockAssetOpinionService = {
 	getOpinion: jest.fn(),
 };
 
-const mockPortfolioErrorRadarService = {
+const mockUserErrorRadarService = {
 	detect: jest.fn(),
 };
 
@@ -122,8 +122,8 @@ describe('AiController', () => {
 					useValue: mockAssetOpinionService,
 				},
 				{
-					provide: PortfolioErrorRadarService,
-					useValue: mockPortfolioErrorRadarService,
+					provide: UserErrorRadarService,
+					useValue: mockUserErrorRadarService,
 				},
 				{
 					provide: PortfolioService,
@@ -815,7 +815,7 @@ describe('AiController', () => {
 				],
 				positionsCount: 1,
 			};
-			mockPortfolioErrorRadarService.detect.mockReturnValue(fakeOutput);
+			mockUserErrorRadarService.detect.mockResolvedValue(fakeOutput);
 
 			const response = await controller.errorRadar({
 				user: { userId: 'user-123' },
@@ -824,9 +824,11 @@ describe('AiController', () => {
 			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
 				'user-123'
 			);
-			expect(mockPortfolioErrorRadarService.detect).toHaveBeenCalledWith([
-				expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
-			]);
+			expect(mockUserErrorRadarService.detect).toHaveBeenCalledWith(
+				'user-123',
+				expect.arrayContaining([expect.objectContaining({ symbol: 'PETR4' })]),
+				[expect.objectContaining({ symbol: 'PETR4', quantity: 100 })]
+			);
 			expect(response).toBe(fakeOutput);
 		});
 
