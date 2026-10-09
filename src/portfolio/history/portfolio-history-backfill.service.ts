@@ -26,10 +26,17 @@ import { backfillSeries, type PriceLookup } from './backfill-series';
  * Com as negociações e os fechamentos históricos reais, a série de um ano sai
  * de uma vez.
  *
- * ## Nunca sobrescreve snapshot existente
+ * ## Não sobrescreve snapshot com cotação
  *
  * O snapshot do dia foi calculado com a cotação daquele momento e é a fonte
- * mais próxima da verdade. O backfill usa `$setOnInsert`: preenche só o buraco.
+ * mais próxima da verdade. O backfill usa `$setOnInsert`: preenche o buraco.
+ *
+ * A exceção é o ponto gravado a custo (TRA-279): o que saiu de uma reconstrução
+ * sem fechamento (`stale`) ou é anterior à TRA-143 (sem `investedValue`). Ele
+ * não é cotação de ninguém; deixá-lo no lugar faz a diferença inteira entre
+ * custo e mercado aparecer como rendimento de um dia só, quando o snapshot a
+ * mercado começa. Esse ponto é trocado quando a reconstrução nova tiver menos
+ * símbolos sem cotação.
  *
  * ## Sem negociação, não reconstrói
  *
@@ -37,6 +44,25 @@ import { backfillSeries, type PriceLookup } from './backfill-series';
  * devolve `covered: false` e nada é gravado — projetar a posição de hoje para
  * trás seria ficção (precedente TRA-55).
  */
+
+/**
+ * Filtro do ponto existente que a reconstrução pode trocar: anterior à TRA-143
+ * (valor era custo, sem `investedValue`) ou `stale` com mais símbolos sem
+ * cotação do que a reconstrução nova. Snapshot com cotação nunca casa.
+ */
+export function replaceableCostPoint(newStaleCount: number) {
+	return {
+		$or: [
+			{ investedValue: { $exists: false } },
+			{
+				stale: true,
+				$expr: {
+					$gt: [{ $size: { $ifNull: ['$staleSymbols', []] } }, newStaleCount],
+				},
+			},
+		],
+	};
+}
 
 /** Teto de símbolos por reconstrução: a fonte de preço é rate-limited. */
 const MAX_SYMBOLS = 40;
@@ -93,6 +119,8 @@ export class PortfolioHistoryBackfillService {
 	async backfill(params: { userId: string; portfolioId: string }): Promise<{
 		covered: boolean;
 		written: number;
+		/** Pontos a custo trocados por valor com fechamento (TRA-279). */
+		replaced: number;
 		from: string | null;
 		to: string | null;
 		missingSymbols: string[];
@@ -100,6 +128,7 @@ export class PortfolioHistoryBackfillService {
 		const empty = {
 			covered: false,
 			written: 0,
+			replaced: 0,
 			from: null,
 			to: null,
 			missingSymbols: [] as string[],
@@ -181,38 +210,65 @@ export class PortfolioHistoryBackfillService {
 			return { ...empty, missingSymbols };
 		}
 
-		const operations = result.points.map((point) => ({
-			updateOne: {
-				filter: { portfolioId: params.portfolioId, date: point.date },
-				update: {
-					$setOnInsert: {
-						userId: params.userId,
-						portfolioId: params.portfolioId,
-						date: point.date,
-						totalValue: point.totalValue,
-						investedValue: point.investedValue,
-						stale: point.stale,
-						staleSymbols: point.staleSymbols,
-						tradingDay: point.tradingDay,
-						nonTradingReason: point.nonTradingReason,
+		const operations = result.points.flatMap((point) => {
+			const fields = {
+				totalValue: point.totalValue,
+				investedValue: point.investedValue,
+				stale: point.stale,
+				staleSymbols: point.staleSymbols,
+				tradingDay: point.tradingDay,
+				...(point.nonTradingReason
+					? { nonTradingReason: point.nonTradingReason }
+					: {}),
+			};
+			return [
+				{
+					updateOne: {
+						filter: { portfolioId: params.portfolioId, date: point.date },
+						update: {
+							$setOnInsert: {
+								userId: params.userId,
+								portfolioId: params.portfolioId,
+								date: point.date,
+								...fields,
+							},
+						},
+						upsert: true,
 					},
 				},
-				upsert: true,
-			},
-		}));
+				{
+					// Sem upsert: só casa ponto que já existe e foi gravado a custo.
+					updateOne: {
+						filter: {
+							portfolioId: params.portfolioId,
+							date: point.date,
+							...replaceableCostPoint(point.staleSymbols.length),
+						},
+						update: {
+							$set: fields,
+							...(point.nonTradingReason
+								? {}
+								: { $unset: { nonTradingReason: '' } }),
+						},
+					},
+				},
+			];
+		});
 
 		const bulk = await this.historyModel.bulkWrite(operations as any, {
 			ordered: false,
 		});
 		const written = Number(bulk?.upsertedCount) || 0;
+		const replaced = Number(bulk?.modifiedCount) || 0;
 
 		this.logger.log(
-			`Histórico reconstruído para o portfólio ${params.portfolioId}: ${written} dia(s) gravado(s) de ${result.points.length} reconstruído(s).`
+			`Histórico reconstruído para o portfólio ${params.portfolioId}: ${written} dia(s) gravado(s), ${replaced} ponto(s) a custo corrigido(s), de ${result.points.length} reconstruído(s).`
 		);
 
 		return {
 			covered: true,
 			written,
+			replaced,
 			from: result.points[0].date,
 			to: result.points[result.points.length - 1].date,
 			missingSymbols,

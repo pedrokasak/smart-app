@@ -34,6 +34,7 @@ import {
 } from 'src/portfolio/returns/macro-series.adapters';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
+import { PortfolioHistoryRepairScheduler } from 'src/portfolio/history/portfolio-history-repair.scheduler';
 import { upcomingDividendSchema } from 'src/portfolio/upcoming-dividends/upcoming-dividend.model';
 import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
 
@@ -110,6 +111,9 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		// Backfill diário do setor dos ativos existentes (TRA-144): o
 		// enriquecimento só roda ao adicionar ativo, então não alcança a base.
 		SectorBackfillScheduler,
+		// Corrige o histórico reconstruído a custo quando os fechamentos
+		// passam a existir (TRA-279).
+		PortfolioHistoryRepairScheduler,
 	],
 	controllers: [PortfolioController],
 	exports: [
