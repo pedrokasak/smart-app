@@ -82,6 +82,15 @@ if (config.enabled) {
 				'@opentelemetry/instrumentation-mongodb': {
 					enhancedDatabaseReporting: false,
 				},
+				// O serializador padrão grava TODOS os argumentos de EVAL/EVALSHA,
+				// e o BullMQ enfileira jobs por EVALSHA com o payload (e-mail, id
+				// do usuário, dados da carteira) como argumento. Fica só o nome do
+				// comando. Sem span pai também não há span: o polling dos workers
+				// do BullMQ geraria um trace a cada poucos segundos.
+				'@opentelemetry/instrumentation-ioredis': {
+					dbStatementSerializer: (command) => command,
+					requireParentSpan: true,
+				},
 			}),
 		],
 	});

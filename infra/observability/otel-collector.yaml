@@ -14,20 +14,22 @@ receivers:
       http:
         endpoint: 0.0.0.0:4318
 
-  # CPU, memória, disco e rede da VPS. `root_path` aponta para o / do host
-  # montado em /hostfs, senão o Collector mede o próprio container.
+  # CPU, memória, carga e disco da VPS, sem montar o filesystem do host: o
+  # /proc do container já mostra CPU, memória e carga do host, e o `/` do
+  # container (overlay) reporta o disco onde o Docker grava, que é o disco da
+  # VPS. Montar o `/` do host daria ao Collector (root, por causa do socket)
+  # leitura de todos os segredos da máquina. Rede por container vem do
+  # docker_stats.
   hostmetrics:
-    root_path: /hostfs
     collection_interval: 30s
     scrapers:
       cpu: {}
       memory: {}
       load: {}
       filesystem:
-        exclude_mount_points:
-          match_type: regexp
-          mount_points: ["/hostfs/(proc|sys|dev|run|var/lib/docker)(/.*)?"]
-      network: {}
+        include_mount_points:
+          match_type: strict
+          mount_points: ["/"]
 
   # CPU e memória por container: é o que calibra os limites da TRA-222.
   docker_stats:
@@ -59,19 +61,24 @@ processors:
       - key: user.email
         action: delete
 
-  # E-mail, CPF e CNPJ dentro de valores de atributo e no corpo do log.
-  # Também tira a query string das rotas de autenticação (tokens de reset e
-  # de confirmação vêm na URL).
+  # Segredos na URL, em qualquer rota e em qualquer serviço. A Brapi recebe a
+  # chave como `&token=` e o link de descadastro do digest leva um token; os
+  # dois iriam para o Tempo em url.full / url.query. Também tira a query
+  # inteira das rotas de autenticação.
+  #
+  # Depois, e-mail, CPF e CNPJ em valores de atributo e no corpo do log.
   transform/scrub-pii:
     error_mode: ignore
     trace_statements:
       - context: span
         statements:
+          - replace_pattern(attributes["url.full"], "(?i)([?&](token|key|api_?key|apikey|access_token|refresh_token|secret|password|passwd|code|sig|signature|auth)=)[^&#]*", "$${1}[redacted]")
+          - replace_pattern(attributes["url.query"], "(?i)((^|&)(token|key|api_?key|apikey|access_token|refresh_token|secret|password|passwd|code|sig|signature|auth)=)[^&#]*", "$${1}[redacted]")
+          - replace_pattern(attributes["http.url"], "(?i)([?&](token|key|api_?key|apikey|access_token|refresh_token|secret|password|passwd|code|sig|signature|auth)=)[^&#]*", "$${1}[redacted]")
+          - replace_pattern(attributes["url.query"], ".+", "[redacted]") where IsMatch(attributes["url.path"], "^/(auth|users)(/|$)")
           - replace_all_patterns(attributes, "value", "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "[email]")
           - replace_all_patterns(attributes, "value", "\\b\\d{3}\\.?\\d{3}\\.?\\d{3}-?\\d{2}\\b", "[cpf]")
           - replace_all_patterns(attributes, "value", "\\b\\d{2}\\.?\\d{3}\\.?\\d{3}/?\\d{4}-?\\d{2}\\b", "[cnpj]")
-          - replace_pattern(attributes["url.query"], ".+", "[redacted]") where IsMatch(attributes["url.path"], "^/(auth|authentication|two-factor|users/(reset|confirm|verify))")
-          - replace_pattern(attributes["url.full"], "\\?.*$", "?[redacted]") where IsMatch(attributes["url.full"], "/(auth|authentication|two-factor|users/(reset|confirm|verify))")
       - context: spanevent
         statements:
           - replace_all_patterns(attributes, "value", "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "[email]")

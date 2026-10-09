@@ -58,13 +58,18 @@ export class TelemetryLogger extends ConsoleLogger {
 	private emit(level: LogLevel, message: unknown, rest: unknown[]): void {
 		if (!this.isLevelEnabled(level)) return;
 		const params = [...rest];
+		const canHaveStack = level === 'error' || level === 'fatal';
+		const last = params[params.length - 1];
+		// `Logger.error(msg, err.stack)` sem contexto: o único argumento é a
+		// stack, não o contexto (mesma regra do ConsoleLogger do Nest).
+		const lastIsStack =
+			canHaveStack && params.length === 1 && looksLikeStack(last);
 		const context =
-			typeof params[params.length - 1] === 'string'
+			typeof last === 'string' && !lastIsStack
 				? (params.pop() as string)
 				: this.context;
 		const stack =
-			(level === 'error' || level === 'fatal') &&
-			typeof params[params.length - 1] === 'string'
+			canHaveStack && typeof params[params.length - 1] === 'string'
 				? (params.pop() as string)
 				: message instanceof Error
 					? message.stack
@@ -81,6 +86,10 @@ export class TelemetryLogger extends ConsoleLogger {
 			attributes,
 		});
 	}
+}
+
+function looksLikeStack(value: unknown): boolean {
+	return typeof value === 'string' && /\n\s+at /.test(value);
 }
 
 function describe(message: unknown): string {

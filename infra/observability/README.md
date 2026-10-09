@@ -40,7 +40,7 @@ O Collector apaga, antes de gravar:
 
 - cabeçalhos de autenticação e cookies;
 - e-mail, CPF e CNPJ em atributos e no corpo dos logs;
-- query string das rotas de autenticação.
+- segredos na URL (`token`, `key`, `api_key`, `code`, `signature` e afins) em qualquer chamada, como a chave da Brapi, e a query inteira das rotas de autenticação.
 
 A instrumentação do MongoDB não grava os valores das consultas.
 

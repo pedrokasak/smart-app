@@ -26,13 +26,13 @@ services:
     restart: unless-stopped
     # O receiver docker_stats lê o socket do Docker para medir CPU e memória
     # por container (é o dado que falta para calibrar os limites da TRA-222).
-    # Somente leitura, mas ainda é acesso ao daemon: o Collector não expõe
-    # porta pública e roda só com os receivers deste arquivo.
+    # O `:ro` não restringe a API do Docker: quem fala com o socket controla
+    # o daemon. Por isso o Collector não monta mais nada do host, não expõe
+    # porta pública e só roda os receivers deste arquivo.
     user: "0:0"
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      - /:/hostfs:ro
     networks:
       default:
       coolify:
@@ -99,8 +99,10 @@ services:
     image: grafana/grafana:13.2.2
     restart: unless-stopped
     environment:
+      # SERVICE_FQDN_* faz o Coolify gerar o domínio; SERVICE_URL_* é o mesmo
+      # endereço com o esquema (https://), que é o que o Grafana precisa.
       - SERVICE_FQDN_GRAFANA_3000
-      - GF_SERVER_ROOT_URL=${SERVICE_FQDN_GRAFANA_3000:-http://localhost:3000}
+      - GF_SERVER_ROOT_URL=${SERVICE_URL_GRAFANA_3000:-http://localhost:3000}
       - GF_SECURITY_ADMIN_USER=${SERVICE_USER_GRAFANA:-admin}
       - GF_SECURITY_ADMIN_PASSWORD=${SERVICE_PASSWORD_GRAFANA:?defina SERVICE_PASSWORD_GRAFANA}
       - GF_USERS_ALLOW_SIGN_UP=false

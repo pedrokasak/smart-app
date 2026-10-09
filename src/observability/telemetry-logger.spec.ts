@@ -51,6 +51,15 @@ describe('TelemetryLogger (TRA-222)', () => {
 		});
 	});
 
+	// `Logger.error(msg, err.stack)` estático, sem contexto.
+	it('não confunde a stack com o contexto quando não há contexto', () => {
+		new TelemetryLogger().error('Falhou', 'Error: x\n    at y');
+
+		expect(records()[0].attributes).toEqual({
+			'exception.stacktrace': 'Error: x\n    at y',
+		});
+	});
+
 	it('usa a mensagem e a stack de um Error', () => {
 		const error = new Error('boom');
 		new TelemetryLogger().error(error);
