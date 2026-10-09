@@ -1,0 +1,134 @@
+# Observabilidade do Trackerr na VPS do Coolify (TRA-222).
+#
+# Recurso "Docker Compose" separado da API. As aplicações (server e
+# trackerr-ia) mandam OTLP para o Collector pela rede `coolify`, que o
+# Coolify cria e liga a todos os recursos que marcam "Connect to Predefined
+# Network". Nada aqui publica porta no host: só o Grafana sai para fora, pelo
+# proxy do Coolify, com login.
+#
+# Fluxo: apps --OTLP--> otel-collector --> prometheus (métricas)
+#                                       --> loki (logs)
+#                                       --> tempo (traces)
+#        grafana lê os três.
+#
+# Limites de memória somam ~1,8 GB. A VPS já caiu por falta de memória
+# (28/09); se não couber, o Tempo é o primeiro a sair.
+#
+# Variáveis no Coolify:
+#   SERVICE_FQDN_GRAFANA_3000    domínio do Grafana (o Coolify gera)
+#   SERVICE_USER_GRAFANA         usuário admin (o Coolify gera)
+#   SERVICE_PASSWORD_GRAFANA     senha admin (o Coolify gera)
+
+services:
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.161.0
+    command: ["--config=/etc/otelcol/config.yaml"]
+    restart: unless-stopped
+    # O receiver docker_stats lê o socket do Docker para medir CPU e memória
+    # por container (é o dado que falta para calibrar os limites da TRA-222).
+    # Somente leitura, mas ainda é acesso ao daemon: o Collector não expõe
+    # porta pública e roda só com os receivers deste arquivo.
+    user: "0:0"
+    volumes:
+      - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - /:/hostfs:ro
+    networks:
+      default:
+      coolify:
+        aliases:
+          - trackerr-otel-collector
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+  prometheus:
+    image: prom/prometheus:v3.14.0
+    restart: unless-stopped
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=15d
+      - --storage.tsdb.retention.size=4GB
+      # O Collector grava por OTLP; o Prometheus não raspa as aplicações.
+      - --web.enable-otlp-receiver
+    volumes:
+      - ./prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+          cpus: "0.50"
+
+  loki:
+    image: grafana/loki:3.7.8
+    restart: unless-stopped
+    command: ["-config.file=/etc/loki/config.yaml"]
+    volumes:
+      - ./loki.yaml:/etc/loki/config.yaml:ro
+      - loki_data:/loki
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.50"
+
+  tempo:
+    image: grafana/tempo:2.10.8
+    restart: unless-stopped
+    command: ["-config.file=/etc/tempo/config.yaml"]
+    # A imagem roda como 10001; o volume precisa ser dele.
+    user: "10001:10001"
+    volumes:
+      - ./tempo.yaml:/etc/tempo/config.yaml:ro
+      - tempo_data:/var/tempo
+    deploy:
+      resources:
+        limits:
+          memory: 384M
+          cpus: "0.50"
+
+  grafana:
+    image: grafana/grafana:13.2.2
+    restart: unless-stopped
+    environment:
+      - SERVICE_FQDN_GRAFANA_3000
+      - GF_SERVER_ROOT_URL=${SERVICE_FQDN_GRAFANA_3000:-http://localhost:3000}
+      - GF_SECURITY_ADMIN_USER=${SERVICE_USER_GRAFANA:-admin}
+      - GF_SECURITY_ADMIN_PASSWORD=${SERVICE_PASSWORD_GRAFANA:?defina SERVICE_PASSWORD_GRAFANA}
+      - GF_USERS_ALLOW_SIGN_UP=false
+      - GF_AUTH_ANONYMOUS_ENABLED=false
+      - GF_ANALYTICS_REPORTING_ENABLED=false
+      - GF_ANALYTICS_CHECK_FOR_UPDATES=false
+      - GF_NEWS_NEWS_FEED_ENABLED=false
+      - GF_SECURITY_COOKIE_SECURE=true
+      - GF_SECURITY_DISABLE_GRAVATAR=true
+    volumes:
+      - ./grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafana_data:/var/lib/grafana
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: "0.50"
+    depends_on:
+      - prometheus
+      - loki
+      - tempo
+
+volumes:
+  prometheus_data:
+  loki_data:
+  tempo_data:
+  grafana_data:
+
+networks:
+  coolify:
+    external: true

@@ -1,0 +1,27 @@
+# Prometheus do Trackerr (TRA-222). As métricas chegam por OTLP do
+# Collector (`--web.enable-otlp-receiver`); não há scrape das aplicações.
+
+global:
+  evaluation_interval: 30s
+
+storage:
+  tsdb:
+    # O Collector agrupa em lotes de até 5s; amostra um pouco atrasada não
+    # pode ser descartada.
+    out_of_order_time_window: 10m
+
+otlp:
+  # Viram labels: é por eles que os painéis filtram serviço, ambiente e
+  # container.
+  promote_resource_attributes:
+    - service.name
+    - service.version
+    - service.instance.id
+    - deployment.environment.name
+    - container.name
+    - container.image.name
+
+scrape_configs:
+  - job_name: prometheus
+    static_configs:
+      - targets: ["localhost:9090"]

@@ -1,5 +1,9 @@
 import { config } from 'dotenv';
 config();
+// Antes de qualquer outro módulo da aplicação: a instrumentação só pega o que
+// é carregado depois dela (TRA-222).
+import 'src/observability/telemetry';
+import { TelemetryLogger } from 'src/observability/telemetry-logger';
 import * as bodyParser from 'body-parser';
 import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
@@ -16,7 +20,11 @@ import {
 async function bootstrap() {
 	const app = await NestFactory.create(AppModule, {
 		bodyParser: false,
+		// Os logs da inicialização esperam o logger abaixo, para também
+		// saírem por OTLP.
+		bufferLogs: true,
 	});
+	app.useLogger(new TelemetryLogger());
 
 	if (!(global as any).crypto) {
 		(global as any).crypto = require('crypto');
