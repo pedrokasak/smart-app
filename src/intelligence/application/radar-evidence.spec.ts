@@ -185,6 +185,28 @@ describe('withEvidence', () => {
 		expect(policy[0].severity).toBe('medium');
 	});
 
+	it('leaves fixed income out of the per-asset limit', () => {
+		const alerts = withEvidence(
+			[],
+			context({
+				holdings: [
+					petr4,
+					{
+						symbol: 'VALE3',
+						assetType: 'fund',
+						quantity: 1,
+						price: 9000,
+						totalCost: 9000,
+					},
+				],
+			})
+		);
+
+		expect(
+			alerts.filter((a) => a.code === 'POLICY_ASSET_LIMIT').map((a) => a.symbol)
+		).toEqual(['PETR4', 'ITUB4', 'BBAS3']);
+	});
+
 	it('does not repeat an asset the engine already flagged', () => {
 		const alerts = withEvidence(
 			[alert('ASSET_CONCENTRATION_MEDIUM', { symbol: 'PETR4' })],

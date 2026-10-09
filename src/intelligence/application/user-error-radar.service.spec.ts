@@ -2,7 +2,7 @@ import { DEFAULT_INVESTMENT_POLICY } from 'src/investment-policy/domain/investme
 import type { InvestmentPolicyService } from 'src/investment-policy/investment-policy.service';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 import type { PortfolioErrorRadarService } from './portfolio-error-radar.service';
-import { UserErrorRadarService } from './user-error-radar.service';
+import { UserErrorRadarService, radarSymbol } from './user-error-radar.service';
 
 jest.mock('src/fiscal/schema/trade.model', () => ({
 	TradeModel: { find: jest.fn() },
@@ -112,5 +112,11 @@ describe('UserErrorRadarService', () => {
 		);
 
 		expect(radar.detectForUser.mock.calls[0][1].pricesAsOf).toBeNull();
+	});
+
+	it('normalizes symbols like the radar positions', () => {
+		expect(radarSymbol(' petr4.sa ')).toBe('PETR4');
+		expect(radarSymbol('$BTC')).toBe('BTC');
+		expect(radarSymbol('HGLG11.B3')).toBe('HGLG11');
 	});
 });

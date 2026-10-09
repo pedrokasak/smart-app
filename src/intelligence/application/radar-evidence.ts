@@ -322,11 +322,18 @@ function policyAlerts(
 	);
 	const alerts: PortfolioErrorRadarAlert[] = [];
 
+	// Renda fixa (LCA, CDB, Tesouro: tipo `fund`) não entra no limite por
+	// ativo: concentração em título não é o risco que a política mede, e
+	// "venda parcial de LCA" não existe.
+	const fixedIncome = new Set(
+		ctx.holdings.filter((h) => h.assetType === 'fund').map((h) => h.symbol)
+	);
 	const overLimit = facts.concentrationByAsset
 		.filter(
 			(entry) =>
 				entry.percentage > policy.maxAssetWeightPct &&
-				!flaggedAssets.has(entry.key)
+				!flaggedAssets.has(entry.key) &&
+				!fixedIncome.has(entry.key)
 		)
 		.slice(0, MAX_POLICY_ASSET_ALERTS);
 	for (const entry of overLimit) {

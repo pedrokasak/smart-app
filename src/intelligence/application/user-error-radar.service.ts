@@ -20,6 +20,20 @@ interface RawAsset {
 
 const TAX_TYPES = new Set(['stock', 'fii', 'crypto', 'etf', 'fund', 'other']);
 
+/**
+ * Mesma normalização do `toPositions` do AiController: "PETR4.SA" vira
+ * "PETR4", senão a posição não casa com o peso calculado e perde a ação.
+ */
+export function radarSymbol(value: unknown): string {
+	const symbol = String(value ?? '')
+		.trim()
+		.toUpperCase()
+		.replace(/\s+/g, '')
+		.replace(/^\$/, '');
+	const withSuffix = symbol.match(/^([A-Z]{4}\d{1,2})\.(SA|B3)$/);
+	return withSuffix ? withSuffix[1] : symbol;
+}
+
 const toTime = (value: Date | string | undefined) => {
 	const time = value ? new Date(value).getTime() : NaN;
 	return Number.isFinite(time) ? time : null;
@@ -52,7 +66,7 @@ export class UserErrorRadarService {
 		const withCost = withDerivedAveragePrice(
 			assets.map((asset) => ({
 				...asset,
-				symbol: String(asset.symbol || '').toUpperCase(),
+				symbol: radarSymbol(asset.symbol),
 			})),
 			trades as any
 		);
