@@ -42,6 +42,8 @@ export interface DailyValuePoint {
 	investedValue?: number;
 	/** false em fim de semana e feriado. */
 	tradingDay?: boolean;
+	/** Símbolos sem cotação no dia: valem pelo custo, não pelo mercado. */
+	staleSymbols?: string[];
 }
 
 export interface ContributionBreakdown {
@@ -62,6 +64,9 @@ export interface TwrResult {
 	periods: number;
 	/** Dias descartados por não haver valor inicial com que comparar. */
 	skipped: number;
+	/** Janela de fato medida: do ponto-base ao último retorno encadeado. */
+	measuredFrom: string | null;
+	measuredTo: string | null;
 }
 
 const round2 = (value: number): number => Number(value.toFixed(2));
@@ -104,6 +109,66 @@ export interface DatedReturn {
 	value: number;
 }
 
+/** Diferença de centavo entre valor e custo ainda é "tudo a custo". */
+const COST_TOLERANCE = 0.01;
+
+/**
+ * Ponto sem informação de mercado: há símbolo sem cotação e o valor é igual ao
+ * custo. É o que a reconstrução grava quando não acha fechamento (TRA-279).
+ * Medir retorno sobre ele dá 0% "falso" — ou, na transição para o valor a
+ * mercado, a valorização inteira desde a compra num dia só.
+ */
+export function isCostOnlyPoint(point: DailyValuePoint): boolean {
+	return (
+		(point.staleSymbols?.length ?? 0) > 0 &&
+		point.investedValue != null &&
+		Math.abs(Number(point.totalValue) - Number(point.investedValue)) <=
+			COST_TOLERANCE
+	);
+}
+
+const staleKey = (point: DailyValuePoint): string =>
+	[...(point.staleSymbols ?? [])].sort().join(',');
+
+/**
+ * Se a variação entre dois pontos pode ser lida como retorno. Não pode quando
+ * o que mudou foi a fotografia, não o mercado:
+ *
+ * - valor zerado ou negativo (snapshot com a carteira vazia no meio de uma
+ *   reimportação): um único dia assim levava o TWR encadeado a -100% para
+ *   sempre, porque tudo multiplicado por zero continua zero;
+ * - um dos pontos sem custo registrado (linha anterior à TRA-143 ou avulsa):
+ *   não dá para saber se o valor mudou por mercado ou por composição;
+ * - mudou o conjunto de símbolos sem cotação: ativo que passou a ter cotação
+ *   salta do custo para o mercado, e ativo que entrou sem cotação entra pelo
+ *   custo — reavaliação, não rendimento;
+ * - o custo mudou sem negociação no dia: posição entrou ou saiu por fora das
+ *   notas (relatório consolidado, ajuste manual, sincronização).
+ */
+function comparable(
+	previous: DailyValuePoint,
+	current: DailyValuePoint,
+	hasTradeFlow: boolean
+): boolean {
+	if (!(Number(previous.totalValue) > 0) || !(Number(current.totalValue) > 0)) {
+		return false;
+	}
+	if ((previous.investedValue == null) !== (current.investedValue == null)) {
+		return false;
+	}
+	if (staleKey(previous) !== staleKey(current)) return false;
+	if (
+		!hasTradeFlow &&
+		previous.investedValue != null &&
+		current.investedValue != null &&
+		Math.abs(Number(current.investedValue) - Number(previous.investedValue)) >
+			COST_TOLERANCE
+	) {
+		return false;
+	}
+	return true;
+}
+
 /**
  * Retornos diários da carteira, ajustados por fluxo.
  *
@@ -114,16 +179,21 @@ export interface DatedReturn {
  *
  * Por isso `computeBeta` e `computeTrackingError` consomem esta função em vez
  * de derivar retorno da variação bruta do valor.
+ *
+ * Só encadeia dias comparáveis (ver `comparable`). O dia que não é comparável
+ * não vira retorno nenhum: a série segue do ponto seguinte, como se a medição
+ * recomeçasse ali. Perder um dia de mercado é melhor que inventar um.
  */
 export function computeDailyReturns(params: {
 	series: DailyValuePoint[];
 	flows: DailyCashFlow[];
 	tradingDaysOnly?: boolean;
-}): { returns: DatedReturn[]; skipped: number } {
+}): { returns: DatedReturn[]; skipped: number; baseDate: string | null } {
 	const tradingDaysOnly = params.tradingDaysOnly !== false;
 
 	const series = [...(params.series || [])]
 		.filter((point) => (tradingDaysOnly ? point.tradingDay !== false : true))
+		.filter((point) => !isCostOnlyPoint(point))
 		.sort((a, b) => a.date.localeCompare(b.date));
 
 	const flowByDay = new Map<string, number>();
@@ -133,25 +203,32 @@ export function computeDailyReturns(params: {
 
 	const returns: DatedReturn[] = [];
 	let skipped = 0;
+	let baseDate: string | null = null;
 
 	for (let i = 1; i < series.length; i += 1) {
-		const previous = Number(series[i - 1].totalValue) || 0;
-		const current = Number(series[i].totalValue) || 0;
+		const previous = series[i - 1];
+		const current = series[i];
+		// Fluxo no fim do dia: o aporte de hoje não rendeu hoje.
+		const flow = flowByDay.get(current.date) || 0;
 
-		if (previous <= 0) {
+		if (!comparable(previous, current, flow !== 0)) {
 			skipped += 1;
 			continue;
 		}
 
-		// Fluxo no fim do dia: o aporte de hoje não rendeu hoje.
-		const flow = flowByDay.get(series[i].date) || 0;
-		returns.push({
-			date: series[i].date,
-			value: (current - flow) / previous - 1,
-		});
+		const value =
+			(Number(current.totalValue) - flow) / Number(previous.totalValue) - 1;
+		// Perder tudo num dia sem retirada não é mercado, é dado faltando.
+		if (!(value > -1)) {
+			skipped += 1;
+			continue;
+		}
+
+		if (baseDate === null) baseDate = previous.date;
+		returns.push({ date: current.date, value });
 	}
 
-	return { returns, skipped };
+	return { returns, skipped, baseDate };
 }
 
 /**
@@ -180,10 +257,16 @@ export function computeTwr(params: {
 	/** Excluir fim de semana e feriado. Padrão: true. */
 	tradingDaysOnly?: boolean;
 }): TwrResult {
-	const { returns, skipped } = computeDailyReturns(params);
+	const { returns, skipped, baseDate } = computeDailyReturns(params);
 
 	if (returns.length === 0) {
-		return { twr: null, periods: 0, skipped };
+		return {
+			twr: null,
+			periods: 0,
+			skipped,
+			measuredFrom: null,
+			measuredTo: null,
+		};
 	}
 
 	let growth = 1;
@@ -191,7 +274,13 @@ export function computeTwr(params: {
 		growth *= 1 + point.value;
 	}
 
-	return { twr: round6(growth - 1), periods: returns.length, skipped };
+	return {
+		twr: round6(growth - 1),
+		periods: returns.length,
+		skipped,
+		measuredFrom: baseDate,
+		measuredTo: returns[returns.length - 1].date,
+	};
 }
 
 /** Anualiza um retorno acumulado observado em `days` dias corridos. */

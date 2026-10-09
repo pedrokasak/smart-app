@@ -76,6 +76,11 @@ export interface PortfolioReturnsOutput {
 		value: number | null;
 		annualized: number | null;
 		periods: number;
+		/**
+		 * Primeiro dia com valor de mercado comparável (TRA-279). Antes dele a
+		 * série só tinha custo, e não há rentabilidade para medir.
+		 */
+		measuredFrom: string | null;
 	};
 	/**
 	 * TWR acumulado por pregão, em fração, começando em 0 no pregão-base.
@@ -310,6 +315,12 @@ export class PortfolioReturnsService {
 				existing.totalValue += row.totalValue || 0;
 				existing.investedValue =
 					(existing.investedValue || 0) + (row.investedValue || 0);
+				existing.staleSymbols = Array.from(
+					new Set([
+						...(existing.staleSymbols ?? []),
+						...(row.staleSymbols ?? []),
+					])
+				);
 				continue;
 			}
 			if (row.stale) staleDays += 1;
@@ -317,6 +328,7 @@ export class PortfolioReturnsService {
 				date: row.date,
 				totalValue: row.totalValue || 0,
 				investedValue: row.investedValue,
+				staleSymbols: row.stale ? [...(row.staleSymbols ?? [])] : [],
 				// Snapshot anterior a TRA-143 não tem a marcação. Tratar como
 				// pregão preserva o comportamento antigo em vez de descartar o
 				// ponto silenciosamente.
@@ -361,11 +373,15 @@ export class PortfolioReturnsService {
 			unavailable.push('twr_insufficient_series');
 		}
 
+		// Anualiza pela janela de fato medida, não pela série inteira: dias
+		// gravados a custo não entram no TWR (TRA-279) e não podem esticar o
+		// denominador.
+		const { measuredFrom, measuredTo } = twrResult;
 		let annualized: number | null = null;
-		if (twrResult.twr !== null && from && to) {
+		if (twrResult.twr !== null && measuredFrom && measuredTo) {
 			const days =
-				(new Date(`${to}T00:00:00.000Z`).getTime() -
-					new Date(`${from}T00:00:00.000Z`).getTime()) /
+				(new Date(`${measuredTo}T00:00:00.000Z`).getTime() -
+					new Date(`${measuredFrom}T00:00:00.000Z`).getTime()) /
 				(24 * 60 * 60 * 1000);
 			annualized = annualize(twrResult.twr, days);
 		}
@@ -385,20 +401,10 @@ export class PortfolioReturnsService {
 		// Beta e tracking error contra o IBOV (TRA-141). Os retornos da carteira
 		// vêm ajustados por fluxo: sem isso o beta mediria o calendário de
 		// aportes do usuário em vez da sensibilidade ao índice.
-		const { returns: portfolioReturns } = computeDailyReturns({
+		const { returns: portfolioReturns, baseDate } = computeDailyReturns({
 			series,
 			flows: flows.byDay,
 		});
-		const firstReturnDate = portfolioReturns[0]?.date;
-		const baseDate =
-			series
-				.filter(
-					(point) =>
-						point.tradingDay !== false &&
-						firstReturnDate !== undefined &&
-						point.date < firstReturnDate
-				)
-				.pop()?.date ?? null;
 		const twrSeries = cumulativeReturns(portfolioReturns, baseDate);
 		const [benchmark, riskFreeDaily, ipca] = await Promise.all([
 			this.resolveBenchmark(userId),
@@ -406,12 +412,16 @@ export class PortfolioReturnsService {
 				portfolioReturns[0]?.date,
 				portfolioReturns[portfolioReturns.length - 1]?.date
 			),
-			twrResult.twr !== null ? this.fetchInflation(from, to) : null,
+			twrResult.twr !== null
+				? this.fetchInflation(measuredFrom, measuredTo)
+				: null,
 		]);
+		// IPCA da mesma janela do TWR: descontar inflação de um período que o
+		// retorno não cobre mistura bases.
 		const realReturnResult = buildRealReturn({
 			twr: twrResult.twr,
-			from,
-			to,
+			from: measuredFrom,
+			to: measuredTo,
 			ipca,
 		});
 		if (twrResult.twr !== null && realReturnResult.value === null) {
@@ -466,6 +476,7 @@ export class PortfolioReturnsService {
 				value: twrResult.twr,
 				annualized,
 				periods: twrResult.periods,
+				measuredFrom,
 			},
 			twrSeries,
 			realReturn: realReturnResult,

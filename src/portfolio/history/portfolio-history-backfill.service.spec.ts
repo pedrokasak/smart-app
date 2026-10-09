@@ -1,10 +1,14 @@
-import { PortfolioHistoryBackfillService } from './portfolio-history-backfill.service';
+import {
+	ownCostOnlyPoint,
+	PortfolioHistoryBackfillService,
+} from './portfolio-history-backfill.service';
 
 describe('PortfolioHistoryBackfillService', () => {
 	const makeService = (params: {
 		trades: any[];
 		closes?: Record<string, { date: string; close: number }[]>;
 		upsertedCount?: number;
+		modifiedCount?: number;
 		assetTypes?: Record<string, string>;
 	}) => {
 		const tradeModel = {
@@ -19,6 +23,7 @@ describe('PortfolioHistoryBackfillService', () => {
 		const historyModel = {
 			bulkWrite: jest.fn().mockResolvedValue({
 				upsertedCount: params.upsertedCount ?? 10,
+				modifiedCount: params.modifiedCount ?? 0,
 			}),
 		};
 		const marketData = {
@@ -92,6 +97,7 @@ describe('PortfolioHistoryBackfillService', () => {
 		expect(result).toEqual({
 			covered: false,
 			written: 0,
+			replaced: 0,
 			from: null,
 			to: null,
 			missingSymbols: [],
@@ -136,6 +142,29 @@ describe('PortfolioHistoryBackfillService', () => {
 			userId: 'u1',
 		});
 		expect(operations[0].updateOne.update.$set).toBeUndefined();
+	});
+
+	// TRA-279: a rodada anterior não achou fechamento e gravou tudo a custo.
+	it('troca só a linha a custo que ela mesma gravou, sem upsert', async () => {
+		const { service, historyModel } = makeService({
+			trades: [trade()],
+			closes: { PETR4: closes(daysAgo(30), 31) },
+			modifiedCount: 20,
+		});
+
+		const result = await service.backfill({ userId: 'u1', portfolioId: 'p1' });
+
+		const [operations] = (historyModel.bulkWrite as jest.Mock).mock.calls[0];
+		const replace = operations[1].updateOne;
+		expect(replace.upsert).toBeUndefined();
+		expect(replace.update.$setOnInsert).toBeUndefined();
+		expect(replace.filter).toMatchObject({
+			portfolioId: 'p1',
+			date: iso(daysAgo(30)),
+			...ownCostOnlyPoint(iso(daysAgo(30)), 0),
+		});
+		expect(replace.update.$set.stale).toBe(false);
+		expect(result.replaced).toBe(20);
 	});
 
 	it('declara o símbolo sem cotação em vez de escondê-lo', async () => {
@@ -224,5 +253,27 @@ describe('PortfolioHistoryBackfillService', () => {
 
 		expect(result.covered).toBe(true);
 		expect(result.missingSymbols).toEqual(['PETR4']);
+	});
+});
+
+describe('ownCostOnlyPoint (TRA-279)', () => {
+	// O snapshot diário grava o próprio dia; só a reconstrução escreve no
+	// passado. É isso que impede de trocar um snapshot da carteira inteira por
+	// um valor que só conhece os ativos com negociação.
+	it('exige que a linha tenha sido gravada depois do dia que representa', () => {
+		const filter = ownCostOnlyPoint('2025-07-21', 0);
+		expect(filter.createdAt.$gt.toISOString()).toBe('2025-07-23T00:00:00.000Z');
+	});
+
+	it('exige stale, custo registrado e valor igual ao custo', () => {
+		const filter = ownCostOnlyPoint('2025-07-21', 0) as any;
+		expect(filter.stale).toBe(true);
+		expect(filter.investedValue).toEqual({ $exists: true, $ne: null });
+		expect(filter.$expr.$and[0].$lte[1]).toBe(0.01);
+	});
+
+	it('só troca se o ponto novo tiver menos símbolos sem cotação', () => {
+		const filter = ownCostOnlyPoint('2025-07-21', 2) as any;
+		expect(filter.$expr.$and[1].$gt[1]).toBe(2);
 	});
 });
