@@ -9,6 +9,7 @@ import {
 	computeDailyReturns,
 	computeTwr,
 	computeXirr,
+	cumulativeReturns,
 	decomposeContribution,
 	type DailyValuePoint,
 	type IrrCashFlow,
@@ -76,6 +77,12 @@ export interface PortfolioReturnsOutput {
 		annualized: number | null;
 		periods: number;
 	};
+	/**
+	 * TWR acumulado por pregão, em fração, começando em 0 no pregão-base.
+	 * É a curva "Carteira" do gráfico de evolução: comparável com índice
+	 * porque aporte e retirada não contam como rendimento.
+	 */
+	twrSeries: { date: string; value: number }[];
 	/**
 	 * TWR descontado o IPCA do mesmo período (TRA-227). Número derivado: vem
 	 * com a convenção usada e a procedência da série do BACEN.
@@ -382,6 +389,17 @@ export class PortfolioReturnsService {
 			series,
 			flows: flows.byDay,
 		});
+		const firstReturnDate = portfolioReturns[0]?.date;
+		const baseDate =
+			series
+				.filter(
+					(point) =>
+						point.tradingDay !== false &&
+						firstReturnDate !== undefined &&
+						point.date < firstReturnDate
+				)
+				.pop()?.date ?? null;
+		const twrSeries = cumulativeReturns(portfolioReturns, baseDate);
 		const [benchmark, riskFreeDaily, ipca] = await Promise.all([
 			this.resolveBenchmark(userId),
 			this.fetchRiskFreeDaily(
@@ -449,6 +467,7 @@ export class PortfolioReturnsService {
 				annualized,
 				periods: twrResult.periods,
 			},
+			twrSeries,
 			realReturn: realReturnResult,
 			irr,
 			benchmark: {

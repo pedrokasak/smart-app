@@ -1,7 +1,9 @@
 import {
 	annualize,
 	computeTwr,
+	computeDailyReturns,
 	computeXirr,
+	cumulativeReturns,
 	decomposeContribution,
 } from './returns';
 
@@ -261,5 +263,56 @@ describe('TWR e IRR juntos', () => {
 		// A carteira caiu e depois mais que dobrou.
 		expect(twr.twr).toBeCloseTo(1.0, 6);
 		expect(twr.periods).toBe(2);
+	});
+});
+
+describe('cumulativeReturns', () => {
+	const trading = (date: string, totalValue: number) => ({
+		date,
+		totalValue,
+		tradingDay: true,
+	});
+
+	it('encadeia os retornos diarios a partir da base zero', () => {
+		const series = cumulativeReturns(
+			[
+				{ date: '2025-06-11', value: 0.1 },
+				{ date: '2025-06-12', value: -0.1 },
+			],
+			'2025-06-10'
+		);
+
+		expect(series.map((point) => point.date)).toEqual([
+			'2025-06-10',
+			'2025-06-11',
+			'2025-06-12',
+		]);
+		expect(series[0].value).toBe(0);
+		expect(series[1].value).toBeCloseTo(0.1, 6);
+		// 1.1 * 0.9 - 1: queda de 10% depois de alta de 10% nao volta a zero.
+		expect(series[2].value).toBeCloseTo(-0.01, 6);
+	});
+
+	// O defeito que motivou a serie: aporte e compra-e-venda apareciam como
+	// rentabilidade no grafico de evolucao. Ajustado por fluxo, somem.
+	it('aporte e venda nao viram pico na curva', () => {
+		const { returns } = computeDailyReturns({
+			series: [
+				trading('2025-06-10', 1000),
+				trading('2025-06-11', 5000),
+				trading('2025-06-12', 1000),
+			],
+			flows: [
+				{ date: '2025-06-11', flow: 4000 },
+				{ date: '2025-06-12', flow: -4000 },
+			],
+		});
+		const series = cumulativeReturns(returns, '2025-06-10');
+
+		expect(series.every((point) => Math.abs(point.value) < 1e-9)).toBe(true);
+	});
+
+	it('serie vazia continua vazia, mesmo com base', () => {
+		expect(cumulativeReturns([], '2025-06-10')).toEqual([]);
 	});
 });
