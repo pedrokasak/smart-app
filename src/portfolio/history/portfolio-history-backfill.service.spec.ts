@@ -1,14 +1,10 @@
-import {
-	PortfolioHistoryBackfillService,
-	replaceableCostPoint,
-} from './portfolio-history-backfill.service';
+import { PortfolioHistoryBackfillService } from './portfolio-history-backfill.service';
 
 describe('PortfolioHistoryBackfillService', () => {
 	const makeService = (params: {
 		trades: any[];
 		closes?: Record<string, { date: string; close: number }[]>;
 		upsertedCount?: number;
-		modifiedCount?: number;
 		assetTypes?: Record<string, string>;
 	}) => {
 		const tradeModel = {
@@ -23,7 +19,6 @@ describe('PortfolioHistoryBackfillService', () => {
 		const historyModel = {
 			bulkWrite: jest.fn().mockResolvedValue({
 				upsertedCount: params.upsertedCount ?? 10,
-				modifiedCount: params.modifiedCount ?? 0,
 			}),
 		};
 		const marketData = {
@@ -97,7 +92,6 @@ describe('PortfolioHistoryBackfillService', () => {
 		expect(result).toEqual({
 			covered: false,
 			written: 0,
-			replaced: 0,
 			from: null,
 			to: null,
 			missingSymbols: [],
@@ -142,44 +136,6 @@ describe('PortfolioHistoryBackfillService', () => {
 			userId: 'u1',
 		});
 		expect(operations[0].updateOne.update.$set).toBeUndefined();
-	});
-
-	// TRA-279: o ponto gravado a custo numa reconstrução sem fechamento fazia
-	// a diferença custo → mercado virar rendimento de um dia só.
-	it('troca ponto a custo pelo valor com fechamento, sem criar ponto novo', async () => {
-		const { service, historyModel } = makeService({
-			trades: [trade()],
-			closes: { PETR4: closes(daysAgo(30), 31) },
-			modifiedCount: 12,
-		});
-
-		const result = await service.backfill({ userId: 'u1', portfolioId: 'p1' });
-
-		const [operations] = (historyModel.bulkWrite as jest.Mock).mock.calls[0];
-		const replace = operations[1].updateOne;
-		expect(replace.upsert).toBeUndefined();
-		expect(replace.filter).toMatchObject({
-			portfolioId: 'p1',
-			...replaceableCostPoint(0),
-		});
-		expect(replace.update.$set).toMatchObject({ stale: false });
-		expect(replace.update.$set.totalValue).toBeGreaterThan(0);
-		expect(replace.update.$setOnInsert).toBeUndefined();
-		expect(result.replaced).toBe(12);
-	});
-
-	it('com símbolo ainda sem cotação, só troca ponto pior que o novo', async () => {
-		const { service, historyModel } = makeService({
-			trades: [trade(), trade({ symbol: 'XPTO3' })],
-			closes: { PETR4: closes(daysAgo(30), 31) },
-		});
-
-		await service.backfill({ userId: 'u1', portfolioId: 'p1' });
-
-		const [operations] = (historyModel.bulkWrite as jest.Mock).mock.calls[0];
-		expect(operations[1].updateOne.filter).toMatchObject(
-			replaceableCostPoint(1)
-		);
 	});
 
 	it('declara o símbolo sem cotação em vez de escondê-lo', async () => {
@@ -268,28 +224,5 @@ describe('PortfolioHistoryBackfillService', () => {
 
 		expect(result.covered).toBe(true);
 		expect(result.missingSymbols).toEqual(['PETR4']);
-	});
-});
-
-describe('replaceableCostPoint (TRA-279)', () => {
-	// O filtro roda no Mongo; aqui fica o contrato de quem ele pode trocar.
-	it('casa ponto anterior à TRA-143 (sem investedValue)', () => {
-		expect(replaceableCostPoint(0).$or).toContainEqual({
-			investedValue: { $exists: false },
-		});
-	});
-
-	it('casa ponto stale só se tiver mais símbolos sem cotação que o novo', () => {
-		const staleBranch = replaceableCostPoint(2).$or[1] as any;
-		expect(staleBranch.stale).toBe(true);
-		expect(staleBranch.$expr.$gt[1]).toBe(2);
-	});
-
-	it('nunca casa snapshot com cotação: exige stale ou investedValue ausente', () => {
-		for (const branch of replaceableCostPoint(0).$or as any[]) {
-			const requiresStale = branch.stale === true;
-			const requiresLegacy = branch.investedValue?.$exists === false;
-			expect(requiresStale || requiresLegacy).toBe(true);
-		}
 	});
 });
