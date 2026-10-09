@@ -75,6 +75,36 @@ export function ownCostOnlyPoint(date: string, newStaleCount: number) {
 	};
 }
 
+/**
+ * Primeiro dia que o snapshot diário gravou (TRA-279). O snapshot grava o
+ * próprio dia (às 19:30); só a reconstrução escreve no passado. A partir desta
+ * data a carteira já tem registro, e a reconstrução — que só conhece os ativos
+ * com nota — não deve escrever: num dia sem snapshot ela gravava o valor só
+ * dos negociados, sem as posições do relatório consolidado.
+ */
+export function firstSnapshotDate(
+	rows: { date: string; createdAt?: Date | string | null }[]
+): string | null {
+	let first: string | null = null;
+	for (const row of rows || []) {
+		if (!row?.date || !row.createdAt) continue;
+		const created = new Date(row.createdAt);
+		if (Number.isNaN(created.getTime())) continue;
+		const limit = new Date(`${row.date}T00:00:00.000Z`);
+		limit.setUTCDate(limit.getUTCDate() + 2);
+		if (created <= limit && (first === null || row.date < first)) {
+			first = row.date;
+		}
+	}
+	return first;
+}
+
+const dayBefore = (isoDay: string): string => {
+	const date = new Date(`${isoDay}T00:00:00.000Z`);
+	date.setUTCDate(date.getUTCDate() - 1);
+	return date.toISOString().slice(0, 10);
+};
+
 /** Teto de símbolos por reconstrução: a fonte de preço é rate-limited. */
 const MAX_SYMBOLS = 40;
 
@@ -206,6 +236,19 @@ export class PortfolioHistoryBackfillService {
 			);
 		}
 
+		// Reconstrói só o período sem registro: até a véspera do primeiro
+		// snapshot diário, ou até ontem se ainda não houver nenhum (o de hoje
+		// sai às 19:30).
+		const existing = await this.historyModel
+			.find({ portfolioId: params.portfolioId })
+			.select('date createdAt')
+			.lean()
+			.exec();
+		const firstSnapshot = firstSnapshotDate(existing as any[]);
+		const until = dayBefore(
+			firstSnapshot ?? new Date().toISOString().slice(0, 10)
+		);
+
 		const result = backfillSeries({
 			trades: trades.map((trade) => ({
 				symbol: String(trade.symbol || '').toUpperCase(),
@@ -215,12 +258,14 @@ export class PortfolioHistoryBackfillService {
 				date: trade.date,
 			})),
 			prices,
+			until,
 		});
 
 		if (!result.covered || !result.points.length) {
 			return { ...empty, missingSymbols };
 		}
 
+		const now = new Date();
 		const operations = result.points.flatMap((point) => {
 			const fields = {
 				totalValue: point.totalValue,
@@ -240,9 +285,14 @@ export class PortfolioHistoryBackfillService {
 								date: point.date,
 								...fields,
 								nonTradingReason: point.nonTradingReason,
+								createdAt: now,
+								updatedAt: now,
 							},
 						},
 						upsert: true,
+						// Sem isto o mongoose põe `$set: { updatedAt }` e toda linha
+						// existente conta como modificada — `replaced` saía inflado.
+						timestamps: false,
 					},
 				},
 				{

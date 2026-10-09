@@ -26,10 +26,12 @@ import {
 import {
 	computeDrawdown,
 	computeHistoricalVar,
+	computeAnnualVolatility,
 	computeSharpe,
 	type DrawdownResult,
 	type HistoricalVarResult,
 	type SharpeResult,
+	type VolatilityResult,
 } from 'src/portfolio/history/risk-metrics';
 import {
 	RISK_FREE_RATE_PROVIDER,
@@ -120,6 +122,8 @@ export interface PortfolioReturnsOutput {
 	 */
 	risk: {
 		sharpe: SharpeResult;
+		/** Volatilidade anualizada sobre os retornos ajustados por fluxo. */
+		volatility: VolatilityResult;
 		valueAtRisk: HistoricalVarResult;
 		drawdown: DrawdownResult & {
 			/** Pregões do fundo à volta ao topo; `null` se não recuperou. */
@@ -457,6 +461,7 @@ export class PortfolioReturnsService {
 		}
 
 		const sharpe = computeSharpe(portfolioReturns, riskFreeDaily);
+		const volatility = computeAnnualVolatility(portfolioReturns);
 		if (sharpe.sharpe === null) unavailable.push('sharpe_insufficient_data');
 		const valueAtRisk = computeHistoricalVar(portfolioReturns, {
 			portfolioValue: currentValue,
@@ -514,6 +519,7 @@ export class PortfolioReturnsService {
 			},
 			risk: {
 				sharpe,
+				volatility,
 				valueAtRisk,
 				drawdown: {
 					...drawdown,

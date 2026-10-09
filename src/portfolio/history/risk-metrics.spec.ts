@@ -1,5 +1,6 @@
 import { MIN_OBSERVATIONS } from './benchmark-metrics';
 import {
+	computeAnnualVolatility,
 	computeDrawdown,
 	computeHistoricalVar,
 	computeSharpe,
@@ -169,5 +170,30 @@ describe('computeDrawdown', () => {
 
 	it('não calcula com menos de dois retornos', () => {
 		expect(computeDrawdown(dated([0.01])).maxDrawdown).toBeNull();
+	});
+});
+
+describe('computeAnnualVolatility (TRA-279)', () => {
+	const series = (values: number[]) =>
+		values.map((value, i) => ({
+			date: `2026-01-${String(i + 1).padStart(2, '0')}`,
+			value,
+		}));
+
+	it('anualiza o desvio-padrão amostral dos retornos diários', () => {
+		const values = Array.from({ length: 20 }, (_, i) => (i % 2 ? 0.01 : -0.01));
+		const result = computeAnnualVolatility(series(values));
+		const mean = 0;
+		const sd = Math.sqrt(
+			values.reduce((s, v) => s + (v - mean) ** 2, 0) / (values.length - 1)
+		);
+		expect(result.annualized).toBeCloseTo(sd * Math.sqrt(252), 6);
+		expect(result.observations).toBe(20);
+	});
+
+	it('sem 20 observações não reporta número', () => {
+		expect(
+			computeAnnualVolatility(series([0.01, -0.02])).annualized
+		).toBeNull();
 	});
 });

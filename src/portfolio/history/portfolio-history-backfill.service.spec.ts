@@ -1,4 +1,5 @@
 import {
+	firstSnapshotDate,
 	ownCostOnlyPoint,
 	PortfolioHistoryBackfillService,
 } from './portfolio-history-backfill.service';
@@ -9,6 +10,7 @@ describe('PortfolioHistoryBackfillService', () => {
 		closes?: Record<string, { date: string; close: number }[]>;
 		upsertedCount?: number;
 		modifiedCount?: number;
+		existingRows?: { date: string; createdAt: Date }[];
 		assetTypes?: Record<string, string>;
 	}) => {
 		const tradeModel = {
@@ -21,6 +23,13 @@ describe('PortfolioHistoryBackfillService', () => {
 			}),
 		};
 		const historyModel = {
+			find: jest.fn().mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					lean: jest.fn().mockReturnValue({
+						exec: jest.fn().mockResolvedValue(params.existingRows ?? []),
+					}),
+				}),
+			}),
 			bulkWrite: jest.fn().mockResolvedValue({
 				upsertedCount: params.upsertedCount ?? 10,
 				modifiedCount: params.modifiedCount ?? 0,
@@ -167,6 +176,52 @@ describe('PortfolioHistoryBackfillService', () => {
 		expect(result.replaced).toBe(20);
 	});
 
+	// TRA-279: num dia sem snapshot (08/10) a reconstrução gravava o valor só
+	// dos ativos com nota, sem as posições do relatório consolidado.
+	it('não escreve a partir do primeiro snapshot diário', async () => {
+		const snapshotDay = iso(daysAgo(10));
+		const { service, historyModel } = makeService({
+			trades: [trade()],
+			closes: { PETR4: closes(daysAgo(30), 31) },
+			existingRows: [
+				{ date: snapshotDay, createdAt: new Date(`${snapshotDay}T22:30:00Z`) },
+			],
+		});
+
+		const result = await service.backfill({ userId: 'u1', portfolioId: 'p1' });
+
+		const [operations] = (historyModel.bulkWrite as jest.Mock).mock.calls[0];
+		const dates = operations.map((op: any) => op.updateOne.filter.date);
+		expect(dates.every((date: string) => date < snapshotDay)).toBe(true);
+		expect(result.to).toBe(iso(daysAgo(11)));
+	});
+
+	it('sem snapshot, reconstrói até ontem: o de hoje sai às 19:30', async () => {
+		const { service } = makeService({
+			trades: [trade()],
+			closes: { PETR4: closes(daysAgo(30), 31) },
+		});
+
+		const result = await service.backfill({ userId: 'u1', portfolioId: 'p1' });
+
+		expect(result.to).toBe(iso(daysAgo(1)));
+	});
+
+	it('linha nova grava as próprias datas e não toca updatedAt das existentes', async () => {
+		const { service, historyModel } = makeService({
+			trades: [trade()],
+			closes: { PETR4: closes(daysAgo(30), 31) },
+		});
+
+		await service.backfill({ userId: 'u1', portfolioId: 'p1' });
+
+		const [operations] = (historyModel.bulkWrite as jest.Mock).mock.calls[0];
+		expect(operations[0].updateOne.timestamps).toBe(false);
+		expect(
+			operations[0].updateOne.update.$setOnInsert.createdAt
+		).toBeInstanceOf(Date);
+	});
+
 	it('declara o símbolo sem cotação em vez de escondê-lo', async () => {
 		const { service } = makeService({
 			trades: [trade(), trade({ symbol: 'XPTO3' })],
@@ -275,5 +330,28 @@ describe('ownCostOnlyPoint (TRA-279)', () => {
 	it('só troca se o ponto novo tiver menos símbolos sem cotação', () => {
 		const filter = ownCostOnlyPoint('2025-07-21', 2) as any;
 		expect(filter.$expr.$and[1].$gt[1]).toBe(2);
+	});
+});
+
+describe('firstSnapshotDate (TRA-279)', () => {
+	it('é o primeiro dia gravado no próprio dia, não pela reconstrução', () => {
+		expect(
+			firstSnapshotDate([
+				// reconstrução: gravada meses depois
+				{ date: '2025-01-07', createdAt: new Date('2026-09-15T03:59:00Z') },
+				// snapshot das 19:30 (22:30 UTC)
+				{ date: '2026-09-14', createdAt: new Date('2026-09-14T22:30:00Z') },
+				{ date: '2026-09-15', createdAt: new Date('2026-09-15T22:30:00Z') },
+			])
+		).toBe('2026-09-14');
+	});
+
+	it('sem snapshot devolve null', () => {
+		expect(
+			firstSnapshotDate([
+				{ date: '2025-01-07', createdAt: new Date('2026-09-15T03:59:00Z') },
+			])
+		).toBeNull();
+		expect(firstSnapshotDate([])).toBeNull();
 	});
 });
