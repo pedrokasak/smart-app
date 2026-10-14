@@ -13,6 +13,10 @@ import {
 	Min,
 	ValidateNested,
 } from 'class-validator';
+import {
+	DIDACTIC_LEVELS,
+	type DidacticLevel,
+} from 'src/ai/didactic/didactic.types';
 import type { ComparisonRequest } from './application/comparison.types';
 import {
 	BANK_INSTRUMENT_KINDS,
@@ -82,7 +86,8 @@ export class ComparisonRequestDto implements ComparisonRequest {
 
 	@ApiPropertyOptional({
 		example: 4.5,
-		description: 'IPCA em % a.a.; ausente = IPCA de 12 meses (BACEN).',
+		description:
+			'IPCA em % a.a.; ausente = projeção Focus para o prazo (BACEN), ou o IPCA de 12 meses quando o Focus não responde.',
 	})
 	@IsOptional()
 	@IsNumber(finite)
@@ -108,4 +113,13 @@ export class ComparisonRequestDto implements ComparisonRequest {
 	@ArrayMaxSize(COMPARISON_LIMITS.maxTesouroIds)
 	@Matches(TESOURO_ID_PATTERN, { each: true })
 	tesouroIds?: string[];
+
+	@ApiPropertyOptional({
+		enum: DIDACTIC_LEVELS,
+		description:
+			'Nível da explicação didática (só muda a redação); ausente = intermediário.',
+	})
+	@IsOptional()
+	@IsIn(DIDACTIC_LEVELS)
+	level?: DidacticLevel;
 }

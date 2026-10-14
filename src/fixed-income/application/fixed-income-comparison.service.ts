@@ -7,6 +7,7 @@ import {
 import { todayInSaoPaulo } from 'src/macro-indicators/application/macro-series.service';
 import { expectedAnnualIpcaPct } from 'src/macro-indicators/domain/inflation-expectations';
 import { buildAnalysis } from '../domain/comparison-analysis';
+import { explainComparison } from './comparison-didactic';
 import { addDays, toBrDate, toBrMonth } from '../domain/dates';
 import { regressiveTaxRatePct } from '../domain/fixed-income-tax';
 import type { Indexer, Instrument } from '../domain/instrument';
@@ -176,18 +177,28 @@ export class FixedIncomeComparisonService {
 			row.realAnnualPct > top.realAnnualPct ? row : top
 		);
 
+		const resultScenario: ComparisonResult['scenario'] = {
+			principal: scenario.principal,
+			years: scenario.years,
+			days,
+			horizonEnd: scenario.horizonEnd,
+			irRatePct: regressiveTaxRatePct(days),
+			cdi,
+			ipca,
+		};
+		const rows = simulated.map((row) => ({
+			...row,
+			isBest: row.id === best.id,
+		}));
+
 		return {
-			scenario: {
-				principal: scenario.principal,
-				years: scenario.years,
-				days,
-				horizonEnd: scenario.horizonEnd,
-				irRatePct: regressiveTaxRatePct(days),
-				cdi,
-				ipca,
-			},
-			rows: simulated.map((row) => ({ ...row, isBest: row.id === best.id })),
+			scenario: resultScenario,
+			rows,
 			analysis: buildAnalysis(simulated, scenario),
+			didactic: explainComparison(
+				{ scenario: resultScenario, rows },
+				request.level ?? 'intermediario'
+			),
 			warnings,
 			selicMeta: market.selicMeta,
 			tesouro: market.tesouro && {

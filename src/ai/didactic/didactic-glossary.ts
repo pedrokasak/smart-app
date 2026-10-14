@@ -23,7 +23,13 @@ export type TermKey =
 	| 'ganho_capital'
 	| 'isencao_20k'
 	| 'prejuizo_compensavel'
-	| 'atribuicao';
+	| 'atribuicao'
+	| 'retorno_real'
+	| 'reais_de_hoje'
+	| 'ir_regressivo'
+	| 'isencao_lci_lca'
+	| 'focus'
+	| 'reinvestimento';
 
 interface GlossaryEntry {
 	label: string;
@@ -210,6 +216,71 @@ export const GLOSSARY: Record<TermKey, GlossaryEntry> = {
 			intermediario:
 				'Contribuição de cada ativo ao retorno: peso × retorno do ativo.',
 			avancado: 'Decomposição do retorno por contribuição de cada posição.',
+		},
+	},
+	retorno_real: {
+		label: 'Retorno real',
+		byLevel: {
+			iniciante:
+				'Quanto o dinheiro cresce acima da inflação, depois do imposto. É o ganho que aumenta o que você consegue comprar.',
+			intermediario:
+				'Retorno líquido de IR descontada a inflação: (1 + líquido) ÷ (1 + IPCA) − 1.',
+			avancado: '(1 + r_líq) / (1 + π) − 1, ao ano.',
+		},
+	},
+	reais_de_hoje: {
+		label: 'Reais de hoje',
+		byLevel: {
+			iniciante:
+				'O valor futuro convertido para o poder de compra de hoje. R$ 11.000 daqui a 3 anos podem comprar o que R$ 9.800 compram hoje.',
+			intermediario:
+				'Valor final dividido pela inflação acumulada no prazo: o poder de compra em moeda de hoje.',
+			avancado:
+				'Valor final deflacionado pelo IPCA do cenário (valor presente real).',
+		},
+	},
+	ir_regressivo: {
+		label: 'IR regressivo',
+		byLevel: {
+			iniciante:
+				'O imposto da renda fixa diminui quanto mais tempo o dinheiro fica aplicado: de 22,5% (até 6 meses) a 15% (mais de 2 anos), sempre sobre o ganho.',
+			intermediario:
+				'Alíquota sobre o ganho que cai com o prazo: 22,5%, 20%, 17,5% e 15% acima de 720 dias.',
+			avancado:
+				'Tabela regressiva: 22,5% / 20% / 17,5% / 15% (>720 dias), sobre o rendimento.',
+		},
+	},
+	isencao_lci_lca: {
+		label: 'Isenção de LCI e LCA',
+		byLevel: {
+			iniciante:
+				'LCI e LCA não pagam imposto de renda para pessoa física: todo o ganho fica com você.',
+			intermediario:
+				'LCI, LCA, CRI e CRA são isentos de IR para pessoa física; por isso uma taxa menor pode render mais.',
+			avancado:
+				'Isenção de IR para PF (LCI, LCA, CRI, CRA); compare pela taxa tributada equivalente.',
+		},
+	},
+	focus: {
+		label: 'Projeção Focus',
+		byLevel: {
+			iniciante:
+				'A inflação que os economistas do mercado esperam para os próximos anos, numa pesquisa semanal do Banco Central.',
+			intermediario:
+				'Mediana das projeções de IPCA das instituições na pesquisa Focus do BACEN, usada para simular o futuro.',
+			avancado:
+				'Mediana Focus (BACEN): 12 meses à frente e anos-calendário seguintes.',
+		},
+	},
+	reinvestimento: {
+		label: 'Reinvestimento',
+		byLevel: {
+			iniciante:
+				'Usar o provento recebido para comprar mais cotas, que também passam a pagar proventos.',
+			intermediario:
+				'Aplicar os proventos no próprio ativo ou na carteira: os juros compostos fazem a renda crescer.',
+			avancado:
+				'Reinvestimento dos fluxos à taxa de dividend yield (composição).',
 		},
 	},
 };
