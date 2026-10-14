@@ -22,6 +22,12 @@ export interface AssumptionValue {
 	/** `market` = lido do BACEN; `user` = digitado por quem simula. */
 	source: 'market' | 'user';
 	asOf?: string;
+	/**
+	 * Só no IPCA de mercado: `focus` = projeção do mercado para o prazo
+	 * (padrão); `ipca_12m` = realizado dos últimos 12 meses, quando o Focus
+	 * não respondeu.
+	 */
+	basis?: 'focus' | 'ipca_12m';
 }
 
 export interface ComparisonRow extends SimulatedInstrument {

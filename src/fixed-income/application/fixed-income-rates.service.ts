@@ -6,6 +6,11 @@ import {
 } from 'src/macro-indicators/application/macro-series.service';
 import type { MacroSeriesKey } from 'src/macro-indicators/domain/series-catalog';
 import { TtlPromiseCache } from 'src/macro-indicators/infrastructure/bcb-sgs/ttl-promise-cache';
+import {
+	INFLATION_EXPECTATIONS_SOURCE,
+	type InflationExpectationsSource,
+} from 'src/macro-indicators/application/inflation-expectations.port';
+import type { InflationExpectations } from 'src/macro-indicators/domain/inflation-expectations';
 import { addDays, daysBetween } from '../domain/dates';
 import { annualFromDailyPct } from '../domain/rate-math';
 import type { TesouroTitle } from '../domain/tesouro-title';
@@ -28,6 +33,11 @@ export interface FixedIncomeRates {
 	selicMeta: MarketRate | null;
 	/** IPCA acumulado nos últimos 12 meses publicados. */
 	ipca12m: MarketRate | null;
+	/**
+	 * Projeção do mercado (Focus): base do IPCA das simulações, que olham para
+	 * frente. O IPCA de 12 meses fica como substituto quando ela falta.
+	 */
+	ipcaFocus: (InflationExpectations & { stale: boolean }) | null;
 	tesouro: {
 		baseDate: string;
 		fetchedAt: string;
@@ -46,10 +56,15 @@ const MONTHS_IN_YEAR = 12;
  */
 const RATES_CACHE_TTL_MS = 30_000;
 /** Folga para o CDI (dia útil), a Selic meta (muda a cada reunião) e o IPCA (publicado ~dia 10 do mês seguinte). */
-const STALE_AFTER_DAYS: Record<'CDI' | 'SELIC_META' | 'IPCA', number> = {
+const STALE_AFTER_DAYS: Record<
+	'CDI' | 'SELIC_META' | 'IPCA' | 'FOCUS',
+	number
+> = {
 	CDI: 7,
 	SELIC_META: 14,
 	IPCA: 100,
+	// Pesquisa semanal publicada todo dia útil: duas semanas sem nova é atraso.
+	FOCUS: 14,
 };
 
 const monthIndex = (isoDate: string) => {
@@ -73,7 +88,10 @@ export class FixedIncomeRatesService {
 		private readonly tesouroOffers: TesouroOffersService,
 		@Optional()
 		@Inject(FIXED_INCOME_CLOCK)
-		private readonly clock?: () => Date
+		private readonly clock?: () => Date,
+		@Optional()
+		@Inject(INFLATION_EXPECTATIONS_SOURCE)
+		private readonly inflationExpectations?: InflationExpectationsSource
 	) {
 		this.cache = new TtlPromiseCache<FixedIncomeRates>(
 			RATES_CACHE_TTL_MS,
@@ -92,13 +110,14 @@ export class FixedIncomeRatesService {
 
 	private async load(): Promise<FixedIncomeRates> {
 		const today = todayInSaoPaulo(this.now());
-		const [cdi, selicMeta, ipca12m, tesouro] = await Promise.all([
+		const [cdi, selicMeta, ipca12m, ipcaFocus, tesouro] = await Promise.all([
 			this.guarded('CDI', () => this.readCdi(today)),
 			this.guarded('Selic meta', () => this.readSelicMeta(today)),
 			this.guarded('IPCA', () => this.readIpca12m(today)),
+			this.guarded('Focus', () => this.readFocus(today)),
 			this.guarded('Tesouro', () => this.readTesouro()),
 		]);
-		return { cdi, selicMeta, ipca12m, tesouro };
+		return { cdi, selicMeta, ipca12m, ipcaFocus, tesouro };
 	}
 
 	private async guarded<T>(label: string, read: () => Promise<T | null>) {
@@ -174,6 +193,18 @@ export class FixedIncomeRatesService {
 			asOf,
 			source,
 			stale: daysBetween(asOf, today) > STALE_AFTER_DAYS.IPCA,
+		};
+	}
+
+	private async readFocus(
+		today: string
+	): Promise<FixedIncomeRates['ipcaFocus']> {
+		const expectations = await this.inflationExpectations?.latest();
+		if (!expectations) return null;
+		return {
+			...expectations,
+			stale:
+				daysBetween(expectations.surveyDate, today) > STALE_AFTER_DAYS.FOCUS,
 		};
 	}
 
