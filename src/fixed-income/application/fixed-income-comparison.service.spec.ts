@@ -45,6 +45,7 @@ const rates = (
 		source: 'BACEN_SGS_433',
 		stale: false,
 	},
+	ipcaFocus: null,
 	tesouro: {
 		baseDate: '2026-10-02',
 		fetchedAt: '2026-10-05T13:00:00.000Z',
@@ -94,7 +95,10 @@ describe('FixedIncomeComparisonService', () => {
 			stale: false,
 		});
 		expect(result.selicMeta?.valuePct).toBe(13.75);
-		expect(result.warnings).toEqual([]);
+		// Fixture sem Focus: o único aviso é o do substituto (IPCA 12m).
+		expect(result.warnings).toEqual([
+			'Projeção Focus indisponível agora: a simulação usa o IPCA dos últimos 12 meses.',
+		]);
 	});
 
 	it('usa a taxa de COMPRA do Tesouro e os números batem com a simulação feita à mão', async () => {
@@ -184,6 +188,63 @@ describe('FixedIncomeComparisonService', () => {
 		await expect(
 			service.compare({ ...base, cdiPct: 13 })
 		).resolves.toBeDefined();
+	});
+
+	describe('IPCA da simulação (Focus)', () => {
+		const focus = {
+			surveyDate: '2026-10-02',
+			next12mPct: 4.5,
+			byYear: { 2026: 5.2, 2027: 4.3, 2028: 3.8, 2029: 3.5 },
+			source: 'BCB_FOCUS',
+			stale: false,
+		};
+
+		it('usa a projeção Focus para o prazo, e não o IPCA passado', async () => {
+			const result = await serviceWith(rates({ ipcaFocus: focus })).compare(
+				base
+			);
+
+			expect(result.scenario.ipca).toMatchObject({
+				source: 'market',
+				basis: 'focus',
+				asOf: '2026-10-02',
+			});
+			// 1º ano a 4,5%, depois 2027 (resto), 2028 e parte de 2029.
+			expect(result.scenario.ipca.valuePct).toBeGreaterThan(3.8);
+			expect(result.scenario.ipca.valuePct).toBeLessThan(4.5);
+			expect(result.warnings.join(' ')).not.toContain('Focus');
+		});
+
+		it('IPCA digitado continua valendo sobre o Focus', async () => {
+			const result = await serviceWith(rates({ ipcaFocus: focus })).compare({
+				...base,
+				ipcaPct: 6,
+			});
+			expect(result.scenario.ipca).toEqual({ valuePct: 6, source: 'user' });
+		});
+
+		it('sem Focus, cai no IPCA de 12 meses e avisa', async () => {
+			const result = await serviceWith(rates()).compare(base);
+
+			expect(result.scenario.ipca).toMatchObject({
+				valuePct: 4.5,
+				basis: 'ipca_12m',
+			});
+			expect(result.warnings.join(' ')).toContain(
+				'Projeção Focus indisponível'
+			);
+		});
+
+		it('Focus antigo avisa com a data da pesquisa', async () => {
+			const result = await serviceWith(
+				rates({
+					ipcaFocus: { ...focus, surveyDate: '2026-09-01', stale: true },
+				})
+			).compare(base);
+			expect(result.warnings.join(' ')).toContain(
+				'A projeção Focus é de 01/09/2026'
+			);
+		});
 	});
 
 	it('sem IPCA de mercado nem digitado, recusa', async () => {

@@ -1,3 +1,7 @@
+import type {
+	DidacticAnswer,
+	DidacticLevel,
+} from 'src/ai/didactic/didactic.types';
 import type { Analysis } from '../domain/comparison-analysis';
 import type { Offer } from '../domain/offer';
 import type { SimulatedInstrument } from '../domain/simulation';
@@ -15,6 +19,8 @@ export interface ComparisonRequest {
 	offers?: Offer[];
 	/** Títulos do Tesouro escolhidos à mão; ausente = seleção automática pelo prazo. */
 	tesouroIds?: string[];
+	/** Nível da explicação didática; ausente = intermediário. Só muda a redação. */
+	level?: DidacticLevel;
 }
 
 export interface AssumptionValue {
@@ -22,6 +28,12 @@ export interface AssumptionValue {
 	/** `market` = lido do BACEN; `user` = digitado por quem simula. */
 	source: 'market' | 'user';
 	asOf?: string;
+	/**
+	 * Só no IPCA de mercado: `focus` = projeção do mercado para o prazo
+	 * (padrão); `ipca_12m` = realizado dos últimos 12 meses, quando o Focus
+	 * não respondeu.
+	 */
+	basis?: 'focus' | 'ipca_12m';
 }
 
 export interface ComparisonRow extends SimulatedInstrument {
@@ -42,6 +54,8 @@ export interface ComparisonResult {
 	};
 	rows: ComparisonRow[];
 	analysis: Analysis;
+	/** Por que o primeiro rende mais, em reais de hoje, no nível pedido. */
+	didactic: DidacticAnswer | null;
 	warnings: string[];
 	selicMeta: MarketRate | null;
 	tesouro: {

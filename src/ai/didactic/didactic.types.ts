@@ -6,7 +6,12 @@ import type { SophisticationLevel } from 'src/intelligence/application/investor-
  * ordem), os termos usados e as perguntas para continuar aprendendo.
  * Tudo montado de forma determinística a partir dos dados do orquestrador.
  */
-export type DidacticLevel = 'iniciante' | 'intermediario' | 'avancado';
+export const DIDACTIC_LEVELS = [
+	'iniciante',
+	'intermediario',
+	'avancado',
+] as const;
+export type DidacticLevel = (typeof DIDACTIC_LEVELS)[number];
 
 export interface DidacticTerm {
 	term: string;

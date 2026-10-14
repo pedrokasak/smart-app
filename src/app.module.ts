@@ -46,6 +46,7 @@ import { PrivacyModule } from './privacy/privacy.module';
 import { InvestmentPolicyModule } from './investment-policy/investment-policy.module';
 import { ReportsModule } from './reports/reports.module';
 import { FinancialPlanModule } from './financial-plan/financial-plan.module';
+import { DividendIncomeModule } from './dividend-income/dividend-income.module';
 import { EventsModule } from './events/events.module';
 import { QuoteStalenessModule } from './market-data/quote-staleness/quote-staleness.module';
 import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
@@ -93,6 +94,7 @@ import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 		InvestmentPolicyModule,
 		ReportsModule,
 		FinancialPlanModule,
+		DividendIncomeModule,
 		PixModule,
 	],
 	controllers: [AppController],
