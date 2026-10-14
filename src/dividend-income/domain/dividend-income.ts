@@ -18,6 +18,12 @@ const TRAP_MAX_PRICE_CHANGE = -0.2;
 /** Um pagamento com metade ou mais do ano, entre vários, é extraordinário. */
 const EXTRAORDINARY_SHARE = 0.5;
 const EXTRAORDINARY_MIN_PAYOUTS = 3;
+/**
+ * Um pagamento grande que já apareceu no ano anterior (60% do tamanho ou
+ * mais) é o dividendo anual recorrente, não um extraordinário: o padrão de
+ * JCP trimestral mais dividendo anual não deve ser marcado.
+ */
+const RECURRING_PRIOR_SHARE = 0.6;
 /** A partir daqui, a renda depende demais de um pagador. */
 export const CONCENTRATED_PAYER_SHARE_PCT = 40;
 
@@ -39,6 +45,11 @@ export interface IncomeGoalPlan {
 	expectedRealReturnPct: number;
 	monthlyContribution: number;
 	goal: { title: string; targetAmount: number } | null;
+	/**
+	 * Patrimônio de todas as carteiras, base da meta de independência. Sem ele,
+	 * vale o valor das posições analisadas.
+	 */
+	patrimony?: number;
 }
 
 export interface DividendPayer {
@@ -68,6 +79,8 @@ export interface DividendIncomeFacts {
 	payers: DividendPayer[];
 	/** Renda mensal reinvestindo os proventos, em reais de hoje. */
 	projection: Array<{ years: number; monthlyIncome: number }>;
+	/** A projeção deixou de fora pagamentos extraordinários. */
+	projectionExcludesOneOff: boolean;
 	traps: DividendTrap[];
 	goal: {
 		title: string;
@@ -93,6 +106,7 @@ interface SymbolTotals {
 	market: number;
 	amount: number;
 	payouts: number[];
+	previousPayouts: number[];
 }
 
 /** Meses até `target` com aporte mensal e taxa anual real; `null` se não chega. */
@@ -127,12 +141,14 @@ export function analyzeDividendIncome(
 		if (quantity <= 0 || !symbol) continue;
 
 		const payouts: number[] = [];
+		const previousPayouts: number[] = [];
+		const previousCutoff = cutoff - WINDOW_DAYS * DAY_MS;
 		for (const payout of asset?.dividendHistory || []) {
 			const time = toTime(payout?.date);
 			const value = Number(payout?.value);
-			if (time === null || time < cutoff || time > now) continue;
+			if (time === null || time < previousCutoff || time > now) continue;
 			if (!Number.isFinite(value) || value <= 0) continue;
-			payouts.push(value);
+			(time >= cutoff ? payouts : previousPayouts).push(value);
 		}
 		const created = toTime(asset?.createdAt);
 		if (payouts.length && created !== null && created > cutoff) {
@@ -148,6 +164,7 @@ export function analyzeDividendIncome(
 			amount: 0,
 			// O histórico é do ativo, igual em toda carteira que o tem.
 			payouts,
+			previousPayouts,
 		};
 		totals.quantity += quantity;
 		totals.cost += (Number(asset?.price) || 0) * quantity;
@@ -175,13 +192,18 @@ export function analyzeDividendIncome(
 		}));
 
 	const traps: DividendTrap[] = [];
+	let oneOffAmount = 0;
 	for (const row of rows) {
 		if (!(row.amount > 0) || !(row.market > 0)) continue;
 		const yieldPct = (row.amount / row.market) * 100;
 		const priceChange = row.cost > 0 ? row.market / row.cost - 1 : null;
 		const perShare = row.payouts.reduce((sum, value) => sum + value, 0);
-		const largestShare =
-			perShare > 0 ? Math.max(...row.payouts) / perShare : null;
+		const largest = row.payouts.length ? Math.max(...row.payouts) : 0;
+		const largestShare = perShare > 0 ? largest / perShare : null;
+		// Sem histórico do ano anterior não dá para separar o recorrente.
+		const recurredLastYear =
+			!row.previousPayouts.length ||
+			Math.max(...row.previousPayouts) >= RECURRING_PRIOR_SHARE * largest;
 
 		if (
 			yieldPct / 100 >= TRAP_MIN_YIELD &&
@@ -198,8 +220,10 @@ export function analyzeDividendIncome(
 		} else if (
 			largestShare !== null &&
 			row.payouts.length >= EXTRAORDINARY_MIN_PAYOUTS &&
-			largestShare >= EXTRAORDINARY_SHARE
+			largestShare >= EXTRAORDINARY_SHARE &&
+			!recurredLastYear
 		) {
+			oneOffAmount += largest * row.quantity;
 			traps.push({
 				symbol: row.symbol,
 				kind: 'extraordinary',
@@ -211,13 +235,18 @@ export function analyzeDividendIncome(
 	}
 
 	// Reinvestir a um yield constante faz a renda crescer a esse yield. Em
-	// reais de hoje, supondo proventos que acompanham a inflação.
+	// reais de hoje, supondo proventos que acompanham a inflação. O
+	// extraordinário sai da base: não se repete para ser reinvestido.
 	const monthlyAvg = total12m / MONTHS_PER_YEAR;
+	const recurring = total12m - oneOffAmount;
+	const recurringYield = portfolioValue > 0 ? recurring / portfolioValue : null;
 	const projection =
-		yieldOnMarket !== null && monthlyAvg > 0
+		recurringYield !== null && recurring > 0
 			? PROJECTION_YEARS.map((years) => ({
 					years,
-					monthlyIncome: round2(monthlyAvg * (1 + yieldOnMarket) ** years),
+					monthlyIncome: round2(
+						(recurring / MONTHS_PER_YEAR) * (1 + recurringYield) ** years
+					),
 				}))
 			: [];
 
@@ -227,17 +256,18 @@ export function analyzeDividendIncome(
 	if (plan?.goal && plan.goal.targetAmount > 0 && yieldOnMarket !== null) {
 		const spendingPct =
 			((1 + plan.expectedRealReturnPct / 100) / (1 + yieldOnMarket) - 1) * 100;
+		const patrimony = plan.patrimony ?? portfolioValue;
 		goal = {
 			title: plan.goal.title,
 			targetAmount: plan.goal.targetAmount,
 			monthsReinvesting: monthsToTarget(
-				portfolioValue,
+				patrimony,
 				plan.monthlyContribution,
 				plan.expectedRealReturnPct,
 				plan.goal.targetAmount
 			),
 			monthsSpending: monthsToTarget(
-				portfolioValue,
+				patrimony,
 				plan.monthlyContribution,
 				spendingPct,
 				plan.goal.targetAmount
@@ -255,6 +285,7 @@ export function analyzeDividendIncome(
 		approximated,
 		payers,
 		projection,
+		projectionExcludesOneOff: oneOffAmount > 0,
 		traps,
 		goal,
 	};

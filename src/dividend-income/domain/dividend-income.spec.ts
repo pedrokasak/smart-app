@@ -92,7 +92,17 @@ describe('analyzeDividendIncome', () => {
 		]);
 	});
 
-	it('marca pagamento extraordinário entre vários pagamentos', () => {
+	const bigPayoutHistory = (previousLargest: number) => [
+		{ date: daysAgo(30), value: 6 },
+		{ date: daysAgo(120), value: 1 },
+		{ date: daysAgo(210), value: 1 },
+		{ date: daysAgo(300), value: 1 },
+		// Ano anterior.
+		{ date: daysAgo(400), value: previousLargest },
+		{ date: daysAgo(490), value: 1 },
+	];
+
+	it('marca pagamento extraordinário e o tira da projeção', () => {
 		const facts = analyzeDividendIncome(
 			[
 				{
@@ -100,12 +110,7 @@ describe('analyzeDividendIncome', () => {
 					quantity: 100,
 					price: 30,
 					currentPrice: 32,
-					dividendHistory: [
-						{ date: daysAgo(30), value: 6 },
-						{ date: daysAgo(120), value: 1 },
-						{ date: daysAgo(210), value: 1 },
-						{ date: daysAgo(300), value: 1 },
-					],
+					dividendHistory: bigPayoutHistory(1),
 				},
 			],
 			null,
@@ -116,6 +121,30 @@ describe('analyzeDividendIncome', () => {
 			kind: 'extraordinary',
 			largestPayoutSharePct: 66.67,
 		});
+		// Base recorrente: 3 × 1 × 100 = 300/ano (25/mês), yield 300/3200.
+		expect(facts.projectionExcludesOneOff).toBe(true);
+		expect(facts.projection[0].monthlyIncome).toBeCloseTo(
+			25 * (1 + 300 / 3200) ** 5,
+			2
+		);
+	});
+
+	it('pagamento grande que já veio no ano anterior é o dividendo anual, não extraordinário', () => {
+		const facts = analyzeDividendIncome(
+			[
+				{
+					symbol: 'BBSE3',
+					quantity: 100,
+					price: 30,
+					currentPrice: 32,
+					dividendHistory: bigPayoutHistory(5.5),
+				},
+			],
+			null,
+			NOW
+		);
+		expect(facts.traps).toEqual([]);
+		expect(facts.projectionExcludesOneOff).toBe(false);
 	});
 
 	it('posição mais nova que 12 meses deixa o total aproximado', () => {
@@ -125,6 +154,23 @@ describe('analyzeDividendIncome', () => {
 			NOW
 		);
 		expect(facts.approximated).toBe(true);
+	});
+
+	it('meta do plano usa o patrimônio inteiro quando informado', () => {
+		const plan = {
+			expectedRealReturnPct: 6,
+			monthlyContribution: 0,
+			goal: { title: 'Independência', targetAmount: 50_000 },
+		};
+		const onlyThis = analyzeDividendIncome([MXRF11], plan, NOW);
+		const whole = analyzeDividendIncome(
+			[MXRF11],
+			{ ...plan, patrimony: 60_000 },
+			NOW
+		);
+
+		expect(onlyThis.goal?.monthsReinvesting).toBeGreaterThan(0);
+		expect(whole.goal?.monthsReinvesting).toBe(0);
 	});
 
 	it('meta do plano: reinvestir chega antes de gastar os proventos', () => {

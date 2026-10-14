@@ -92,6 +92,12 @@ function driver(
 			: `${best.name} trava a taxa de hoje e, com a inflação projetada, rende mais. Se a inflação vier acima da projeção, ${second.name} (que acompanha a inflação) pode passar à frente.`;
 	}
 
+	if (best.exempt && second.exempt) {
+		return level === 'avancado'
+			? `Ambos isentos de IR: diferença só de taxa (${pct(best.grossAnnualPct, 2)} vs ${pct(second.grossAnnualPct, 2)} a.a.).`
+			: `Os dois são isentos de imposto de renda, então a diferença vem só da taxa: ${pct(best.grossAnnualPct, 2)} contra ${pct(second.grossAnnualPct, 2)} ao ano.`;
+	}
+
 	return level === 'avancado'
 		? `Diferença de taxa: ${pct(best.grossAnnualPct, 2)} vs ${pct(second.grossAnnualPct, 2)} a.a. brutos, mesmo IR (${irRate}).`
 		: `A diferença vem da taxa: ${pct(best.grossAnnualPct, 2)} contra ${pct(second.grossAnnualPct, 2)} ao ano antes do imposto, e os dois pagam o mesmo IR neste prazo (${irRate} sobre o ganho).`;

@@ -100,7 +100,7 @@ export function explainDividendIncome(
 		projectionText
 			? level === 'avancado'
 				? `Reinvestindo a DY constante: ${money(in5.monthlyIncome)}/mês em 5 anos e ${money(in10.monthlyIncome)}/mês em 10 (reais de hoje).`
-				: `Reinvestindo os proventos, e se os pagamentos se mantiverem, a renda mensal pode chegar a ${money(in5.monthlyIncome)} em 5 anos e ${money(in10.monthlyIncome)} em 10 anos, em reais de hoje.`
+				: `Reinvestindo os proventos, e se os pagamentos se mantiverem, a renda mensal pode chegar a ${money(in5.monthlyIncome)} em 5 anos e ${money(in10.monthlyIncome)} em 10 anos, em reais de hoje${facts.projectionExcludesOneOff ? ', sem contar os pagamentos extraordinários' : ''}.`
 			: null,
 		goal,
 		...traps.map((text) => `Atenção: ${text}`),

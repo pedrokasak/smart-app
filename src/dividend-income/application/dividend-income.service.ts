@@ -36,16 +36,25 @@ export class DividendIncomeService {
 			this.portfolioService.getUserPortfolios(userId),
 			this.loadPlan(userId),
 		]);
+		const assetsOf = (list: any[]) =>
+			list.flatMap((portfolio: any) =>
+				Array.isArray(portfolio?.assets) ? portfolio.assets : []
+			);
 		const selected = (portfolios || []).filter(
 			(portfolio: any) =>
 				!options.portfolioId ||
 				String(portfolio?._id ?? portfolio?.id) === options.portfolioId
 		);
-		const assets = selected.flatMap((portfolio: any) =>
-			Array.isArray(portfolio?.assets) ? portfolio.assets : []
+		// A meta de independência conta o patrimônio inteiro, mesmo com o
+		// filtro de carteira.
+		const facts = analyzeDividendIncome(
+			assetsOf(selected),
+			plan && {
+				...plan,
+				patrimony: analyzeDividendIncome(assetsOf(portfolios || []), null)
+					.portfolioValue,
+			}
 		);
-
-		const facts = analyzeDividendIncome(assets, plan);
 		return {
 			facts,
 			didactic: explainDividendIncome(facts, options.level ?? 'intermediario'),

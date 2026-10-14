@@ -119,6 +119,16 @@ describe('explainComparison', () => {
 		);
 	});
 
+	it('two exempt papers: the difference is only the rate, never IR', () => {
+		const LCA = instrument('lca', 'LCA 90% do CDI', 'LCA', 'PERCENT_CDI', 90);
+		const answer = explainComparison(facts([LCA, LCI]), 'iniciante')!;
+
+		expect(answer.whyItMatters).toContain(
+			'Os dois são isentos de imposto de renda'
+		);
+		expect(answer.whyItMatters).not.toContain('pagam o mesmo IR');
+	});
+
 	it('advanced: technical lines per instrument and the deflator', () => {
 		const answer = explainComparison(facts([LCI, CDB]), 'avancado')!;
 

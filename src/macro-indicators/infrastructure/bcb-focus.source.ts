@@ -6,7 +6,10 @@ import { TtlPromiseCache } from './bcb-sgs/ttl-promise-cache';
 
 const FOCUS_BASE_URL =
 	'https://olinda.bcb.gov.br/olinda/servico/Expectativas/versao/v1/odata';
-const FOCUS_TIMEOUT_MS = 15_000;
+/** Curto de propósito: a leitura está no caminho da tela do comparador. */
+const FOCUS_TIMEOUT_MS = 5_000;
+/** Depois de uma falha, fica sem tentar por cinco minutos (cai no IPCA 12m). */
+const FOCUS_FAILURE_BACKOFF_MS = 5 * 60 * 1000;
 /** A pesquisa sai uma vez por dia útil: seis horas de reuso bastam. */
 const FOCUS_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 /** Cinco anos-calendário por pesquisa, com folga para duas datas. */
@@ -62,10 +65,23 @@ export class BcbFocusSource implements InflationExpectationsSource {
 		1
 	);
 
+	private failedAt: number | null = null;
+
 	async latest(): Promise<InflationExpectations | null> {
+		if (
+			this.failedAt !== null &&
+			Date.now() - this.failedAt < FOCUS_FAILURE_BACKOFF_MS
+		) {
+			return null;
+		}
 		try {
-			return await this.cache.getOrLoad('ipca', () => this.load());
+			const expectations = await this.cache.getOrLoad('ipca', () =>
+				this.load()
+			);
+			this.failedAt = null;
+			return expectations;
 		} catch (error) {
+			this.failedAt = Date.now();
 			this.logger.warn(
 				`Focus indisponível: ${(error as Error)?.message || error}`
 			);

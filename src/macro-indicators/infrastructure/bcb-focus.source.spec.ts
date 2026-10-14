@@ -69,13 +69,25 @@ describe('BcbFocusSource', () => {
 		expect(mockedGet).toHaveBeenCalledTimes(2);
 	});
 
-	it('resposta vazia ou erro vira null e tenta de novo na próxima', async () => {
-		respond([]);
-		const source = new BcbFocusSource();
-		await expect(source.latest()).resolves.toBeNull();
+	it('falha vira null e segura novas tentativas por cinco minutos', async () => {
+		jest.useFakeTimers({ now: new Date('2026-10-14T12:00:00Z') });
+		try {
+			respond([]);
+			const source = new BcbFocusSource();
+			await expect(source.latest()).resolves.toBeNull();
 
-		mockedGet.mockRejectedValue(new Error('timeout'));
-		await expect(source.latest()).resolves.toBeNull();
-		expect(mockedGet.mock.calls.length).toBe(4);
+			// Dentro da janela: nem chama a API.
+			respond([{ Data: '2026-10-09', Mediana: 4.4772 }]);
+			await expect(source.latest()).resolves.toBeNull();
+			expect(mockedGet).toHaveBeenCalledTimes(2);
+
+			// Passada a janela, tenta de novo e volta a responder.
+			jest.setSystemTime(new Date('2026-10-14T12:06:00Z'));
+			await expect(source.latest()).resolves.toMatchObject({
+				next12mPct: 4.4772,
+			});
+		} finally {
+			jest.useRealTimers();
+		}
 	});
 });
