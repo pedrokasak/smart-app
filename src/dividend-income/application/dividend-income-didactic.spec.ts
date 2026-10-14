@@ -21,6 +21,7 @@ const facts = (
 		{ years: 5, monthlyIncome: 669.11 },
 		{ years: 10, monthlyIncome: 895.42 },
 	],
+	projectionExcludesOneOff: false,
 	traps: [],
 	goal: null,
 	...overrides,
