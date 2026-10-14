@@ -58,6 +58,7 @@ import { AppendChatMessageRequestDto } from 'src/ai/chat-history/dto/append-chat
 import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
 import { OpportunityRadarRequestDto } from './dto/opportunity-radar-request.dto';
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
+import { CopilotDidacticService } from './didactic/copilot-didactic.service';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -77,7 +78,8 @@ export class AiController {
 		private readonly portfolioService: PortfolioService,
 		private readonly ragColdStart: RagColdStartService,
 		private readonly investorProfileService: InvestorProfileService,
-		private readonly chatHistoryService: ChatHistoryService
+		private readonly chatHistoryService: ChatHistoryService,
+		private readonly copilotDidactic: CopilotDidacticService
 	) {}
 
 	/**
@@ -222,15 +224,26 @@ export class AiController {
 			const [orchestration] = parts;
 			const union = (pick: (part: ChatOrchestratorResponse) => string[]) =>
 				Array.from(new Set(parts.flatMap(pick)));
+			const explained = await this.copilotDidactic.explain(
+				userId,
+				body?.question || '',
+				parts
+			);
 			return {
 				intent: orchestration.intent,
 				deterministic: orchestration.deterministic,
 				route: orchestration.route,
-				// Uma intenção por parágrafo, cada uma com a mensagem de sempre:
-				// pergunta com dois pedidos recebe as duas respostas (TRA-241).
+				// Uma intenção por parágrafo (TRA-241). Com compositor didático,
+				// a explicação no nível da pessoa; sem ele, a mensagem de sempre.
 				message: parts
-					.map((part) => this.buildIntelligentMessage(part))
+					.map(
+						(part, index) =>
+							explained[index].message ?? this.buildIntelligentMessage(part)
+					)
 					.join('\n\n'),
+				// Campo aditivo: blocos estruturados para a bolha didática do web
+				// (docs/requisitos/ia-didatica.md). `null` sem compositor.
+				didactic: explained.find((entry) => entry.didactic)?.didactic ?? null,
 				data: Object.assign({}, ...parts.map((part) => part.data)),
 				unavailable: union((part) => part.unavailable),
 				warnings: union((part) => part.warnings),
