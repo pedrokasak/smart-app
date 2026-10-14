@@ -58,6 +58,8 @@ import { AppendChatMessageRequestDto } from 'src/ai/chat-history/dto/append-chat
 import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
 import { OpportunityRadarRequestDto } from './dto/opportunity-radar-request.dto';
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
+import { CopilotDidacticService } from './didactic/copilot-didactic.service';
+import { isPortfolioAssetListQuestion } from './orchestration/portfolio-asset-list-question';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -77,7 +79,8 @@ export class AiController {
 		private readonly portfolioService: PortfolioService,
 		private readonly ragColdStart: RagColdStartService,
 		private readonly investorProfileService: InvestorProfileService,
-		private readonly chatHistoryService: ChatHistoryService
+		private readonly chatHistoryService: ChatHistoryService,
+		private readonly copilotDidactic: CopilotDidacticService
 	) {}
 
 	/**
@@ -222,15 +225,29 @@ export class AiController {
 			const [orchestration] = parts;
 			const union = (pick: (part: ChatOrchestratorResponse) => string[]) =>
 				Array.from(new Set(parts.flatMap(pick)));
+			const explained = await this.copilotDidactic.explain(
+				userId,
+				body?.question || '',
+				parts
+			);
 			return {
 				intent: orchestration.intent,
 				deterministic: orchestration.deterministic,
 				route: orchestration.route,
-				// Uma intenção por parágrafo, cada uma com a mensagem de sempre:
-				// pergunta com dois pedidos recebe as duas respostas (TRA-241).
+				// Uma intenção por parágrafo (TRA-241). Com compositor didático,
+				// a explicação no nível da pessoa; sem ele, a mensagem de sempre.
 				message: parts
-					.map((part) => this.buildIntelligentMessage(part))
+					.map(
+						(part, index) =>
+							explained[index].message ?? this.buildIntelligentMessage(part)
+					)
 					.join('\n\n'),
+				// Campo aditivo: blocos estruturados para a bolha didática do web
+				// (docs/requisitos/ia-didatica.md), um por parte com compositor,
+				// na ordem dos parágrafos. Vazio quando nenhuma parte tem.
+				didactic: explained.flatMap((entry) =>
+					entry.didactic ? [entry.didactic] : []
+				),
 				data: Object.assign({}, ...parts.map((part) => part.data)),
 				unavailable: union((part) => part.unavailable),
 				warnings: union((part) => part.warnings),
@@ -774,7 +791,7 @@ export class AiController {
 				const portfolioAssets = Array.isArray((data as any)?.portfolioAssets)
 					? ((data as any).portfolioAssets as Array<any>)
 					: [];
-				if (this.isPortfolioAssetListQuestion(response.question)) {
+				if (isPortfolioAssetListQuestion(response.question)) {
 					if (!portfolioAssets.length) {
 						return 'Sua carteira está sem ativos no momento.';
 					}
@@ -850,14 +867,6 @@ export class AiController {
 			...lines,
 			'Informação extraída dos documentos entregues à CVM; não é recomendação de investimento.',
 		].join('\n');
-	}
-
-	private isPortfolioAssetListQuestion(question: string): boolean {
-		const text = String(question || '').toLowerCase();
-		return (
-			/\b(listar|liste|quais|mostrar|mostre|descrev\w*)\b/.test(text) &&
-			/\b(ativos?|carteira|portf[oó]lio)\b/.test(text)
-		);
 	}
 
 	private resolveConcentrationPct(entry: any): number {

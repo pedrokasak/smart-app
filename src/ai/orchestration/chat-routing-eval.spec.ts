@@ -35,6 +35,11 @@ import {
 	UserPlanResolverPort,
 } from 'src/subscription/application/user-plan.types';
 import { ChatToolRouterService } from 'src/ai/orchestration/tool-routing/chat-tool-router.service';
+import {
+	FOLLOW_UPS,
+	contributionFollowUp,
+	taxFollowUp,
+} from 'src/ai/didactic/didactic-follow-ups';
 
 interface RoutingCase {
 	question: string;
@@ -414,6 +419,24 @@ describe('Chat routing eval (TRA-75)', () => {
 				expect(response.intent).toBe(expectedIntent);
 			}
 		);
+	});
+
+	/**
+	 * "Para entender mais" do Copiloto didático: cada pergunta sugerida tem de
+	 * cair na intenção certa pelo caminho determinístico, sem LLM.
+	 */
+	describe('didactic follow-ups route deterministically', () => {
+		it.each([
+			...Object.values(FOLLOW_UPS),
+			taxFollowUp('PETR4'),
+			contributionFollowUp('R$ 1.000'),
+		])('routes "$question" to $intent', async ({ question, intent }) => {
+			const service = makeService();
+			const response = await service.orchestrate('user-eval', question);
+
+			expect(response.intent).toBe(intent);
+			expect(response.cost.llmCalls).toBe(0);
+		});
 	});
 
 	describe('cost regression: deterministic questions must not call the LLM', () => {

@@ -13,6 +13,9 @@ import { UserErrorRadarService } from 'src/intelligence/application/user-error-r
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
+import { InvestmentPolicyService } from 'src/investment-policy/investment-policy.service';
+import { DEFAULT_INVESTMENT_POLICY } from 'src/investment-policy/domain/investment-policy';
+import { CopilotDidacticService } from './didactic/copilot-didactic.service';
 import { UnauthorizedException } from '@nestjs/common';
 import {
 	PREMIUM_ACCESS_LEVEL,
@@ -75,6 +78,10 @@ const mockInvestorProfileService = {
 const mockChatHistoryService = {
 	listByUser: jest.fn(),
 	append: jest.fn(),
+};
+
+const mockInvestmentPolicyService = {
+	get: jest.fn(),
 };
 
 const mockChatToolPlanner = { plan: jest.fn() };
@@ -145,10 +152,24 @@ describe('AiController', () => {
 					provide: USER_PLAN_RESOLVER,
 					useValue: mockUserPlanResolver,
 				},
+				{
+					provide: InvestmentPolicyService,
+					useValue: mockInvestmentPolicyService,
+				},
+				// Camada didática de verdade, com perfil e política mockados.
+				CopilotDidacticService,
 			],
 		}).compile();
 
 		controller = module.get<AiController>(AiController);
+		mockInvestorProfileService.getEffectiveProfile.mockResolvedValue({
+			sophistication: 'intermediate',
+		});
+		mockInvestmentPolicyService.get.mockResolvedValue({
+			policy: DEFAULT_INVESTMENT_POLICY,
+			isDefault: true,
+			savedAt: null,
+		});
 	});
 
 	afterEach(() => jest.clearAllMocks());
@@ -591,10 +612,64 @@ describe('AiController', () => {
 		);
 
 		expect(response.intent).toBe('portfolio_risk');
-		expect(response.message).toContain('72/100');
-		expect(response.message).toContain('ITUB4 (62.4%)');
-		expect(response.message).toContain('reduzir risco em 20%');
-		expect(response.message).toContain('57.6');
+		// Resposta didática no nível intermediário (perfil mockado), contra o
+		// limite padrão de 8% (a pessoa não salvou política).
+		expect(response.message).toContain('score 72 de 100');
+		expect(response.message).toContain('ITUB4: 62,4% do patrimônio');
+		expect(response.message).toContain(
+			'54,4 p.p. acima do limite padrão do Trackerr (8%)'
+		);
+		expect(response.message).toContain('O que dá para fazer:');
+		expect(response.message).toContain('A decisão é sua');
+		expect(response.didactic).toHaveLength(1);
+		expect(response.didactic[0]).toMatchObject({
+			level: 'intermediario',
+			terms: expect.arrayContaining([
+				expect.objectContaining({ term: 'Score de risco' }),
+			]),
+		});
+		expect(response.didactic[0].followUps).toContain(
+			'Qual a correlação entre os meus ativos?'
+		);
+	});
+
+	it('falls back to the classic message when the didactic context fails', async () => {
+		mockInvestorProfileService.getEffectiveProfile.mockRejectedValueOnce(
+			new Error('profile down')
+		);
+		mockInvestmentPolicyService.get.mockRejectedValueOnce(
+			new Error('policy down')
+		);
+		mockChatOrchestratorService.orchestrate.mockResolvedValueOnce({
+			intent: 'portfolio_risk',
+			deterministic: true,
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			context: { positionsCount: 2 },
+			data: {
+				portfolioRisk: {
+					risk: { score: 72 },
+					concentrationByAsset: [{ key: 'ITUB4', percentage: 62.4 }],
+				},
+			},
+			unavailable: [],
+			warnings: [],
+			assumptions: [],
+		});
+
+		const response = await controller.intelligentChat(
+			{ user: { userId: 'user-123' } },
+			{ question: 'mostre risco da minha carteira' }
+		);
+
+		// Sem perfil: nível intermediário; sem política: nenhuma comparação
+		// com limite, e o chat responde normalmente.
+		expect(response.didactic[0].level).toBe('intermediario');
+		expect(response.message).toContain('score 72 de 100');
+		expect(response.message).not.toContain('limite');
 	});
 
 	it('should return trackerr score payload', async () => {

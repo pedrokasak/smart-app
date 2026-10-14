@@ -28,6 +28,8 @@ import { ChatNarrativeSynthesisService } from './orchestration/chat-narrative-sy
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { AiService } from './ai.service';
 import { AiInsightProducer } from './events/ai-insight.producer';
+import { InvestmentPolicyModule } from 'src/investment-policy/investment-policy.module';
+import { CopilotDidacticService } from './didactic/copilot-didactic.service';
 
 @Module({
 	imports: [
@@ -41,6 +43,7 @@ import { AiInsightProducer } from './events/ai-insight.producer';
 		SubscriptionModule,
 		RagIngestionModule,
 		ChatHistoryModule,
+		InvestmentPolicyModule,
 	],
 	controllers: [AiController],
 	providers: [
@@ -75,6 +78,8 @@ import { AiInsightProducer } from './events/ai-insight.producer';
 			useFactory: () => loadChatToolRouterConfig(),
 		},
 		ChatToolRouterService,
+		// Resposta didática por nível (docs/requisitos/ia-didatica.md).
+		CopilotDidacticService,
 	],
 	exports: [AiService, IntelligentChatService, ChatOrchestratorService],
 })
