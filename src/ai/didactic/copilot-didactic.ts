@@ -14,6 +14,7 @@ import {
 	pp,
 } from './didactic-format';
 import type { DidacticAnswer, DidacticLevel } from './didactic.types';
+import { isPortfolioAssetListQuestion } from 'src/ai/orchestration/portfolio-asset-list-question';
 
 /**
  * Copiloto didático (docs/requisitos/ia-didatica.md). Cada intenção vira
@@ -66,6 +67,15 @@ const FLAG_LABEL: Record<string, string> = {
 	BETA_HIGH: 'beta alto',
 };
 
+/** Mesma precedência do texto clássico: `weightPct`, depois `percentage`. */
+function concentrationPct(entry: any): number {
+	for (const candidate of [entry?.weightPct, entry?.percentage]) {
+		const value = Number(candidate);
+		if (Number.isFinite(value) && value > 0) return value;
+	}
+	return 0;
+}
+
 /** Choque usado nos exemplos de "por que importa": uma queda de 20% num dia ruim. */
 const SHOCK = 0.2;
 
@@ -78,7 +88,7 @@ function portfolioRisk(
 	if (!risk?.risk || !top) return null;
 
 	const symbol = String(top.symbol || top.key);
-	const weight = Number(top.percentage ?? top.weightPct ?? 0);
+	const weight = concentrationPct(top);
 	const value = Number(top.value ?? 0);
 	const total = weight > 0 && value > 0 ? value / (weight / 100) : 0;
 	const loss = value * SHOCK;
@@ -172,6 +182,16 @@ function portfolioRisk(
 	};
 }
 
+/** Diferença menor que meio ponto não diz nada sobre valorização. */
+function yieldReading(yieldCost: number, yieldMarket: number): string {
+	if (Math.abs(yieldCost - yieldMarket) < 0.5) {
+		return 'Yield sobre o custo e yield de mercado estão próximos: os preços estão perto do que você pagou.';
+	}
+	return yieldCost > yieldMarket
+		? 'Yield sobre o custo acima do yield de mercado indica que os ativos valorizaram desde a compra.'
+		: 'Yield sobre o custo abaixo do yield de mercado indica que os ativos desvalorizaram desde a compra.';
+}
+
 function dividendsReceived(
 	input: DidacticInput,
 	ctx: DidacticContext
@@ -235,7 +255,7 @@ function dividendsReceived(
 			answer: `${money(total)} em proventos nos últimos 12 meses${yieldMarket !== null ? `: yield de ${pct(yieldMarket)} sobre o valor de mercado` : ''}${yieldCost !== null ? ` e ${pct(yieldCost)} sobre o seu custo` : ''}.`,
 			meaning:
 				yieldMarket !== null && yieldCost !== null
-					? `Yield sobre o custo ${yieldCost > yieldMarket ? 'acima' : 'abaixo'} do yield de mercado indica que os ativos ${yieldCost > yieldMarket ? 'valorizaram' : 'desvalorizaram'} desde a compra.${payersText ? ` Maiores pagadores: ${payersText}.` : ''}`
+					? `${yieldReading(yieldCost, yieldMarket)}${payersText ? ` Maiores pagadores: ${payersText}.` : ''}`
 					: `Maiores pagadores: ${payersText || 'não identificados'}.${approximated}`,
 			whyItMatters:
 				topShare !== null
@@ -261,6 +281,13 @@ function dividendsReceived(
 		followUps,
 	};
 }
+
+/**
+ * `totalDriftPct` soma os desvios de todas as classes: o que sobra numa é o
+ * que falta na outra, então a parte da carteira fora do lugar é a metade.
+ */
+const outOfPlace = (rebalancing: any) =>
+	Number(rebalancing?.totalDriftPct ?? 0) / 2;
 
 function allocationGap(
 	input: DidacticInput,
@@ -296,7 +323,7 @@ function allocationGap(
 				'Sua carteira está alinhada à meta de alocação: nenhuma classe passa de 1 p.p. de diferença.',
 			meaning:
 				ctx.level === 'avancado'
-					? `Desvio total de ${pp(rebalancing.totalDriftPct ?? 0)}.`
+					? `${pct(outOfPlace(rebalancing))} da carteira fora da meta.`
 					: 'Cada tipo de investimento está perto da fatia que você planejou.',
 			whyItMatters: null,
 			options: [],
@@ -330,7 +357,7 @@ function allocationGap(
 		...(contributionAmount > 0
 			? [
 					contributionFollowUp(
-						money(Math.round(contributionAmount / 100) * 100)
+						money(Math.max(100, Math.round(contributionAmount / 100) * 100))
 					).question,
 				]
 			: []),
@@ -358,7 +385,7 @@ function allocationGap(
 
 	if (ctx.level === 'intermediario') {
 		return {
-			answer: `Desvio total de ${pp(rebalancing.totalDriftPct ?? 0)} da meta; o maior é ${describe(largest)}.`,
+			answer: `${pct(outOfPlace(rebalancing))} da carteira está fora da meta; o maior desvio é ${describe(largest)}.`,
 			meaning: `Por classe: ${lines.join('; ')}.`,
 			whyItMatters:
 				'Rebalancear com aportes, em vez de vender, evita IR sobre o lucro e custo de corretagem.',
@@ -369,7 +396,7 @@ function allocationGap(
 	}
 
 	return {
-		answer: `Drift total ${pp(rebalancing.totalDriftPct ?? 0)}; maior desvio: ${describe(largest)}.`,
+		answer: `Fora da meta: ${pct(outOfPlace(rebalancing))} da carteira (soma dos gaps ${pp(rebalancing.totalDriftPct ?? 0)}); maior desvio: ${describe(largest)}.`,
 		meaning: lines.join('; ') + '.',
 		whyItMatters:
 			'Rebalanceamento via aporte preserva a base de custo e não realiza ganho tributável.',
@@ -389,13 +416,21 @@ function sellOrTax(input: DidacticInput, ctx: DidacticContext): Draft | null {
 	const rate = Number(sim.taxRateApplied ?? 0) * 100;
 	const exempt = !!sim.monthlyExemptionApplied;
 	const avg = Number(sim.averagePrice ?? 0);
+	const compensation = Number(sim.compensationUsed ?? 0);
+	const taxableBase = Number(sim.taxableBaseAfterCompensation ?? 0);
 	const loss = pnl < 0;
 	const terms: TermKey[] = [
 		'ganho_capital',
 		'preco_medio',
 		...(exempt ? (['isencao_20k'] as TermKey[]) : []),
-		...(loss ? (['prejuizo_compensavel'] as TermKey[]) : []),
+		...(loss || compensation > 0
+			? (['prejuizo_compensavel'] as TermKey[])
+			: []),
 	];
+	const compensationSentence =
+		compensation > 0
+			? ` ${money(compensation)} de prejuízo de vendas anteriores abatem esse lucro, e o imposto incide sobre ${money(taxableBase)}.`
+			: '';
 	const answer = loss
 		? `Vendendo ${symbol}, você teria um prejuízo de cerca de ${money(Math.abs(pnl))}, sem imposto a pagar.`
 		: tax > 0
@@ -421,8 +456,8 @@ function sellOrTax(input: DidacticInput, ctx: DidacticContext): Draft | null {
 				: exempt
 					? 'Como suas vendas de ações no mês ficam abaixo de R$ 20 mil, o lucro é isento.'
 					: rate > 0
-						? `A alíquota usada foi de ${pct(rate)} sobre o lucro. É uma estimativa: o valor final depende das outras vendas do mês e de prejuízos que você tenha para compensar.`
-						: null,
+						? `A alíquota usada foi de ${pct(rate)} sobre o lucro.${compensationSentence} A conta já considera as outras vendas do mês e os prejuízos registrados no Trackerr; operações feitas fora dele não entram.`
+						: compensationSentence.trim() || null,
 			options,
 			terms,
 			followUps,
@@ -431,11 +466,11 @@ function sellOrTax(input: DidacticInput, ctx: DidacticContext): Draft | null {
 
 	return {
 		answer,
-		meaning: `Base de cálculo: ganho de ${money(pnl)} sobre o preço médio de ${money(avg)}${rate > 0 ? `, alíquota de ${pct(rate)}` : ''}${exempt ? ', isenção mensal aplicada' : ''}.`,
+		meaning: `Ganho de ${money(pnl)} sobre o preço médio de ${money(avg)}${compensation > 0 ? `, ${money(compensation)} de prejuízo compensado, base tributável de ${money(taxableBase)}` : ''}${rate > 0 ? `, alíquota de ${pct(rate)}` : ''}${exempt ? ', isenção mensal aplicada' : ''}.`,
 		whyItMatters:
 			ctx.level === 'avancado'
-				? 'Estimativa sem prejuízo acumulado nem outras alienações do mês.'
-				: 'É uma estimativa: não considera outras vendas do mês nem prejuízos acumulados que você possa compensar.',
+				? 'Inclui as alienações do mês e o prejuízo acumulado registrados no Trackerr; operações externas não entram.'
+				: 'A conta já considera as outras vendas do mês e os prejuízos registrados no Trackerr; operações feitas fora dele não entram.',
 		options,
 		terms: ctx.level === 'avancado' ? [] : terms,
 		followUps,
@@ -450,7 +485,7 @@ function portfolioSummary(
 	const total = Number(summary?.totalValue ?? 0);
 	if (!summary || !(total > 0)) return null;
 	// Pedido de lista de ativos segue a resposta de sempre (lista com pesos).
-	if (/\b(quais|lista|listar)\b/i.test(input.question)) return null;
+	if (isPortfolioAssetListQuestion(input.question)) return null;
 
 	const classes: any[] = (summary.allocationByClass ?? []).filter(
 		(c: any) => Number(c.percentage) > 0

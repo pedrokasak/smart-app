@@ -621,13 +621,14 @@ describe('AiController', () => {
 		);
 		expect(response.message).toContain('O que dá para fazer:');
 		expect(response.message).toContain('A decisão é sua');
-		expect(response.didactic).toMatchObject({
+		expect(response.didactic).toHaveLength(1);
+		expect(response.didactic[0]).toMatchObject({
 			level: 'intermediario',
 			terms: expect.arrayContaining([
 				expect.objectContaining({ term: 'Score de risco' }),
 			]),
 		});
-		expect(response.didactic?.followUps).toContain(
+		expect(response.didactic[0].followUps).toContain(
 			'Qual a correlação entre os meus ativos?'
 		);
 	});
@@ -666,7 +667,7 @@ describe('AiController', () => {
 
 		// Sem perfil: nível intermediário; sem política: nenhuma comparação
 		// com limite, e o chat responde normalmente.
-		expect(response.didactic?.level).toBe('intermediario');
+		expect(response.didactic[0].level).toBe('intermediario');
 		expect(response.message).toContain('score 72 de 100');
 		expect(response.message).not.toContain('limite');
 	});

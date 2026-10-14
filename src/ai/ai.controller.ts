@@ -59,6 +59,7 @@ import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
 import { OpportunityRadarRequestDto } from './dto/opportunity-radar-request.dto';
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 import { CopilotDidacticService } from './didactic/copilot-didactic.service';
+import { isPortfolioAssetListQuestion } from './orchestration/portfolio-asset-list-question';
 
 @Controller('ai')
 @ApiTags('ai')
@@ -242,8 +243,11 @@ export class AiController {
 					)
 					.join('\n\n'),
 				// Campo aditivo: blocos estruturados para a bolha didática do web
-				// (docs/requisitos/ia-didatica.md). `null` sem compositor.
-				didactic: explained.find((entry) => entry.didactic)?.didactic ?? null,
+				// (docs/requisitos/ia-didatica.md), um por parte com compositor,
+				// na ordem dos parágrafos. Vazio quando nenhuma parte tem.
+				didactic: explained.flatMap((entry) =>
+					entry.didactic ? [entry.didactic] : []
+				),
 				data: Object.assign({}, ...parts.map((part) => part.data)),
 				unavailable: union((part) => part.unavailable),
 				warnings: union((part) => part.warnings),
@@ -787,7 +791,7 @@ export class AiController {
 				const portfolioAssets = Array.isArray((data as any)?.portfolioAssets)
 					? ((data as any).portfolioAssets as Array<any>)
 					: [];
-				if (this.isPortfolioAssetListQuestion(response.question)) {
+				if (isPortfolioAssetListQuestion(response.question)) {
 					if (!portfolioAssets.length) {
 						return 'Sua carteira está sem ativos no momento.';
 					}
@@ -863,14 +867,6 @@ export class AiController {
 			...lines,
 			'Informação extraída dos documentos entregues à CVM; não é recomendação de investimento.',
 		].join('\n');
-	}
-
-	private isPortfolioAssetListQuestion(question: string): boolean {
-		const text = String(question || '').toLowerCase();
-		return (
-			/\b(listar|liste|quais|mostrar|mostre|descrev\w*)\b/.test(text) &&
-			/\b(ativos?|carteira|portf[oó]lio)\b/.test(text)
-		);
 	}
 
 	private resolveConcentrationPct(entry: any): number {

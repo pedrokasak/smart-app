@@ -66,7 +66,7 @@ const gap: DidacticInput = {
 	data: {
 		rebalancing: {
 			hasTarget: true,
-			totalDriftPct: 14,
+			totalDriftPct: 24.4,
 			buckets: [
 				{
 					bucket: 'stocks',
@@ -246,7 +246,8 @@ describe('copilot didactic composers', () => {
 	it('allocation gap ignores sub-1 p.p. drifts and offers contributions first', () => {
 		const answer = composeDidactic(gap, ctx('intermediario'))!;
 
-		expect(answer.answer).toContain('Desvio total de 14 p.p.');
+		// Soma dos gaps 24,4 p.p.: metade da carteira desse total está fora do lugar.
+		expect(answer.answer).toContain('12,2% da carteira está fora da meta');
 		expect(answer.meaning).toContain('Ações: +12 p.p. (acima');
 		expect(answer.meaning).toContain('Renda fixa: -12 p.p. (abaixo');
 		expect(answer.meaning).not.toContain('FIIs');
@@ -295,13 +296,95 @@ describe('copilot didactic composers', () => {
 		);
 	});
 
-	it('summary keeps the classic list when the person asks which assets', () => {
+	it.each([
+		'Quais ativos eu tenho?',
+		'Liste meus ativos',
+		'Mostre os ativos da minha carteira',
+	])('summary keeps the classic list for "%s"', (question) => {
 		expect(
-			composeDidactic(
-				{ ...summary, question: 'Quais ativos eu tenho?' },
-				ctx('iniciante')
-			)
+			composeDidactic({ ...summary, question }, ctx('iniciante'))
 		).toBeNull();
+	});
+
+	it('sell explains the loss compensation the tax engine applied', () => {
+		const compensated = {
+			...sell,
+			data: {
+				sellSimulation: {
+					...sell.data.sellSimulation,
+					estimatedTax: 300,
+					compensationUsed: 3000,
+					taxableBaseAfterCompensation: 2000,
+				},
+			},
+		};
+		const beginner = composeDidactic(compensated, ctx('iniciante'))!;
+		const intermediate = composeDidactic(compensated, ctx('intermediario'))!;
+
+		expect(beginner.whyItMatters).toContain(
+			'de prejuízo de vendas anteriores abatem esse lucro'
+		);
+		expect(beginner.whyItMatters).toContain(
+			'já considera as outras vendas do mês'
+		);
+		expect(beginner.whyItMatters).not.toContain('não considera');
+		expect(intermediate.meaning).toContain('base tributável de R$');
+		expect(intermediate.meaning).toMatch(/2\.000/);
+		expect(beginner.terms.map((term) => term.term)).toContain(
+			'Prejuízo compensável'
+		);
+	});
+
+	it('equal yields do not claim the assets fell', () => {
+		const answer = composeDidactic(
+			{
+				...dividends,
+				data: {
+					dividendsReceived: {
+						...dividends.data.dividendsReceived,
+						yieldOnCost: 0.0602,
+						yieldOnMarket: 0.06,
+					},
+				},
+			},
+			ctx('intermediario')
+		)!;
+
+		expect(answer.meaning).toContain('estão próximos');
+		expect(answer.meaning).not.toContain('desvalorizaram');
+	});
+
+	it('contribution follow-up never rounds to R$ 0', () => {
+		const answer = composeDidactic(
+			{
+				...gap,
+				data: {
+					rebalancing: {
+						hasTarget: true,
+						totalDriftPct: 3,
+						buckets: [
+							{
+								bucket: 'stocks',
+								currentPct: 51.5,
+								targetPct: 50,
+								gapPct: -1.5,
+								amount: -45,
+							},
+							{
+								bucket: 'fund',
+								currentPct: 28.5,
+								targetPct: 30,
+								gapPct: 1.5,
+								amount: 45,
+							},
+						],
+					},
+				},
+			},
+			ctx('iniciante')
+		)!;
+
+		expect(answer.followUps[0]).toMatch(/^Simular aporte de R\$\s100$/);
 	});
 
 	it('returns null for intents without composer or without data', () => {
