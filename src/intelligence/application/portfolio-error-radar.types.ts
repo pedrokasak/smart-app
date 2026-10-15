@@ -2,6 +2,7 @@ export type PortfolioErrorRadarAlertType =
 	| 'concentration'
 	| 'diversification'
 	| 'volatility'
+	| 'correlation'
 	| 'other';
 
 export type RadarMetricUnit = 'pct' | 'score' | 'ratio';
