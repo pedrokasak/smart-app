@@ -1,4 +1,10 @@
-import { applyBuy, applySell, averageCost } from 'src/fiscal/domain/cost-basis';
+import { type CorporateEvent, exDay } from 'src/fiscal/domain/corporate-event';
+import {
+	applyBuy,
+	applyCorporateEvent,
+	applySell,
+	averageCost,
+} from 'src/fiscal/domain/cost-basis';
 import {
 	TaxAssetType,
 	TaxEngineEvaluationOutput,
@@ -22,7 +28,8 @@ const DEFAULT_STOCK_MONTHLY_EXEMPTION_LIMIT = 20000;
 export class TaxEngineCalculator {
 	evaluateOperations(
 		operations: TaxOperationInput[],
-		rulesConfig?: TaxEngineRulesConfig
+		rulesConfig?: TaxEngineRulesConfig,
+		corporateEvents: CorporateEvent[] = []
 	): TaxEngineEvaluationOutput {
 		const positions = new Map<string, MutablePositionState>();
 		const realizedSales: TaxSaleRealization[] = [];
@@ -47,8 +54,28 @@ export class TaxEngineCalculator {
 			stockMonthlyGrossSales
 		);
 
+		// Eventos corporativos (TRA-231) entram na data ex, antes dos negócios
+		// do mesmo dia, em toda posição do símbolo.
+		const pendingEvents = [...corporateEvents].sort(
+			(a, b) => exDay(a) - exDay(b)
+		);
+		const applyEventsUntil = (day: number) => {
+			while (pendingEvents.length && exDay(pendingEvents[0]) <= day) {
+				const event = pendingEvents.shift()!;
+				const symbol = this.normalizeSymbol(event.symbol);
+				for (const position of positions.values()) {
+					if (position.symbol === symbol) {
+						Object.assign(position, applyCorporateEvent(position, event));
+					}
+				}
+			}
+		};
+
 		for (const operation of sortedOperations) {
 			this.validateOperation(operation);
+			applyEventsUntil(
+				exDay({ exDate: new Date(this.toTimestamp(operation.date)) })
+			);
 
 			const key = this.buildPositionKey(operation.symbol, operation.assetType);
 			const position =
@@ -151,6 +178,7 @@ export class TaxEngineCalculator {
 			}
 		}
 
+		applyEventsUntil(Number.POSITIVE_INFINITY);
 		const snapshots = Array.from(positions.values())
 			.filter((position) => position.quantity > 0)
 			.map((position) => this.toPositionSnapshot(position))
