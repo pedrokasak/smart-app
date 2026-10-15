@@ -2,6 +2,8 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { AdminController } from './admin.controller';
 import { AdminService } from './admin.service';
 import { AdminRoleService } from './application/admin-role.service';
+import { AdminAnalyticsService } from './admin-analytics.service';
+import { ROLES_KEY } from 'src/auth/decorators/roles.decorator';
 import { Role } from 'src/auth/enums/role.enum';
 import { ManualGrantType } from './constants/admin.constants';
 
@@ -22,6 +24,7 @@ describe('AdminController', () => {
 	};
 
 	const mockAdminRoleService = { updateUserRoleByEmail: jest.fn() };
+	const mockAnalyticsService = { getAnalytics: jest.fn() };
 
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
@@ -34,6 +37,10 @@ describe('AdminController', () => {
 				{
 					provide: AdminRoleService,
 					useValue: mockAdminRoleService,
+				},
+				{
+					provide: AdminAnalyticsService,
+					useValue: mockAnalyticsService,
 				},
 			],
 		}).compile();
@@ -48,6 +55,16 @@ describe('AdminController', () => {
 
 	it('should be defined', () => {
 		expect(controller).toBeDefined();
+	});
+
+	it('analytics (TRA-158) is admin only and returns the service metrics', async () => {
+		const metrics = { mrr: { value: 100, previous: 80, deltaPct: 25 } };
+		mockAnalyticsService.getAnalytics.mockResolvedValue(metrics);
+
+		await expect(controller.getAnalytics()).resolves.toBe(metrics);
+		expect(
+			Reflect.getMetadata(ROLES_KEY, AdminController.prototype.getAnalytics)
+		).toEqual([Role.Admin]);
 	});
 
 	it('returns admin overview metrics', async () => {
