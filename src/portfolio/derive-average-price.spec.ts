@@ -76,6 +76,29 @@ describe('withDerivedAveragePrice', () => {
 		expect(result[0].avgPrice).toBeUndefined();
 	});
 
+	// TRA-232: a venda parcial tirava a quantidade mas não o custo.
+	it('keeps the average price after a partial sale', () => {
+		const result = withDerivedAveragePrice<DerivableAsset>(
+			[{ symbol: 'BBAS3' }],
+			[trade('BBAS3', 'buy', 100, 10, 1), trade('BBAS3', 'sell', 50, 12, 2)]
+		);
+
+		expect(result[0].avgPrice).toBeCloseTo(10, 6);
+	});
+
+	it('averages a new buy with what was left after a partial sale', () => {
+		const result = withDerivedAveragePrice<DerivableAsset>(
+			[{ symbol: 'BBAS3' }],
+			[
+				trade('BBAS3', 'buy', 100, 10, 1),
+				trade('BBAS3', 'sell', 50, 12, 2),
+				trade('BBAS3', 'buy', 50, 20, 3),
+			]
+		);
+
+		expect(result[0].avgPrice).toBeCloseTo(15, 6);
+	});
+
 	it('does not mutate the assets it receives', () => {
 		const assets = [{ symbol: 'BBAS3' }];
 		withDerivedAveragePrice(assets, [trade('BBAS3', 'buy', 100, 10, 1)]);
