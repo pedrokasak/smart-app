@@ -34,6 +34,7 @@ const mockAiService = {
 	analyzePortfolio: jest.fn(),
 	simulate: jest.fn(),
 	chat: jest.fn(),
+	getInsights: jest.fn(),
 };
 
 const mockChatOrchestratorService = {
@@ -176,6 +177,36 @@ describe('AiController', () => {
 
 	it('should be defined', () => {
 		expect(controller).toBeDefined();
+	});
+
+	it('insights: sends the investor level for the didactic rationale', async () => {
+		mockInvestorProfileService.getEffectiveProfile.mockResolvedValueOnce({
+			sophistication: 'beginner',
+		});
+
+		await controller.insights({ user: { userId: 'user-123' } }, {
+			user_profile: { user_id: 'someone-else' },
+		} as any);
+
+		expect(mockAiService.getInsights).toHaveBeenCalledWith(
+			{ user_id: 'user-123' },
+			undefined,
+			{ level: 'iniciante' }
+		);
+	});
+
+	it('insights: without a profile, no level (trackerr-ia uses intermediário)', async () => {
+		mockInvestorProfileService.getEffectiveProfile.mockRejectedValueOnce(
+			new Error('down')
+		);
+
+		await controller.insights({ user: { userId: 'user-123' } }, {} as any);
+
+		expect(mockAiService.getInsights).toHaveBeenCalledWith(
+			{ user_id: 'user-123' },
+			undefined,
+			undefined
+		);
 	});
 
 	it('should call analyzePortfolio with userId from JWT', async () => {

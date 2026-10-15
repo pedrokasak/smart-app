@@ -59,6 +59,7 @@ import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
 import { OpportunityRadarRequestDto } from './dto/opportunity-radar-request.dto';
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
 import { CopilotDidacticService } from './didactic/copilot-didactic.service';
+import { didacticLevelFrom } from './didactic/didactic.types';
 import { isPortfolioAssetListQuestion } from './orchestration/portfolio-asset-list-question';
 
 @Controller('ai')
@@ -186,7 +187,17 @@ export class AiController {
 			...(body?.user_profile || {}),
 			user_id: userId,
 		};
-		return this.aiService.getInsights(userProfile, body?.data_freshness_days);
+		// O "por que" de cada insight sai no nível da pessoa (IA didática).
+		// Best-effort: sem perfil, o trackerr-ia usa o intermediário.
+		const level = await this.investorProfileService
+			.getEffectiveProfile(userId)
+			.then((profile) => didacticLevelFrom(profile?.sophistication))
+			.catch(() => undefined);
+		return this.aiService.getInsights(
+			userProfile,
+			body?.data_freshness_days,
+			level ? { level } : undefined
+		);
 	}
 
 	@Post('chat')
