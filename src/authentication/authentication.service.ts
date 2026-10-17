@@ -335,8 +335,15 @@ export class AuthenticationService {
 			{ expiresIn: expireKeepAliveConected }
 		);
 
+		// `jti` aleatório: sem ele, dois refresh emitidos no mesmo segundo saem
+		// byte a byte iguais e a rotação/detecção de reuso não tem efeito.
 		const refreshToken = this.jwtService.sign(
-			{ userId: user.id, type: 'refresh', keep: keepConnected },
+			{
+				userId: user.id,
+				type: 'refresh',
+				keep: keepConnected,
+				jti: crypto.randomUUID(),
+			},
 			{ expiresIn: sessionTtl(keepConnected) }
 		);
 
@@ -479,7 +486,14 @@ export class AuthenticationService {
 		storedValue: string,
 		payload: { exp: number; keep?: boolean }
 	): Promise<string | undefined> {
-		const claims: Record<string, unknown> = { userId, type: 'refresh' };
+		// `jti` novo a cada rotação: no mesmo segundo do token anterior, o JWT
+		// sairia idêntico (mesmos claims, `iat` e `exp`) e o "antigo" seguiria
+		// valendo como atual.
+		const claims: Record<string, unknown> = {
+			userId,
+			type: 'refresh',
+			jti: crypto.randomUUID(),
+		};
 		// Token emitido antes do TRA-245 não tem `keep`: o novo também não, e
 		// herda o mesmo fim de sessão.
 		if (typeof payload.keep === 'boolean') claims.keep = payload.keep;

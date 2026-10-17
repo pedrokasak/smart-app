@@ -166,7 +166,12 @@ describe('AuthenticationService — sessão (TRA-245)', () => {
 
 			expect(result.refreshToken).toBe('signed-refresh');
 			const [claims, options] = refreshSignOptions()!;
-			expect(claims).toEqual({ userId: 'u1', type: 'refresh', keep: true });
+			expect(claims).toEqual({
+				userId: 'u1',
+				type: 'refresh',
+				keep: true,
+				jti: expect.any(String),
+			});
 			expect(options.expiresIn).toBeGreaterThan(3590);
 			expect(options.expiresIn).toBeLessThanOrEqual(3600);
 
@@ -186,6 +191,7 @@ describe('AuthenticationService — sessão (TRA-245)', () => {
 			expect(refreshSignOptions()![0]).toEqual({
 				userId: 'u1',
 				type: 'refresh',
+				jti: expect.any(String),
 			});
 		});
 
@@ -251,6 +257,26 @@ describe('AuthenticationService — sessão (TRA-245)', () => {
 			await expect(service.refreshAccessToken(previous)).rejects.toThrow(
 				UnauthorizedException
 			);
+		});
+	});
+
+	it('dois refresh emitidos no mesmo segundo saem diferentes (jti)', () => {
+		const real = new JwtService({ secret: 'spec-secret' });
+		jwt.sign.mockImplementation((claims: object, options: object) =>
+			real.sign(claims, options)
+		);
+		const user: any = {
+			id: 'u1',
+			role: 'user',
+			save: jest.fn(),
+		};
+
+		const first = service.issueSessionTokens(user);
+		const second = service.issueSessionTokens(user);
+
+		return Promise.all([first, second]).then(([a, b]) => {
+			expect(a.refreshToken).not.toBe(b.refreshToken);
+			expect(real.decode(a.refreshToken).jti).toEqual(expect.any(String));
 		});
 	});
 
