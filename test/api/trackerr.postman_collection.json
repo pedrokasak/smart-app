@@ -1,0 +1,875 @@
+{
+  "info": {
+    "name": "Trackerr API — fluxos críticos (TRA-148)",
+    "description": "Rodada no CI contra a imagem de produção com Mongo e Redis efêmeros (job docker de .github/workflows/ci.yml). Cobre saúde, cadastro, login, refresh, carteira, isolamento entre usuários (IDOR) e direitos LGPD. Nunca apontar para produção: cria e apaga usuários.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://127.0.0.1:3000"
+    },
+    {
+      "key": "password",
+      "value": "Senha@CI12345"
+    }
+  ],
+  "item": [
+    {
+      "name": "Público",
+      "item": [
+        {
+          "name": "health",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "health"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200]', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "planos públicos",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/subscription",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "subscription"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200]', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "pm.test('lista de planos', () => pm.expect(pm.response.json()).to.be.an('array'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "carteira sem token é 401",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/portfolio",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [401]', () => pm.expect(pm.response.code).to.be.oneOf([401]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Usuário A",
+      "item": [
+        {
+          "name": "cadastro",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/create",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "create"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"firstName\": \"Ana\", \"lastName\": \"CI\", \"email\": \"{{emailA}}\", \"password\": \"{{password}}\", \"confirmPassword\": \"{{password}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200, 201]', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "pm.test('não devolve a senha', () => pm.expect(pm.response.text()).to.not.include(pm.collectionVariables.get('password')));"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('emailA', `ci-a-${Date.now()}@example.com`);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "cadastro repetido é recusado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/create",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "create"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"firstName\": \"Ana\", \"lastName\": \"CI\", \"email\": \"{{emailA}}\", \"password\": \"{{password}}\", \"confirmPassword\": \"{{password}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [400, 409]', () => pm.expect(pm.response.code).to.be.oneOf([400, 409]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "senha errada é 401",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/signin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "signin"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{emailA}}\", \"password\": \"Errada@12345\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [401]', () => pm.expect(pm.response.code).to.be.oneOf([401]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/signin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "signin"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{emailA}}\", \"password\": \"{{password}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200, 201]', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const body = pm.response.json();",
+                  "pm.test('tokens', () => { pm.expect(body.accessToken).to.be.a('string'); pm.expect(body.refreshToken).to.be.a('string'); });",
+                  "pm.collectionVariables.set('tokenA', body.accessToken);",
+                  "pm.collectionVariables.set('refreshA', body.refreshToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "refresh gira o token",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh-token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh-token"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"refreshToken\": \"{{refreshA}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200, 201]', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const body = pm.response.json();",
+                  "pm.test('novo access token', () => pm.expect(body.accessToken).to.be.a('string'));",
+                  "pm.collectionVariables.set('tokenA', body.accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "refresh antigo depois de girar é recusado",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/refresh-token",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "refresh-token"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"refreshToken\": \"{{refreshA}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [401, 403]', () => pm.expect(pm.response.code).to.be.oneOf([401, 403]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "cria carteira",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenA}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/portfolio/create",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio",
+                "create"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Carteira CI\", \"ownerType\": \"self\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200, 201]', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const body = pm.response.json();",
+                  "pm.test('id da carteira', () => pm.expect(body.id).to.be.a('string'));",
+                  "pm.collectionVariables.set('portfolioA', body.id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "lista as próprias carteiras",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenA}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/portfolio",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200]', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "pm.test('contém a carteira criada', () => pm.expect(pm.response.json().map((p) => p.id)).to.include(pm.collectionVariables.get('portfolioA')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "lê a própria carteira",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenA}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/portfolio/{{portfolioA}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio",
+                "{{portfolioA}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200]', () => pm.expect(pm.response.code).to.be.oneOf([200]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "exporta os próprios dados (LGPD)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenA}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/privacy/export",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "privacy",
+                "export"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200]', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "pm.test('é o titular', () => pm.expect(pm.response.text()).to.include(pm.collectionVariables.get('emailA')));",
+                  "pm.test('sem hash de senha nem refresh token', () => { const t = pm.response.text(); pm.expect(t).to.not.match(/\\$argon2/); pm.expect(t).to.not.include('refreshToken\":\"'); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "Usuário B — isolamento",
+      "item": [
+        {
+          "name": "cadastro",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/users/create",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "users",
+                "create"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"firstName\": \"Bruno\", \"lastName\": \"CI\", \"email\": \"{{emailB}}\", \"password\": \"{{password}}\", \"confirmPassword\": \"{{password}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200, 201]', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('emailB', `ci-b-${Date.now()}@example.com`);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "login",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/signin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "signin"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{emailB}}\", \"password\": \"{{password}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200, 201]', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "pm.collectionVariables.set('tokenB', pm.response.json().accessToken);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "não lê a carteira de A (IDOR)",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenB}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/portfolio/{{portfolioA}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio",
+                "{{portfolioA}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [403, 404]', () => pm.expect(pm.response.code).to.be.oneOf([403, 404]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "não altera a carteira de A (IDOR)",
+          "request": {
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenB}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/portfolio/{{portfolioA}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio",
+                "{{portfolioA}}"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": \"Invadida\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [403, 404]', () => pm.expect(pm.response.code).to.be.oneOf([403, 404]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "não apaga a carteira de A (IDOR)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenB}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/portfolio/{{portfolioA}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio",
+                "{{portfolioA}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [403, 404]', () => pm.expect(pm.response.code).to.be.oneOf([403, 404]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "não vê a carteira de A na própria lista",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenB}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/portfolio",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200]', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "pm.test('lista sem a carteira de A', () => pm.expect(pm.response.json().map((p) => p.id)).to.not.include(pm.collectionVariables.get('portfolioA')));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "a carteira de A continua intacta",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenA}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/portfolio/{{portfolioA}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "portfolio",
+                "{{portfolioA}}"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200]', () => pm.expect(pm.response.code).to.be.oneOf([200]));",
+                  "pm.test('nome original', () => pm.expect(pm.response.json().name).to.eql('Carteira CI'));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "apaga a própria conta (LGPD)",
+          "request": {
+            "method": "DELETE",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              },
+              {
+                "key": "Authorization",
+                "value": "Bearer {{tokenB}}"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/privacy/account",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "privacy",
+                "account"
+              ]
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [200, 204]', () => pm.expect(pm.response.code).to.be.oneOf([200, 204]));"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "conta apagada não entra mais",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/auth/signin",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "auth",
+                "signin"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"email\": \"{{emailB}}\", \"password\": \"{{password}}\"}"
+            }
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status [401, 404]', () => pm.expect(pm.response.code).to.be.oneOf([401, 404]));"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
