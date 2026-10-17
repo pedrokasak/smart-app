@@ -24,6 +24,7 @@ export class AssetMapper {
 			betaBenchmark: asset.betaBenchmark ?? undefined,
 			betaAsOf: asset.betaAsOf ?? undefined,
 			source: asset.source,
+			fixedIncome: asset.fixedIncome ?? undefined,
 			lastEnrichedAt: asset.lastEnrichedAt,
 			createdAt: asset.createdAt,
 			updatedAt: asset.updatedAt,

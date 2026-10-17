@@ -1,3 +1,5 @@
+import type { FixedIncomeAssetData } from 'src/fixed-income/domain/fixed-income-asset';
+
 export class AssetResponseDto {
 	id: string;
 	portfolioId: string;
@@ -12,6 +14,7 @@ export class AssetResponseDto {
 		| 'etf'
 		| 'fund'
 		| 'investment_fund'
+		| 'fixed_income'
 		| 'other';
 	quantity: number;
 	price: number;
@@ -48,6 +51,8 @@ export class AssetResponseDto {
 	betaAsOf?: string;
 	signal?: string;
 	source: 'manual' | 'b3' | 'webscrape';
+	/** Renda fixa (TRA-230): o papel e a última marcação na curva. */
+	fixedIncome?: FixedIncomeAssetData;
 	lastEnrichedAt?: Date;
 	createdAt: Date;
 	updatedAt: Date;
