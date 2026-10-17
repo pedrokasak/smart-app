@@ -329,7 +329,7 @@
                 "exec": [
                   "// O refresh JWT não tem jti: emitido no mesmo segundo do login, sai idêntico",
                   "// ao anterior e a rotação não muda nada. Espera virar o segundo (achado em",
-                  "// docs/backlog/refresh-token-jti.md).",
+                  "// pedrokasak/smart-app#291 (jti aleatório)).",
                   "setTimeout(() => {}, 1100);"
                 ]
               }
