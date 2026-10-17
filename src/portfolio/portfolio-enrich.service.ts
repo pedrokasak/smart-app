@@ -69,7 +69,12 @@ export class PortfolioEnrichService {
 	async enrichAsset(asset: any) {
 		try {
 			// Fundo é cotado pela CVM (TRA-276), não pelos adapters de mercado.
-			if (asset.type === 'other' || asset.type === 'investment_fund') {
+			// Renda fixa é marcada na curva (TRA-230): nada a cotar.
+			if (
+				asset.type === 'other' ||
+				asset.type === 'investment_fund' ||
+				asset.type === 'fixed_income'
+			) {
 				return asset;
 			}
 
