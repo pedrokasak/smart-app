@@ -30,6 +30,8 @@ export interface DidacticContext {
 	policy: InvestmentPolicy | null;
 	/** Política padrão do Trackerr: a pessoa ainda não salvou a dela. */
 	policyIsDefault: boolean;
+	/** Nível que o perfil pediria quando o plano limitou (TRA-198). */
+	profileLevel?: DidacticLevel;
 }
 
 export interface DidacticInput {
@@ -556,6 +558,9 @@ export function composeDidactic(
 	return {
 		...draft,
 		level: ctx.level,
+		...(ctx.profileLevel && ctx.profileLevel !== ctx.level
+			? { limitedByPlan: true as const, profileLevel: ctx.profileLevel }
+			: {}),
 		meaning: draft.meaning || null,
 		terms: termsFor(draft.terms, ctx.level),
 		followUps: [...new Set(draft.followUps)].slice(0, 3),

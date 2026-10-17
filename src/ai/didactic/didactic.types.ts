@@ -31,6 +31,26 @@ export interface DidacticAnswer {
 	terms: DidacticTerm[];
 	/** Perguntas que o próprio Copiloto sabe responder. */
 	followUps: string[];
+	/**
+	 * O plano limitou a profundidade (TRA-198): `level` é o teto do plano e
+	 * `profileLevel`, o que o perfil pediria. Ausente quando não limitou.
+	 */
+	limitedByPlan?: true;
+	profileLevel?: DidacticLevel;
+}
+
+/**
+ * Teto do plano (TRA-198): sem `ai.copilot_advanced`, a explicação fica no
+ * nível iniciante, como prometem os cards; com ela, vale o perfil.
+ */
+export function cappedDidacticLevel(
+	profileLevel: DidacticLevel,
+	allowsAdvanced: boolean
+): { level: DidacticLevel; limitedByPlan: boolean } {
+	if (allowsAdvanced || profileLevel === 'iniciante') {
+		return { level: profileLevel, limitedByPlan: false };
+	}
+	return { level: 'iniciante', limitedByPlan: true };
 }
 
 const LEVEL_BY_SOPHISTICATION: Record<SophisticationLevel, DidacticLevel> = {

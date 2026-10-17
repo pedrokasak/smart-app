@@ -19,6 +19,7 @@ import { CopilotDidacticService } from './didactic/copilot-didactic.service';
 import { UnauthorizedException } from '@nestjs/common';
 import {
 	PREMIUM_ACCESS_LEVEL,
+	PRO_ACCESS_LEVEL,
 	USER_PLAN_RESOLVER,
 } from 'src/subscription/application/user-plan.types';
 
@@ -170,6 +171,12 @@ describe('AiController', () => {
 			policy: DEFAULT_INVESTMENT_POLICY,
 			isDefault: true,
 			savedAt: null,
+		});
+		// Plano com o Copiloto completo; o teto tem testes próprios abaixo.
+		mockUserPlanResolver.resolveWithCapabilities.mockResolvedValue({
+			tier: PREMIUM_ACCESS_LEVEL,
+			capabilities: [],
+			capabilitiesKnown: null,
 		});
 	});
 
@@ -662,6 +669,92 @@ describe('AiController', () => {
 		expect(response.didactic[0].followUps).toContain(
 			'Qual a correlação entre os meus ativos?'
 		);
+	});
+
+	describe('Copilot depth by plan (TRA-198)', () => {
+		const riskPart = {
+			intent: 'portfolio_risk',
+			deterministic: true,
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			context: { positionsCount: 2 },
+			data: {
+				portfolioRisk: {
+					risk: { score: 72 },
+					concentrationByAsset: [{ key: 'ITUB4', percentage: 62.4 }],
+				},
+			},
+			unavailable: [],
+			warnings: [],
+			assumptions: [],
+		};
+
+		it('a plan without ai.copilot_advanced caps an advanced investor at iniciante', async () => {
+			mockInvestorProfileService.getEffectiveProfile.mockResolvedValue({
+				sophistication: 'experienced',
+			});
+			mockUserPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: 5,
+				capabilities: [],
+				capabilitiesKnown: null,
+			});
+			mockChatOrchestratorService.orchestrate.mockResolvedValueOnce(riskPart);
+
+			const response = await controller.intelligentChat(
+				{ user: { userId: 'user-123' } },
+				{ question: 'mostre risco da minha carteira' }
+			);
+
+			expect(response.didactic[0]).toMatchObject({
+				level: 'iniciante',
+				limitedByPlan: true,
+				profileLevel: 'avancado',
+			});
+			expect(response.message).toContain('cesta');
+		});
+
+		it('a Pro plan keeps the profile level and does not flag a limit', async () => {
+			mockInvestorProfileService.getEffectiveProfile.mockResolvedValue({
+				sophistication: 'experienced',
+			});
+			mockUserPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: PRO_ACCESS_LEVEL,
+				capabilities: [],
+				capabilitiesKnown: null,
+			});
+			mockChatOrchestratorService.orchestrate.mockResolvedValueOnce(riskPart);
+
+			const response = await controller.intelligentChat(
+				{ user: { userId: 'user-123' } },
+				{ question: 'mostre risco da minha carteira' }
+			);
+
+			expect(response.didactic[0].level).toBe('avancado');
+			expect(response.didactic[0]).not.toHaveProperty('limitedByPlan');
+		});
+
+		it('an unreadable plan fails closed (iniciante)', async () => {
+			mockInvestorProfileService.getEffectiveProfile.mockResolvedValue({
+				sophistication: 'intermediate',
+			});
+			mockUserPlanResolver.resolveWithCapabilities.mockRejectedValue(
+				new Error('stripe down')
+			);
+			mockChatOrchestratorService.orchestrate.mockResolvedValueOnce(riskPart);
+
+			const response = await controller.intelligentChat(
+				{ user: { userId: 'user-123' } },
+				{ question: 'mostre risco da minha carteira' }
+			);
+
+			expect(response.didactic[0]).toMatchObject({
+				level: 'iniciante',
+				limitedByPlan: true,
+			});
+		});
 	});
 
 	it('falls back to the classic message when the didactic context fails', async () => {

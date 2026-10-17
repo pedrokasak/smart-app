@@ -48,7 +48,8 @@ export type PlanCapability =
 	| 'risk.analytics'
 	| 'policy.investment'
 	| 'research.comparator'
-	| 'ri.ai_summary';
+	| 'ri.ai_summary'
+	| 'ai.copilot_advanced';
 
 export const ALL_PLAN_CAPABILITIES: PlanCapability[] = [
 	'fiscal.ir_report',
@@ -61,6 +62,7 @@ export const ALL_PLAN_CAPABILITIES: PlanCapability[] = [
 	'policy.investment',
 	'research.comparator',
 	'ri.ai_summary',
+	'ai.copilot_advanced',
 ];
 
 /**
@@ -87,6 +89,7 @@ export const PLAN_CAPABILITY_LABELS: Record<PlanCapability, string> = {
 	'policy.investment': 'Política de investimento',
 	'research.comparator': 'Comparador de ativos lado a lado',
 	'ri.ai_summary': 'Resumo por IA de documentos de RI',
+	'ai.copilot_advanced': 'Copiloto até o modo Avançado',
 };
 
 /**
@@ -109,6 +112,9 @@ export const CAPABILITY_DEFAULT_LEVEL: Record<PlanCapability, UserPlanTier> = {
 	// de UX, lida pelo web via `capabilities`.
 	'research.comparator': PRO_ACCESS_LEVEL,
 	'ri.ai_summary': PREMIUM_ACCESS_LEVEL,
+	// Cards: "Copiloto em modo Iniciante" no Essencial, "até Avançado" no Pro
+	// (TRA-198). Sem a capability, a explicação fica no nível iniciante.
+	'ai.copilot_advanced': PRO_ACCESS_LEVEL,
 };
 
 /**
