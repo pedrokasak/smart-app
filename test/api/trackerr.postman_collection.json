@@ -316,7 +316,21 @@
                   "pm.test('status [200, 201]', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
                   "const body = pm.response.json();",
                   "pm.test('novo access token', () => pm.expect(body.accessToken).to.be.a('string'));",
-                  "pm.collectionVariables.set('tokenA', body.accessToken);"
+                  "pm.collectionVariables.set('tokenA', body.accessToken);",
+                  "pm.test('token girado é diferente do anterior', () => pm.expect(body.refreshToken).to.not.eql(pm.collectionVariables.get('refreshA')));",
+                  "pm.collectionVariables.set('refreshA2', body.refreshToken);"
+                ]
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// O refresh JWT não tem jti: emitido no mesmo segundo do login, sai idêntico",
+                  "// ao anterior e a rotação não muda nada. Espera virar o segundo (achado em",
+                  "// docs/backlog/refresh-token-jti.md).",
+                  "setTimeout(() => {}, 1100);"
                 ]
               }
             }
