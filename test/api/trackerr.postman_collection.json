@@ -323,7 +323,7 @@
           ]
         },
         {
-          "name": "refresh antigo depois de girar é recusado",
+          "name": "refresh antigo logo após girar: aceito na janela de abas, sem girar de novo",
           "request": {
             "method": "POST",
             "header": [
@@ -353,7 +353,12 @@
               "script": {
                 "type": "text/javascript",
                 "exec": [
-                  "pm.test('status [401, 403]', () => pm.expect(pm.response.code).to.be.oneOf([401, 403]));"
+                  "// Janela de tolerância (REFRESH_ROTATION_GRACE_MS) para abas concorrentes:",
+                  "// o token anterior ainda renova o access token, mas não devolve refresh novo.",
+                  "// Reuso fora da janela revoga a sessão (coberto em authentication.session.spec.ts).",
+                  "pm.test('status [200, 201]', () => pm.expect(pm.response.code).to.be.oneOf([200, 201]));",
+                  "const body = pm.response.json();",
+                  "pm.test('access token sim, refresh novo não', () => { pm.expect(body.accessToken).to.be.a('string'); pm.expect(body.refreshToken).to.be.oneOf([undefined, null]); });"
                 ]
               }
             }
