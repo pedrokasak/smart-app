@@ -49,3 +49,24 @@ A instrumentação do MongoDB não grava os valores das consultas.
 - Nenhum serviço publica porta no host; só o Grafana é exposto, pelo proxy do Coolify.
 - O Collector monta o socket do Docker como somente leitura, para medir CPU e memória por container. Isso ainda dá acesso ao daemon, então ele não recebe nada além de OTLP pela rede interna.
 - O Grafana não aceita cadastro nem acesso anônimo.
+
+## Painéis e alertas (F1d)
+
+Versionados em `grafana/provisioning` e somente leitura no Grafana (mudança é por PR):
+
+- **Trackerr · APIs**: requisições/s, taxa de 5xx, latência p50/p95/p99, p95 por rota, respostas por status e a lista de chamadas de LLM (spans `gen_ai` do trackerr-ia, pelo Tempo).
+- **Trackerr · VPS e containers**: CPU e memória por container (base para os limites do F1e), memória e disco da VPS, carga e logs com erro.
+
+Alertas (pasta Trackerr):
+
+| Alerta | Condição |
+|---|---|
+| API com mais de 5% de 5xx | 5 min, por serviço (crítico) |
+| API com p95 acima de 2s | 10 min, por serviço |
+| VPS com menos de 10% de memória livre | 5 min (crítico) |
+| Disco da VPS acima de 85% | 15 min |
+| Container acima de 90% da memória | 10 min |
+
+**Ponto de contato:** sem configuração, os alertas só aparecem no Grafana. Em **Alerting → Contact points**, cadastre o destino (e-mail via SMTP do Resend, Telegram ou Discord) e deixe-o como padrão na política de notificação. A credencial fica só no Grafana, nunca neste repositório.
+
+Os nomes das métricas seguem a tradução do receptor OTLP do Prometheus: `http.server.duration` em ms (server e trackerr-ia) vira `http_server_duration_milliseconds_*`; métrica de unidade `1` do `docker_stats` pode ganhar o sufixo `_ratio`, por isso as consultas aceitam os dois nomes. Depois do primeiro deploy, confira em **Explore** que os painéis têm dados; painel vazio quase sempre é nome de métrica.

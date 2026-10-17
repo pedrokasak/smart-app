@@ -1,0 +1,12 @@
+# Painéis do Trackerr (TRA-222 F1d), versionados aqui e somente leitura no
+# Grafana: mudança de painel é por PR, não pela interface.
+apiVersion: 1
+
+providers:
+  - name: trackerr
+    folder: Trackerr
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    options:
+      path: /etc/grafana/provisioning/dashboards/json
