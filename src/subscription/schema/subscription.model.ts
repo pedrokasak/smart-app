@@ -19,6 +19,8 @@ export interface Subscription extends Document {
 	annualStripePriceId?: string;
 	isFeatured?: boolean;
 	isComingSoon?: boolean;
+	/** Dias de teste grátis no checkout (TRA-182); 0 = sem teste. */
+	trialDays?: number;
 	isActive: boolean;
 	features?: string[];
 	/**
@@ -75,6 +77,7 @@ const subscriptionSchema = new Schema<Subscription>({
 	annualStripePriceId: { type: String, unique: true, sparse: true },
 	isFeatured: { type: Boolean, default: false },
 	isComingSoon: { type: Boolean, default: false },
+	trialDays: { type: Number, default: 0, min: 0, max: 30 },
 	isActive: { type: Boolean, default: true },
 	features: [{ type: String }],
 	capabilities: [{ type: String }],
