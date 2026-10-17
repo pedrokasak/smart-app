@@ -25,6 +25,89 @@ function setup(trades: unknown[] = []) {
 	return { service: new UserErrorRadarService(radar, policy), radar };
 }
 
+/** Fechamentos de 300 dias úteis seguidos, a partir de uma série de retornos. */
+function closes(returns: number[]) {
+	let price = 100;
+	const start = Date.UTC(2025, 0, 1);
+	return returns.map((change, index) => {
+		price *= 1 + change;
+		return {
+			date: new Date(start + index * 86_400_000).toISOString().slice(0, 10),
+			close: price,
+		};
+	});
+}
+
+describe('UserErrorRadarService · correlação (TRA-70)', () => {
+	const base = Array.from({ length: 300 }, (_, i) => Math.sin(i * 1.7) / 50);
+	const noise = Array.from({ length: 300 }, (_, i) => Math.cos(i * 2.9) / 50);
+
+	function withMarketData(getDailyCloses: jest.Mock) {
+		(TradeModel.find as jest.Mock).mockReturnValue({
+			select: () => ({ lean: async () => [] }),
+		});
+		const radar = {
+			detectForUser: jest.fn(() => ({ status: 'ok', alerts: [] })),
+		} as unknown as jest.Mocked<PortfolioErrorRadarService>;
+		const policy = {
+			get: jest.fn(async () => ({
+				policy: DEFAULT_INVESTMENT_POLICY,
+				isDefault: true,
+				savedAt: null,
+			})),
+		} as unknown as InvestmentPolicyService;
+		return new UserErrorRadarService(radar, policy, {
+			getDailyCloses,
+		} as any);
+	}
+
+	const assets = [
+		{ symbol: 'PETR4', type: 'stock', quantity: 100, currentPrice: 30 },
+		{ symbol: 'PRIO3', type: 'stock', quantity: 50, currentPrice: 40 },
+		{ symbol: 'BTC', type: 'crypto', quantity: 0.01, currentPrice: 300000 },
+	];
+
+	it('appends an alert for the big pair that moves together', async () => {
+		const getDailyCloses = jest.fn(async (symbol: string) =>
+			closes(symbol === 'PETR4' ? base : base.map((r) => r * 1.1))
+		);
+		const result = await withMarketData(getDailyCloses).detect(
+			'user-1',
+			assets,
+			[]
+		);
+
+		expect(result.alerts).toHaveLength(1);
+		expect(result.alerts[0]).toMatchObject({
+			type: 'correlation',
+			code: 'CORRELATION_HIGH_PAIR',
+		});
+		// Cripto não entra na matriz de bolsa.
+		expect(getDailyCloses.mock.calls.map(([symbol]) => symbol).sort()).toEqual([
+			'PETR4',
+			'PRIO3',
+		]);
+	});
+
+	it('no alert when the pair does not move together', async () => {
+		const result = await withMarketData(
+			jest.fn(async (symbol: string) =>
+				closes(symbol === 'PETR4' ? base : noise)
+			)
+		).detect('user-1', assets, []);
+		expect(result.alerts).toEqual([]);
+	});
+
+	it('a failing price source keeps the radar answering', async () => {
+		const result = await withMarketData(
+			jest.fn(async () => {
+				throw new Error('cotahist down');
+			})
+		).detect('user-1', assets, []);
+		expect(result).toMatchObject({ status: 'ok', alerts: [] });
+	});
+});
+
 describe('UserErrorRadarService', () => {
 	it('passes the user policy, the cost of each position and the latest quote date', async () => {
 		const { service, radar } = setup([
