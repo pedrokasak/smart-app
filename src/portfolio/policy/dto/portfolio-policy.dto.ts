@@ -12,7 +12,7 @@ import {
 	MinLength,
 	ValidateNested,
 } from 'class-validator';
-import { MAX_POLICY_TARGETS } from '../domain/investment-policy';
+import { MAX_POLICY_TARGETS } from '../domain/portfolio-policy';
 
 export class PolicyTargetDto {
 	@IsString()
@@ -32,7 +32,7 @@ export class PolicyTargetDto {
 	pct: number;
 }
 
-export class InvestmentPolicyDto {
+export class PortfolioPolicyDto {
 	@IsArray()
 	@ArrayMinSize(1)
 	@ArrayMaxSize(MAX_POLICY_TARGETS)

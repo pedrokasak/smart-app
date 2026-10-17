@@ -1,6 +1,6 @@
 import { BadRequestException } from '@nestjs/common';
 import { PortfolioPolicyService } from './portfolio-policy.service';
-import { suggestedPolicy } from '../domain/investment-policy';
+import { suggestedPolicy } from '../domain/portfolio-policy';
 
 function modelReturning(doc: unknown) {
 	const query = {

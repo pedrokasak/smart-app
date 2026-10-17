@@ -1,9 +1,9 @@
 import { model, ObjectId, Schema } from 'mongoose';
 import {
-	InvestmentPolicy,
+	PortfolioPolicy,
 	PORTFOLIO_PURPOSES,
 	PortfolioPurpose,
-} from 'src/portfolio/policy/domain/investment-policy';
+} from 'src/portfolio/policy/domain/portfolio-policy';
 
 export interface Portfolio extends Document {
 	id: ObjectId;
@@ -21,7 +21,7 @@ export interface Portfolio extends Document {
 
 	/** Finalidade e política da carteira (TRA-106); ausentes nas antigas. */
 	purpose?: PortfolioPurpose | null;
-	policy?: InvestmentPolicy | null;
+	policy?: PortfolioPolicy | null;
 
 	createdAt: Date;
 	updatedAt: Date;

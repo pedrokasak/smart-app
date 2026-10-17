@@ -8,6 +8,10 @@
  *
  * As metas não precisam somar 100%: o que sobra fica livre (a sugestão de
  * "Renda" deixa 5% sem destino). Somar mais de 100% é erro.
+ *
+ * Não confundir com a política do USUÁRIO (`src/investment-policy`,
+ * TRA-175): aquela tem campos fixos e vale para o patrimônio consolidado;
+ * esta é de cada carteira e as classes mudam com a finalidade.
  */
 
 export const PORTFOLIO_PURPOSES = [
@@ -29,7 +33,7 @@ export type PolicyTarget = {
 	pct: number;
 };
 
-export type InvestmentPolicy = {
+export type PortfolioPolicy = {
 	targets: PolicyTarget[];
 	/** Peso máximo de um único ativo, em %, 1–100. */
 	maxPositionPct: number;
@@ -39,7 +43,7 @@ export type PurposeOption = {
 	id: PortfolioPurpose;
 	label: string;
 	hint: string;
-	policy: InvestmentPolicy;
+	policy: PortfolioPolicy;
 };
 
 const PURPOSES: Record<PortfolioPurpose, Omit<PurposeOption, 'id'>> = {
@@ -100,7 +104,7 @@ export function isPortfolioPurpose(value: unknown): value is PortfolioPurpose {
 	);
 }
 
-function clonePolicy(policy: InvestmentPolicy): InvestmentPolicy {
+function clonePolicy(policy: PortfolioPolicy): PortfolioPolicy {
 	return {
 		targets: policy.targets.map((target) => ({ ...target })),
 		maxPositionPct: policy.maxPositionPct,
@@ -108,7 +112,7 @@ function clonePolicy(policy: InvestmentPolicy): InvestmentPolicy {
 }
 
 /** Cópia: quem recebe pode mexer sem alterar a tabela. */
-export function suggestedPolicy(purpose: PortfolioPurpose): InvestmentPolicy {
+export function suggestedPolicy(purpose: PortfolioPurpose): PortfolioPolicy {
 	return clonePolicy(PURPOSES[purpose].policy);
 }
 
@@ -128,7 +132,7 @@ export class InvalidPolicyError extends Error {}
  * documento antigo). Formato e faixas já passam pelo DTO; aqui ficam as
  * regras que olham o conjunto: soma, chaves repetidas e quantidade.
  */
-export function normalizePolicy(policy: InvestmentPolicy): InvestmentPolicy {
+export function normalizePolicy(policy: PortfolioPolicy): PortfolioPolicy {
 	const targets = policy.targets.map((target) => ({
 		key: target.key.trim(),
 		label: target.label.trim(),

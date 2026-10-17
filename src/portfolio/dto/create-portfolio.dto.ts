@@ -14,8 +14,8 @@ import {
 import {
 	PORTFOLIO_PURPOSES,
 	PortfolioPurpose,
-} from 'src/portfolio/policy/domain/investment-policy';
-import { InvestmentPolicyDto } from 'src/portfolio/policy/dto/investment-policy.dto';
+} from 'src/portfolio/policy/domain/portfolio-policy';
+import { PortfolioPolicyDto } from 'src/portfolio/policy/dto/portfolio-policy.dto';
 
 export class CreatePortfolioDto {
 	@IsString()
@@ -54,8 +54,8 @@ export class CreatePortfolioDto {
 	 */
 	@IsOptional()
 	@ValidateNested()
-	@Type(() => InvestmentPolicyDto)
-	policy?: InvestmentPolicyDto;
+	@Type(() => PortfolioPolicyDto)
+	policy?: PortfolioPolicyDto;
 
 	/** "Usar a mesma política da carteira principal" do handoff. */
 	@IsOptional()

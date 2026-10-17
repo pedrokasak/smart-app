@@ -5,23 +5,23 @@ import type { CreatePortfolioDto } from 'src/portfolio/dto/create-portfolio.dto'
 import type { Portfolio } from 'src/portfolio/schema/portfolio.model';
 import {
 	InvalidPolicyError,
-	InvestmentPolicy,
+	PortfolioPolicy,
 	normalizePolicy,
 	PortfolioPurpose,
 	PurposeOption,
 	purposeOptions,
 	suggestedPolicy,
-} from '../domain/investment-policy';
+} from '../domain/portfolio-policy';
 
 export type ResolvedPortfolioPolicy = {
 	purpose: PortfolioPurpose | null;
-	policy: InvestmentPolicy | null;
+	policy: PortfolioPolicy | null;
 };
 
 export type PrimaryPolicy = {
 	portfolioId: string;
 	name: string;
-	policy: InvestmentPolicy;
+	policy: PortfolioPolicy;
 };
 
 export type PolicySuggestions = {
@@ -33,7 +33,7 @@ export type PolicySuggestions = {
 type PolicyDoc = {
 	_id: unknown;
 	name: string;
-	policy: InvestmentPolicy;
+	policy: PortfolioPolicy;
 };
 
 /**
@@ -90,7 +90,7 @@ export class PortfolioPolicyService {
 		}
 	}
 
-	private normalize(policy: InvestmentPolicy): InvestmentPolicy {
+	private normalize(policy: PortfolioPolicy): PortfolioPolicy {
 		try {
 			return normalizePolicy(policy);
 		} catch (error) {

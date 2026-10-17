@@ -1,7 +1,7 @@
 import type {
-	InvestmentPolicy,
+	PortfolioPolicy,
 	PortfolioPurpose,
-} from 'src/portfolio/policy/domain/investment-policy';
+} from 'src/portfolio/policy/domain/portfolio-policy';
 
 export class PortfolioResponseDto {
 	id: string;
@@ -14,7 +14,7 @@ export class PortfolioResponseDto {
 	totalValue: number;
 	plan: string;
 	purpose?: PortfolioPurpose | null;
-	policy?: InvestmentPolicy | null;
+	policy?: PortfolioPolicy | null;
 	assetCount: number;
 	syncedWithB3At?: Date;
 	createdAt: Date;

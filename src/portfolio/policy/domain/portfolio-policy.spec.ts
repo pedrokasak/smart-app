@@ -4,9 +4,9 @@ import {
 	PORTFOLIO_PURPOSES,
 	purposeOptions,
 	suggestedPolicy,
-} from './investment-policy';
+} from './portfolio-policy';
 
-describe('investment policy (TRA-106)', () => {
+describe('portfolio policy (TRA-106)', () => {
 	it('sugere a política do handoff para cada finalidade', () => {
 		expect(suggestedPolicy('income')).toEqual({
 			targets: [
