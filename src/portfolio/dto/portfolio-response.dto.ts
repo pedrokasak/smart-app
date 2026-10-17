@@ -1,3 +1,8 @@
+import type {
+	InvestmentPolicy,
+	PortfolioPurpose,
+} from 'src/portfolio/policy/domain/investment-policy';
+
 export class PortfolioResponseDto {
 	id: string;
 	userId: string;
@@ -8,6 +13,8 @@ export class PortfolioResponseDto {
 	ownerName?: string;
 	totalValue: number;
 	plan: string;
+	purpose?: PortfolioPurpose | null;
+	policy?: InvestmentPolicy | null;
 	assetCount: number;
 	syncedWithB3At?: Date;
 	createdAt: Date;

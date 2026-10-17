@@ -1,4 +1,9 @@
 import { model, ObjectId, Schema } from 'mongoose';
+import {
+	InvestmentPolicy,
+	PORTFOLIO_PURPOSES,
+	PortfolioPurpose,
+} from 'src/portfolio/policy/domain/investment-policy';
 
 export interface Portfolio extends Document {
 	id: ObjectId;
@@ -13,6 +18,10 @@ export interface Portfolio extends Document {
 
 	totalValue: number;
 	plan: string;
+
+	/** Finalidade e política da carteira (TRA-106); ausentes nas antigas. */
+	purpose?: PortfolioPurpose | null;
+	policy?: InvestmentPolicy | null;
 
 	createdAt: Date;
 	updatedAt: Date;
@@ -68,6 +77,28 @@ export const portfolioSchema = new Schema<Portfolio>(
 		plan: {
 			type: String,
 			default: 'free',
+		},
+		purpose: {
+			type: String,
+			enum: [...PORTFOLIO_PURPOSES, null],
+			default: null,
+		},
+		policy: {
+			type: new Schema(
+				{
+					targets: [
+						{
+							_id: false,
+							key: { type: String, required: true },
+							label: { type: String, required: true },
+							pct: { type: Number, required: true, min: 0, max: 100 },
+						},
+					],
+					maxPositionPct: { type: Number, required: true, min: 1, max: 100 },
+				},
+				{ _id: false }
+			),
+			default: null,
 		},
 		syncedWithB3At: {
 			type: Date,

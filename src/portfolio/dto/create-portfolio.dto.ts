@@ -1,12 +1,21 @@
+import { Type } from 'class-transformer';
 import {
+	IsBoolean,
 	IsString,
 	IsEnum,
+	IsIn,
 	IsOptional,
 	MinLength,
 	MaxLength,
 	Matches,
 	ValidateIf,
+	ValidateNested,
 } from 'class-validator';
+import {
+	PORTFOLIO_PURPOSES,
+	PortfolioPurpose,
+} from 'src/portfolio/policy/domain/investment-policy';
+import { InvestmentPolicyDto } from 'src/portfolio/policy/dto/investment-policy.dto';
 
 export class CreatePortfolioDto {
 	@IsString()
@@ -33,4 +42,23 @@ export class CreatePortfolioDto {
 	@IsOptional()
 	@IsString()
 	ownerName?: string;
+
+	/** Finalidade escolhida no assistente "Nova carteira" (TRA-106). */
+	@IsOptional()
+	@IsIn(PORTFOLIO_PURPOSES)
+	purpose?: PortfolioPurpose;
+
+	/**
+	 * Política explícita. Sem ela, vale a sugerida pela finalidade (ou a da
+	 * carteira principal, com `inheritPrimaryPolicy`).
+	 */
+	@IsOptional()
+	@ValidateNested()
+	@Type(() => InvestmentPolicyDto)
+	policy?: InvestmentPolicyDto;
+
+	/** "Usar a mesma política da carteira principal" do handoff. */
+	@IsOptional()
+	@IsBoolean()
+	inheritPrimaryPolicy?: boolean;
 }
