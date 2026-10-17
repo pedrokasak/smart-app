@@ -15,6 +15,8 @@ import { PortfolioEnrichService } from 'src/portfolio/portfolio-enrich.service';
 import { PortfolioController } from 'src/portfolio/portfolio.controller';
 import { PortfolioIntelligenceService } from 'src/portfolio/intelligence/application/portfolio-intelligence.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { PortfolioPolicyService } from 'src/portfolio/policy/application/portfolio-policy.service';
+import { PortfolioPolicyController } from 'src/portfolio/policy/portfolio-policy.controller';
 import { portfolioSchema } from 'src/portfolio/schema/portfolio.model';
 import { portfolioHistorySchema } from 'src/portfolio/schema/portfolio-history.model';
 
@@ -87,6 +89,7 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 
 		// Services
 		PortfolioService,
+		PortfolioPolicyService,
 		PortfolioEnrichService,
 		PortfolioIntelligenceService,
 		PortfolioReturnsService,
@@ -111,7 +114,7 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		// enriquecimento só roda ao adicionar ativo, então não alcança a base.
 		SectorBackfillScheduler,
 	],
-	controllers: [PortfolioController],
+	controllers: [PortfolioController, PortfolioPolicyController],
 	exports: [
 		PortfolioService,
 		PortfolioIntelligenceService,
