@@ -226,7 +226,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\"email\": \"{{emailA}}\", \"password\": \"Errada@12345\"}"
+              "raw": "{\"email\": \"{{emailA}}\", \"password\": \"Errada@12345\", \"keepConnected\": false}"
             }
           },
           "event": [
@@ -263,7 +263,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\"email\": \"{{emailA}}\", \"password\": \"{{password}}\"}"
+              "raw": "{\"email\": \"{{emailA}}\", \"password\": \"{{password}}\", \"keepConnected\": false}"
             }
           },
           "event": [
@@ -589,7 +589,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\"email\": \"{{emailB}}\", \"password\": \"{{password}}\"}"
+              "raw": "{\"email\": \"{{emailB}}\", \"password\": \"{{password}}\", \"keepConnected\": false}"
             }
           },
           "event": [
@@ -854,7 +854,7 @@
             },
             "body": {
               "mode": "raw",
-              "raw": "{\"email\": \"{{emailB}}\", \"password\": \"{{password}}\"}"
+              "raw": "{\"email\": \"{{emailB}}\", \"password\": \"{{password}}\", \"keepConnected\": false}"
             }
           },
           "event": [
