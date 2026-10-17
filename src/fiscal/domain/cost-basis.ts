@@ -14,6 +14,8 @@
  * a carteira, que lê imports incompletos, zera a posição.
  */
 
+import type { CorporateEvent } from './corporate-event';
+
 export interface CostBasisPosition {
 	quantity: number;
 	totalCost: number;
@@ -52,5 +54,29 @@ export function applySell(
 			totalCost: position.totalCost - costBasis,
 		},
 		costBasis,
+	};
+}
+
+/**
+ * Desdobramento e grupamento mudam a quantidade e mantêm o custo total (o PM
+ * se ajusta sozinho). Bonificação soma as ações novas e o custo atribuído.
+ * Fração de ação fica de fora: a companhia leiloa e paga em dinheiro, o que
+ * entra como venda quando vier do extrato.
+ */
+export function applyCorporateEvent(
+	position: CostBasisPosition,
+	event: Pick<CorporateEvent, 'type' | 'ratio' | 'bonusUnitCost'>
+): CostBasisPosition {
+	if (position.quantity <= 0) return position;
+	if (event.type === 'BONUS') {
+		const newShares = Math.floor(position.quantity * event.ratio);
+		return {
+			quantity: position.quantity + newShares,
+			totalCost: position.totalCost + newShares * (event.bonusUnitCost ?? 0),
+		};
+	}
+	return {
+		quantity: Math.floor(position.quantity * event.ratio),
+		totalCost: position.totalCost,
 	};
 }
