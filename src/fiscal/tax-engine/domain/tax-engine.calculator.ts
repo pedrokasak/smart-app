@@ -1,3 +1,4 @@
+import { applyBuy, applySell, averageCost } from 'src/fiscal/domain/cost-basis';
 import {
 	TaxAssetType,
 	TaxEngineEvaluationOutput,
@@ -64,8 +65,7 @@ export class TaxEngineCalculator {
 			const fees = this.safeMoney(operation.fees || 0);
 
 			if (operation.side === 'buy') {
-				position.quantity += quantity;
-				position.totalCost += quantity * unitPrice + fees;
+				Object.assign(position, applyBuy(position, quantity, unitPrice, fees));
 				positions.set(key, position);
 				continue;
 			}
@@ -113,12 +113,7 @@ export class TaxEngineCalculator {
 				compensationUsed: this.safeMoney(compensationUsed),
 			});
 
-			position.quantity -= quantity;
-			position.totalCost -= costBasis;
-			if (position.quantity <= 0) {
-				position.quantity = 0;
-				position.totalCost = 0;
-			}
+			Object.assign(position, applySell(position, quantity).position);
 			positions.set(key, position);
 
 			realizedSales.push({
@@ -325,10 +320,7 @@ export class TaxEngineCalculator {
 	}
 
 	private computeAveragePrice(position: MutablePositionState): number {
-		if (position.quantity <= 0) {
-			return 0;
-		}
-		return position.totalCost / position.quantity;
+		return averageCost(position);
 	}
 
 	private validateOperation(operation: TaxOperationInput) {
