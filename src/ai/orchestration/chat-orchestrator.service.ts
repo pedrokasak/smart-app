@@ -44,6 +44,12 @@ import {
 import { RiDocumentSummaryOutput } from 'src/ri-intelligence/application/ri-summary.types';
 import { StockService } from 'src/stocks/stocks.service';
 import {
+	CHAT_TRADE_HISTORY,
+	ChatTradeHistoryPort,
+} from 'src/ai/orchestration/trade-history/chat-trade-history.port';
+import { parseTradeHistoryQuery } from 'src/ai/orchestration/trade-history/trade-history.query';
+import { summarizeTrades } from 'src/ai/orchestration/trade-history/trade-history.summary';
+import {
 	planHasCapability,
 	USER_PLAN_RESOLVER,
 	UserPlanResolverPort,
@@ -114,7 +120,12 @@ export class ChatOrchestratorService {
 		@Inject(RI_KNOWLEDGE) private readonly riKnowledge: RiKnowledgePort,
 		@Optional()
 		@Inject(RI_DOCUMENT_QUERY)
-		private readonly riDocumentQuery?: RiDocumentQueryPort
+		private readonly riDocumentQuery?: RiDocumentQueryPort,
+		// Histórico de operações (ADR-002, TRA-16). Opcional: sem ele, a
+		// pergunta responde que o dado não está disponível.
+		@Optional()
+		@Inject(CHAT_TRADE_HISTORY)
+		private readonly tradeHistory?: ChatTradeHistoryPort
 	) {}
 
 	async orchestrate(
@@ -285,6 +296,26 @@ export class ChatOrchestratorService {
 			cacheHit,
 			ttlSeconds,
 		};
+
+		// Histórico de operações (ADR-002, TRA-16): lê as operações do usuário do
+		// token e soma em código. Nada vai para o LLM.
+		if (intent === 'trade_history') {
+			if (!this.tradeHistory) {
+				unavailable.push('trade_history_unavailable');
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: 'insufficient_structured_data',
+					data: {},
+				});
+			}
+			const query = parseTradeHistoryQuery(normalizedQuestion, symbols);
+			const trades = await this.tradeHistory.listTrades(userId, query);
+			return this.finish(env, {
+				routeType: 'deterministic_no_llm',
+				routeReason: 'rules_resolved',
+				data: { tradeHistory: { query, ...summarizeTrades(trades) } },
+			});
+		}
 
 		if (intent === 'portfolio_summary') {
 			const portfolioSummary =
@@ -1522,6 +1553,9 @@ export class ChatOrchestratorService {
 		) {
 			return false;
 		}
+		// A resposta é feita das operações da própria pessoa, e a chave do cache
+		// é pelo hash da carteira, não pelo usuário: nunca entra no cache.
+		if (intent === 'trade_history') return false;
 		return intent !== 'unknown';
 	}
 
@@ -1539,6 +1573,7 @@ export class ChatOrchestratorService {
 		if (intent === 'investment_committee') return 300;
 		// Proventos mudam no máximo uma vez por dia (enriquecimento de mercado).
 		if (intent === 'dividends_received') return 300;
+		if (intent === 'trade_history') return 0;
 		if (
 			intent === 'allocation_gap' ||
 			intent === 'contribution_simulation' ||
@@ -1809,6 +1844,16 @@ export class ChatOrchestratorService {
 			/\b(provento\w*|dividendo\w*|rendimento\w*|jcp)\b/.test(text)
 		) {
 			return 'dividends_received';
+		}
+		// Histórico das próprias operações (ADR-002, TRA-16): exige um verbo
+		// no passado ou o nome da coisa registrada, para "se eu vender" seguir
+		// para a simulação de venda.
+		if (
+			/\b(comprei|vendi|paguei de corretagem|minhas (compras|vendas|opera[cç][oõ]es|negocia[cç][oõ]es)|hist[oó]rico de (compras|vendas|opera[cç][oõ]es|negocia[cç][oõ]es)|quantas (compras|vendas|opera[cç][oõ]es) (eu )?fiz)\b/.test(
+				text
+			)
+		) {
+			return 'trade_history';
 		}
 		if (
 			/\b(preciso fazer algo|fazer algo hoje|algo urgente|o que (eu )?(devo|preciso) fazer)\b/.test(

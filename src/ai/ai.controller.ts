@@ -676,6 +676,44 @@ export class AiController {
 					' A conta usa a quantidade que você tem hoje; se comprou parte das cotas no meio do período, o valor real recebido é menor.';
 				return msg;
 			}
+			case 'trade_history': {
+				const history = (data as any)?.tradeHistory;
+				if (!history) {
+					return 'Não consegui consultar as suas operações agora. Tente de novo em instantes.';
+				}
+				const subject = history.query?.symbol
+					? ` de ${history.query.symbol}`
+					: '';
+				const period = history.query?.periodLabel
+					? ` em ${history.query.periodLabel}`
+					: '';
+				if (!history.count) {
+					return `Não encontrei operações${subject}${period} nas suas notas e extratos importados. Se você operou nesse período, importe a nota de corretagem ou o extrato de negociação da B3.`;
+				}
+				const qty = (value: number) =>
+					value.toLocaleString('pt-BR', { maximumFractionDigits: 4 });
+				const parts: string[] = [];
+				if (history.buys.count) {
+					parts.push(
+						`${history.buys.count} ${history.buys.count === 1 ? 'compra' : 'compras'} (${qty(history.buys.quantity)} unidades, ${money(history.buys.total)})`
+					);
+				}
+				if (history.sells.count) {
+					parts.push(
+						`${history.sells.count} ${history.sells.count === 1 ? 'venda' : 'vendas'} (${qty(history.sells.quantity)} unidades, ${money(history.sells.total)})`
+					);
+				}
+				let msg = `Nas suas operações importadas${subject}${period}: ${parts.join(' e ')}.`;
+				if (history.fees > 0) msg += ` Custos somados: ${money(history.fees)}.`;
+				const lines = (history.items || []).map((item: any) => {
+					const [y, m, d] = String(item.date).split('-');
+					return `• ${d}/${m}/${y} · ${item.side === 'sell' ? 'venda' : 'compra'} de ${item.symbol}: ${qty(item.quantity)} a ${money(item.price)}`;
+				});
+				if (lines.length) {
+					msg += `\n${history.truncated ? 'As mais recentes:' : 'Operações:'}\n${lines.join('\n')}`;
+				}
+				return msg;
+			}
 			case 'action_checklist': {
 				const checklist = (data as any)?.actionChecklist;
 				const items: any[] = checklist?.items || [];
