@@ -1,4 +1,6 @@
 import { AdminAnalyticsService } from './admin-analytics.service';
+import { AdminPromotionsController } from './admin-promotions.controller';
+import { AdminPromotionsService } from './application/admin-promotions.service';
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { SubscriptionModule } from 'src/subscription/subscription.module';
@@ -26,8 +28,13 @@ import { EmailModule } from 'src/notifications/email/email.module';
 		SubscriptionModule,
 		EmailModule,
 	],
-	controllers: [AdminController],
-	providers: [AdminService, AdminRoleService, AdminAnalyticsService],
+	controllers: [AdminController, AdminPromotionsController],
+	providers: [
+		AdminService,
+		AdminRoleService,
+		AdminAnalyticsService,
+		AdminPromotionsService,
+	],
 	exports: [AdminService],
 })
 export class AdminModule {}

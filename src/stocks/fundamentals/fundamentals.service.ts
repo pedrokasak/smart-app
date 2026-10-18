@@ -99,7 +99,12 @@ export class FundamentalsService {
 		// devolveria true para tudo, a regra de banco nunca dispararia e o
 		// `0,0%` literal que o Fundamentus publica para BBAS3 viraria "margem
 		// liquida: 0,0%" — o defeito exato que a spec existe para impedir.
-		const sector = index.get(FUNDAMENTUS_SECTOR_LABEL)?.text?.trim() || null;
+		// Normalizado como os indicadores (TRA-47, N3): correto por construção,
+		// não porque 'SETOR' já calha de estar na forma normal.
+		const sector =
+			index
+				.get(normalizeFundamentusKey(FUNDAMENTUS_SECTOR_LABEL))
+				?.text?.trim() || null;
 
 		const values = {} as Record<FundamentalKey, FundamentalValue>;
 		for (const key of FUNDAMENTAL_KEYS) {

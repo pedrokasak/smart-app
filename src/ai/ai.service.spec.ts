@@ -223,6 +223,26 @@ describe('AiService', () => {
 		delete process.env.TRACKERR_IA_SERVICE_TOKEN;
 	});
 
+	it('sends the didactic level to /api/insights when given', async () => {
+		mockHttpService.post.mockReturnValue(
+			of({
+				data: { insights: [] },
+				status: 200,
+				statusText: 'OK',
+				headers: {},
+				config: {} as any,
+			})
+		);
+
+		await service.getInsights({ user_id: 'u1' }, undefined, {
+			level: 'iniciante',
+		});
+
+		expect(mockHttpService.post.mock.calls.at(-1)[1]).toMatchObject({
+			level: 'iniciante',
+		});
+	});
+
 	it('should throw InternalServerErrorException on insights failure', async () => {
 		mockHttpService.post.mockReturnValue(
 			throwError(() => ({

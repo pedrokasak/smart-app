@@ -24,6 +24,7 @@ import { PixModule } from './payments/pix/pix.module';
 import { StockModule } from './stocks/stocks.module';
 import { MacroIndicatorsModule } from 'src/macro-indicators/macro-indicators.module';
 import { FixedIncomeModule } from 'src/fixed-income/fixed-income.module';
+import { FixedIncomePositionsModule } from 'src/fixed-income/positions/fixed-income-positions.module';
 import { InvestmentFundsModule } from 'src/investment-funds/investment-funds.module';
 import { AssetsModule } from './assets/assets.module';
 import { AiModule } from './ai/ai.module';
@@ -70,6 +71,8 @@ import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 		MacroIndicatorsModule,
 		// Comparador de renda fixa com Tesouro Direto e taxas do BACEN (TRA-269).
 		FixedIncomeModule,
+		// Renda fixa como posição da carteira (TRA-230).
+		FixedIncomePositionsModule,
 		// Fundos de investimento com cota diária da CVM (TRA-276).
 		InvestmentFundsModule,
 		AssetsModule,

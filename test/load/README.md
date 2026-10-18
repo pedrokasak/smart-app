@@ -42,6 +42,7 @@ alvo escolhido por quem roda.
 | `03b queue burst` (tipo sintetico, default) | nenhuma — o evento morre no mapeador | **nao** | nao |
 | `03b queue burst` (`--event-type` real) | grava `Notification` no Mongo | **SIM — Resend + push** | nao |
 | `04-stress-ramp` | nenhuma — login + GET | nao | nao |
+| `05-read-dashboard` | nenhuma — somente GET (composicao, retornos, proventos, agenda, radar) | nao | nao |
 
 Nenhum cenario toca Stripe, Asaas ou webhooks de pagamento. Isso e
 deliberado: nao existe caminho seguro de carga contra um provedor de
@@ -86,10 +87,21 @@ neste repo** e nenhum default de senha existe no codigo.
 ### Semear localmente
 
 ```bash
-LOAD_SEED_PASSWORD='SenhaDeCarga123@' \
+# Senha nova a cada sessao, so no seu terminal. Nunca copie uma senha de
+# exemplo: os usuarios semeados passam a ter exatamente a senha que voce usar.
+export LOAD_PASSWORD="$(openssl rand -base64 18)aA1!"
+
+LOAD_SEED_PASSWORD="$LOAD_PASSWORD" \
 DATABASE_URL='mongodb://<usuario>:<senha>@localhost:27017/trackerr?authSource=admin' \
 node test/load/seed/seed-load-users.mjs --count 50 --assets 15
 ```
+
+Os comandos do k6 abaixo usam `$LOAD_PASSWORD`, a mesma senha do seeder.
+
+**O seeder so roda em Mongo local por padrao.** Para semear um banco remoto
+(staging), exporte `LOAD_ALLOW_REMOTE=i-understand-the-risk`, como no k6. Nunca
+aponte o seeder para o banco de producao: ele criaria contas com a senha que
+voce definiu dentro da base real.
 
 Cria `loadtest+0001@loadtest.invalid` ... `loadtest+0050@loadtest.invalid`,
 cada um com uma carteira e 15 ativos. Idempotente: reexecutar nao duplica.
@@ -140,21 +152,33 @@ Todos os cenarios aceitam as mesmas variaveis base:
 ### 1. Autenticacao
 
 ```bash
-k6 run -e LOAD_USER_PASSWORD='SenhaDeCarga123@' -e LOAD_VUS=30 \
+k6 run -e LOAD_USER_PASSWORD="$LOAD_PASSWORD" -e LOAD_VUS=30 \
   test/load/scenarios/01-auth.js
 ```
 
 ### 2. Leitura de carteira
 
 ```bash
-k6 run -e LOAD_USER_PASSWORD='SenhaDeCarga123@' -e LOAD_VUS=50 \
+k6 run -e LOAD_USER_PASSWORD="$LOAD_PASSWORD" -e LOAD_VUS=50 \
   test/load/scenarios/02-read-portfolio.js
 ```
+
+### 2b. Dashboard, proventos e radar (TRA-183)
+
+```bash
+k6 run -e LOAD_USER_PASSWORD="$LOAD_PASSWORD" -e LOAD_VUS=30 \
+  test/load/scenarios/05-read-dashboard.js
+```
+
+`/portfolio/returns` e `/ai/error-radar` leem series historicas por ativo; sao
+as candidatas a cauda longa. Os usuarios de carga precisam ter posicoes de
+bolsa (o seed cria carteiras com acoes) para essas rotas fazerem o trabalho
+real.
 
 ### 3a. Centro de notificacoes (lado HTTP)
 
 ```bash
-k6 run -e LOAD_USER_PASSWORD='SenhaDeCarga123@' -e LOAD_VUS=60 \
+k6 run -e LOAD_USER_PASSWORD="$LOAD_PASSWORD" -e LOAD_VUS=60 \
   test/load/scenarios/03-notifications-read.js
 ```
 
@@ -184,7 +208,7 @@ de latencia por job. **Compare o p50 medido com os ~200 ms estimados no
 ### 4. Rampa de estresse
 
 ```bash
-k6 run -e LOAD_USER_PASSWORD='SenhaDeCarga123@' -e LOAD_MAX_VUS=400 \
+k6 run -e LOAD_USER_PASSWORD="$LOAD_PASSWORD" -e LOAD_MAX_VUS=400 \
   test/load/scenarios/04-stress-ramp.js
 ```
 
@@ -365,3 +389,27 @@ k6 run --summary-export=resultado.json --out json=bruto.json \
   aparece aqui porque afeta a interpretacao de qualquer numero de login.
 - **A maquina de carga precisa ser outra maquina.** Rodar k6 no mesmo host
   do servidor faz os dois competirem por CPU e o resultado nao vale nada.
+
+
+---
+
+## Plano de execucao do TRA-183 (quantos usuarios a producao aguenta)
+
+O numero so vale medido no mesmo tipo de maquina: VPS de 2 vCPU / 4 GB, com
+Mongo e Redis no mesmo host e outro app dividindo a maquina. Rodar no notebook
+mede o notebook.
+
+1. **Ambiente:** um app de staging no Coolify, na mesma VPS ou numa identica,
+   com banco proprio (copia anonimizada ou o seed de carga), nunca a base real.
+   Alternativa aceitavel: janela de baixa demanda (madrugada), com aviso, e so
+   os cenarios sem escrita (02, 05, 04).
+2. **Seed:** `node test/load/seed/seed-load-users.mjs` no banco do alvo.
+3. **Ordem:** 01 (login, mede argon2) -> 02 -> 05 -> 04 (rampa ate quebrar).
+4. **Observar durante a rampa:** `docker stats` dos containers (CPU/memoria),
+   conexoes do Mongo (`db.serverStatus().connections`), fila do BullMQ,
+   p95 por rota e taxa de erro do k6.
+5. **Saida:** VUs no ponto em que p95 ou erro estoura o threshold, o recurso
+   que saturou primeiro e a lista priorizada de otimizacoes. Converter VUs em
+   usuarios: com o think time dos cenarios (2-8 s), 1 VU ~ 1 usuario ativo
+   simultaneo; ~5% de simultaneidade e uma estimativa comum para 5 mil
+   cadastrados (~250 ativos ao mesmo tempo), a confirmar com o analytics.

@@ -87,6 +87,23 @@ describe('fundamentos contra HTML real do Fundamentus', () => {
 		(FundamentalsService as any).answered.clear();
 	});
 
+	// TRA-47, N2: os outros dois caminhos em que a varredura de texto e o DOM
+	// real divergem. Entidade HTML (`ROIC&sup2;` vira `?ROICSUP2` na varredura
+	// e `?ROIC2` no browser) e `>` dentro de atributo entre aspas (a regex de
+	// tag corta ali). Se uma fixture regravada trouxer qualquer um dos dois, o
+	// teste passaria a exercitar uma chave que a produção nunca vê.
+	it('as fixtures nao tem entidade HTML nem > em atributo, entao a varredura equivale ao DOM', () => {
+		const decodedByScan = new Set(['&nbsp;', '&amp;', '&lt;', '&gt;']);
+		for (const name of ['fundamentus-wege3.html', 'fundamentus-bbas3.html']) {
+			const html = loadFixture(name);
+			const entities = (html.match(/&[a-zA-Z0-9#]+;/g) ?? []).filter(
+				(entity) => !decodedByScan.has(entity)
+			);
+			expect(entities).toEqual([]);
+			expect(html.match(/="[^"]*>[^"]*"|='[^']*>[^']*'/g) ?? []).toEqual([]);
+		}
+	});
+
 	it('as fixtures nao tem td aninhado, entao a varredura equivale ao DOM', () => {
 		for (const name of ['fundamentus-wege3.html', 'fundamentus-bbas3.html']) {
 			const html = loadFixture(name);

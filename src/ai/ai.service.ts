@@ -16,6 +16,8 @@ export type GetInsightsOptions = {
 	publishInsightEvents?: boolean;
 	/** Teto de espera em ms. Default: 30000. */
 	timeoutMs?: number;
+	/** Nível da explicação do "por que" (IA didática); ausente = intermediário. */
+	level?: string;
 };
 
 @Injectable()
@@ -98,6 +100,7 @@ export class AiService {
 					{
 						user_profile: userProfile,
 						data_freshness_days: dataFreshnessDays,
+						...(options?.level ? { level: options.level } : {}),
 					},
 					{
 						headers: trackerrIaHeaders(),

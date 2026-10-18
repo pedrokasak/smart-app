@@ -57,13 +57,10 @@ type TopEntries = {
  * setorial desconhecida, volatilidade, beta) como alertas preventivos, com o
  * percentual real que disparou o alerta — nunca so a categoria.
  *
- * Correlacao entre ativos, prevista no escopo original da feature, segue fora
- * DESTE radar. O motivo original — MarketDataProviderPort nao expunha serie
- * historica de preco por ativo — deixou de valer: `getDailyCloses` entrou na
- * porta com o beta (TRA-141), e a matriz de correlacao passou a ser calculada
- * para o Copiloto (`computeCorrelationMatrix`, intencao `correlation_matrix`).
- * Traze-la para ca como alerta ("par muito correlacionado") e trabalho a
- * parte: exige definir um limiar de alerta, que hoje nao existe.
+ * Correlacao entre ativos nao sai DESTE calculo, que e sincrono e so recebe
+ * as posicoes: precisa da serie historica de cada ativo. Ela entra no radar
+ * do usuario (`UserErrorRadarService`, TRA-70), com o limiar definido em
+ * `radar-correlation.ts`.
  */
 @Injectable()
 export class PortfolioErrorRadarService {

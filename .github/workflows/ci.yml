@@ -75,6 +75,13 @@ jobs:
           docker logs api
           exit 1
 
+      # Fluxos críticos da API contra o container recém-subido, com Mongo e
+      # Redis efêmeros deste job (TRA-148). Cria e apaga usuários: nunca
+      # apontar esta coleção para produção.
+      - name: API flows (Newman)
+        run: |
+          npx --yes newman@6.2.1 run test/api/trackerr.postman_collection.json --env-var baseUrl=http://127.0.0.1:3000 --reporters cli --bail
+
       - name: Container logs
         if: always()
         run: docker logs api 2>&1 | tail -80 || true

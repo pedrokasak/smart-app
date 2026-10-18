@@ -50,7 +50,11 @@ describe('SubscriptionService', () => {
 		});
 
 		mockSubscriptionModel.findById = jest.fn();
-		mockUserSubscriptionModel = { findOne: jest.fn(), create: jest.fn() };
+		mockUserSubscriptionModel = {
+			findOne: jest.fn(),
+			create: jest.fn(),
+			exists: jest.fn().mockResolvedValue(null),
+		};
 		mockUserModel = { findById: jest.fn() };
 		mockStripeService = {
 			createProduct: jest.fn().mockResolvedValue({ id: 'prod_123' }),
@@ -109,6 +113,55 @@ describe('SubscriptionService', () => {
 			const result = await service.checkExpiredSubscriptions();
 			expect(result).toBe('ok');
 			expect(mockWebhooksService.checkExpiredSubscriptions).toHaveBeenCalled();
+		});
+	});
+
+	// TRA-182: teste grátis do plano, um por cliente.
+	describe('createCheckoutSession — teste grátis', () => {
+		const plan = {
+			_id: 'plan_1',
+			price: 19.9,
+			isActive: true,
+			stripePriceId: 'price_monthly_123',
+			trialDays: 7,
+		};
+
+		beforeEach(() => {
+			mockSubscriptionModel.findById.mockResolvedValue(plan);
+			mockUserModel.findById.mockResolvedValue({ _id: 'user_1' });
+			mockStripeService.createCheckoutSession.mockResolvedValue({ url: 'x' });
+		});
+
+		it('first subscription gets the plan trial', async () => {
+			mockUserSubscriptionModel.exists.mockResolvedValue(null);
+
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel'
+			);
+
+			expect(mockStripeService.createCheckoutSession).toHaveBeenCalledWith(
+				'user_1',
+				'price_monthly_123',
+				expect.any(String),
+				'https://cancel',
+				7
+			);
+		});
+
+		it('anyone who already had a subscription pays from day one', async () => {
+			mockUserSubscriptionModel.exists.mockResolvedValue({ _id: 'old' });
+
+			await service.createCheckoutSession(
+				'user_1',
+				'plan_1',
+				'https://ok',
+				'https://cancel'
+			);
+
+			expect(mockStripeService.createCheckoutSession.mock.calls[0][4]).toBe(0);
 		});
 	});
 
@@ -211,7 +264,8 @@ describe('SubscriptionService', () => {
 				'user_1',
 				'price_monthly_123',
 				'https://ok',
-				'https://cancel'
+				'https://cancel',
+				0
 			);
 		});
 
@@ -228,7 +282,8 @@ describe('SubscriptionService', () => {
 				'user_1',
 				'price_annual_123',
 				'https://ok',
-				'https://cancel'
+				'https://cancel',
+				0
 			);
 		});
 

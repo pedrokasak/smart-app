@@ -176,7 +176,8 @@ describe('TwoFactorService', () => {
 					([claims]) => claims.type === 'refresh'
 				);
 				expect(refreshCall).toEqual([
-					{ userId: 'u1', type: 'refresh', keep },
+					// `jti` aleatório: o refresh nunca sai igual ao anterior.
+					{ userId: 'u1', type: 'refresh', keep, jti: expect.any(String) },
 					{ expiresIn: keep ? '30d' : '1d' },
 				]);
 			}

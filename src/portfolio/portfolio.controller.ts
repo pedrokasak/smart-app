@@ -36,6 +36,7 @@ import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-r
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
+import { PortfolioPolicyService } from 'src/portfolio/policy/application/portfolio-policy.service';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
@@ -98,7 +99,8 @@ export class PortfolioController {
 		@Inject(QUOTE_FRESHNESS_STORE)
 		private readonly quoteFreshness: QuoteFreshnessStore,
 		private readonly planQuota: PlanQuotaService,
-		private readonly investmentFunds: InvestmentFundsService
+		private readonly investmentFunds: InvestmentFundsService,
+		private readonly portfolioPolicy: PortfolioPolicyService
 	) {}
 
 	@Post('create')
@@ -113,10 +115,15 @@ export class PortfolioController {
 			await this.subscriptionService.findCurrentSubscriptionByUser(userId);
 		const userPlan = (currentSub?.plan as any)?.name || 'free';
 
+		const policy = await this.portfolioPolicy.resolveForCreate(
+			userId,
+			createPortfolioDto
+		);
 		const portfolio = await this.portfolioService.createPortfolio(
 			userId,
 			createPortfolioDto,
-			userPlan
+			userPlan,
+			policy
 		);
 		return PortfolioMapper.toResponseDto(portfolio);
 	}

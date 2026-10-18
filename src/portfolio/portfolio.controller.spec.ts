@@ -1,3 +1,4 @@
+import { PortfolioPolicyService } from 'src/portfolio/policy/application/portfolio-policy.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PortfolioController } from './portfolio.controller';
@@ -135,6 +136,14 @@ describe('PortfolioController', () => {
 					useValue: mockQuoteFreshness,
 				},
 				{ provide: InvestmentFundsService, useValue: mockInvestmentFunds },
+				{
+					provide: PortfolioPolicyService,
+					useValue: {
+						resolveForCreate: jest
+							.fn()
+							.mockResolvedValue({ purpose: null, policy: null }),
+					},
+				},
 			],
 		}).compile();
 
@@ -201,7 +210,8 @@ describe('PortfolioController', () => {
 			expect(mockPortfolioService.createPortfolio).toHaveBeenCalledWith(
 				'user1',
 				dto,
-				'premium'
+				'premium',
+				{ purpose: null, policy: null }
 			);
 		});
 	});

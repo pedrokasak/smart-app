@@ -7,7 +7,6 @@ import request from 'supertest';
 import { AdminController } from 'src/admin/admin.controller';
 import { AdminService } from 'src/admin/admin.service';
 import { AdminAnalyticsService } from 'src/admin/admin-analytics.service';
-import { AdminAnalyticsService } from 'src/admin/admin-analytics.service';
 import { AdminRoleService } from 'src/admin/application/admin-role.service';
 import { daysAgo } from 'src/admin/application/user-activity-metrics';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
