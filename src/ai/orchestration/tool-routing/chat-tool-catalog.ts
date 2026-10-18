@@ -133,6 +133,12 @@ export const CHAT_TOOL_CATALOG: readonly ChatTool[] = [
 		maxTickers: 0,
 	},
 	{
+		name: 'trade_history',
+		description:
+			'Histórico exato das operações do usuário: quando e a que preço comprou ou vendeu, quantas compras, quanto pagou de corretagem. Período e lado (compra ou venda) saem da pergunta.',
+		maxTickers: 1,
+	},
+	{
 		name: 'action_checklist',
 		description: 'Pontos de atenção da carteira que pedem alguma ação.',
 		maxTickers: 0,
