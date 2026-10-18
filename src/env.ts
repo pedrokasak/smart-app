@@ -48,6 +48,12 @@ const envSchema = z.object({
 	 * Asaas no ambiente nao basta para expor cobranca a cliente real.
 	 */
 	PIX_CHECKOUT_ENABLED: z.string().optional(),
+	/**
+	 * Liga o job mensal do benchmark por coorte (ADR-003, TRA-60). Desligado
+	 * por padrão: só ligar depois do opt-out em Configurações e do texto na
+	 * política de privacidade.
+	 */
+	BENCHMARK_COHORT_JOB_ENABLED: z.string().optional(),
 	GOOGLE_CLIENT_ID: z.string().optional(),
 	GOOGLE_CSE_API_KEY: z.string().optional(),
 	GOOGLE_CSE_ENGINE_ID: z.string().optional(),
@@ -136,6 +142,8 @@ export const asaasWebhookToken: string | undefined =
 	env.data.ASAAS_WEBHOOK_TOKEN?.trim() || undefined;
 export const pixCheckoutEnabled: boolean =
 	env.data.PIX_CHECKOUT_ENABLED?.trim().toLowerCase() === 'true';
+export const benchmarkCohortJobEnabled: boolean =
+	env.data.BENCHMARK_COHORT_JOB_ENABLED?.trim().toLowerCase() === 'true';
 export const googleClientId: string | undefined = env.data.GOOGLE_CLIENT_ID;
 export const googleCseApiKey: string | undefined = env.data.GOOGLE_CSE_API_KEY;
 export const googleCseEngineId: string | undefined =
