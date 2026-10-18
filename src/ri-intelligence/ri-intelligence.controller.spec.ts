@@ -24,6 +24,11 @@ describe('RiIntelligenceController', () => {
 		set: jest.fn().mockResolvedValue(undefined),
 	};
 
+	// Perfil de investidor (TRA-256): sem usuário na requisição, nem é lido.
+	const mockInvestorProfile = {
+		getEffectiveProfile: jest.fn(),
+	};
+
 	let controller: RiIntelligenceController;
 
 	beforeEach(() => {
@@ -34,7 +39,8 @@ describe('RiIntelligenceController', () => {
 			new RiDocumentContentResolver(
 				mockDocumentContent as never,
 				noTextCache as never
-			)
+			),
+			mockInvestorProfile as never
 		);
 	});
 
@@ -311,5 +317,58 @@ describe('RiIntelligenceController', () => {
 		expect(passed.document.contentStatus).toBe('metadata_only');
 		// TRA-253: o motivo chega ao resumo, para a tela dizer o que houve.
 		expect(passed.contentUnavailableReason).toBe('empty_after_extract');
+	});
+
+	describe('summary depth by reader level (TRA-256)', () => {
+		beforeEach(() => {
+			mockDocumentContent.fetchTextContent.mockResolvedValue({
+				text: 'A receita cresceu 12% no trimestre com lucro liquido recorde...',
+			});
+			mockSummaryService.summarize.mockResolvedValue({ summary: {} });
+		});
+
+		it.each([
+			['beginner', 'beginner'],
+			['intermediate', 'intermediate'],
+			['experienced', 'experienced'],
+		])(
+			'passes the %s profile of the token user as the summary level',
+			async (sophistication, level) => {
+				mockInvestorProfile.getEffectiveProfile.mockResolvedValue({
+					sophistication,
+				});
+
+				await controller.summarize(
+					{ document: DOC },
+					{ user: { userId: 'u1' } }
+				);
+
+				expect(mockInvestorProfile.getEffectiveProfile).toHaveBeenCalledWith(
+					'u1'
+				);
+				expect(mockSummaryService.summarize.mock.calls[0][0].level).toBe(level);
+			}
+		);
+
+		it('falls back to intermediate when the profile cannot be read', async () => {
+			mockInvestorProfile.getEffectiveProfile.mockRejectedValue(
+				new Error('mongo fora')
+			);
+
+			await controller.summarize({ document: DOC }, { user: { userId: 'u1' } });
+
+			expect(mockSummaryService.summarize.mock.calls[0][0].level).toBe(
+				'intermediate'
+			);
+		});
+
+		it('uses intermediate without a user, and never reads a profile', async () => {
+			await controller.summarize({ document: DOC });
+
+			expect(mockInvestorProfile.getEffectiveProfile).not.toHaveBeenCalled();
+			expect(mockSummaryService.summarize.mock.calls[0][0].level).toBe(
+				'intermediate'
+			);
+		});
 	});
 });

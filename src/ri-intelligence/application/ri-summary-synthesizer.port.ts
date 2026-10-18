@@ -2,12 +2,15 @@ import { RiDocumentRecord } from 'src/ri-intelligence/domain/ri-document.types';
 import {
 	RiStructuredSignals,
 	RiSummaryCitation,
+	RiSummaryLevel,
 } from 'src/ri-intelligence/application/ri-summary.types';
 
 export interface RiSummarySynthesisInput {
 	document: RiDocumentRecord;
 	content: string;
 	structuredSignals: RiStructuredSignals;
+	/** Profundidade pedida ao trackerr-ia (TRA-256). */
+	level?: RiSummaryLevel;
 }
 
 export interface RiSummarySynthesisOutput {
