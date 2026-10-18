@@ -294,6 +294,9 @@ export class AdminService {
 		if (dto.isComingSoon !== undefined) {
 			plan.isComingSoon = dto.isComingSoon;
 		}
+		if (dto.trialDays !== undefined) {
+			plan.trialDays = dto.trialDays;
+		}
 		// Toda edição pelo painel tira o plano do piloto automático do seed
 		// canônico (TRA-188) — sem isso o próximo boot do plan-sync reverteria
 		// exatamente o que acabou de ser salvo aqui.

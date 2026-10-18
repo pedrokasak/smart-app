@@ -7,6 +7,7 @@ import {
 	IsEnum,
 	IsIn,
 	IsInt,
+	Max,
 	Min,
 	ValidateNested,
 } from 'class-validator';
@@ -100,6 +101,17 @@ export class CreateSubscriptionDto {
 	@IsOptional()
 	@IsBoolean()
 	isComingSoon?: boolean;
+
+	@ApiPropertyOptional({
+		description:
+			'Dias de teste grátis no checkout (0 = sem teste, até 30). Um teste por cliente.',
+		example: 7,
+	})
+	@IsOptional()
+	@IsInt()
+	@Min(0)
+	@Max(30)
+	trialDays?: number;
 
 	@ApiPropertyOptional({ description: 'Lista de recursos incluídos' })
 	@IsOptional()
