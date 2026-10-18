@@ -16,6 +16,7 @@ import { PortfolioHistory } from 'src/portfolio/schema/portfolio-history.model';
 import { computePortfolioSnapshot } from 'src/portfolio/history/compute-snapshot';
 import { nonTradingReason } from 'src/portfolio/history/trading-calendar';
 import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
+import type { ResolvedPortfolioPolicy } from 'src/portfolio/policy/application/portfolio-policy.service';
 
 @Injectable()
 export class PortfolioService {
@@ -228,7 +229,8 @@ export class PortfolioService {
 	async createPortfolio(
 		userId: string,
 		createDto: CreatePortfolioDto,
-		userPlan: string = 'free'
+		userPlan: string = 'free',
+		policy: ResolvedPortfolioPolicy = { purpose: null, policy: null }
 	) {
 		return this.planQuota.createWithinQuota(
 			userId,
@@ -242,6 +244,8 @@ export class PortfolioService {
 					cpf: createDto.cpf ?? null,
 					assets: [],
 					plan: userPlan,
+					purpose: policy.purpose,
+					policy: policy.policy,
 				}),
 			(created) => this.portfolioModel.deleteOne({ _id: created._id })
 		);

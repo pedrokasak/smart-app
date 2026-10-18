@@ -17,6 +17,8 @@ export class PortfolioMapper {
 			ownerName: portfolio.ownerName,
 			totalValue: portfolio.totalValue,
 			plan: portfolio.plan,
+			purpose: portfolio.purpose ?? null,
+			policy: portfolio.policy ?? null,
 			assetCount: portfolio.assets.length,
 			syncedWithB3At: portfolio.syncedWithB3At,
 			createdAt: portfolio.createdAt,
