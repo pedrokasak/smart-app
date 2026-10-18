@@ -1,3 +1,4 @@
+import { AdminAnalyticsService } from './admin-analytics.service';
 import { AdminPromotionsController } from './admin-promotions.controller';
 import { AdminPromotionsService } from './application/admin-promotions.service';
 import { Module } from '@nestjs/common';
@@ -28,7 +29,12 @@ import { EmailModule } from 'src/notifications/email/email.module';
 		EmailModule,
 	],
 	controllers: [AdminController, AdminPromotionsController],
-	providers: [AdminService, AdminRoleService, AdminPromotionsService],
+	providers: [
+		AdminService,
+		AdminRoleService,
+		AdminAnalyticsService,
+		AdminPromotionsService,
+	],
 	exports: [AdminService],
 })
 export class AdminModule {}
