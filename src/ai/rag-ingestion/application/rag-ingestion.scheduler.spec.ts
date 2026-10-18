@@ -8,7 +8,8 @@ import {
 describe('RagIngestionScheduler (TRA-84)', () => {
 	let userModel: { find: jest.Mock };
 	let portfolioService: { getUserPortfolios: jest.Mock };
-	let factBuilder: { build: jest.Mock };
+	let factBuilder: { build: jest.Mock; buildDerived: jest.Mock };
+	let tradeSource: { listTrades: jest.Mock };
 	let ingestion: { ingest: jest.Mock };
 	let planResolver: { resolve: jest.Mock; resolveWithCapabilities: jest.Mock };
 	let scheduler: RagIngestionScheduler;
@@ -27,7 +28,9 @@ describe('RagIngestionScheduler (TRA-84)', () => {
 				.fn()
 				.mockResolvedValue([{ assets: [{ symbol: 'PETR4', quantity: 100 }] }]),
 		};
+		tradeSource = { listTrades: jest.fn().mockResolvedValue([]) };
 		factBuilder = {
+			buildDerived: jest.fn().mockReturnValue([]),
 			build: jest.fn().mockReturnValue([
 				{
 					sourceType: 'portfolio_position',
@@ -50,7 +53,8 @@ describe('RagIngestionScheduler (TRA-84)', () => {
 			portfolioService as never,
 			factBuilder as never,
 			ingestion as never,
-			planResolver as never
+			planResolver as never,
+			tradeSource as never
 		);
 	});
 
@@ -58,6 +62,39 @@ describe('RagIngestionScheduler (TRA-84)', () => {
 		const ok = await scheduler.ingestForUser('user-1');
 		expect(ok).toBe(true);
 		expect(ingestion.ingest).toHaveBeenCalledTimes(1);
+	});
+
+	it('adds the derived trade and fixed income facts to the ingest (ADR-002)', async () => {
+		const trades = [{ assetSymbol: 'ITSA4' }];
+		tradeSource.listTrades.mockResolvedValue(trades);
+		factBuilder.buildDerived.mockReturnValue([
+			{
+				sourceType: 'portfolio_trade_summary',
+				sourceId: 'trade_summary:ITSA4:2026-03',
+				content: 'y',
+			},
+		]);
+
+		await scheduler.ingestForUser('user-1');
+
+		expect(tradeSource.listTrades).toHaveBeenCalledWith('user-1');
+		expect(factBuilder.buildDerived).toHaveBeenCalledWith(
+			{ trades, assets: [{ symbol: 'PETR4', quantity: 100 }] },
+			expect.any(String)
+		);
+		const sent = ingestion.ingest.mock.calls[0][1];
+		expect(sent.map((i: { sourceType: string }) => i.sourceType)).toEqual([
+			'portfolio_position',
+			'portfolio_trade_summary',
+		]);
+	});
+
+	it('never reads trades for a free user (cost and privacy gate)', async () => {
+		mockTier(FREE_ACCESS_LEVEL);
+
+		await scheduler.ingestForUser('user-free');
+
+		expect(tradeSource.listTrades).not.toHaveBeenCalled();
 	});
 
 	it('SKIPS a free user entirely — no fact build, no ingest (cost gate)', async () => {

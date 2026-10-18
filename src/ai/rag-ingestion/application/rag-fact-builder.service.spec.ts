@@ -96,4 +96,57 @@ describe('RagFactBuilderService (TRA-84)', () => {
 		const items = builder.build(positions, '2026-08-21');
 		expect(items.every((i) => i.asOf === '2026-08-21')).toBe(true);
 	});
+
+	describe('buildDerived (ADR-002, TRA-16)', () => {
+		const trade = {
+			assetSymbol: 'ITSA4',
+			side: 'buy' as const,
+			quantity: 100,
+			price: 10,
+			fees: 1,
+			date: new Date('2026-03-10T00:00:00.000Z'),
+		};
+
+		it('joins the trade summaries and the fixed income chunks', () => {
+			const items = builder.buildDerived(
+				{
+					trades: [trade],
+					assets: [
+						{
+							id: 'rf1',
+							type: 'fixed_income',
+							fixedIncome: {
+								kind: 'CDB',
+								indexer: 'PERCENT_CDI',
+								ratePct: 110,
+								principal: 5000,
+								appliedAt: '2026-01-10',
+							},
+						},
+					],
+				},
+				'2026-10-17'
+			);
+
+			expect(items.map((i) => i.sourceType)).toEqual([
+				'portfolio_trade_summary',
+				'portfolio_fixed_income',
+			]);
+		});
+
+		it('drops a chunk whose text carries personal data instead of embedding it', () => {
+			const items = builder.buildDerived(
+				{ trades: [{ ...trade, assetSymbol: 'JOAO@EMAIL.COM' }], assets: [] },
+				'2026-10-17'
+			);
+
+			expect(items).toEqual([]);
+		});
+
+		it('returns nothing when there is no history and no fixed income', () => {
+			expect(
+				builder.buildDerived({ trades: [], assets: [] }, '2026-10-17')
+			).toEqual([]);
+		});
+	});
 });
