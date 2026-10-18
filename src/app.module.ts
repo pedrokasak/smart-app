@@ -30,6 +30,7 @@ import { AssetsModule } from './assets/assets.module';
 import { AiModule } from './ai/ai.module';
 import { AiEvaluationModule } from './ai/evaluation/ai-evaluation.module';
 import { RagIngestionModule } from './ai/rag-ingestion/rag-ingestion.module';
+import { BenchmarkModule } from './benchmark/benchmark.module';
 import { TwoFactorModule } from './two-factor/two-factor.module';
 import { BrokerSyncModule } from './broker-sync/broker-sync.module';
 import { FiscalModule } from './fiscal/fiscal.module';
@@ -80,6 +81,8 @@ import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 		// Avaliação semanal das respostas de IA (TRA-242).
 		AiEvaluationModule,
 		RagIngestionModule,
+		// Benchmark do Score por coorte (ADR-003, TRA-60).
+		BenchmarkModule,
 		TwoFactorModule,
 		BrokerSyncModule,
 		PortfolioModule,
