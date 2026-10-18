@@ -17,12 +17,17 @@
  * versionado. Use a MESMA em `LOAD_USER_PASSWORD` ao rodar o k6.
  *
  * USO
- *   LOAD_SEED_PASSWORD='SenhaDeCarga123@' \
+ *   export LOAD_PASSWORD="$(openssl rand -base64 18)aA1!"
+ *   LOAD_SEED_PASSWORD="$LOAD_PASSWORD" \
  *   DATABASE_URL='mongodb://...' \
  *   node test/load/seed/seed-load-users.mjs --count 50 --assets 15
  *
  *   # remover tudo o que este script criou:
  *   node test/load/seed/seed-load-users.mjs --purge
+ *
+ * BANCO REMOTO. Por padrao so semeia Mongo local. Para staging, exporte
+ * `LOAD_ALLOW_REMOTE=i-understand-the-risk` (a mesma trava do k6). Nunca
+ * aponte para producao: as contas nasceriam com a senha informada.
  *
  * O --purge apaga SOMENTE documentos cujo e-mail casa com o padrao de
  * carga. Ele nunca toca em usuario que nao tenha sido criado aqui.
@@ -48,6 +53,28 @@ const flags = {
 
 if (!flags.uri) {
 	console.error('\n  DATABASE_URL nao definida. Aponte para o Mongo alvo.\n');
+	process.exit(1);
+}
+
+function hostOf(uri) {
+	try {
+		return new URL(uri).hostname;
+	} catch {
+		return '';
+	}
+}
+
+const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
+if (
+	!LOCAL_HOSTS.has(hostOf(flags.uri)) &&
+	process.env.LOAD_ALLOW_REMOTE !== 'i-understand-the-risk'
+) {
+	console.error(
+		'\n  DATABASE_URL aponta para um host que nao e local.\n\n' +
+			'  O seeder cria contas com a senha informada. Em producao isso poria\n' +
+			'  contas de carga dentro da base real. Para semear staging, exporte\n' +
+			'  LOAD_ALLOW_REMOTE=i-understand-the-risk.\n'
+	);
 	process.exit(1);
 }
 
