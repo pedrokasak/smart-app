@@ -252,6 +252,35 @@ export class PortfolioService {
 		createAssetDto: CreateAssetDto,
 		source: 'manual' | 'b3' | 'webscrape' = 'manual'
 	) {
+		return this.insertAsset(portfolioId, {
+			symbol: createAssetDto.symbol,
+			name: createAssetDto.name ?? null,
+			type: createAssetDto.type,
+			quantity: createAssetDto.quantity,
+			price: createAssetDto.price,
+			total: createAssetDto.quantity * createAssetDto.price,
+			source,
+		});
+	}
+
+	/**
+	 * Ativo que chega já valorado por quem cria (renda fixa marcada na curva,
+	 * TRA-230): passa pela cota e pelo histórico, mas não pelo enriquecimento
+	 * de mercado, que não tem o que cotar.
+	 */
+	async insertValuedAsset(portfolioId: string, asset: Record<string, unknown>) {
+		return this.insertAsset(
+			portfolioId,
+			{ ...asset, source: 'manual' },
+			{ enrich: false }
+		);
+	}
+
+	private async insertAsset(
+		portfolioId: string,
+		doc: Record<string, unknown>,
+		{ enrich }: { enrich: boolean } = { enrich: true }
+	) {
 		const owner = await this.portfolioModel
 			.findById(portfolioId)
 			.select('userId')
@@ -263,21 +292,13 @@ export class PortfolioService {
 		const asset = await this.planQuota.createWithinQuota(
 			String(owner.userId),
 			'assets',
-			() =>
-				this.assetModel.create({
-					portfolioId,
-					symbol: createAssetDto.symbol,
-					name: createAssetDto.name ?? null,
-					type: createAssetDto.type,
-					quantity: createAssetDto.quantity,
-					price: createAssetDto.price,
-					total: createAssetDto.quantity * createAssetDto.price,
-					source,
-				}),
+			() => this.assetModel.create({ portfolioId, ...doc }),
 			(created) => this.assetModel.deleteOne({ _id: created._id })
 		);
 
-		const enriched = await this.portfolioEnrichService.enrichAsset(asset);
+		const enriched = enrich
+			? await this.portfolioEnrichService.enrichAsset(asset)
+			: asset;
 
 		await this.portfolioModel.findByIdAndUpdate(portfolioId, {
 			$push: { assets: enriched._id },

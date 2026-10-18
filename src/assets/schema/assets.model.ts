@@ -1,4 +1,5 @@
 import { Schema, Document, model, Types } from 'mongoose';
+import type { FixedIncomeAssetData } from 'src/fixed-income/domain/fixed-income-asset';
 
 export interface IAssetIndicators {
 	dividendYield?: number;
@@ -30,6 +31,7 @@ export interface Asset extends Document {
 		| 'etf'
 		| 'fund'
 		| 'investment_fund'
+		| 'fixed_income'
 		| 'other';
 	quantity: number;
 	price: number; // Preço de entrada
@@ -58,6 +60,8 @@ export interface Asset extends Document {
 	}[];
 	indicators?: IAssetIndicators;
 	source: 'manual' | 'b3' | 'webscrape';
+	/** Só em `type: 'fixed_income'` (TRA-230): o papel e a última marcação. */
+	fixedIncome?: FixedIncomeAssetData | null;
 	lastEnrichedAt?: Date;
 	createdAt: Date;
 	updatedAt: Date;
@@ -91,10 +95,14 @@ export const assetSchema = new Schema<Asset>(
 				'etf',
 				'fund',
 				'investment_fund',
+				'fixed_income',
 				'other',
 			],
 			required: true,
 		},
+		// Renda fixa (TRA-230). Livre (Mixed) porque o formato é validado no
+		// DTO e no domínio; documentos dos outros tipos nem têm o campo.
+		fixedIncome: { type: Schema.Types.Mixed, default: undefined },
 		quantity: {
 			type: Number,
 			required: true,
