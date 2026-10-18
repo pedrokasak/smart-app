@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	USER_PLAN_RESOLVER,
+	type UserPlanResolverPort,
+	planHasCapability,
+} from 'src/subscription/application/user-plan.types';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 import { InvestmentPolicyService } from 'src/investment-policy/investment-policy.service';
 import type { ChatOrchestratorResponse } from 'src/ai/orchestration/chat-orchestrator.types';
@@ -9,7 +14,11 @@ import {
 	type DidacticContext,
 	type DidacticInput,
 } from './copilot-didactic';
-import { didacticLevelFrom, type DidacticAnswer } from './didactic.types';
+import {
+	cappedDidacticLevel,
+	didacticLevelFrom,
+	type DidacticAnswer,
+} from './didactic.types';
 
 /** Avisos que já têm mensagem própria no controller (ativo fora da carteira etc.). */
 const BLOCKING_WARNINGS = new Set([
@@ -37,7 +46,10 @@ export class CopilotDidacticService {
 
 	constructor(
 		private readonly investorProfileService: InvestorProfileService,
-		private readonly investmentPolicyService: InvestmentPolicyService
+		private readonly investmentPolicyService: InvestmentPolicyService,
+		@Optional()
+		@Inject(USER_PLAN_RESOLVER)
+		private readonly planResolver?: UserPlanResolverPort
 	) {}
 
 	/**
@@ -71,23 +83,43 @@ export class CopilotDidacticService {
 	}
 
 	async loadContext(userId: string): Promise<DidacticContext> {
-		const [profile, policy] = await Promise.allSettled([
+		const [profile, policy, allowsAdvanced] = await Promise.allSettled([
 			this.investorProfileService.getEffectiveProfile(userId),
 			this.investmentPolicyService.get(userId),
+			this.allowsAdvanced(userId),
 		]);
 		if (profile.status === 'rejected' || policy.status === 'rejected') {
 			this.logger.warn(
 				`didactic context partial for ${userId}: profile=${profile.status} policy=${policy.status}`
 			);
 		}
+		const profileLevel = didacticLevelFrom(
+			profile.status === 'fulfilled' ? profile.value?.sophistication : null
+		);
+		// Plano ilegível falha fechado: profundidade paga não é liberada por erro.
+		const { level, limitedByPlan } = cappedDidacticLevel(
+			profileLevel,
+			allowsAdvanced.status === 'fulfilled' && allowsAdvanced.value
+		);
 		return {
-			level: didacticLevelFrom(
-				profile.status === 'fulfilled' ? profile.value?.sophistication : null
-			),
+			level,
+			...(limitedByPlan ? { profileLevel } : {}),
 			policy: policy.status === 'fulfilled' ? policy.value.policy : null,
 			policyIsDefault:
 				policy.status === 'fulfilled' ? policy.value.isDefault : false,
 		};
+	}
+
+	/** Sem resolvedor de plano (testes, módulos sem assinatura), sem teto. */
+	private async allowsAdvanced(userId: string): Promise<boolean> {
+		if (!this.planResolver) return true;
+		const access = await this.planResolver.resolveWithCapabilities(userId);
+		return planHasCapability(
+			access.capabilities,
+			'ai.copilot_advanced',
+			access.tier,
+			access.capabilitiesKnown
+		);
 	}
 
 	compose(input: DidacticInput, ctx: DidacticContext): DidacticAnswer | null {

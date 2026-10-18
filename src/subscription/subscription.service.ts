@@ -423,11 +423,21 @@ export class SubscriptionService {
 			);
 		}
 
+		// Um teste grátis por cliente (TRA-182): quem já teve qualquer
+		// assinatura (paga, teste, concessão) assina sem teste.
+		const trialDays =
+			plan.trialDays &&
+			plan.trialDays > 0 &&
+			!(await this.userSubscriptionModel.exists({ user: user._id }))
+				? plan.trialDays
+				: 0;
+
 		return this.stripeService.createCheckoutSession(
 			user._id.toString(),
 			priceId,
 			successUrl,
-			cancelUrl
+			cancelUrl,
+			trialDays
 		);
 	}
 

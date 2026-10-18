@@ -247,7 +247,9 @@ export class StripeService {
 		userId: string,
 		priceId: string,
 		successUrl: string,
-		cancelUrl: string
+		cancelUrl: string,
+		/** Teste grátis (TRA-182); quem chama decide se a pessoa tem direito. */
+		trialDays = 0
 	): Promise<Stripe.Checkout.Session> {
 		try {
 			const user = await this.userModel.findById(userId);
@@ -272,7 +274,10 @@ export class StripeService {
 				client_reference_id: userId,
 				// A assinatura também carrega o dono: eventos dela chegam sem a
 				// sessão e ainda assim identificam o usuário.
-				subscription_data: { metadata: { userId } },
+				subscription_data: {
+					metadata: { userId },
+					...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
+				},
 				customer: stripeCustomerId,
 				payment_method_types: ['card', 'boleto'],
 				line_items: [
@@ -293,6 +298,65 @@ export class StripeService {
 			this.logger.error('Erro ao criar sessão de checkout:', error);
 			throw error;
 		}
+	}
+
+	/**
+	 * Cupom + código promocional (TRA-182), para o admin operar promoção sem
+	 * entrar no painel do Stripe. O cupom guarda o desconto; o código é o que
+	 * a pessoa digita no checkout (que já aceita `allow_promotion_codes`).
+	 */
+	async createPromotion(input: {
+		code: string;
+		percentOff?: number;
+		amountOffCents?: number;
+		duration: 'once' | 'repeating' | 'forever';
+		durationInMonths?: number;
+		maxRedemptions?: number;
+		redeemBy?: Date;
+	}): Promise<Stripe.PromotionCode> {
+		const coupon = await this.stripe.coupons.create({
+			name: input.code,
+			...(input.percentOff !== undefined
+				? { percent_off: input.percentOff }
+				: { amount_off: input.amountOffCents, currency: 'brl' }),
+			duration: input.duration,
+			...(input.duration === 'repeating'
+				? { duration_in_months: input.durationInMonths }
+				: {}),
+			...(input.maxRedemptions
+				? { max_redemptions: input.maxRedemptions }
+				: {}),
+			...(input.redeemBy
+				? { redeem_by: Math.floor(input.redeemBy.getTime() / 1000) }
+				: {}),
+		});
+		return this.stripe.promotionCodes.create({
+			coupon: coupon.id,
+			code: input.code,
+			...(input.maxRedemptions
+				? { max_redemptions: input.maxRedemptions }
+				: {}),
+			...(input.redeemBy
+				? { expires_at: Math.floor(input.redeemBy.getTime() / 1000) }
+				: {}),
+		});
+	}
+
+	async listPromotions(): Promise<Stripe.PromotionCode[]> {
+		const { data } = await this.stripe.promotionCodes.list({
+			active: true,
+			limit: 100,
+			expand: ['data.coupon'],
+		});
+		return data;
+	}
+
+	async deactivatePromotion(
+		promotionCodeId: string
+	): Promise<Stripe.PromotionCode> {
+		return this.stripe.promotionCodes.update(promotionCodeId, {
+			active: false,
+		});
 	}
 
 	/**
