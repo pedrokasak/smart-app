@@ -87,10 +87,21 @@ neste repo** e nenhum default de senha existe no codigo.
 ### Semear localmente
 
 ```bash
-LOAD_SEED_PASSWORD='SenhaDeCarga123@' \
+# Senha nova a cada sessao, so no seu terminal. Nunca copie uma senha de
+# exemplo: os usuarios semeados passam a ter exatamente a senha que voce usar.
+export LOAD_PASSWORD="$(openssl rand -base64 18)aA1!"
+
+LOAD_SEED_PASSWORD="$LOAD_PASSWORD" \
 DATABASE_URL='mongodb://<usuario>:<senha>@localhost:27017/trackerr?authSource=admin' \
 node test/load/seed/seed-load-users.mjs --count 50 --assets 15
 ```
+
+Os comandos do k6 abaixo usam `$LOAD_PASSWORD`, a mesma senha do seeder.
+
+**O seeder so roda em Mongo local por padrao.** Para semear um banco remoto
+(staging), exporte `LOAD_ALLOW_REMOTE=i-understand-the-risk`, como no k6. Nunca
+aponte o seeder para o banco de producao: ele criaria contas com a senha que
+voce definiu dentro da base real.
 
 Cria `loadtest+0001@loadtest.invalid` ... `loadtest+0050@loadtest.invalid`,
 cada um com uma carteira e 15 ativos. Idempotente: reexecutar nao duplica.
@@ -141,21 +152,21 @@ Todos os cenarios aceitam as mesmas variaveis base:
 ### 1. Autenticacao
 
 ```bash
-k6 run -e LOAD_USER_PASSWORD='SenhaDeCarga123@' -e LOAD_VUS=30 \
+k6 run -e LOAD_USER_PASSWORD="$LOAD_PASSWORD" -e LOAD_VUS=30 \
   test/load/scenarios/01-auth.js
 ```
 
 ### 2. Leitura de carteira
 
 ```bash
-k6 run -e LOAD_USER_PASSWORD='SenhaDeCarga123@' -e LOAD_VUS=50 \
+k6 run -e LOAD_USER_PASSWORD="$LOAD_PASSWORD" -e LOAD_VUS=50 \
   test/load/scenarios/02-read-portfolio.js
 ```
 
 ### 2b. Dashboard, proventos e radar (TRA-183)
 
 ```bash
-k6 run -e LOAD_USER_PASSWORD='SenhaDeCarga123@' -e LOAD_VUS=30 \
+k6 run -e LOAD_USER_PASSWORD="$LOAD_PASSWORD" -e LOAD_VUS=30 \
   test/load/scenarios/05-read-dashboard.js
 ```
 
@@ -167,7 +178,7 @@ real.
 ### 3a. Centro de notificacoes (lado HTTP)
 
 ```bash
-k6 run -e LOAD_USER_PASSWORD='SenhaDeCarga123@' -e LOAD_VUS=60 \
+k6 run -e LOAD_USER_PASSWORD="$LOAD_PASSWORD" -e LOAD_VUS=60 \
   test/load/scenarios/03-notifications-read.js
 ```
 
@@ -197,7 +208,7 @@ de latencia por job. **Compare o p50 medido com os ~200 ms estimados no
 ### 4. Rampa de estresse
 
 ```bash
-k6 run -e LOAD_USER_PASSWORD='SenhaDeCarga123@' -e LOAD_MAX_VUS=400 \
+k6 run -e LOAD_USER_PASSWORD="$LOAD_PASSWORD" -e LOAD_MAX_VUS=400 \
   test/load/scenarios/04-stress-ramp.js
 ```
 
