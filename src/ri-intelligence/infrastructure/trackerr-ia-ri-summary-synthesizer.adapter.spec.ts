@@ -102,6 +102,18 @@ describe('TrackerrIaRiSummarySynthesizerAdapter (TRA-238)', () => {
 		expect(config.timeout).toBeGreaterThan(0);
 	});
 
+	it('sends the reader level only when there is one (TRA-256)', async () => {
+		httpService.post.mockReturnValue(
+			of({ data: { highlights: ['A'], narrative: '' } })
+		);
+
+		await adapter.summarize(makeInput({ level: 'beginner' }));
+		await adapter.summarize(makeInput());
+
+		expect(httpService.post.mock.calls[0][1].level).toBe('beginner');
+		expect(httpService.post.mock.calls[1][1]).not.toHaveProperty('level');
+	});
+
 	// TRA-239: o trackerr-ia devolve, pra cada destaque, o trecho do documento
 	// que o sustenta e a pagina calculada pelos marcadores do PDF.
 	it('maps the citation of each highlight', async () => {

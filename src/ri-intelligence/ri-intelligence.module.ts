@@ -1,4 +1,5 @@
 import { Module } from '@nestjs/common';
+import { IntelligenceModule } from 'src/intelligence/intelligence.module';
 import { HttpModule } from '@nestjs/axios';
 import { MongooseModule } from '@nestjs/mongoose';
 import { StockModule } from 'src/stocks/stocks.module';
@@ -42,6 +43,8 @@ import { TrackerrIaRiKnowledgeAdapter } from 'src/ri-intelligence/infrastructure
 	imports: [
 		StockModule,
 		HttpModule,
+		// Nível do leitor para o resumo por IA (TRA-256).
+		IntelligenceModule,
 		MongooseModule.forFeature([
 			{ name: 'RiSummaryCache', schema: RiSummaryCacheModel.schema },
 			{ name: 'RiDocumentText', schema: RiDocumentTextModel.schema },

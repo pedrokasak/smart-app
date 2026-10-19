@@ -156,6 +156,9 @@ export class TrackerrIaRiSummarySynthesizerAdapter implements RiSummarySynthesiz
 							RI_SYNTHESIS_MAX_CHARS
 						),
 						structured_signals: input.structuredSignals,
+						// Versão antiga do trackerr-ia ignora o campo e devolve o
+						// resumo intermediário: a ordem dos deploys não importa.
+						...(input.level ? { level: input.level } : {}),
 					},
 					{
 						headers: trackerrIaHeaders(),

@@ -7,6 +7,8 @@ import {
 	Param,
 	Post,
 	Query,
+	Req,
+	Logger,
 } from '@nestjs/common';
 import {
 	RiDocumentCatalogService,
@@ -20,6 +22,11 @@ import {
 import { CANONICAL_RI_DOCUMENT_TYPES } from 'src/ri-intelligence/domain/ri-document-classifier';
 import { RiDocumentContentResolver } from 'src/ri-intelligence/application/ri-document-content.resolver';
 import { RequiresCapability } from 'src/subscription/capabilities/requires-capability.decorator';
+import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
+import {
+	normalizeRiSummaryLevel,
+	RiSummaryLevel,
+} from 'src/ri-intelligence/application/ri-summary.types';
 
 import { NotUserScoped } from 'src/auth/decorators/ownership.decorator';
 interface RiSummaryBody {
@@ -29,10 +36,13 @@ interface RiSummaryBody {
 
 @Controller('ri-intelligence')
 export class RiIntelligenceController {
+	private readonly logger = new Logger(RiIntelligenceController.name);
+
 	constructor(
 		private readonly catalogService: RiDocumentCatalogService,
 		private readonly summaryService: RiDocumentSummaryService,
-		private readonly contentResolver: RiDocumentContentResolver
+		private readonly contentResolver: RiDocumentContentResolver,
+		private readonly investorProfile: InvestorProfileService
 	) {}
 
 	@Get('autocomplete')
@@ -86,7 +96,7 @@ export class RiIntelligenceController {
 
 	@Post('summary')
 	@RequiresCapability('ri.ai_summary')
-	async summarize(@Body() body: RiSummaryBody) {
+	async summarize(@Body() body: RiSummaryBody, @Req() req?: any) {
 		if (!body?.document) throw new BadRequestException('ri_document_required');
 
 		// O web nao consegue buscar o PDF do site de RI (CORS externo), entao a
@@ -100,7 +110,29 @@ export class RiIntelligenceController {
 			document: resolved.document,
 			content: resolved.content,
 			contentUnavailableReason: resolved.reason,
+			level: await this.readerLevel(req),
 		});
+	}
+
+	/**
+	 * Nível de quem lê, pelo perfil de investidor (TRA-256). Falha ou perfil
+	 * ausente vira o intermediário, o resumo de antes: nunca quebra a rota.
+	 */
+	private async readerLevel(req: any): Promise<RiSummaryLevel> {
+		const userId =
+			req?.user?.userId ?? req?.user?.sub ?? req?.user?._id ?? req?.user?.id;
+		if (!userId) return normalizeRiSummaryLevel(null);
+		try {
+			const profile = await this.investorProfile.getEffectiveProfile(
+				String(userId)
+			);
+			return normalizeRiSummaryLevel(profile?.sophistication);
+		} catch (error) {
+			this.logger.warn(
+				`Nível do leitor indisponível, resumo intermediário: ${(error as Error)?.message ?? error}`
+			);
+			return normalizeRiSummaryLevel(null);
+		}
 	}
 
 	private parseDocumentType(value?: string): RiDocumentType | undefined {

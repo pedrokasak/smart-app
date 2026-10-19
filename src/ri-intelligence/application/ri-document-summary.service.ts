@@ -15,6 +15,10 @@ import {
 	RiStructuredSignalItem,
 	RiStructuredSignals,
 	RiSummaryCitation,
+	RiSummaryLevel,
+	RI_SUMMARY_MAX_HIGHLIGHTS,
+	DEFAULT_RI_SUMMARY_LEVEL,
+	normalizeRiSummaryLevel,
 } from 'src/ri-intelligence/application/ri-summary.types';
 import { cvmDeliveryProtocol } from 'src/ri-intelligence/domain/cvm-protocol';
 
@@ -83,10 +87,16 @@ export class RiDocumentSummaryService {
 			});
 		}
 
-		const cacheKey = this.buildCacheKey(input.document, normalizedContent);
+		const level = normalizeRiSummaryLevel(input.level);
+		const cacheKey = this.buildCacheKey(
+			input.document,
+			normalizedContent,
+			level
+		);
 		const protocolKey = this.buildProtocolCacheKey(
 			input.document,
-			normalizedContent
+			normalizedContent,
+			level
 		);
 		for (const key of [cacheKey, protocolKey]) {
 			const cached = key ? await this.readCache(key) : null;
@@ -99,6 +109,9 @@ export class RiDocumentSummaryService {
 					summary: {
 						...cached.summary,
 						status: 'cached_ai',
+						// A chave já é do nível; resumo gravado antes do TRA-256 não
+						// tinha o campo e é o intermediário.
+						level: cached.summary.level ?? level,
 					},
 					cache: {
 						key,
@@ -132,8 +145,12 @@ export class RiDocumentSummaryService {
 				document: input.document,
 				content: normalizedContent,
 				structuredSignals,
+				level,
 			});
-			const highlights = this.limitHighlights(synthesized.highlights || []);
+			const highlights = this.limitHighlights(
+				synthesized.highlights || [],
+				level
+			);
 			const output = this.buildOutput({
 				input,
 				structuredSignals,
@@ -206,6 +223,7 @@ export class RiDocumentSummaryService {
 		return {
 			document: this.documentView(params.input.document),
 			summary: {
+				level: normalizeRiSummaryLevel(params.input.level),
 				status: params.summaryStatus,
 				highlights: params.highlights,
 				narrative: params.narrative,
@@ -272,7 +290,8 @@ export class RiDocumentSummaryService {
 	 */
 	private buildCacheKey(
 		document: RiDocumentSummaryInput['document'],
-		content: string
+		content: string,
+		level: RiSummaryLevel = DEFAULT_RI_SUMMARY_LEVEL
 	): string {
 		const promptInputs = JSON.stringify([
 			document.ticker ?? null,
@@ -287,7 +306,7 @@ export class RiDocumentSummaryService {
 			.update(promptInputs)
 			.digest('hex')
 			.slice(0, 12);
-		return `ri-summary:${document.id}:${inputsHash}:${SUMMARY_CACHE_VERSION}`;
+		return `ri-summary:${document.id}:${inputsHash}:${SUMMARY_CACHE_VERSION}${this.levelSuffix(level)}`;
 	}
 
 	/**
@@ -306,7 +325,8 @@ export class RiDocumentSummaryService {
 	 */
 	private buildProtocolCacheKey(
 		document: RiDocumentSummaryInput['document'],
-		content: string
+		content: string,
+		level: RiSummaryLevel = DEFAULT_RI_SUMMARY_LEVEL
 	): string | null {
 		const protocol = cvmDeliveryProtocol(document);
 		if (!protocol) return null;
@@ -314,13 +334,22 @@ export class RiDocumentSummaryService {
 			.update(content)
 			.digest('hex')
 			.slice(0, 16);
-		return `ri-summary:cvm-protocol:${protocol}:${contentHash}:${SUMMARY_CACHE_VERSION}`;
+		return `ri-summary:cvm-protocol:${protocol}:${contentHash}:${SUMMARY_CACHE_VERSION}${this.levelSuffix(level)}`;
 	}
 
-	private limitHighlights(items: string[]): string[] {
+	/**
+	 * O nível entra na chave (TRA-256): o cache segue compartilhado, mas só
+	 * entre pessoas do mesmo nível. O intermediário fica SEM sufixo: é o
+	 * resumo de antes, e os já gravados (e pagos) continuam valendo.
+	 */
+	private levelSuffix(level: RiSummaryLevel): string {
+		return level === DEFAULT_RI_SUMMARY_LEVEL ? '' : `:${level}`;
+	}
+
+	private limitHighlights(items: string[], level: RiSummaryLevel): string[] {
 		return Array.from(
 			new Set(items.map((item) => String(item || '').trim()).filter(Boolean))
-		).slice(0, 8);
+		).slice(0, RI_SUMMARY_MAX_HIGHLIGHTS[level]);
 	}
 
 	/**

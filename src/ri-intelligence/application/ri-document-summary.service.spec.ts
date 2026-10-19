@@ -516,4 +516,98 @@ describe('RiDocumentSummaryService', () => {
 		expect(cache.get).not.toHaveBeenCalled();
 		expect(synthesizer.summarize).not.toHaveBeenCalled();
 	});
+
+	describe('depth by reader level (TRA-256)', () => {
+		const manyHighlights = Array.from(
+			{ length: 20 },
+			(_, i) => `Destaque ${i}`
+		);
+
+		const run = async (level?: 'beginner' | 'intermediate' | 'experienced') => {
+			const cache: RiSummaryCachePort<any> = {
+				get: jest.fn(async () => null) as any,
+				set: jest.fn(async () => undefined) as any,
+			};
+			const synthesizer: RiSummarySynthesizerPort = {
+				summarize: jest.fn(async () => ({
+					highlights: manyHighlights,
+					narrative: 'Resumo.',
+				})) as any,
+			};
+			const service = new RiDocumentSummaryService(synthesizer, cache);
+			const output = await service.summarize({
+				document: baseDocument,
+				content: longContent,
+				level,
+			});
+			return { output, cache, synthesizer };
+		};
+
+		it('asks trackerr-ia for the reader level', async () => {
+			const { synthesizer } = await run('experienced');
+			expect(
+				(synthesizer.summarize as jest.Mock).mock.calls[0][0]
+			).toMatchObject({
+				level: 'experienced',
+			});
+		});
+
+		it('caps the highlights at 3, 8 and 12 and says which level it is', async () => {
+			const beginner = await run('beginner');
+			const intermediate = await run('intermediate');
+			const experienced = await run('experienced');
+
+			expect(beginner.output.summary.highlights).toHaveLength(3);
+			expect(intermediate.output.summary.highlights).toHaveLength(8);
+			expect(experienced.output.summary.highlights).toHaveLength(12);
+			expect(experienced.output.summary.level).toBe('experienced');
+		});
+
+		it('keeps one cache entry per level, so the same document does not mix depths', async () => {
+			const keys = await Promise.all(
+				(['beginner', 'intermediate', 'experienced'] as const).map(
+					async (level) => (await run(level)).output.cache.key
+				)
+			);
+
+			expect(new Set(keys).size).toBe(3);
+		});
+
+		it('keeps the previous cache key for intermediate and when no level is given', async () => {
+			const none = await run(undefined);
+			const intermediate = await run('intermediate');
+
+			expect(none.output.cache.key).toBe(intermediate.output.cache.key);
+			expect(intermediate.output.cache.key).toMatch(/:v2$/);
+			expect(none.output.summary.level).toBe('intermediate');
+		});
+
+		it('serves a cached entry written before the level existed as intermediate', async () => {
+			const cache: RiSummaryCachePort<any> = {
+				get: jest.fn(async () => ({
+					document: {},
+					summary: {
+						status: 'ai_generated',
+						highlights: ['A'],
+						narrative: null,
+						limitations: [],
+						sourceLabel: 'ai_summary',
+					},
+					structuredSignals: {},
+					cache: { key: 'k', hit: false, ttlSeconds: 1 },
+					cost: { aiCalls: 1, tokenUsageEstimate: 0 },
+				})) as any,
+				set: jest.fn(async () => undefined) as any,
+			};
+			const service = new RiDocumentSummaryService(undefined, cache);
+
+			const output = await service.summarize({
+				document: baseDocument,
+				content: longContent,
+			});
+
+			expect(output.summary.status).toBe('cached_ai');
+			expect(output.summary.level).toBe('intermediate');
+		});
+	});
 });
