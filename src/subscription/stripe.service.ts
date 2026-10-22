@@ -414,7 +414,9 @@ export class StripeService {
 				},
 				{ idempotencyKey: `self-service-refund:${chargeId}` }
 			);
-			this.logger.log(`Estorno ${refund.id} criado para a cobrança ${chargeId}`);
+			this.logger.log(
+				`Estorno ${refund.id} criado para a cobrança ${chargeId}`
+			);
 			return refund;
 		} catch (error) {
 			this.logger.error('Erro ao estornar cobrança no Stripe:', error);

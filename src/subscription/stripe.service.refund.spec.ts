@@ -12,7 +12,9 @@ describe('StripeService — reembolso', () => {
 	function build() {
 		const service = new StripeService({} as any, {} as any);
 		const stripe = {
-			charges: { list: jest.fn().mockResolvedValue({ data: [{ id: 'ch_1' }] }) },
+			charges: {
+				list: jest.fn().mockResolvedValue({ data: [{ id: 'ch_1' }] }),
+			},
 			refunds: { create: jest.fn().mockResolvedValue({ id: 're_1' }) },
 		};
 		(service as any).stripe = stripe;

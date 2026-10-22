@@ -39,7 +39,9 @@ export interface IneligibleRefund {
 export type RefundDecision = EligibleRefund | IneligibleRefund;
 
 /** Guarda explícita: o projeto roda sem strictNullChecks, que o narrowing por `eligible` exige. */
-export function isEligible(decision: RefundDecision): decision is EligibleRefund {
+export function isEligible(
+	decision: RefundDecision
+): decision is EligibleRefund {
 	return decision.eligible === true;
 }
 

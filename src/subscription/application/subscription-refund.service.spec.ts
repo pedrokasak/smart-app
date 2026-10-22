@@ -31,7 +31,9 @@ function build(options: { subscription?: any; charges?: any[] } = {}) {
 		sort: jest.fn().mockResolvedValue(subscription),
 	});
 	const stripe = {
-		listCustomerCharges: jest.fn().mockResolvedValue(options.charges ?? [stripeCharge()]),
+		listCustomerCharges: jest
+			.fn()
+			.mockResolvedValue(options.charges ?? [stripeCharge()]),
 		refundCharge: jest.fn().mockResolvedValue({ id: 're_1' }),
 		cancelSubscription: jest.fn().mockResolvedValue({}),
 	};
@@ -89,10 +91,12 @@ describe('SubscriptionRefundService', () => {
 					},
 				});
 
-				await expect(service.checkEligibility('user-1')).resolves.toMatchObject({
-					eligible: false,
-					reasonCode: 'unsupported_provider',
-				});
+				await expect(service.checkEligibility('user-1')).resolves.toMatchObject(
+					{
+						eligible: false,
+						reasonCode: 'unsupported_provider',
+					}
+				);
 				expect(stripe.listCustomerCharges).not.toHaveBeenCalled();
 			}
 		);
