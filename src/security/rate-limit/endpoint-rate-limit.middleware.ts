@@ -46,6 +46,11 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		'GET:/auth/2fa/recovery-codes/status': { limit: 30, windowMs: 60_000 },
 		'POST:/broker-sync/upload-note': { limit: 20, windowMs: 10 * 60_000 },
 		'POST:/leads/purchase-intent': { limit: 5, windowMs: 60_000 },
+		// Movimentam dinheiro/cobrança no Stripe: teto baixo contra automação e
+		// duplo clique. O estorno ainda é idempotente por cobrança.
+		'POST:/subscription/refund': { limit: 3, windowMs: 10 * 60_000 },
+		'POST:/subscription/cancel': { limit: 5, windowMs: 10 * 60_000 },
+		'POST:/subscription/portal': { limit: 20, windowMs: 10 * 60_000 },
 		// Cada chamada pode criar cliente e cobranca no Asaas e aceita CPF:
 		// limite baixo contra enumeracao de CPF e lixo no provedor (TRA-195).
 		'POST:/payments/pix/checkout': { limit: 10, windowMs: 10 * 60_000 },

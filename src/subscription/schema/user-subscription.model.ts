@@ -18,6 +18,9 @@ export interface UserSubscription extends Document {
 	cancelAtPeriodEnd: boolean;
 	canceledAt?: Date;
 	endedAt?: Date;
+	/** Reembolso pedido pelo próprio usuário (trilha de auditoria). */
+	refundedAt?: Date;
+	stripeRefundId?: string;
 	trialStart?: Date;
 	trialEnd?: Date;
 	quantity: number;
@@ -47,6 +50,8 @@ const userSubscriptionSchema = new Schema<UserSubscription>({
 	cancelAtPeriodEnd: { type: Boolean, default: false },
 	canceledAt: { type: Date },
 	endedAt: { type: Date },
+	refundedAt: { type: Date },
+	stripeRefundId: { type: String },
 	trialStart: { type: Date },
 	trialEnd: { type: Date },
 	quantity: { type: Number, default: 1 },
