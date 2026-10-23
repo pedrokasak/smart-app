@@ -18,6 +18,7 @@ import { UpdateFeaturesDto } from './dto/update-features.dto';
 import { CreateCheckoutDto } from './dto/create-checkout.dto';
 import { ConfirmCheckoutDto } from './dto/confirm-checkout.dto';
 import { CheckoutConfirmationService } from './application/checkout-confirmation.service';
+import { SubscriptionRefundService } from './application/subscription-refund.service';
 import { PlanQuotaService } from './quotas/plan-quota.service';
 import {
 	ApiBearerAuth,
@@ -59,7 +60,8 @@ export class SubscriptionController {
 		@Inject(USER_PLAN_RESOLVER)
 		private readonly planResolver: UserPlanResolverPort,
 		private readonly checkoutConfirmation: CheckoutConfirmationService,
-		private readonly planQuota: PlanQuotaService
+		private readonly planQuota: PlanQuotaService,
+		private readonly refunds: SubscriptionRefundService
 	) {}
 
 	@Get('current')
@@ -92,6 +94,23 @@ export class SubscriptionController {
 	@ApiOperation({ summary: 'Faturas do usuário autenticado (Stripe)' })
 	listInvoices(@Req() req: any) {
 		return this.subscriptionService.listUserInvoices(requireUserId(req));
+	}
+
+	@Get('refund-eligibility')
+	@ApiOperation({
+		summary: 'Se a compra do usuário ainda pode ser reembolsada (7 dias)',
+	})
+	refundEligibility(@Req() req: any) {
+		return this.refunds.checkEligibility(requireUserId(req));
+	}
+
+	@Post('refund')
+	@ApiOperation({
+		summary:
+			'Reembolsa a primeira cobrança dentro de 7 dias e encerra a assinatura',
+	})
+	requestRefund(@Req() req: any) {
+		return this.refunds.refund(requireUserId(req));
 	}
 
 	@Public()

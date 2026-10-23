@@ -380,6 +380,50 @@ export class StripeService {
 		}
 	}
 
+	/**
+	 * Cobranças do cliente (todas, para a política de reembolso enxergar o
+	 * histórico completo). Cliente de outro modo (teste x live) não tem nenhuma.
+	 */
+	async listCustomerCharges(customerId: string): Promise<Stripe.Charge[]> {
+		try {
+			const charges = await this.stripe.charges.list({
+				customer: customerId,
+				limit: 100,
+			});
+			return charges.data;
+		} catch (error) {
+			if (isStripeResourceMissing(error)) return [];
+			throw error;
+		}
+	}
+
+	/**
+	 * Estorno integral. A chave de idempotência amarra o estorno à cobrança:
+	 * duplo clique ou retry devolve o mesmo estorno em vez de um segundo.
+	 */
+	async refundCharge(
+		chargeId: string,
+		metadata: Record<string, string>
+	): Promise<Stripe.Refund> {
+		try {
+			const refund = await this.stripe.refunds.create(
+				{
+					charge: chargeId,
+					reason: 'requested_by_customer',
+					metadata,
+				},
+				{ idempotencyKey: `self-service-refund:${chargeId}` }
+			);
+			this.logger.log(
+				`Estorno ${refund.id} criado para a cobrança ${chargeId}`
+			);
+			return refund;
+		} catch (error) {
+			this.logger.error('Erro ao estornar cobrança no Stripe:', error);
+			throw error;
+		}
+	}
+
 	/** Últimas faturas do cliente, mais recentes primeiro. */
 	async listCustomerInvoices(
 		customerId: string,

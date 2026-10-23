@@ -18,6 +18,7 @@ import { PlanSyncService } from 'src/subscription/plan-sync/plan-sync.service';
 import { SubscriptionExpiryScheduler } from 'src/subscription/application/subscription-expiry.scheduler';
 import { StripeSubscriptionSyncService } from 'src/subscription/application/stripe-subscription-sync.service';
 import { CheckoutConfirmationService } from 'src/subscription/application/checkout-confirmation.service';
+import { SubscriptionRefundService } from 'src/subscription/application/subscription-refund.service';
 
 @Module({
 	imports: [
@@ -42,6 +43,7 @@ import { CheckoutConfirmationService } from 'src/subscription/application/checko
 		// Liberação do plano sem depender só do webhook (incidente 27/09/2026).
 		StripeSubscriptionSyncService,
 		CheckoutConfirmationService,
+		SubscriptionRefundService,
 		PlanQuotaService,
 		{ provide: PLAN_QUOTA_USAGE, useClass: MongoPlanQuotaUsage },
 		{
