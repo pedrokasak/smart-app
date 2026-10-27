@@ -1,6 +1,7 @@
 import {
 	IsNumber,
 	IsPositive,
+	Max,
 	Min,
 	IsOptional,
 	IsArray,
@@ -8,7 +9,10 @@ import {
 } from 'class-validator';
 import { Type } from 'class-transformer';
 import { PartialType } from '@nestjs/mapped-types';
-import { CreateAssetDto } from 'src/assets/dto/create-asset.dto';
+import {
+	ASSET_PRICE_MAX,
+	CreateAssetDto,
+} from 'src/assets/dto/create-asset.dto';
 
 export class UpdateAssetDto extends PartialType(CreateAssetDto) {
 	@IsOptional()
@@ -19,6 +23,7 @@ export class UpdateAssetDto extends PartialType(CreateAssetDto) {
 	@IsOptional()
 	@IsNumber()
 	@IsPositive()
+	@Max(ASSET_PRICE_MAX)
 	price?: number;
 
 	@IsOptional()

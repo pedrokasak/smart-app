@@ -16,6 +16,9 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { ALL_PLAN_CAPABILITIES } from 'src/subscription/application/user-plan.types';
 import { PlanQuotasDto } from './plan-quotas.dto';
 
+// Maior `unit_amount` que o Stripe aceita (8 dígitos em centavos): R$ 999.999,99.
+export const PLAN_PRICE_MAX = 999_999.99;
+
 export class CreateSubscriptionDto {
 	@ApiProperty({ description: 'Nome da assinatura' })
 	@IsString()
@@ -26,8 +29,14 @@ export class CreateSubscriptionDto {
 	@IsString()
 	description?: string;
 
-	@ApiProperty({ description: 'Preço da assinatura' })
+	@ApiProperty({
+		description: 'Preço da assinatura',
+		minimum: 0,
+		maximum: PLAN_PRICE_MAX,
+	})
 	@IsNumber()
+	@Min(0)
+	@Max(PLAN_PRICE_MAX)
 	price: number;
 
 	@ApiPropertyOptional({ description: 'Moeda (padrão: BRL)', default: 'BRL' })
@@ -68,9 +77,15 @@ export class CreateSubscriptionDto {
 	@IsString()
 	stripeProductId?: string;
 
-	@ApiPropertyOptional({ description: 'Preço anual da assinatura' })
+	@ApiPropertyOptional({
+		description: 'Preço anual da assinatura',
+		minimum: 0,
+		maximum: PLAN_PRICE_MAX,
+	})
 	@IsOptional()
 	@IsNumber()
+	@Min(0)
+	@Max(PLAN_PRICE_MAX)
 	annualPrice?: number;
 
 	@ApiPropertyOptional({ description: 'ID do preço anual no Stripe' })

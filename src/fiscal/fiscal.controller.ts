@@ -22,6 +22,7 @@ import { AssetModel } from 'src/assets/schema/assets.model';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { GenerateIrReportDto } from 'src/fiscal/dto/generate-ir-report.dto';
 import { GenerateReportDto } from 'src/fiscal/dto/generate-report.dto';
+import { SalePreviewDto } from 'src/fiscal/dto/sale-preview.dto';
 import { FiscalService } from 'src/fiscal/fiscal.service';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 import { IrReportService } from 'src/fiscal/services/ir-report.service';
@@ -300,16 +301,7 @@ export class FiscalController {
 
 	@Post('sale-preview')
 	@ApiOperation({ summary: 'Simula venda e imposto estimado' })
-	async previewSale(
-		@Req() req: any,
-		@Body()
-		body: {
-			symbol: string;
-			quantity: number;
-			sellPrice: number;
-			portfolioId?: string;
-		}
-	) {
+	async previewSale(@Req() req: any, @Body() body: SalePreviewDto) {
 		const userId =
 			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
 		const symbol = String(body.symbol || '').toUpperCase();
