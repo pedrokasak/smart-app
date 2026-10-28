@@ -61,6 +61,8 @@ export class PortfolioReportService {
 			realizedResult: 'Resultado Realizado',
 			stockSales: 'Vendas Ações',
 			stockProfit: 'Lucro/Prejuízo Ações',
+			etfSales: 'Vendas ETFs',
+			etfProfit: 'Lucro/Prejuízo ETFs',
 			fiiProfit: 'Lucro/Prejuízo FIIs',
 			cryptoProfit: 'Lucro/Prejuízo Cripto',
 			stockTax: 'Imposto Ações',
@@ -99,6 +101,8 @@ export class PortfolioReportService {
 				'realizedResult',
 				'stockSales',
 				'stockProfit',
+				'etfSales',
+				'etfProfit',
 				'fiiProfit',
 				'cryptoProfit',
 				'stockTax',
@@ -213,12 +217,19 @@ export class PortfolioReportService {
 		const totals = monthly.reduce(
 			(acc, m) => {
 				acc.stockProfit += m.stockProfit;
+				acc.etfProfit += m.etfProfit;
 				acc.fiiProfit += m.fiiProfit;
 				acc.cryptoProfit += m.cryptoProfit;
 				acc.totalTax += m.totalTax;
 				return acc;
 			},
-			{ stockProfit: 0, fiiProfit: 0, cryptoProfit: 0, totalTax: 0 }
+			{
+				stockProfit: 0,
+				etfProfit: 0,
+				fiiProfit: 0,
+				cryptoProfit: 0,
+				totalTax: 0,
+			}
 		);
 
 		return {

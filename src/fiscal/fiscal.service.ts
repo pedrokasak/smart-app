@@ -1,4 +1,8 @@
 import { Injectable } from '@nestjs/common';
+import {
+	FiscalCategory,
+	classifyFiscalCategory,
+} from 'src/fiscal/domain/asset-classifier';
 import { Trade } from 'src/fiscal/domain/trade';
 import { AveragePriceService } from 'src/fiscal/services/average-price.service';
 
@@ -19,24 +23,37 @@ export interface MonthlyTaxSummary {
 	fiiTax: number;
 	cryptoTax: number;
 	totalTax: number;
+	/** Vendas de ações no mês passaram do limite? Só ações contam; ETF não. */
 	stockExempt: boolean;
-	/** Prejuízo anterior de ações abatido do ganho tributável do mês. */
+	/**
+	 * Prejuízo anterior das operações comuns (ações e ETFs) abatido do ganho
+	 * tributável do mês.
+	 */
 	stockCompensatedLoss: number;
+	/**
+	 * Base tributável das operações comuns (ações e ETFs). `stockTax` e
+	 * `stockCompensatedLoss` também incluem os ETFs: eles têm a mesma alíquota
+	 * e o mesmo prejuízo compensável das ações (TRA-287).
+	 */
 	stockTaxableBase: number;
 	fiiSales: number;
+	/** Vendas de ETFs no mês. Não entram no limite de isenção das ações. */
+	etfSales: number;
+	/** Resultado de ETFs no mês. Nunca é isento. */
+	etfProfit: number;
 	cryptoSales: number;
 	cryptoExempt: boolean;
-	/** Prejuízo ainda a compensar ao fim do mês (ações + FIIs + cripto), positivo. */
+	/** Prejuízo ainda a compensar ao fim do mês (ações e ETFs + FIIs + cripto), positivo. */
 	accumulatedLoss: number;
 }
 
 export const STOCK_MONTHLY_EXEMPTION_LIMIT = 20000;
 export const CRYPTO_MONTHLY_EXEMPTION_LIMIT = 35000;
 
-type FiscalCategory = 'stock' | 'fii' | 'crypto';
 type PositionState = { qty: number; totalCost: number };
 
 export interface FiscalAccumulatedLossSummary {
+	/** Prejuízo das operações comuns: ações e ETFs compensam entre si. */
 	stock: number;
 	fii: number;
 	crypto: number;
@@ -45,7 +62,7 @@ export interface FiscalAccumulatedLossSummary {
 
 export interface FiscalTaxDriverSummary {
 	symbol: string;
-	category: 'stock' | 'fii' | 'crypto';
+	category: FiscalCategory;
 	operations: number;
 	grossSales: number;
 	realizedProfit: number;
@@ -135,10 +152,7 @@ export class FiscalService {
 	}
 
 	private getCategory(symbol: string, explicitType?: string): FiscalCategory {
-		const type = (explicitType || '').toLowerCase();
-		if (type === 'crypto') return 'crypto';
-		if (type === 'fii' || /11$/.test(symbol.toUpperCase())) return 'fii';
-		return 'stock';
+		return classifyFiscalCategory(symbol, explicitType);
 	}
 
 	getCategoryForAsset(symbol: string, explicitType?: string): FiscalCategory {
@@ -159,6 +173,7 @@ export class FiscalService {
 		const positionBySymbol = new Map<string, PositionState>();
 		const cumulativeByCategory: Record<FiscalCategory, number> = {
 			stock: 0,
+			etf: 0,
 			fii: 0,
 			crypto: 0,
 		};
@@ -193,8 +208,10 @@ export class FiscalService {
 			positionBySymbol.set(symbol, position);
 		}
 
-		const stock =
-			cumulativeByCategory.stock < 0 ? Math.abs(cumulativeByCategory.stock) : 0;
+		// Ações e ETFs compensam entre si (operações comuns); FII e cripto não.
+		const commonOperations =
+			cumulativeByCategory.stock + cumulativeByCategory.etf;
+		const stock = commonOperations < 0 ? Math.abs(commonOperations) : 0;
 		const fii =
 			cumulativeByCategory.fii < 0 ? Math.abs(cumulativeByCategory.fii) : 0;
 		const crypto =
@@ -229,6 +246,8 @@ export class FiscalService {
 				month: number;
 				stockSales: number;
 				stockProfit: number;
+				etfSales: number;
+				etfProfit: number;
 				fiiSales: number;
 				fiiProfit: number;
 				cryptoSales: number;
@@ -267,6 +286,8 @@ export class FiscalService {
 				month,
 				stockSales: 0,
 				stockProfit: 0,
+				etfSales: 0,
+				etfProfit: 0,
 				fiiSales: 0,
 				fiiProfit: 0,
 				cryptoSales: 0,
@@ -276,6 +297,10 @@ export class FiscalService {
 			if (category === 'stock') {
 				acc.stockSales += t.price * t.quantity;
 				acc.stockProfit += pnl;
+			}
+			if (category === 'etf') {
+				acc.etfSales += t.price * t.quantity;
+				acc.etfProfit += pnl;
 			}
 			if (category === 'fii') {
 				acc.fiiSales += t.price * t.quantity;
@@ -301,7 +326,17 @@ export class FiscalService {
 			const stockExempt = m.stockSales <= STOCK_MONTHLY_EXEMPTION_LIMIT;
 			const cryptoExempt = m.cryptoSales <= CRYPTO_MONTHLY_EXEMPTION_LIMIT;
 
-			const stock = applyMonthResult(m.stockProfit, carryStock, stockExempt);
+			// Operações comuns: ações e ETFs dividem o prejuízo compensável e a
+			// alíquota de 15%. A isenção de R$ 20.000 é só das ações, então o lucro
+			// de ETF entra sempre; o lucro de ação só entra fora do mês isento. O
+			// prejuízo de ação acumula mesmo no mês isento (ver `applyMonthResult`).
+			// Sem ETF, o resultado é o mesmo de antes.
+			const stockResult = m.stockProfit < 0 || !stockExempt ? m.stockProfit : 0;
+			const stock = applyMonthResult(
+				stockResult + m.etfProfit,
+				carryStock,
+				false
+			);
 			const fii = applyMonthResult(m.fiiProfit, carryFii, false);
 			const crypto = applyMonthResult(
 				m.cryptoProfit,
@@ -331,6 +366,8 @@ export class FiscalService {
 				stockCompensatedLoss: stock.compensated,
 				stockTaxableBase: stock.taxableBase,
 				fiiSales: m.fiiSales,
+				etfSales: m.etfSales,
+				etfProfit: m.etfProfit,
 				cryptoSales: m.cryptoSales,
 				cryptoExempt,
 				accumulatedLoss: Math.abs(carryStock + carryFii + carryCrypto),
@@ -407,7 +444,9 @@ export class FiscalService {
 							? 'Venda com lucro tributável em ações (mês acima de R$ 20.000).'
 							: category === 'fii'
 								? 'Venda com lucro tributável em FII (alíquota de 20%).'
-								: 'Venda com lucro tributável (alíquota estimada de 15%).';
+								: category === 'etf'
+									? 'Venda com lucro tributável em ETF (alíquota de 15%, sem a isenção de R$ 20.000 das ações).'
+									: 'Venda com lucro tributável (alíquota estimada de 15%).';
 				}
 			}
 
@@ -520,7 +559,8 @@ function applyMonthResult(
 	if (profit < 0)
 		return { taxableBase: 0, compensated: 0, carry: carry + profit };
 	if (exempt) return { taxableBase: 0, compensated: 0, carry };
-	const compensated = Math.min(profit, -carry);
+	// `carry` é sempre <= 0: `Math.abs` evita o `-0` de `-carry` quando carry é 0.
+	const compensated = Math.min(profit, Math.abs(carry));
 	return {
 		taxableBase: profit - compensated,
 		compensated,

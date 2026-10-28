@@ -339,7 +339,11 @@ export class ReportBuilderService {
 		const totalTax = monthly.reduce((sum, month) => sum + month.totalTax, 0);
 		const result = monthly.reduce(
 			(sum, month) =>
-				sum + month.stockProfit + month.fiiProfit + month.cryptoProfit,
+				sum +
+				month.stockProfit +
+				month.etfProfit +
+				month.fiiProfit +
+				month.cryptoProfit,
 			0
 		);
 		const lastCarry = monthly.length
@@ -365,6 +369,7 @@ export class ReportBuilderService {
 							label: 'Resultado ações',
 							format: 'currency',
 						},
+						{ key: 'etfProfit', label: 'Resultado ETFs', format: 'currency' },
 						{ key: 'fiiProfit', label: 'Resultado FIIs', format: 'currency' },
 						{
 							key: 'cryptoProfit',
@@ -388,6 +393,7 @@ export class ReportBuilderService {
 						month: `${MONTHS[month.month - 1]}/${month.year}`,
 						stockSales: round2(month.stockSales),
 						stockProfit: round2(month.stockProfit),
+						etfProfit: round2(month.etfProfit),
 						fiiProfit: round2(month.fiiProfit),
 						cryptoProfit: round2(month.cryptoProfit),
 						compensated: round2(month.stockCompensatedLoss),
@@ -396,7 +402,11 @@ export class ReportBuilderService {
 						status:
 							month.totalTax > 0
 								? 'A pagar'
-								: month.stockProfit + month.fiiProfit + month.cryptoProfit < 0
+								: month.stockProfit +
+											month.etfProfit +
+											month.fiiProfit +
+											month.cryptoProfit <
+									  0
 									? 'Prejuízo'
 									: month.stockExempt && month.stockProfit > 0
 										? 'Isento'

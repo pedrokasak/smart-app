@@ -116,8 +116,9 @@ export class FiscalController {
 				const potentialGain = (marketPrice - averagePrice) * quantity;
 				if (potentialGain <= 0) return null;
 
+				// ETF compensa no mesmo pool das ações (operações comuns).
 				const availableLoss =
-					category === 'stock'
+					category === 'stock' || category === 'etf'
 						? losses.stock
 						: category === 'fii'
 							? losses.fii
@@ -275,12 +276,13 @@ export class FiscalController {
 		const totals = monthly.reduce(
 			(acc, m) => {
 				acc.stockProfit += m.stockProfit;
+				acc.etfProfit += m.etfProfit;
 				acc.fiiProfit += m.fiiProfit;
 				acc.cryptoProfit += m.cryptoProfit;
 				acc.taxDue += m.totalTax;
 				return acc;
 			},
-			{ stockProfit: 0, fiiProfit: 0, cryptoProfit: 0, taxDue: 0 }
+			{ stockProfit: 0, etfProfit: 0, fiiProfit: 0, cryptoProfit: 0, taxDue: 0 }
 		);
 
 		return {
