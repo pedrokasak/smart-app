@@ -23,7 +23,11 @@ export interface MonthlyTaxSummary {
 	fiiTax: number;
 	cryptoTax: number;
 	totalTax: number;
-	/** Vendas de ações no mês passaram do limite? Só ações contam; ETF não. */
+	/**
+	 * Vendas de ações no mês ficaram dentro do limite de isenção (até
+	 * R$ 20.000)? Só ações contam; ETF não. `true` não quer dizer que o mês não
+	 * tem imposto: o lucro de ETF é tributado mesmo assim.
+	 */
 	stockExempt: boolean;
 	/**
 	 * Prejuízo anterior das operações comuns (ações e ETFs) abatido do ganho
@@ -157,6 +161,19 @@ export class FiscalService {
 
 	getCategoryForAsset(symbol: string, explicitType?: string): FiscalCategory {
 		return this.getCategory(symbol, explicitType);
+	}
+
+	/**
+	 * Prejuízo que a categoria pode compensar. ETF usa o mesmo pool das ações
+	 * (operações comuns); FII e cripto têm o seu.
+	 */
+	availableLossFor(
+		category: FiscalCategory,
+		losses: FiscalAccumulatedLossSummary
+	): number {
+		if (category === 'fii') return losses.fii;
+		if (category === 'crypto') return losses.crypto;
+		return losses.stock;
 	}
 
 	calculateAccumulatedLosses(
@@ -497,7 +514,10 @@ export class FiscalService {
 		const category = this.getCategory(params.symbol, params.assetType);
 		const gross = params.quantity * params.sellPrice;
 		const pnl = (params.sellPrice - params.averagePrice) * params.quantity;
-		const stockSalesMonth = (params.monthStockSales ?? 0) + gross;
+		// Só a venda de ação entra no total que mede o limite das ações; antes, a
+		// venda de ETF ou de FII inflava o número devolvido.
+		const stockSalesMonth =
+			(params.monthStockSales ?? 0) + (category === 'stock' ? gross : 0);
 		if (pnl <= 0) {
 			return {
 				category,

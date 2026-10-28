@@ -232,6 +232,48 @@ describe('FiscalService', () => {
 			});
 		});
 
+		describe('prejuízo disponível por categoria', () => {
+			const losses = { stock: 2000, fii: 500, crypto: 300, total: 2800 };
+
+			it('ETF usa o pool das ações', () => {
+				expect(service.availableLossFor('etf', losses)).toBe(2000);
+				expect(service.availableLossFor('stock', losses)).toBe(2000);
+			});
+
+			it('FII e cripto usam o seu próprio', () => {
+				expect(service.availableLossFor('fii', losses)).toBe(500);
+				expect(service.availableLossFor('crypto', losses)).toBe(300);
+			});
+		});
+
+		describe('total de vendas de ações devolvido pelo simulador', () => {
+			it('venda de ETF não soma ao total de ações do mês', () => {
+				const preview = service.estimateSaleTax({
+					symbol: 'BOVA11',
+					quantity: 100,
+					sellPrice: 150,
+					averagePrice: 100,
+					monthStockSales: 8000,
+					assetType: 'fii',
+				});
+
+				expect(preview.stockSalesMonth).toBe(8000);
+			});
+
+			it('venda de ação soma ao total de ações do mês', () => {
+				const preview = service.estimateSaleTax({
+					symbol: 'PETR4',
+					quantity: 100,
+					sellPrice: 50,
+					averagePrice: 40,
+					monthStockSales: 8000,
+					assetType: 'stock',
+				});
+
+				expect(preview.stockSalesMonth).toBe(13000);
+			});
+		});
+
 		describe('detalhe por ativo', () => {
 			it('BOVA11 aparece como ETF, com 15%, sem isenção', () => {
 				const [driver] = service.calculateTaxDrivers(

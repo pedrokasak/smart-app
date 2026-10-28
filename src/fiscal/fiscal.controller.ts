@@ -116,13 +116,10 @@ export class FiscalController {
 				const potentialGain = (marketPrice - averagePrice) * quantity;
 				if (potentialGain <= 0) return null;
 
-				// ETF compensa no mesmo pool das ações (operações comuns).
-				const availableLoss =
-					category === 'stock' || category === 'etf'
-						? losses.stock
-						: category === 'fii'
-							? losses.fii
-							: losses.crypto;
+				const availableLoss = this.fiscalService.availableLossFor(
+					category,
+					losses
+				);
 				if (availableLoss <= 0) return null;
 
 				const offsetUsed = Math.min(potentialGain, availableLoss);
