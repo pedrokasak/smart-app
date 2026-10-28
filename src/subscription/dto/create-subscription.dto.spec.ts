@@ -1,6 +1,9 @@
 import { validate } from 'class-validator';
 import { plainToInstance } from 'class-transformer';
-import { CreateSubscriptionDto } from './create-subscription.dto';
+import {
+	CreateSubscriptionDto,
+	PLAN_PRICE_MAX,
+} from './create-subscription.dto';
 
 describe('CreateSubscriptionDto', () => {
 	it('accepts annualPrice and annualStripePriceId as optional fields', async () => {
@@ -114,6 +117,38 @@ describe('CreateSubscriptionDto', () => {
 			const errors = await validate(dto);
 
 			expect(errors.some((error) => error.property === 'quotas')).toBe(true);
+		});
+	});
+
+	describe('price e annualPrice (TRA-285)', () => {
+		const base = { name: 'Plano', price: 10, interval: 'month' };
+		const failing = async (body: object) =>
+			(await validate(plainToInstance(CreateSubscriptionDto, body))).map(
+				(error) => error.property
+			);
+
+		it('aceita plano gratuito e o teto do Stripe', async () => {
+			expect(await failing({ ...base, price: 0, annualPrice: 0 })).toEqual([]);
+			expect(
+				await failing({
+					...base,
+					price: PLAN_PRICE_MAX,
+					annualPrice: PLAN_PRICE_MAX,
+				})
+			).toEqual([]);
+		});
+
+		it('recusa preço negativo', async () => {
+			expect(await failing({ ...base, price: -1, annualPrice: -1 })).toEqual([
+				'price',
+				'annualPrice',
+			]);
+		});
+
+		it('recusa preço acima do que o Stripe aceita', async () => {
+			expect(
+				await failing({ ...base, price: 1_000_000, annualPrice: 1_000_000 })
+			).toEqual(['price', 'annualPrice']);
 		});
 	});
 
