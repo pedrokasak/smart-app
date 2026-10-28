@@ -489,4 +489,47 @@ Se não foi você, fale com suporte@trackerr.com.br.`;
 			text,
 		});
 	}
+
+	/**
+	 * Aviso aos outros admins quando um agente é ligado, desligado, pausado
+	 * ou reconfigurado no painel (ADR-005). Se a conta de quem mudou foi
+	 * tomada, este é o primeiro sinal para os demais. Quem mudou aparece com
+	 * o e-mail mascarado; o texto nunca leva configuração sensível porque o
+	 * esquema do agente não aceita segredo.
+	 */
+	async sendAgentControlChangedNotice(params: {
+		to: string;
+		agentName: string;
+		change: string;
+		reason: string | null;
+		actorEmail: string | null;
+		at: Date;
+	}): Promise<void> {
+		const agentName = escapeHtml(params.agentName);
+		const change = escapeHtml(params.change);
+		const reason = params.reason
+			? escapeHtml(params.reason)
+			: 'sem motivo (ligar)';
+		const actor = params.actorEmail
+			? escapeHtml(maskEmail(params.actorEmail))
+			: 'um admin';
+		const when = params.at.toLocaleString('pt-BR', {
+			timeZone: 'America/Sao_Paulo',
+		});
+		const panelUrl = `${this.getAppBaseUrl()}/admin/agents`;
+
+		const subject = `Agente alterado no admin: ${params.agentName}`;
+		const html = this.getBaseTemplate({
+			title: `${agentName}: ${change}`,
+			hero: 'Um agente foi alterado no painel',
+			description: `Mudança feita por ${actor} em ${escapeHtml(when)}. Motivo: ${reason}.`,
+			ctaLabel: 'Abrir o painel de agentes',
+			ctaUrl: panelUrl,
+			footerNote:
+				'Você recebe este aviso por ser admin do Trackerr. Se não reconhece a mudança, desligue o agente pelo ambiente do servidor e revise o acesso de quem a fez.',
+		});
+		const text = `Agente alterado no admin - Trackerr\n\n${params.agentName}: ${params.change}\nPor: ${params.actorEmail ? maskEmail(params.actorEmail) : 'um admin'}\nQuando: ${when}\nMotivo: ${params.reason ?? 'sem motivo (ligar)'}\n\nPainel: ${panelUrl}`;
+
+		await this.sender.send({ to: params.to, subject, html, text });
+	}
 }
