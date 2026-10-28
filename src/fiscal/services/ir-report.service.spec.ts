@@ -88,6 +88,24 @@ describe('IrReportService.generateIrReport', () => {
 		expect(report.notes.join(' ')).toContain('Histórico incompleto em BOVA11');
 	});
 
+	it('mostra o aviso de histórico incompleto no HTML do PDF só quando há problema', async () => {
+		const withIssue = await buildService(
+			[trade('BOVA11', 'sell', 5, 120, '2026-02-10')],
+			[]
+		).generateIrReport(USER_ID, 2026);
+		const clean = await buildService([], []).generateIrReport(USER_ID, 2026);
+		const html = (report: typeof clean) =>
+			(
+				buildService([], []) as unknown as {
+					buildHtmlReport: (r: typeof clean) => string;
+				}
+			).buildHtmlReport(report);
+
+		expect(html(withIssue)).toContain('Atenção: histórico incompleto');
+		expect(html(withIssue)).toContain('BOVA11');
+		expect(html(clean)).not.toContain('Atenção: histórico incompleto');
+	});
+
 	it('não sinaliza nada quando o histórico fecha', async () => {
 		const service = buildService(
 			[
