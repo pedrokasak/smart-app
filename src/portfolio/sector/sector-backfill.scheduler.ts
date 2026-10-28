@@ -1,4 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+	agentAllows,
+} from 'src/agent-control/application/agent-gate.port';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -56,7 +61,8 @@ export class SectorBackfillScheduler {
 	constructor(
 		@InjectModel('Asset') private readonly assetModel: Model<Asset>,
 		@Inject(MARKET_DATA_PROVIDER)
-		private readonly marketData: MarketDataProviderPort
+		private readonly marketData: MarketDataProviderPort,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
 	) {}
 
 	// 05:00 em São Paulo: depois do investor-profile (04:00), que passa a ler o
@@ -66,6 +72,7 @@ export class SectorBackfillScheduler {
 		timeZone: 'America/Sao_Paulo',
 	})
 	async runDaily(): Promise<void> {
+		if (!(await agentAllows(this.agentGate, 'sector-backfill'))) return;
 		try {
 			const result = await this.backfill();
 			this.logger.log(

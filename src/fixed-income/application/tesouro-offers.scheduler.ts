@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+	agentAllows,
+} from 'src/agent-control/application/agent-gate.port';
 import { Cron } from '@nestjs/schedule';
 import { TesouroOffersService } from './tesouro-offers.service';
 
@@ -14,13 +19,17 @@ import { TesouroOffersService } from './tesouro-offers.service';
 export class TesouroOffersScheduler {
 	private readonly logger = new Logger(TesouroOffersScheduler.name);
 
-	constructor(private readonly offers: TesouroOffersService) {}
+	constructor(
+		private readonly offers: TesouroOffersService,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
+	) {}
 
 	@Cron('40 10,18 * * *', {
 		name: 'tesouro-offers-refresh',
 		timeZone: 'America/Sao_Paulo',
 	})
 	async run(): Promise<void> {
+		if (!(await agentAllows(this.agentGate, 'tesouro-offers'))) return;
 		try {
 			const stored = await this.offers.refresh();
 			this.logger.log(

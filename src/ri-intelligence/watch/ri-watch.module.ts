@@ -18,8 +18,13 @@ import { RI_WATCH_DISCOVERY } from './application/ports/ri-watch-discovery.port'
 import { RI_WATCH_METRICS_READER } from './application/ports/ri-watch-metrics.port';
 import { RI_WATCH_STORE } from './application/ports/ri-watch-store.port';
 import {
+	AgentGate,
+	OPTIONAL_AGENT_GATE,
+} from 'src/agent-control/application/agent-gate.port';
+import {
 	loadRiWatchConfig,
 	RI_WATCH_CONFIG,
+	withAgentPanel,
 } from './application/ri-watch.config';
 import { RiWatchFiiScanner } from './application/ri-watch-fii.scanner';
 import {
@@ -83,7 +88,13 @@ import { RiWatchDocumentModel } from './infrastructure/ri-watch-document.model';
 			provide: ISSUER_CODE_DIRECTORY,
 			useExisting: B3RegistryCnpjResolverAdapter,
 		},
-		{ provide: RI_WATCH_CONFIG, useFactory: () => loadRiWatchConfig() },
+		{
+			provide: RI_WATCH_CONFIG,
+			// Vigia e etapas pelo painel de agentes (ADR-005).
+			useFactory: (gate?: AgentGate) =>
+				withAgentPanel(loadRiWatchConfig(), gate),
+			inject: [OPTIONAL_AGENT_GATE],
+		},
 		RiWatchService,
 		// FIIs (TRA-266): documentos pela FundosNet da B3, fundo pelo CNPJ do
 		// informe mensal da CVM.

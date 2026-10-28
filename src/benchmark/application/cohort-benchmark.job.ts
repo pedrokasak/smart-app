@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+	agentAllows,
+} from 'src/agent-control/application/agent-gate.port';
 import { Cron } from '@nestjs/schedule';
 import { benchmarkCohortJobEnabled } from 'src/env';
 import { CohortBenchmarkService } from 'src/benchmark/application/cohort-benchmark.service';
@@ -16,11 +21,23 @@ import { CohortBenchmarkService } from 'src/benchmark/application/cohort-benchma
 export class CohortBenchmarkJob {
 	private readonly logger = new Logger(CohortBenchmarkJob.name);
 
-	constructor(private readonly service: CohortBenchmarkService) {}
+	constructor(
+		private readonly service: CohortBenchmarkService,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
+	) {}
 
 	@Cron('0 4 1 * *', { timeZone: 'America/Sao_Paulo' })
 	async run(): Promise<void> {
-		if (!benchmarkCohortJobEnabled) return;
+		// Ligado pelo painel de agentes (ADR-005); sem o painel, vale a variável.
+		if (
+			!(await agentAllows(
+				this.agentGate,
+				'cohort-benchmark',
+				benchmarkCohortJobEnabled
+			))
+		) {
+			return;
+		}
 		try {
 			await this.service.publishPeriod();
 		} catch (error) {
