@@ -25,6 +25,11 @@ import {
 	CHAT_TOOL_ROUTER_CONFIG,
 	loadChatToolRouterConfig,
 } from './orchestration/tool-routing/chat-tool-router.config';
+import {
+	AgentGate,
+	OPTIONAL_AGENT_GATE,
+	withPanelSwitch,
+} from 'src/agent-control/application/agent-gate.port';
 import { ChatToolRouterService } from './orchestration/tool-routing/chat-tool-router.service';
 import { TrackerrIaRagSynthesizerAdapter } from './orchestration/infrastructure/trackerr-ia-rag-synthesizer.adapter';
 import { CHAT_NARRATIVE_SYNTHESIZER } from './orchestration/chat-narrative-synthesizer.port';
@@ -86,7 +91,11 @@ import { CopilotDidacticService } from './didactic/copilot-didactic.service';
 		},
 		{
 			provide: CHAT_TOOL_ROUTER_CONFIG,
-			useFactory: () => loadChatToolRouterConfig(),
+			// Liga e desliga pelo painel de agentes (ADR-005); a variável vira
+			// kill switch.
+			useFactory: (gate?: AgentGate) =>
+				withPanelSwitch(loadChatToolRouterConfig(), gate, 'chat-tool-router'),
+			inject: [OPTIONAL_AGENT_GATE],
 		},
 		ChatToolRouterService,
 		// Resposta didática por nível (docs/requisitos/ia-didatica.md).

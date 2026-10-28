@@ -1,4 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+	agentAllows,
+} from 'src/agent-control/application/agent-gate.port';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -37,11 +42,13 @@ export class PortfolioDigestScheduler {
 		private readonly emailService: EmailService,
 		private readonly tokenService: DigestUnsubscribeTokenService,
 		private readonly subscriptionService: SubscriptionService,
-		private readonly digestNotifications: DigestNotificationsService
+		private readonly digestNotifications: DigestNotificationsService,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
 	) {}
 
 	@Cron('0 9 * * 1', { timeZone: 'America/Sao_Paulo' })
 	async sendWeeklyDigests(): Promise<void> {
+		if (!(await agentAllows(this.agentGate, 'portfolio-digest'))) return;
 		const optedIn = await this.userModel.find({
 			'notificationPreferences.portfolioDigest.enabled': true,
 		});
@@ -85,7 +92,14 @@ export class PortfolioDigestScheduler {
 			 * continua conferindo a narrativa contra exatamente o mesmo
 			 * conjunto de fatos que foi enviado.
 			 */
-			const narrative = isPaidUser ? await this.narrator.narrate(facts) : null;
+			// Narração por IA desligável no painel sem parar o envio (ADR-005):
+			// sem ela, o e-mail sai só com os fatos determinísticos.
+			const panel = await this.agentGate?.config<{ aiNarration?: boolean }>(
+				'portfolio-digest'
+			);
+			const aiNarration = panel?.aiNarration !== false;
+			const narrative =
+				isPaidUser && aiNarration ? await this.narrator.narrate(facts) : null;
 
 			const weekNotifications = await this.digestNotifications.collect(
 				userId,

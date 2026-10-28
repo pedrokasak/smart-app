@@ -52,6 +52,7 @@ import { DividendIncomeModule } from './dividend-income/dividend-income.module';
 import { EventsModule } from './events/events.module';
 import { QuoteStalenessModule } from './market-data/quote-staleness/quote-staleness.module';
 import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
+import { AgentControlModule } from './agent-control/agent-control.module';
 
 @Module({
 	imports: [
@@ -67,6 +68,9 @@ import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 		}),
 		DatabaseModule,
 		SchedulerModule,
+		// Liga, desliga e configura agentes pelo painel admin (ADR-005). Global:
+		// os agendadores consultam a porta sem importar este módulo.
+		AgentControlModule,
 		SubscriptionModule,
 		StockModule,
 		MacroIndicatorsModule,

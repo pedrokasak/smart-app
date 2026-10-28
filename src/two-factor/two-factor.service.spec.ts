@@ -1,6 +1,10 @@
 import * as crypto from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+	BadRequestException,
+	ForbiddenException,
+	UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { authenticator } from 'otplib';
 import { TwoFactorService } from './two-factor.service';
@@ -380,6 +384,55 @@ describe('TwoFactorService', () => {
 					},
 				}
 			);
+		});
+	});
+	describe('verifyStepUpCode (ADR-005)', () => {
+		const stubUser = (user: Record<string, unknown> | null) =>
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(user),
+			});
+
+		it('aceita o código atual do autenticador', async () => {
+			stubUser(buildUser());
+
+			await expect(
+				service.verifyStepUpCode('u1', authenticator.generate(secret))
+			).resolves.toBeUndefined();
+		});
+
+		it('recusa com 403, e não 401, o código errado e conta a tentativa', async () => {
+			stubUser(buildUser());
+			(UserModel.updateOne as jest.Mock).mockClear();
+
+			await expect(
+				service.verifyStepUpCode('u1', '000000')
+			).rejects.toBeInstanceOf(ForbiddenException);
+			expect(UserModel.updateOne).toHaveBeenCalledWith(
+				{ _id: 'u1' },
+				{
+					$set: expect.objectContaining({ twoFactorFailedAttempts: 1 }),
+				}
+			);
+		});
+
+		it('exige 2FA ativo na conta', async () => {
+			stubUser({ ...buildUser(), twoFactorEnabled: false });
+
+			await expect(
+				service.verifyStepUpCode('u1', authenticator.generate(secret))
+			).rejects.toBeInstanceOf(ForbiddenException);
+		});
+
+		it('respeita o bloqueio por excesso de tentativas, mesmo com o código certo', async () => {
+			stubUser({
+				...buildUser(),
+				twoFactorFailedAttempts: 5,
+				twoFactorFirstFailedAttemptAt: new Date(),
+			});
+
+			await expect(
+				service.verifyStepUpCode('u1', authenticator.generate(secret))
+			).rejects.toThrow('Muitas tentativas');
 		});
 	});
 });

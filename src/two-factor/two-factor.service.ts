@@ -1,5 +1,6 @@
 import {
 	BadRequestException,
+	ForbiddenException,
 	Injectable,
 	UnauthorizedException,
 } from '@nestjs/common';
@@ -448,6 +449,50 @@ export class TwoFactorService {
 		}
 
 		await this.tokenBlacklistService.addToBlacklist(tempToken, exp);
+	}
+
+	/**
+	 * Reautenticação de ação sensível com a sessão já aberta (ADR-005): o admin
+	 * digita o TOTP de novo para ligar, desligar ou configurar um agente.
+	 *
+	 * Mesma contagem de tentativas do login (`twoFactorFailedAttempts`): um
+	 * access token roubado não vira força bruta sobre o segundo fator por esta
+	 * porta. Código errado é 403, não 401 — 401 o front lê como sessão
+	 * expirada e desloga quem só digitou errado.
+	 */
+	async verifyStepUpCode(userId: string, code: string): Promise<void> {
+		const user = await UserModel.findById(userId).select(
+			'+twoFactorSecret +twoFactorFailedAttempts +twoFactorFirstFailedAttemptAt'
+		);
+		if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+			throw new ForbiddenException(
+				'Ative a verificação em duas etapas na sua conta para fazer esta mudança.'
+			);
+		}
+
+		const now = new Date();
+		const attemptState = readAttemptState(user);
+		if (isTwoFactorBlocked(attemptState, now)) {
+			throw new ForbiddenException(
+				'Muitas tentativas de verificação. Tente de novo em 15 minutos.'
+			);
+		}
+
+		const isValid = authenticator.verify({
+			token: String(code ?? ''),
+			secret: user.twoFactorSecret,
+		});
+		if (!isValid) {
+			await this.persistAttemptState(
+				user.id,
+				registerFailedAttempt(attemptState, now)
+			);
+			throw new ForbiddenException('Código 2FA inválido ou expirado.');
+		}
+
+		if (attemptState.failedAttempts > 0) {
+			await this.persistAttemptState(user.id, clearedAttemptState());
+		}
 	}
 
 	/**
