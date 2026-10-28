@@ -1,0 +1,139 @@
+# OpenTelemetry Collector do Trackerr (TRA-222).
+#
+# Recebe OTLP do server e do trackerr-ia, mede a VPS e os containers, tira
+# dado pessoal e manda cada sinal para o seu armazenamento.
+#
+# Ordem dos processors importa: memory_limiter primeiro (protege o próprio
+# Collector), depois a limpeza de PII, e o batch por último.
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+  # CPU, memória, carga e disco da VPS, sem montar o filesystem do host: o
+  # /proc do container já mostra CPU, memória e carga do host, e o `/` do
+  # container (overlay) reporta o disco onde o Docker grava, que é o disco da
+  # VPS. Montar o `/` do host daria ao Collector (root, por causa do socket)
+  # leitura de todos os segredos da máquina. Rede por container vem do
+  # docker_stats.
+  hostmetrics:
+    collection_interval: 30s
+    scrapers:
+      cpu: {}
+      memory: {}
+      load: {}
+      filesystem:
+        include_mount_points:
+          match_type: strict
+          mount_points: ["/"]
+
+  # CPU e memória por container: é o que calibra os limites da TRA-222.
+  docker_stats:
+    endpoint: unix:///var/run/docker.sock
+    collection_interval: 30s
+    # O padrão do receiver (1.25) é recusado pelo Docker 29+, que exige no
+    # mínimo 1.44. Se a VPS rodar Docker anterior ao 25, baixar este valor.
+    api_version: "1.44"
+    metrics:
+      container.memory.percent:
+        enabled: true
+
+processors:
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 80
+    spike_limit_percentage: 20
+
+  # Cabeçalhos e atributos que nunca podem sair daqui, mesmo que alguma
+  # instrumentação passe a capturá-los.
+  attributes/strip-secrets:
+    actions:
+      - pattern: ^http\.request\.header\.(authorization|cookie|x-api-key|asaas-access-token|stripe-signature)$
+        action: delete
+      - pattern: ^http\.response\.header\.set-cookie$
+        action: delete
+      - key: enduser.id
+        action: hash
+      - key: user.email
+        action: delete
+
+  # Segredos na URL, em qualquer rota e em qualquer serviço. A Brapi recebe a
+  # chave como `&token=` e o link de descadastro do digest leva um token; os
+  # dois iriam para o Tempo em url.full / url.query. Também tira a query
+  # inteira das rotas de autenticação.
+  #
+  # Depois, e-mail, CPF e CNPJ em valores de atributo e no corpo do log.
+  transform/scrub-pii:
+    error_mode: ignore
+    trace_statements:
+      - context: span
+        statements:
+          - replace_pattern(attributes["url.full"], "(?i)([?&](token|key|api_?key|apikey|access_token|refresh_token|secret|password|passwd|code|sig|signature|auth)=)[^&#]*", "$${1}[redacted]")
+          - replace_pattern(attributes["url.query"], "(?i)((^|&)(token|key|api_?key|apikey|access_token|refresh_token|secret|password|passwd|code|sig|signature|auth)=)[^&#]*", "$${1}[redacted]")
+          - replace_pattern(attributes["http.url"], "(?i)([?&](token|key|api_?key|apikey|access_token|refresh_token|secret|password|passwd|code|sig|signature|auth)=)[^&#]*", "$${1}[redacted]")
+          - replace_pattern(attributes["url.query"], ".+", "[redacted]") where IsMatch(attributes["url.path"], "^/(auth|users)(/|$)")
+          - replace_all_patterns(attributes, "value", "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "[email]")
+          - replace_all_patterns(attributes, "value", "\\b\\d{3}\\.?\\d{3}\\.?\\d{3}-?\\d{2}\\b", "[cpf]")
+          - replace_all_patterns(attributes, "value", "\\b\\d{2}\\.?\\d{3}\\.?\\d{3}/?\\d{4}-?\\d{2}\\b", "[cnpj]")
+      - context: spanevent
+        statements:
+          - replace_all_patterns(attributes, "value", "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "[email]")
+    log_statements:
+      - context: log
+        statements:
+          - replace_pattern(body, "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "[email]")
+          - replace_pattern(body, "\\b\\d{3}\\.?\\d{3}\\.?\\d{3}-?\\d{2}\\b", "[cpf]")
+          - replace_pattern(body, "\\b\\d{2}\\.?\\d{3}\\.?\\d{3}/?\\d{4}-?\\d{2}\\b", "[cnpj]")
+          - replace_all_patterns(attributes, "value", "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}", "[email]")
+
+  # Health check e o próprio scraping viram ruído: saem antes de gravar.
+  filter/noise:
+    error_mode: ignore
+    traces:
+      span:
+        - IsMatch(attributes["url.path"], "^/health$")
+
+  batch:
+    send_batch_size: 1024
+    timeout: 5s
+
+exporters:
+  otlphttp/prometheus:
+    endpoint: http://prometheus:9090/api/v1/otlp
+    tls:
+      insecure: true
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: warn
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/strip-secrets, transform/scrub-pii, filter/noise, batch]
+      exporters: [otlp/tempo]
+    metrics:
+      receivers: [otlp, hostmetrics, docker_stats]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/prometheus]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, attributes/strip-secrets, transform/scrub-pii, batch]
+      exporters: [otlphttp/loki]
