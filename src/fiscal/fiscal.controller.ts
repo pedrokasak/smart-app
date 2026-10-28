@@ -20,6 +20,7 @@ import { Types } from 'mongoose';
 import { AiService } from 'src/ai/ai.service';
 import { AssetModel } from 'src/assets/schema/assets.model';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
+import { buildSummaryGuide } from 'src/fiscal/domain/ir-guide';
 import { GenerateIrReportDto } from 'src/fiscal/dto/generate-ir-report.dto';
 import { GenerateReportDto } from 'src/fiscal/dto/generate-report.dto';
 import { SalePreviewDto } from 'src/fiscal/dto/sale-preview.dto';
@@ -287,14 +288,7 @@ export class FiscalController {
 			monthly,
 			totals,
 			taxDrivers,
-			guide: [
-				'Passo 1: Abra o programa da Receita Federal.',
-				'Passo 2: Vá em Bens e Direitos.',
-				'Passo 3: Para ações, use Grupo 03 / Código 31.',
-				'Passo 4: Para FIIs, use Grupo 07 / Código 03.',
-				'Passo 5: Informe posição em 31/12 e custo de aquisição.',
-				'Passo 6: Lance dividendos e JCP na ficha Rendimentos.',
-			],
+			guide: buildSummaryGuide(yearNum),
 		};
 	}
 

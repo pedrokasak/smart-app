@@ -1,3 +1,5 @@
+import type { IrGuideStep } from 'src/fiscal/domain/ir-guide';
+
 export interface IrPositionItemDto {
 	symbol: string;
 	quantity: number;
@@ -16,10 +18,7 @@ export interface IrOperationMonthlyItemDto {
 	realizedResult: number;
 }
 
-export interface IrGuideStepDto {
-	title: string;
-	details: string;
-}
+export type IrGuideStepDto = IrGuideStep;
 
 export interface IrCryptoSectionDto {
 	positions: IrPositionItemDto[];
