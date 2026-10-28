@@ -3,8 +3,8 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import puppeteer from 'puppeteer';
 import { Asset } from 'src/assets/schema/assets.model';
+import { buildIrGuideSteps } from 'src/fiscal/domain/ir-guide';
 import {
-	IrGuideStepDto,
 	IrOperationMonthlyItemDto,
 	IrPositionItemDto,
 	IrProventosItemDto,
@@ -125,7 +125,7 @@ export class IrReportService {
 				operations: cryptoOperations,
 				totalRealizedResult: this.sumMonthlyResults(cryptoOperations),
 			},
-			guide: this.buildGuideSteps(year),
+			guide: buildIrGuideSteps(year),
 			notes: [
 				'Relatório automatizado para apoio à declaração. Revise sempre com sua documentação oficial.',
 				'JCP não é identificado de forma automática com os dados atuais; seção preenchida com zero por padrão.',
@@ -362,46 +362,6 @@ export class IrReportService {
 		}
 
 		return /^[A-Z]{2,10}$/.test(symbol) && !/\d/.test(symbol);
-	}
-
-	private buildGuideSteps(year: number): IrGuideStepDto[] {
-		return [
-			{
-				title: '1) Bens e Direitos (ações) - Grupo 03, Código 31',
-				details:
-					'Informe cada ativo com posição em 31/12/' +
-					year +
-					' pelo custo de aquisição (não pelo preço de mercado). Use os valores da seção "Posição em 31/12".',
-			},
-			{
-				title: '2) Rendimentos Isentos e Não Tributáveis (dividendos)',
-				details:
-					'Lance o total anual de dividendos recebido por ativo. Use a seção "Dividendos" como base e valide com informes da corretora.',
-			},
-			{
-				title:
-					'3) Rendimentos Sujeitos à Tributação Exclusiva/Definitiva (JCP)',
-				details:
-					'Com os dados atuais, o sistema preenche JCP com zero por padrão. Se você teve JCP, complemente manualmente com o informe oficial.',
-			},
-			{
-				title: '4) Operações Comuns/Day Trade (Renda Variável)',
-				details:
-					'Use a seção "Operações tributáveis" para apoiar a apuração mensal de lucro/prejuízo. Prejuízos podem ser compensados em meses futuros.',
-			},
-			{
-				title: '5) Criptoativos - Bens e Direitos e GCAP/IRPF',
-				details:
-					'Para cripto com saldo em 31/12/' +
-					year +
-					', preencha em Bens e Direitos conforme natureza do ativo. Use também a seção "Cripto" para apoiar ganho/perda em vendas.',
-			},
-			{
-				title: '6) Conferência final',
-				details:
-					'Valide tudo com notas de corretagem, extratos e informes de rendimento. Este relatório é de apoio e não substitui conferência contábil.',
-			},
-		];
 	}
 
 	private buildHtmlReport(report: IrReportResponseDto): string {
