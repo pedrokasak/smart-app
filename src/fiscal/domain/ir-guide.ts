@@ -1,4 +1,3 @@
-import { IrGuideStepDto } from 'src/fiscal/dto/ir-report-response.dto';
 import {
 	assetsAndRightsCodeCaveat,
 	assetsAndRightsTableFor,
@@ -10,6 +9,16 @@ import {
  * aqui: todos vêm de `assets-and-rights-codes.ts`, para o guia do resumo
  * fiscal e o do relatório de IR não voltarem a discordar.
  */
+
+/**
+ * Um passo do guia do relatório de IR. O tipo é do domínio e o DTO da resposta
+ * o reutiliza: a dependência vai da camada HTTP para o domínio, não o
+ * contrário.
+ */
+export interface IrGuideStep {
+	title: string;
+	details: string;
+}
 
 const ETF_LINE =
 	'ETFs e outros fundos: escolha na lista do programa o código do tipo de fundo (por exemplo, fundo de índice). Este guia não fixa o código de ETF porque ele ainda não foi confirmado na tabela oficial.';
@@ -49,7 +58,7 @@ export function buildSummaryGuide(year: number): string[] {
 }
 
 /** Guia do relatório anual de IR (`GET /fiscal/ir-report` e o PDF). */
-export function buildIrGuideSteps(year: number): IrGuideStepDto[] {
+export function buildIrGuideSteps(year: number): IrGuideStep[] {
 	const table = assetsAndRightsTableFor(exerciseOf(year));
 	const { stock, fii } = codeSentences(year);
 	const stockTitle = table

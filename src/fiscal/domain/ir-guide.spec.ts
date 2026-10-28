@@ -1,4 +1,4 @@
-import { readFileSync } from 'fs';
+import { readFileSync, readdirSync } from 'fs';
 import { join } from 'path';
 import {
 	ASSETS_AND_RIGHTS_TABLES,
@@ -106,12 +106,59 @@ describe('guia do relatório de IR (buildIrGuideSteps)', () => {
 	});
 });
 
-// Trava: o código não pode voltar a ser escrito à mão onde o usuário lê.
+// Exercício anterior à primeira tabela conhecida: sem tabela, o guia não
+// chuta código e manda o usuário para a lista do programa.
+describe('guias de um ano sem tabela de códigos', () => {
+	const NO_TABLE_YEAR = 2020; // exercício 2021
+
+	it('o guia do relatório não cita grupo nem código', () => {
+		const [first] = buildIrGuideSteps(NO_TABLE_YEAR);
+
+		expect(first.title).toBe('1) Bens e Direitos (ações)');
+		expect(first.details).toContain('escolha o código na lista do programa');
+		expect(first.details).not.toMatch(/Grupo\s+\d/);
+	});
+
+	it('o guia do resumo também manda escolher na lista do programa', () => {
+		const text = buildSummaryGuide(NO_TABLE_YEAR).join('\n');
+
+		expect(text).toContain('Para ações, escolha o código na lista do programa');
+		expect(text).toContain('Para FIIs, escolha o código na lista do programa');
+		expect(text).not.toMatch(/Grupo\s+\d/);
+	});
+});
+
+// Trava: o código não pode voltar a ser escrito à mão onde o usuário lê. Olha
+// todo o módulo fiscal, não só os dois arquivos que tinham o problema.
 describe('códigos de bem fora da fonte única', () => {
 	const root = join(__dirname, '..');
-	const consumers = ['fiscal.controller.ts', 'services/ir-report.service.ts'];
+	const ALLOWED = new Set([
+		'domain/assets-and-rights-codes.ts',
+		'domain/ir-guide.ts',
+	]);
 
-	it.each(consumers)('%s não escreve "Grupo NN" nem "Código NN"', (file) => {
+	const sourceFiles = (dir: string, base = ''): string[] =>
+		readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+			const relative = base ? `${base}/${entry.name}` : entry.name;
+			if (entry.isDirectory())
+				return sourceFiles(join(dir, entry.name), relative);
+			return entry.name.endsWith('.ts') && !entry.name.endsWith('.spec.ts')
+				? [relative]
+				: [];
+		});
+
+	const files = sourceFiles(root).filter((file) => !ALLOWED.has(file));
+
+	it('encontra os arquivos do módulo', () => {
+		expect(files).toEqual(
+			expect.arrayContaining([
+				'fiscal.controller.ts',
+				'services/ir-report.service.ts',
+			])
+		);
+	});
+
+	it.each(files)('%s não escreve "Grupo NN" nem "Código NN"', (file) => {
 		const source = readFileSync(join(root, file), 'utf8');
 		expect(source).not.toMatch(/Grupo\s+\d{2}/);
 		expect(source).not.toMatch(/C[óo]digo\s+\d{2}/);
