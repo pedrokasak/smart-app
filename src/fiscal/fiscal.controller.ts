@@ -116,12 +116,10 @@ export class FiscalController {
 				const potentialGain = (marketPrice - averagePrice) * quantity;
 				if (potentialGain <= 0) return null;
 
-				const availableLoss =
-					category === 'stock'
-						? losses.stock
-						: category === 'fii'
-							? losses.fii
-							: losses.crypto;
+				const availableLoss = this.fiscalService.availableLossFor(
+					category,
+					losses
+				);
 				if (availableLoss <= 0) return null;
 
 				const offsetUsed = Math.min(potentialGain, availableLoss);
@@ -275,12 +273,13 @@ export class FiscalController {
 		const totals = monthly.reduce(
 			(acc, m) => {
 				acc.stockProfit += m.stockProfit;
+				acc.etfProfit += m.etfProfit;
 				acc.fiiProfit += m.fiiProfit;
 				acc.cryptoProfit += m.cryptoProfit;
 				acc.taxDue += m.totalTax;
 				return acc;
 			},
-			{ stockProfit: 0, fiiProfit: 0, cryptoProfit: 0, taxDue: 0 }
+			{ stockProfit: 0, etfProfit: 0, fiiProfit: 0, cryptoProfit: 0, taxDue: 0 }
 		);
 
 		return {
