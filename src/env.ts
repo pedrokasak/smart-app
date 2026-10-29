@@ -77,6 +77,25 @@ const envSchema = z.object({
 	BROKER_ENCRYPTION_KEY: z.string().optional(),
 	/** Chave do formato v1 (AES-256-CBC). Somente leitura de linhas antigas. */
 	BROKER_ENCRYPTION_KEY_LEGACY: z.string().optional(),
+	/**
+	 * API da Area do Investidor da B3 (TRA-185). Tudo opcional: sem
+	 * client_id/secret e certificado a integracao fica desligada. Os valores
+	 * vem do "pacote de acesso" da B3; os arquivos .cer/.key ficam fora do git.
+	 * Ver `b3-investor/infrastructure/b3-investor.config.ts`. Sem validacao de
+	 * formato aqui de proposito: um valor errado desliga so a integracao, nao
+	 * o boot da API.
+	 */
+	B3_INVESTOR_ENV: z.string().optional(),
+	B3_INVESTOR_CLIENT_ID: z.string().optional(),
+	B3_INVESTOR_CLIENT_SECRET: z.string().optional(),
+	B3_INVESTOR_CERT_PATH: z.string().optional(),
+	B3_INVESTOR_KEY_PATH: z.string().optional(),
+	B3_INVESTOR_KEY_PASSPHRASE: z.string().optional(),
+	B3_INVESTOR_CA_PATH: z.string().optional(),
+	B3_INVESTOR_BASE_URL: z.string().optional(),
+	B3_INVESTOR_TOKEN_URL: z.string().optional(),
+	B3_INVESTOR_SCOPE: z.string().optional(),
+	B3_INVESTOR_TIMEOUT_MS: z.string().optional(),
 });
 
 const isTestEnvironment = process.env.NODE_ENV === 'test';
@@ -156,3 +175,16 @@ export const brokerEncryptionKey: string | undefined =
 	env.data.BROKER_ENCRYPTION_KEY;
 export const brokerEncryptionKeyLegacy: string | undefined =
 	env.data.BROKER_ENCRYPTION_KEY_LEGACY;
+export const b3InvestorEnv: Record<string, string | undefined> = {
+	B3_INVESTOR_ENV: env.data.B3_INVESTOR_ENV,
+	B3_INVESTOR_CLIENT_ID: env.data.B3_INVESTOR_CLIENT_ID,
+	B3_INVESTOR_CLIENT_SECRET: env.data.B3_INVESTOR_CLIENT_SECRET,
+	B3_INVESTOR_CERT_PATH: env.data.B3_INVESTOR_CERT_PATH,
+	B3_INVESTOR_KEY_PATH: env.data.B3_INVESTOR_KEY_PATH,
+	B3_INVESTOR_KEY_PASSPHRASE: env.data.B3_INVESTOR_KEY_PASSPHRASE,
+	B3_INVESTOR_CA_PATH: env.data.B3_INVESTOR_CA_PATH,
+	B3_INVESTOR_BASE_URL: env.data.B3_INVESTOR_BASE_URL,
+	B3_INVESTOR_TOKEN_URL: env.data.B3_INVESTOR_TOKEN_URL,
+	B3_INVESTOR_SCOPE: env.data.B3_INVESTOR_SCOPE,
+	B3_INVESTOR_TIMEOUT_MS: env.data.B3_INVESTOR_TIMEOUT_MS,
+};
