@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
 	AGENT_GATE,
 	AgentGate,
-	agentAllows,
 } from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -74,8 +74,8 @@ export class QuoteFreshnessScheduler {
 		name: 'market-quote-refresh',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('quote-freshness')
 	async runRefresh(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'quote-freshness'))) return;
 		try {
 			const result = await this.refreshHeldSymbols();
 			this.logger.log(
@@ -96,8 +96,8 @@ export class QuoteFreshnessScheduler {
 		name: 'market-quote-refresh-trading-hours',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('quote-freshness')
 	async runTradingHoursRefresh(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'quote-freshness'))) return;
 		await this.runRefresh();
 	}
 
@@ -109,8 +109,8 @@ export class QuoteFreshnessScheduler {
 		name: 'crypto-quote-refresh',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('quote-freshness')
 	async runCryptoRefresh(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'quote-freshness'))) return;
 		await this.refreshCrypto();
 	}
 
@@ -118,8 +118,8 @@ export class QuoteFreshnessScheduler {
 		name: 'market-quote-staleness',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('quote-freshness')
 	async runEvaluation(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'quote-freshness'))) return;
 		try {
 			const published = await this.evaluate(new Date());
 			this.logger.log(

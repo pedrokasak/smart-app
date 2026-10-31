@@ -17,6 +17,13 @@ export interface AgentGate {
 	 * primeiro carregamento: quem chama decide o que vale até lá.
 	 */
 	peekEnabled(agentId: string): boolean | null;
+	/**
+	 * Roda uma rodada do agente sob o controle (ADR-005, fase A3): se o estado
+	 * efetivo for desligado, registra `skipped_disabled` e devolve `undefined`
+	 * sem chamar `fn`; senão chama `fn`, mede e registra a rodada (ok, parcial
+	 * ou falha, que sobe de novo). É o que `@AgentRun` usa.
+	 */
+	run<T>(agentId: string, fn: () => Promise<T>): Promise<T | undefined>;
 }
 
 export const AGENT_GATE = Symbol('AGENT_GATE');

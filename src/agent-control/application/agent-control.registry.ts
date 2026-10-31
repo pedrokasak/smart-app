@@ -4,7 +4,18 @@ import {
 	Logger,
 	OnApplicationBootstrap,
 	OnModuleDestroy,
+	Optional,
 } from '@nestjs/common';
+import {
+	AgentRun,
+	RUN_ERROR_MAX_CHARS,
+} from 'src/agent-control/domain/agent-run.types';
+import { collectAgentReport } from './agent-run-context';
+import {
+	AGENT_CONTROL_SYNC,
+	AgentControlSync,
+} from './ports/agent-control-sync.port';
+import { AGENT_RUN_STORE, AgentRunStore } from './ports/agent-run-store.port';
 import {
 	AGENT_DEFINITIONS,
 	findAgentDefinition,
@@ -31,6 +42,9 @@ import {
 /** Validade do estado em memória (ADR-005, seção 7.1). */
 export const AGENT_CONTROL_CACHE_TTL_MS = 30_000;
 
+/** Intervalo mínimo entre duas rodadas "puladas" registradas do mesmo agente. */
+export const SKIP_RECORD_INTERVAL_MS = 60 * 60 * 1000;
+
 export const AGENT_CONTROL_ENV = Symbol('AGENT_CONTROL_ENV');
 export const AGENT_CONTROL_CLOCK = Symbol('AGENT_CONTROL_CLOCK');
 export type Clock = () => Date;
@@ -56,13 +70,22 @@ export class AgentControlRegistry
 	private pending: Promise<void> | null = null;
 	private timer: NodeJS.Timeout | null = null;
 	private readonly appliedSchedules = new Map<string, string>();
+	private readonly lastSkipRecordedAt = new Map<string, number>();
 
 	constructor(
 		@Inject(AGENT_CONTROL_STORE) private readonly store: AgentControlStore,
 		@Inject(AGENT_SCHEDULE_APPLIER)
 		private readonly scheduleApplier: AgentScheduleApplier,
 		@Inject(AGENT_CONTROL_ENV) private readonly env: NodeJS.ProcessEnv,
-		@Inject(AGENT_CONTROL_CLOCK) private readonly clock: Clock
+		@Inject(AGENT_CONTROL_CLOCK) private readonly clock: Clock,
+		// Opcionais para o teste que monta o registro à mão: sem o store de
+		// rodadas nada é registrado, e sem o canal vale só a recarga de 30 s.
+		@Optional()
+		@Inject(AGENT_RUN_STORE)
+		private readonly runStore?: AgentRunStore,
+		@Optional()
+		@Inject(AGENT_CONTROL_SYNC)
+		private readonly sync?: AgentControlSync
 	) {}
 
 	async onApplicationBootstrap(): Promise<void> {
@@ -81,10 +104,82 @@ export class AgentControlRegistry
 			AGENT_CONTROL_CACHE_TTL_MS
 		);
 		this.timer.unref?.();
+		// Outra instância mudou um agente: recarrega na hora, sem esperar os 30 s.
+		this.sync?.subscribe(() => void this.refresh());
 	}
 
-	onModuleDestroy(): void {
+	async onModuleDestroy(): Promise<void> {
 		if (this.timer) clearInterval(this.timer);
+		await this.sync?.close();
+	}
+
+	async run<T>(agentId: string, fn: () => Promise<T>): Promise<T | undefined> {
+		const startedAt = this.clock();
+		if (!(await this.isEnabled(agentId))) {
+			if (!this.shouldRecordSkip(agentId, startedAt)) return undefined;
+			await this.recordRun({
+				agentId,
+				startedAt,
+				finishedAt: this.clock(),
+				status: 'skipped_disabled',
+				items: 0,
+				errors: 0,
+				tokens: 0,
+				costBrl: null,
+				error: null,
+			});
+			return undefined;
+		}
+
+		const outcome = await collectAgentReport(fn);
+		if (outcome.kind === 'done') {
+			await this.recordRun({
+				agentId,
+				startedAt,
+				finishedAt: this.clock(),
+				status: outcome.report.errors > 0 ? 'partial' : 'ok',
+				...outcome.report,
+				error: null,
+			});
+			return outcome.value;
+		}
+
+		await this.recordRun({
+			agentId,
+			startedAt,
+			finishedAt: this.clock(),
+			status: 'failed',
+			...outcome.report,
+			errors: Math.max(outcome.report.errors, 1),
+			error: messageOf(outcome.error).slice(0, RUN_ERROR_MAX_CHARS),
+		});
+		// A falha continua sendo do agente: o registro só a anota.
+		throw outcome.error;
+	}
+
+	/**
+	 * Job de 15 em 15 minutos desligado por uma semana não pode gerar 670
+	 * linhas "puladas": uma por hora por agente já mostra que o cron disparou.
+	 */
+	private shouldRecordSkip(agentId: string, at: Date): boolean {
+		const last = this.lastSkipRecordedAt.get(agentId);
+		if (last !== undefined && at.getTime() - last < SKIP_RECORD_INTERVAL_MS) {
+			return false;
+		}
+		this.lastSkipRecordedAt.set(agentId, at.getTime());
+		return true;
+	}
+
+	/** O registro da rodada nunca derruba o agente: falha só vira aviso no log. */
+	private async recordRun(run: AgentRun): Promise<void> {
+		if (!this.runStore) return;
+		try {
+			await this.runStore.insert(run);
+		} catch (err) {
+			this.logger.warn(
+				`Controle de agentes: não registrou a rodada de ${run.agentId}: ${messageOf(err)}`
+			);
+		}
 	}
 
 	/** Grava o estado inicial de quem ainda não tem documento. */

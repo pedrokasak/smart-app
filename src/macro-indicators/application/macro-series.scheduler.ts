@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
 	AGENT_GATE,
 	AgentGate,
-	agentAllows,
 } from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { MacroSeriesService } from './macro-series.service';
 
@@ -27,8 +27,8 @@ export class MacroSeriesScheduler {
 		name: 'macro-series-sync',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('macro-series')
 	async run(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'macro-series'))) return;
 		const result = await this.macroSeries.syncAll();
 		this.logger.log(`Séries macro sincronizadas: ${JSON.stringify(result)}`);
 	}

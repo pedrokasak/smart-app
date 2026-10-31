@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
 	AGENT_GATE,
 	AgentGate,
-	agentAllows,
 } from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -48,8 +48,8 @@ export class PortfolioEvaluationScheduler {
 		name: 'portfolio-evaluation',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('portfolio-evaluation')
 	async runDaily(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'portfolio-evaluation'))) return;
 		try {
 			const evaluated = await this.sweep();
 			this.logger.log(`Avaliacao de carteira: ${evaluated} usuario(s)`);

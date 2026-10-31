@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
 	AGENT_GATE,
 	AgentGate,
-	agentAllows,
 } from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { FixedIncomePositionsService } from './fixed-income-positions.service';
 
@@ -27,8 +27,8 @@ export class FixedIncomeMarkingScheduler {
 		name: 'fixed-income-marking',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('fixed-income-marking')
 	async run(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'fixed-income-marking'))) return;
 		const written = await this.positions.markAll();
 		this.logger.log(`Renda fixa marcada na curva: ${written} posição(ões).`);
 	}

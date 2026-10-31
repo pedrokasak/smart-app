@@ -3,6 +3,10 @@ import {
 	AgentControl,
 	AgentControlChange,
 } from 'src/agent-control/domain/agent-control.types';
+import {
+	AgentRun,
+	RUN_RETENTION_DAYS,
+} from 'src/agent-control/domain/agent-run.types';
 
 /**
  * `agent_controls`: um documento por agente controlável (ADR-005, seção 4).
@@ -63,3 +67,40 @@ export const AgentControlChangeModel = model<AgentControlChange>(
 	'AgentControlChange',
 	agentControlChangeSchema
 );
+
+/**
+ * `agent_runs`: uma linha por rodada de agente (ADR-005, fase A3). Só
+ * inclusão. Sai sozinha depois de 180 dias (índice TTL em `finishedAt`).
+ */
+const agentRunSchema = new Schema<AgentRun>(
+	{
+		agentId: { type: String, required: true },
+		startedAt: { type: Date, required: true },
+		finishedAt: { type: Date, required: true },
+		status: {
+			type: String,
+			required: true,
+			enum: ['ok', 'partial', 'failed', 'skipped_disabled'],
+		},
+		items: { type: Number, default: 0 },
+		errors: { type: Number, default: 0 },
+		tokens: { type: Number, default: 0 },
+		costBrl: { type: Number, default: null },
+		error: { type: String, default: null },
+	},
+	{ collection: 'agent_runs', minimize: false, versionKey: false }
+);
+
+agentRunSchema.index(
+	{ finishedAt: 1 },
+	{
+		expireAfterSeconds: RUN_RETENTION_DAYS * 24 * 60 * 60,
+		name: 'agent_run_ttl',
+	}
+);
+agentRunSchema.index(
+	{ agentId: 1, finishedAt: -1 },
+	{ name: 'agent_run_by_agent' }
+);
+
+export const AgentRunModel = model<AgentRun>('AgentRun', agentRunSchema);

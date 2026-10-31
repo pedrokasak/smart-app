@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
 	AGENT_GATE,
 	AgentGate,
-	agentAllows,
 } from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -47,8 +47,8 @@ export class PortfolioDigestScheduler {
 	) {}
 
 	@Cron('0 9 * * 1', { timeZone: 'America/Sao_Paulo' })
+	@AgentRun('portfolio-digest')
 	async sendWeeklyDigests(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'portfolio-digest'))) return;
 		const optedIn = await this.userModel.find({
 			'notificationPreferences.portfolioDigest.enabled': true,
 		});

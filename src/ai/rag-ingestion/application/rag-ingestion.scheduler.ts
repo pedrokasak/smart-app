@@ -2,8 +2,9 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
 	AGENT_GATE,
 	AgentGate,
-	agentAllows,
 } from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
+import { reportAgentRun } from 'src/agent-control/application/agent-run-context';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -59,8 +60,8 @@ export class RagIngestionScheduler {
 
 	// Nome no registro: o horário troca pelo painel de agentes (ADR-005).
 	@Cron('0 3 * * *', { name: 'rag-ingestion', timeZone: 'America/Sao_Paulo' })
+	@AgentRun('rag-ingestion')
 	async ingestDaily(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'rag-ingestion'))) return;
 		const users = await this.userModel.find({}, { _id: 1 });
 		this.logger.log(`Ingestão de RAG: avaliando ${users.length} usuário(s).`);
 
@@ -73,6 +74,7 @@ export class RagIngestionScheduler {
 		}
 
 		const failures = results.filter((r) => r.status === 'rejected').length;
+		reportAgentRun({ items: ingested, errors: failures });
 		this.logger.log(
 			`Ingestão de RAG: ${ingested} usuário(s) ingerido(s), ${failures} falha(s) isolada(s).`
 		);

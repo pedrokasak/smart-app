@@ -49,6 +49,16 @@ import {
 	AgentControlStore,
 } from './ports/agent-control-store.port';
 import {
+	AGENT_CONTROL_SYNC,
+	AgentControlSync,
+} from './ports/agent-control-sync.port';
+import { AGENT_RUN_STORE, AgentRunStore } from './ports/agent-run-store.port';
+import {
+	AgentRunSummary,
+	COST_WINDOW_DAYS,
+} from 'src/agent-control/domain/agent-run.types';
+import { summarizeRuns } from 'src/agent-control/domain/agent-run-summary';
+import {
 	AGENT_CHANGE_NOTIFIER,
 	AgentChangeNotifier,
 	STEP_UP_VERIFIER,
@@ -78,6 +88,11 @@ export interface AgentView {
 	version: number | null;
 	updatedAt: Date | null;
 	detailRoute: string | null;
+	/** Rodadas dos últimos 30 dias (fase A3); zerado para quem nunca rodou. */
+	lastRun: AgentRunSummary['lastRun'];
+	errors7d: number;
+	tokens30d: number;
+	costBrl30d: number | null;
 }
 
 export interface AgentListView {
@@ -114,16 +129,24 @@ export class AgentControlService {
 		@Inject(AGENT_CHANGE_NOTIFIER)
 		private readonly notifier: AgentChangeNotifier,
 		@Inject(AGENT_CONTROL_ENV) private readonly env: NodeJS.ProcessEnv,
-		@Inject(AGENT_CONTROL_CLOCK) private readonly clock: Clock
+		@Inject(AGENT_CONTROL_CLOCK) private readonly clock: Clock,
+		@Inject(AGENT_RUN_STORE) private readonly runs: AgentRunStore,
+		@Inject(AGENT_CONTROL_SYNC) private readonly sync: AgentControlSync
 	) {}
 
 	async list(): Promise<AgentListView> {
 		const controls = await this.registry.snapshot();
 		const now = this.clock();
+		const summaries = await this.runSummaries(now);
 		return {
 			killAll: { name: AGENTS_KILL_ALL_ENV, active: killAllActive(this.env) },
 			agents: AGENT_DEFINITIONS.map((definition) =>
-				this.toView(definition, controls.get(definition.id) ?? null, now)
+				this.toView(
+					definition,
+					controls.get(definition.id) ?? null,
+					now,
+					summaries.get(definition.id)
+				)
 			),
 		};
 	}
@@ -131,7 +154,27 @@ export class AgentControlService {
 	async get(agentId: string): Promise<AgentView> {
 		const definition = this.definitionOf(agentId);
 		const control = await this.store.findOne(agentId);
-		return this.toView(definition, control, this.clock());
+		const now = this.clock();
+		const summaries = await this.runSummaries(now);
+		return this.toView(definition, control, now, summaries.get(agentId));
+	}
+
+	/**
+	 * Rodadas dos últimos 30 dias, resumidas. Falha de leitura não derruba a
+	 * lista: os números ficam zerados e o painel continua mudando agentes.
+	 */
+	private async runSummaries(now: Date): Promise<Map<string, AgentRunSummary>> {
+		try {
+			const since = new Date(
+				now.getTime() - COST_WINDOW_DAYS * 24 * 60 * 60 * 1000
+			);
+			return summarizeRuns(await this.runs.findSince(since), now);
+		} catch (err) {
+			this.logger.warn(
+				`Rodadas dos agentes indisponíveis: ${(err as Error)?.message ?? err}`
+			);
+			return new Map();
+		}
 	}
 
 	async changes(
@@ -255,6 +298,8 @@ export class AgentControlService {
 			at: now,
 		});
 		if (options.refresh !== false) await this.registry.refresh();
+		// Atalho para as outras instâncias; o adaptador nunca lança.
+		await this.sync.publishChanged(definition.id);
 
 		void this.notifier
 			.notify({
@@ -274,7 +319,8 @@ export class AgentControlService {
 	private toView(
 		definition: AgentDefinition,
 		control: AgentControl | null,
-		now: Date
+		now: Date,
+		summary?: AgentRunSummary
 	): AgentView {
 		const locked = isLocked(definition);
 		return {
@@ -300,6 +346,10 @@ export class AgentControlService {
 			version: control?.version ?? null,
 			updatedAt: control?.updatedAt ?? null,
 			detailRoute: definition.detailRoute ?? null,
+			lastRun: summary?.lastRun ?? null,
+			errors7d: summary?.errors7d ?? 0,
+			tokens30d: summary?.tokens30d ?? 0,
+			costBrl30d: summary?.costBrl30d ?? null,
 		};
 	}
 

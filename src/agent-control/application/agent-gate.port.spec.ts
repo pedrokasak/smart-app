@@ -18,6 +18,7 @@ function gate(
 		config: async (id) => (config[id] as never) ?? null,
 		peekConfig: (id) => (config[id] as never) ?? null,
 		peekEnabled: (id) => (id in enabled ? enabled[id] : null),
+		run: async (_id, fn) => fn(),
 	};
 }
 
