@@ -43,6 +43,8 @@ export interface AgentControlChange {
 	reason: string | null;
 	ip: string | null;
 	at: Date;
+	/** Evento desta mudança na trilha encadeada (ADR-005, fase A4). */
+	auditEventId?: string;
 }
 
 export interface AgentControlSnapshot {

@@ -5,6 +5,7 @@ import {
 	NotFoundException,
 } from '@nestjs/common';
 import { AgentRun } from 'src/agent-control/domain/agent-run.types';
+import { AuditEventInput, sha256 } from 'src/audit/domain/audit-event';
 import { AgentControlRegistry } from './agent-control.registry';
 import { AgentActor, AgentControlService } from './agent-control.service';
 import { InMemoryAgentControlStore } from './in-memory-agent-control.store.fixture';
@@ -23,6 +24,8 @@ describe('AgentControlService', () => {
 	let runs: AgentRun[];
 	let runsFail: boolean;
 	let published: string[];
+	let audited: AuditEventInput[];
+	let auditFails: boolean;
 
 	beforeEach(async () => {
 		now = new Date('2026-10-27T12:00:00Z');
@@ -32,6 +35,8 @@ describe('AgentControlService', () => {
 		runs = [];
 		runsFail = false;
 		published = [];
+		audited = [];
+		auditFails = false;
 		const env = { RI_WATCH_ENABLED: 'true' };
 		registry = new AgentControlRegistry(
 			store,
@@ -76,6 +81,12 @@ describe('AgentControlService', () => {
 				},
 				subscribe: () => {},
 				close: async () => {},
+			},
+			{
+				record: async (event) => {
+					if (auditFails) throw new Error('mongo fora');
+					audited.push(event);
+				},
 			}
 		);
 	});
@@ -241,7 +252,8 @@ describe('AgentControlService', () => {
 				publishChanged: async () => {},
 				subscribe: () => {},
 				close: async () => {},
-			}
+			},
+			{ record: async () => {} }
 		);
 		await expect(
 			service.change(actor, 'ri-watch', {
@@ -326,6 +338,77 @@ describe('AgentControlService', () => {
 				})
 			).rejects.toBeInstanceOf(BadRequestException);
 			expect(published).toEqual([]);
+		});
+	});
+
+	describe('trilha de auditoria (fase A4)', () => {
+		const change = () =>
+			service.change(actor, 'ri-watch', {
+				enabled: false,
+				reason,
+				version: 1,
+				totp: validCode,
+			});
+
+		it('entrega a mudança à trilha com o mesmo id do histórico', async () => {
+			await change();
+
+			expect(audited).toHaveLength(1);
+			expect(audited[0]).toMatchObject({
+				type: 'agent.control.changed',
+				version: 1,
+				subject: 'ri-watch',
+				actorRef: 'usr_abc',
+				payload: expect.objectContaining({
+					agentId: 'ri-watch',
+					fromVersion: 1,
+					toVersion: 2,
+				}),
+			});
+			expect(store.changes[0].auditEventId).toBe(audited[0].eventId);
+		});
+
+		it('o motivo entra na trilha só pelo hash, nunca em texto', async () => {
+			await change();
+			expect(audited[0].payload.reasonSha256).toBe(sha256(reason));
+			expect(JSON.stringify(audited[0])).not.toContain(reason);
+		});
+
+		it('não leva e-mail, IP nem o código 2FA', async () => {
+			await change();
+			const text = JSON.stringify(audited[0]);
+			expect(text).not.toContain('10.0.0.1');
+			expect(text).not.toContain(validCode);
+		});
+
+		it('trilha fora do ar não desfaz a mudança, e o erro vai para o log com o id do evento', async () => {
+			auditFails = true;
+			const logged = jest
+				.spyOn(
+					(service as unknown as { logger: { error: () => void } }).logger,
+					'error'
+				)
+				.mockImplementation(() => undefined);
+
+			await expect(change()).resolves.toMatchObject({
+				effective: { enabled: false },
+			});
+
+			expect(store.changes).toHaveLength(1);
+			expect(logged).toHaveBeenCalledWith(
+				expect.stringContaining(String(store.changes[0].auditEventId))
+			);
+		});
+
+		it('mudança recusada não gera evento', async () => {
+			await expect(
+				service.change(actor, 'ri-watch', {
+					enabled: false,
+					version: 1,
+					totp: validCode,
+				})
+			).rejects.toBeInstanceOf(BadRequestException);
+			expect(audited).toEqual([]);
 		});
 	});
 });
