@@ -1,6 +1,8 @@
 import {
+	Inject,
 	Injectable,
 	Logger,
+	Optional,
 	UnauthorizedException,
 	NotFoundException,
 	InternalServerErrorException,
@@ -29,6 +31,11 @@ import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
 import { isBootstrapAdminEmail } from 'src/admin/application/admin-bootstrap.policy';
 import { Role } from 'src/auth/enums/role.enum';
 import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
+import {
+	SECURITY_AUDIT,
+	SecurityAudit,
+} from 'src/audit/application/security-audit.service';
+import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 import {
 	isWithinRotationGrace,
 	remainingSessionSeconds,
@@ -104,7 +111,11 @@ export class AuthenticationService {
 		private tokenBlacklistService: TokenBlacklistService,
 		private readonly emailService: EmailService,
 		private readonly passwordSecurityService: PasswordSecurityService,
-		private readonly breachedPasswordPolicy: BreachedPasswordPolicy
+		private readonly breachedPasswordPolicy: BreachedPasswordPolicy,
+		// Opcional: sem a trilha (testes, módulos isolados) o login segue igual.
+		@Optional()
+		@Inject(SECURITY_AUDIT)
+		private readonly securityAudit?: SecurityAudit
 	) {}
 
 	async signin(
@@ -129,6 +140,13 @@ export class AuthenticationService {
 				password,
 				await this.dummyPasswordHash()
 			);
+			// Sem `await` e depois do Argon2: a trilha não pode mudar o tempo de
+			// resposta que o TRA-89 igualou.
+			this.securityAudit?.emit({
+				type: SECURITY_EVENT.LoginFailed,
+				actor: { emailAttempted: email },
+				payload: { reason: 'unknown_email_or_no_password' },
+			});
 			AuthErrorService.handleInvalidCredentials();
 		}
 
@@ -138,6 +156,11 @@ export class AuthenticationService {
 		);
 
 		if (!isPasswordValid) {
+			this.securityAudit?.emit({
+				type: SECURITY_EVENT.LoginFailed,
+				actor: { emailAttempted: email },
+				payload: { reason: 'wrong_password' },
+			});
 			AuthErrorService.handleInvalidCredentials();
 		}
 
@@ -363,6 +386,12 @@ export class AuthenticationService {
 		user.lastLogin = now;
 		user.lastSeenAt = now;
 		await user.save();
+
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.LoginSucceeded,
+			actor: { userId: user.id },
+			payload: { keepConnected, role: user.role ?? Role.User },
+		});
 
 		return {
 			accessToken,
@@ -621,6 +650,12 @@ export class AuthenticationService {
 		user.refreshToken = null;
 		await user.save();
 
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.PasswordChanged,
+			actor: { userId: String(user.id) },
+			payload: { via: 'update_password' },
+		});
+
 		await this.notifyPasswordChanged(user);
 
 		return { message: 'Password updated successfully' };
@@ -787,6 +822,12 @@ export class AuthenticationService {
 		// manter o refresh token anterior válido deixava esse alguém dentro.
 		user.refreshToken = null;
 		await user.save();
+
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.PasswordChanged,
+			actor: { userId: String(user.id) },
+			payload: { via: 'reset_password' },
+		});
 
 		await this.notifyPasswordChanged(user);
 

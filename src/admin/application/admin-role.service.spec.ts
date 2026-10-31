@@ -2,6 +2,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Role } from 'src/auth/enums/role.enum';
 import { ROLE_CHANGE_BOOTSTRAP_ACTOR } from '../schema/role-change-audit.model';
 import { AdminRoleService } from './admin-role.service';
+import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 
 const BOOTSTRAP_EMAIL = 'dono@exemplo.com';
 
@@ -20,13 +21,19 @@ describe('AdminRoleService (TRA-184)', () => {
 	let userModel: { findOne: jest.Mock; findById: jest.Mock };
 	let auditModel: { create: jest.Mock };
 	let service: AdminRoleService;
+	let securityAudit: { emit: jest.Mock };
 	const originalEnv = process.env.ADMIN_BOOTSTRAP_EMAIL;
 
 	beforeEach(() => {
 		process.env.ADMIN_BOOTSTRAP_EMAIL = BOOTSTRAP_EMAIL;
 		userModel = { findOne: jest.fn(), findById: jest.fn() };
 		auditModel = { create: jest.fn().mockResolvedValue({}) };
-		service = new AdminRoleService(userModel as any, auditModel as any);
+		securityAudit = { emit: jest.fn() };
+		service = new AdminRoleService(
+			userModel as any,
+			auditModel as any,
+			securityAudit
+		);
 	});
 
 	afterAll(() => {
@@ -69,6 +76,35 @@ describe('AdminRoleService (TRA-184)', () => {
 				email: 'alvo@exemplo.com',
 				role: Role.Editor,
 			});
+		});
+
+		it('registra na trilha quem mudou o papel de quem, sem e-mail', async () => {
+			userModel.findOne.mockResolvedValue(makeUser());
+			userModel.findById.mockResolvedValue(
+				makeUser({ _id: 'admin-id', email: 'admin@exemplo.com' })
+			);
+
+			await service.updateUserRoleByEmail(
+				'admin-id',
+				'alvo@exemplo.com',
+				Role.Editor
+			);
+
+			const event = securityAudit.emit.mock.calls[0][0];
+			expect(event).toEqual({
+				type: SECURITY_EVENT.RoleChanged,
+				actor: { userId: 'admin-id' },
+				subject: { userId: 'user-id' },
+				payload: { from: Role.User, to: Role.Editor, via: 'admin_panel' },
+			});
+			expect(JSON.stringify(event)).not.toContain('@');
+		});
+
+		it('não registra quando a role não é aceita', async () => {
+			await expect(
+				service.updateUserRoleByEmail('admin-id', 'a@b.com', Role.Advisor)
+			).rejects.toBeInstanceOf(BadRequestException);
+			expect(securityAudit.emit).not.toHaveBeenCalled();
 		});
 
 		it('recusa roles fora de admin/editor sem tocar no banco', async () => {

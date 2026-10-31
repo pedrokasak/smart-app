@@ -3,6 +3,13 @@ import {
 	StoredAuditEvent,
 } from 'src/audit/domain/audit-event';
 
+export interface AuditEventListQuery {
+	type?: string;
+	subject?: string;
+	/** Posição (exclusiva) de onde continuar, do mais novo para o mais antigo. */
+	before?: { createdAt: Date; eventId: string };
+}
+
 export interface AuditChainHead {
 	seq: number;
 	hash: string;
@@ -27,6 +34,8 @@ export interface AuditEventStore {
 	findSealedBySeq(seq: number): Promise<SealedAuditEvent | null>;
 	findLastSealed(): Promise<SealedAuditEvent | null>;
 	countPending(): Promise<number>;
+	/** Do mais novo para o mais antigo, selados e pendentes. */
+	list(query: AuditEventListQuery, limit: number): Promise<StoredAuditEvent[]>;
 
 	/**
 	 * Concessão para selar: só uma instância por vez, com validade, para a

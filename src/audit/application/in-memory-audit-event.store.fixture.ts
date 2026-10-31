@@ -6,6 +6,7 @@ import {
 } from 'src/audit/domain/audit-event';
 import {
 	AuditChainHead,
+	AuditEventListQuery,
 	AuditEventStore,
 } from './ports/audit-event-store.port';
 
@@ -73,6 +74,31 @@ export class InMemoryAuditEventStore implements AuditEventStore {
 
 	async countPending(): Promise<number> {
 		return this.events.filter((event) => event.seq === null).length;
+	}
+
+	async list(
+		query: AuditEventListQuery,
+		limit: number
+	): Promise<StoredAuditEvent[]> {
+		const before = query.before;
+		return this.events
+			.filter((event) => !query.type || event.type === query.type)
+			.filter((event) => !query.subject || event.subject === query.subject)
+			.filter((event) => {
+				if (!before) return true;
+				const at = event.createdAt.getTime();
+				const limitAt = before.createdAt.getTime();
+				return (
+					at < limitAt || (at === limitAt && event.eventId < before.eventId)
+				);
+			})
+			.sort(
+				(a, b) =>
+					b.createdAt.getTime() - a.createdAt.getTime() ||
+					(a.eventId < b.eventId ? 1 : -1)
+			)
+			.slice(0, limit)
+			.map((event) => ({ ...event }));
 	}
 
 	async tryAcquireLease(

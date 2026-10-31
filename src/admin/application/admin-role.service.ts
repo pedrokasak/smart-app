@@ -1,13 +1,20 @@
 import {
 	BadRequestException,
+	Inject,
 	Injectable,
 	Logger,
 	NotFoundException,
 	OnModuleInit,
+	Optional,
 } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { Role } from 'src/auth/enums/role.enum';
+import {
+	SECURITY_AUDIT,
+	SecurityAudit,
+} from 'src/audit/application/security-audit.service';
+import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 import { User } from 'src/users/schema/user.model';
 import {
 	ROLE_CHANGE_BOOTSTRAP_ACTOR,
@@ -25,7 +32,10 @@ export class AdminRoleService implements OnModuleInit {
 	constructor(
 		@InjectModel('User') private readonly userModel: Model<User>,
 		@InjectModel('RoleChangeAudit')
-		private readonly roleChangeAuditModel: Model<RoleChangeAudit>
+		private readonly roleChangeAuditModel: Model<RoleChangeAudit>,
+		@Optional()
+		@Inject(SECURITY_AUDIT)
+		private readonly securityAudit?: SecurityAudit
 	) {}
 
 	async onModuleInit() {
@@ -49,6 +59,12 @@ export class AdminRoleService implements OnModuleInit {
 		await user.save();
 		await this.recordChange(user, previousRole, {
 			performedByEmail: ROLE_CHANGE_BOOTSTRAP_ACTOR,
+		});
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.RoleChanged,
+			actor: 'system',
+			subject: { userId: String(user._id) },
+			payload: { from: previousRole, to: user.role, via: 'bootstrap' },
 		});
 		this.logger.log(`Role admin garantida para ${email}`);
 	}
@@ -79,6 +95,12 @@ export class AdminRoleService implements OnModuleInit {
 		await this.recordChange(user, previousRole, {
 			performedBy: actor._id,
 			performedByEmail: actor.email,
+		});
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.RoleChanged,
+			actor: { userId: String(actor._id) },
+			subject: { userId: String(user._id) },
+			payload: { from: previousRole, to: user.role, via: 'admin_panel' },
 		});
 		this.logger.log(
 			`Role de ${user.email} alterada de ${previousRole} para ${role} por ${actor.email}`
