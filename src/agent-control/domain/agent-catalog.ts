@@ -289,6 +289,11 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
 		schedule: '08h00',
 	}),
 	locked({
+		id: 'audit-sealer',
+		name: 'Selador da auditoria',
+		schedule: 'a cada 5 s',
+	}),
+	locked({
 		id: 'lgpd-erasure',
 		name: 'Apagamento LGPD',
 		schedule: 'sob demanda',
@@ -301,6 +306,8 @@ export const LOCK_REASONS: Record<string, string> = {
 		'O histórico de patrimônio depende dele; dia sem snapshot não volta.',
 	'subscription-expiry': 'Cobrança e acesso aos planos pagos.',
 	'subscription-expiring': 'Aviso ao cliente exigido pelo fluxo de assinatura.',
+	'audit-sealer':
+		'Desligar a auditoria pelo painel auditado anularia a garantia.',
 	'lgpd-erasure': 'Obrigação legal (LGPD).',
 };
 

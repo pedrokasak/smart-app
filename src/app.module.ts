@@ -53,6 +53,7 @@ import { EventsModule } from './events/events.module';
 import { QuoteStalenessModule } from './market-data/quote-staleness/quote-staleness.module';
 import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 import { AgentControlModule } from './agent-control/agent-control.module';
+import { AuditModule } from './audit/audit.module';
 
 @Module({
 	imports: [
@@ -71,6 +72,8 @@ import { AgentControlModule } from './agent-control/agent-control.module';
 		// Liga, desliga e configura agentes pelo painel admin (ADR-005). Global:
 		// os agendadores consultam a porta sem importar este módulo.
 		AgentControlModule,
+		// Trilha de auditoria encadeada (ADR-004, 9.3; ADR-005, fase A4). Global.
+		AuditModule,
 		SubscriptionModule,
 		StockModule,
 		MacroIndicatorsModule,

@@ -53,6 +53,7 @@ const agentControlChangeSchema = new Schema<AgentControlChange>(
 		reason: { type: String, default: null },
 		ip: { type: String, default: null },
 		at: { type: Date, required: true },
+		auditEventId: { type: String, default: null },
 	},
 	{ collection: 'agent_control_changes', minimize: false, versionKey: false }
 );

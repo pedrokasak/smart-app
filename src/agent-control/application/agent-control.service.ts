@@ -25,6 +25,7 @@ import {
 import {
 	AgentControl,
 	AgentControlChange,
+	AgentControlSnapshot,
 	EffectiveAgentState,
 } from 'src/agent-control/domain/agent-control.types';
 import {
@@ -53,6 +54,12 @@ import {
 	AgentControlSync,
 } from './ports/agent-control-sync.port';
 import { AGENT_RUN_STORE, AgentRunStore } from './ports/agent-run-store.port';
+import { randomUUID } from 'crypto';
+import {
+	AUDIT_TRAIL,
+	AuditTrail,
+} from 'src/audit/application/audit-trail.port';
+import { sha256 } from 'src/audit/domain/audit-event';
 import {
 	AgentRunSummary,
 	COST_WINDOW_DAYS,
@@ -131,7 +138,8 @@ export class AgentControlService {
 		@Inject(AGENT_CONTROL_ENV) private readonly env: NodeJS.ProcessEnv,
 		@Inject(AGENT_CONTROL_CLOCK) private readonly clock: Clock,
 		@Inject(AGENT_RUN_STORE) private readonly runs: AgentRunStore,
-		@Inject(AGENT_CONTROL_SYNC) private readonly sync: AgentControlSync
+		@Inject(AGENT_CONTROL_SYNC) private readonly sync: AgentControlSync,
+		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail
 	) {}
 
 	async list(): Promise<AgentListView> {
@@ -286,6 +294,7 @@ export class AgentControlService {
 		}
 
 		const before = snapshotOf(current);
+		const auditEventId = randomUUID();
 		await this.store.appendChange({
 			agentId: definition.id,
 			fromVersion: current.version,
@@ -296,7 +305,19 @@ export class AgentControlService {
 			reason,
 			ip: actor.ip,
 			at: now,
+			auditEventId,
 		});
+		await this.sealChange(
+			auditEventId,
+			definition.id,
+			current.version,
+			saved.version,
+			before,
+			plan.next,
+			actor.ref,
+			reason,
+			now
+		);
 		if (options.refresh !== false) await this.registry.refresh();
 		// Atalho para as outras instâncias; o adaptador nunca lança.
 		await this.sync.publishChanged(definition.id);
@@ -314,6 +335,51 @@ export class AgentControlService {
 					`Aviso aos admins falhou (${definition.id}): ${(err as Error)?.message ?? err}`
 				)
 			);
+	}
+
+	/**
+	 * Entrega a mudança à trilha encadeada (ADR-004/005, fase A4). O conteúdo
+	 * entra só pelo hash: o motivo, texto livre de uma pessoa, fica no
+	 * histórico apagável e a trilha leva apenas o SHA-256 dele.
+	 *
+	 * A mudança já foi gravada e o histórico dela também. Se a trilha falhar,
+	 * o erro vai para o log em nível de erro, com o id do evento, e a
+	 * resposta não muda: desfazer a mudança de um agente por causa da trilha
+	 * seria pior, e o histórico (`agent_control_changes`) continua com ela.
+	 */
+	private async sealChange(
+		eventId: string,
+		agentId: string,
+		fromVersion: number,
+		toVersion: number,
+		before: AgentControlSnapshot,
+		after: AgentControlSnapshot,
+		actorRef: string,
+		reason: string | null,
+		at: Date
+	): Promise<void> {
+		try {
+			await this.audit.record({
+				eventId,
+				type: 'agent.control.changed',
+				version: 1,
+				subject: agentId,
+				actorRef,
+				occurredAt: at,
+				payload: {
+					agentId,
+					fromVersion,
+					toVersion,
+					before,
+					after,
+					reasonSha256: reason ? sha256(reason) : null,
+				},
+			});
+		} catch (err) {
+			this.logger.error(
+				`Trilha de auditoria: a mudança de ${agentId} (v${toVersion}) ficou sem evento ${eventId}: ${(err as Error)?.message ?? err}`
+			);
+		}
 	}
 
 	private toView(
