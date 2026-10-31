@@ -14,6 +14,8 @@ import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.servi
 import { EmailService } from 'src/notifications/email/email.service';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 import { UserModel } from 'src/users/schema/user.model';
+import { SECURITY_AUDIT } from 'src/audit/application/security-audit.service';
+import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 
 jest.mock('src/users/schema/user.model', () => ({
 	UserModel: {
@@ -56,6 +58,8 @@ describe('TwoFactorService', () => {
 		needsRehash: jest.fn(),
 	};
 
+	const mockSecurityAudit = { emit: jest.fn() };
+
 	const secret = authenticator.generateSecret();
 
 	const buildUser = () => ({
@@ -91,6 +95,7 @@ describe('TwoFactorService', () => {
 					provide: BreachedPasswordPolicy,
 					useValue: { assertNotBreached: jest.fn() },
 				},
+				{ provide: SECURITY_AUDIT, useValue: mockSecurityAudit },
 			],
 		}).compile();
 
@@ -386,6 +391,51 @@ describe('TwoFactorService', () => {
 			);
 		});
 	});
+	describe('trilha de auditoria', () => {
+		const stubSecretUser = (user: Record<string, unknown> | null) =>
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(user),
+			});
+
+		beforeEach(() => mockSecurityAudit.emit.mockClear());
+
+		it('registra quando o 2FA é ativado', async () => {
+			stubSecretUser(buildUser());
+			await service.enableTwoFactor('u1', authenticator.generate(secret));
+			expect(mockSecurityAudit.emit).toHaveBeenCalledWith({
+				type: SECURITY_EVENT.TwoFactorEnabled,
+				actor: { userId: 'u1' },
+			});
+		});
+
+		it('registra quando o 2FA é desativado', async () => {
+			stubSecretUser(buildUser());
+			await service.disableTwoFactor('u1', authenticator.generate(secret));
+			expect(mockSecurityAudit.emit).toHaveBeenCalledWith({
+				type: SECURITY_EVENT.TwoFactorDisabled,
+				actor: { userId: 'u1' },
+			});
+		});
+
+		it('não registra ativação com código errado', async () => {
+			stubSecretUser(buildUser());
+			await expect(service.enableTwoFactor('u1', '000000')).rejects.toThrow();
+			expect(mockSecurityAudit.emit).not.toHaveBeenCalled();
+		});
+
+		it('registra o código recusado na reautenticação, sem o código', async () => {
+			stubSecretUser(buildUser());
+			await expect(
+				service.verifyStepUpCode('u1', '000000')
+			).rejects.toBeInstanceOf(ForbiddenException);
+			expect(mockSecurityAudit.emit).toHaveBeenCalledWith({
+				type: SECURITY_EVENT.TwoFactorFailed,
+				actor: { userId: 'u1' },
+				payload: { context: 'step_up' },
+			});
+		});
+	});
+
 	describe('verifyStepUpCode (ADR-005)', () => {
 		const stubUser = (user: Record<string, unknown> | null) =>
 			(UserModel.findById as jest.Mock).mockReturnValue({

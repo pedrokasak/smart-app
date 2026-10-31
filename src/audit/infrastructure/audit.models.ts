@@ -42,6 +42,11 @@ auditEventSchema.index(
 	{ seq: 1, createdAt: 1 },
 	{ name: 'audit_event_pending' }
 );
+// Listagem da tela de auditoria: do mais novo para o mais antigo.
+auditEventSchema.index(
+	{ createdAt: -1, eventId: -1 },
+	{ name: 'audit_event_recent' }
+);
 auditEventSchema.index(
 	{ subject: 1, occurredAt: -1 },
 	{ name: 'audit_event_subject' }

@@ -3,6 +3,7 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import {
 	AuditChainHead,
+	AuditEventListQuery,
 	AuditEventStore,
 } from 'src/audit/application/ports/audit-event-store.port';
 import {
@@ -72,6 +73,30 @@ export class MongoAuditEventStore implements AuditEventStore {
 
 	async countPending(): Promise<number> {
 		return this.events.countDocuments({ seq: null }).exec();
+	}
+
+	async list(
+		query: AuditEventListQuery,
+		limit: number
+	): Promise<StoredAuditEvent[]> {
+		const filter: Record<string, unknown> = {};
+		if (query.type) filter.type = query.type;
+		if (query.subject) filter.subject = query.subject;
+		if (query.before) {
+			filter.$or = [
+				{ createdAt: { $lt: query.before.createdAt } },
+				{
+					createdAt: query.before.createdAt,
+					eventId: { $lt: query.before.eventId },
+				},
+			];
+		}
+		return this.events
+			.find(filter, NO_ID)
+			.sort({ createdAt: -1, eventId: -1 })
+			.limit(limit)
+			.lean<StoredAuditEvent[]>()
+			.exec();
 	}
 
 	async tryAcquireLease(

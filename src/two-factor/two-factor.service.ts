@@ -1,7 +1,9 @@
 import {
 	BadRequestException,
 	ForbiddenException,
+	Inject,
 	Injectable,
+	Optional,
 	UnauthorizedException,
 } from '@nestjs/common';
 import { authenticator } from 'otplib';
@@ -15,6 +17,11 @@ import {
 	SessionUser,
 } from 'src/authentication/authentication.service';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
+import {
+	SECURITY_AUDIT,
+	SecurityAudit,
+} from 'src/audit/application/security-audit.service';
+import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 import {
 	TwoFactorAttemptState,
 	clearedAttemptState,
@@ -45,7 +52,10 @@ export class TwoFactorService {
 	constructor(
 		private jwtService: JwtService,
 		private readonly authenticationService: AuthenticationService,
-		private readonly tokenBlacklistService: TokenBlacklistService
+		private readonly tokenBlacklistService: TokenBlacklistService,
+		@Optional()
+		@Inject(SECURITY_AUDIT)
+		private readonly securityAudit?: SecurityAudit
 	) {}
 
 	/**
@@ -100,6 +110,10 @@ export class TwoFactorService {
 		}
 
 		await UserModel.findByIdAndUpdate(userId, { twoFactorEnabled: true });
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.TwoFactorEnabled,
+			actor: { userId },
+		});
 		return { message: '2FA habilitado com sucesso!' };
 	}
 
@@ -127,6 +141,10 @@ export class TwoFactorService {
 		await UserModel.findByIdAndUpdate(userId, {
 			twoFactorEnabled: false,
 			twoFactorSecret: null,
+		});
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.TwoFactorDisabled,
+			actor: { userId },
 		});
 		return { message: '2FA desabilitado com sucesso.' };
 	}
@@ -405,7 +423,14 @@ export class TwoFactorService {
 		const nextState = registerFailedAttempt(attemptState, now);
 		await this.persistAttemptState(userId, nextState);
 
-		if (hasReachedLimit(nextState)) {
+		const lockedOut = hasReachedLimit(nextState);
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.TwoFactorFailed,
+			actor: { userId },
+			payload: { context: 'login', lockedOut },
+		});
+
+		if (lockedOut) {
 			await this.revokeTempToken(token.tempToken, token.exp);
 			throw new UnauthorizedException(
 				'Muitas tentativas de verificação. Faça login novamente.'
@@ -487,6 +512,11 @@ export class TwoFactorService {
 				user.id,
 				registerFailedAttempt(attemptState, now)
 			);
+			this.securityAudit?.emit({
+				type: SECURITY_EVENT.TwoFactorFailed,
+				actor: { userId: user.id },
+				payload: { context: 'step_up' },
+			});
 			throw new ForbiddenException('Código 2FA inválido ou expirado.');
 		}
 

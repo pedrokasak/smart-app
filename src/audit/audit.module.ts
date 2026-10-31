@@ -2,9 +2,14 @@ import { Global, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { randomUUID } from 'crypto';
 import { AuditAdminController } from './admin/audit-admin.controller';
+import { AuditListService } from './application/audit-list.service';
 import { AuditSealerService } from './application/audit-sealer.service';
 import { AUDIT_TRAIL } from './application/audit-trail.port';
 import { AuditTrailService } from './application/audit-trail.service';
+import {
+	SECURITY_AUDIT,
+	SecurityAuditService,
+} from './application/security-audit.service';
 import { AuditVerifyService } from './application/audit-verify.service';
 import { AUDIT_CLOCK, AUDIT_INSTANCE_ID } from './application/audit.tokens';
 import { AUDIT_EVENT_STORE } from './application/ports/audit-event-store.port';
@@ -41,7 +46,10 @@ import { MongoAuditEventStore } from './infrastructure/mongo-audit-event.store';
 		{ provide: AUDIT_TRAIL, useExisting: AuditTrailService },
 		AuditSealerService,
 		AuditVerifyService,
+		AuditListService,
+		SecurityAuditService,
+		{ provide: SECURITY_AUDIT, useExisting: SecurityAuditService },
 	],
-	exports: [AUDIT_TRAIL],
+	exports: [AUDIT_TRAIL, SECURITY_AUDIT],
 })
 export class AuditModule {}

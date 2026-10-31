@@ -19,7 +19,7 @@ import {
 	AgentActor,
 	AgentControlService,
 } from 'src/agent-control/application/agent-control.service';
-import { actorRefOf } from 'src/agent-control/infrastructure/actor-ref';
+import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
 import {
 	ListAgentChangesQueryDto,
 	PauseAllAiAgentsDto,
