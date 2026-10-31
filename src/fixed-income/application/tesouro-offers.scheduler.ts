@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
 	AGENT_GATE,
 	AgentGate,
-	agentAllows,
 } from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { TesouroOffersService } from './tesouro-offers.service';
 
@@ -28,8 +28,8 @@ export class TesouroOffersScheduler {
 		name: 'tesouro-offers-refresh',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('tesouro-offers')
 	async run(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'tesouro-offers'))) return;
 		try {
 			const stored = await this.offers.refresh();
 			this.logger.log(

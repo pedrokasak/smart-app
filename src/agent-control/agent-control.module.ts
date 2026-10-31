@@ -1,5 +1,9 @@
 import { Global, Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import {
+	EVENT_QUEUE_CONFIG,
+	EventQueueConfig,
+} from 'src/events/infrastructure/bullmq/queue.config';
 import { EmailModule } from 'src/notifications/email/email.module';
 import { TwoFactorModule } from 'src/two-factor/two-factor.module';
 import { AgentControlAdminController } from './admin/agent-control-admin.controller';
@@ -19,7 +23,13 @@ import {
 import {
 	AgentControlChangeModel,
 	AgentControlModel,
+	AgentRunModel,
 } from './infrastructure/agent-control.models';
+import { AGENT_CONTROL_SYNC } from './application/ports/agent-control-sync.port';
+import { AGENT_RUN_STORE } from './application/ports/agent-run-store.port';
+import { MongoAgentRunStore } from './infrastructure/mongo-agent-run.store';
+import { NoopAgentControlSync } from './infrastructure/noop-agent-control.sync';
+import { RedisAgentControlSync } from './infrastructure/redis-agent-control.sync';
 import { EmailAgentChangeNotifier } from './infrastructure/email-agent-change.notifier';
 import { MongoAgentControlStore } from './infrastructure/mongo-agent-control.store';
 import { SchedulerRegistryScheduleApplier } from './infrastructure/scheduler-registry-schedule.applier';
@@ -39,6 +49,7 @@ import { TwoFactorStepUpVerifier } from './infrastructure/two-factor-step-up.ver
 		MongooseModule.forFeature([
 			{ name: 'AgentControl', schema: AgentControlModel.schema },
 			{ name: 'AgentControlChange', schema: AgentControlChangeModel.schema },
+			{ name: 'AgentRun', schema: AgentRunModel.schema },
 		]),
 		EmailModule,
 		TwoFactorModule,
@@ -58,6 +69,18 @@ import { TwoFactorStepUpVerifier } from './infrastructure/two-factor-step-up.ver
 		{ provide: STEP_UP_VERIFIER, useExisting: TwoFactorStepUpVerifier },
 		EmailAgentChangeNotifier,
 		{ provide: AGENT_CHANGE_NOTIFIER, useExisting: EmailAgentChangeNotifier },
+		MongoAgentRunStore,
+		{ provide: AGENT_RUN_STORE, useExisting: MongoAgentRunStore },
+		{
+			provide: AGENT_CONTROL_SYNC,
+			// Mesmo Redis da fila de eventos; sem ele (fila desligada, teste), vale só
+			// a recarga de 30 s.
+			useFactory: (config: EventQueueConfig) =>
+				config.enabled
+					? new RedisAgentControlSync(config.connection)
+					: new NoopAgentControlSync(),
+			inject: [EVENT_QUEUE_CONFIG],
+		},
 		AgentControlRegistry,
 		{ provide: AGENT_GATE, useExisting: AgentControlRegistry },
 		AgentControlService,

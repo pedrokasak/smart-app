@@ -1,4 +1,6 @@
 import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
+
 import {
 	AGENT_GATE,
 	AgentGate,
@@ -27,6 +29,7 @@ export class CohortBenchmarkJob {
 	) {}
 
 	@Cron('0 4 1 * *', { timeZone: 'America/Sao_Paulo' })
+	@AgentRun('cohort-benchmark')
 	async run(): Promise<void> {
 		// Ligado pelo painel de agentes (ADR-005); sem o painel, vale a variável.
 		if (

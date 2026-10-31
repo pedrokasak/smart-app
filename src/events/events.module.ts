@@ -109,6 +109,8 @@ import { BullBoardController } from 'src/events/admin/bull-board.controller';
 		BullBoardService,
 	],
 	exports: [
+		// O controle de agentes (ADR-005) escuta o mesmo Redis.
+		EVENT_QUEUE_CONFIG,
 		EVENT_PUBLISHER,
 		EVENT_SUBSCRIBER,
 		EVENT_QUEUE,

@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
 	AGENT_GATE,
 	AgentGate,
-	agentAllows,
 } from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -71,8 +71,8 @@ export class SectorBackfillScheduler {
 		name: 'asset-sector-backfill',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('sector-backfill')
 	async runDaily(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'sector-backfill'))) return;
 		try {
 			const result = await this.backfill();
 			this.logger.log(

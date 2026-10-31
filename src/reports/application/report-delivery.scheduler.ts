@@ -2,8 +2,8 @@ import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import {
 	AGENT_GATE,
 	AgentGate,
-	agentAllows,
 } from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -56,8 +56,8 @@ export class ReportDeliveryScheduler {
 	) {}
 
 	@Cron('5 * * * *', { timeZone: 'America/Sao_Paulo' })
+	@AgentRun('report-delivery')
 	async deliverDueReports(now = new Date()): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'report-delivery'))) return;
 		for (let i = 0; i < BATCH_SIZE; i++) {
 			const schedule = await this.claimNext(now);
 			if (!schedule) return;

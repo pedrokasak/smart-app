@@ -8,8 +8,8 @@ import {
 import {
 	AGENT_GATE,
 	AgentGate,
-	agentAllows,
 } from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { InvestmentFundIngestionService } from './investment-fund-ingestion.service';
 import {
@@ -48,8 +48,8 @@ export class InvestmentFundsScheduler implements OnApplicationBootstrap {
 		name: 'investment-funds-registry',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('investment-funds')
 	async refreshRegistry(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'investment-funds'))) return;
 		try {
 			const stored = await this.ingestion.refreshRegistry();
 			this.logger.log(
@@ -68,8 +68,8 @@ export class InvestmentFundsScheduler implements OnApplicationBootstrap {
 		name: 'investment-funds-quotes',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('investment-funds')
 	async refreshQuotes(): Promise<void> {
-		if (!(await agentAllows(this.agentGate, 'investment-funds'))) return;
 		try {
 			const results = await this.ingestion.refreshQuotes();
 			this.logger.log(

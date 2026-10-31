@@ -4,6 +4,7 @@ import {
 	ForbiddenException,
 	NotFoundException,
 } from '@nestjs/common';
+import { AgentRun } from 'src/agent-control/domain/agent-run.types';
 import { AgentControlRegistry } from './agent-control.registry';
 import { AgentActor, AgentControlService } from './agent-control.service';
 import { InMemoryAgentControlStore } from './in-memory-agent-control.store.fixture';
@@ -19,18 +20,30 @@ describe('AgentControlService', () => {
 	let service: AgentControlService;
 	let notices: AgentControlChangedNotice[];
 	let validCode: string;
+	let runs: AgentRun[];
+	let runsFail: boolean;
+	let published: string[];
 
 	beforeEach(async () => {
 		now = new Date('2026-10-27T12:00:00Z');
 		store = new InMemoryAgentControlStore();
 		notices = [];
 		validCode = '123456';
+		runs = [];
+		runsFail = false;
+		published = [];
 		const env = { RI_WATCH_ENABLED: 'true' };
 		registry = new AgentControlRegistry(
 			store,
 			{ apply: () => {} },
 			env,
-			() => now
+			() => now,
+			{ insert: async () => {}, findSince: async () => [] },
+			{
+				publishChanged: async () => {},
+				subscribe: () => {},
+				close: async () => {},
+			}
 		);
 		await registry.seed();
 		await registry.refresh();
@@ -49,7 +62,21 @@ describe('AgentControlService', () => {
 				},
 			},
 			env,
-			() => now
+			() => now,
+			{
+				insert: async () => {},
+				findSince: async () => {
+					if (runsFail) throw new Error('mongo fora');
+					return runs;
+				},
+			},
+			{
+				publishChanged: async (agentId) => {
+					published.push(agentId);
+				},
+				subscribe: () => {},
+				close: async () => {},
+			}
 		);
 	});
 
@@ -208,7 +235,13 @@ describe('AgentControlService', () => {
 				},
 			},
 			{},
-			() => now
+			() => now,
+			{ insert: async () => {}, findSince: async () => [] },
+			{
+				publishChanged: async () => {},
+				subscribe: () => {},
+				close: async () => {},
+			}
 		);
 		await expect(
 			service.change(actor, 'ri-watch', {
@@ -218,5 +251,81 @@ describe('AgentControlService', () => {
 				totp: validCode,
 			})
 		).resolves.toMatchObject({ effective: { enabled: false } });
+	});
+
+	describe('rodadas e propagação (fase A3)', () => {
+		const at = (hours: number) => new Date(now.getTime() - hours * 3_600_000);
+		const run = (over: Partial<AgentRun>): AgentRun => ({
+			agentId: 'ri-watch',
+			startedAt: at(2.1),
+			finishedAt: at(2),
+			status: 'ok',
+			items: 12,
+			errors: 0,
+			tokens: 0,
+			costBrl: null,
+			error: null,
+			...over,
+		});
+
+		it('a lista traz última execução, erros de 7 dias e custo de 30 dias', async () => {
+			runs = [
+				run({ items: 37 }),
+				run({
+					status: 'partial',
+					errors: 2,
+					finishedAt: at(30),
+					costBrl: 4.5,
+					tokens: 900,
+				}),
+			];
+
+			const view = await service.list();
+			const riWatch = view.agents.find((agent) => agent.id === 'ri-watch')!;
+
+			expect(riWatch.lastRun).toMatchObject({ status: 'ok', items: 37 });
+			expect(riWatch.errors7d).toBe(2);
+			expect(riWatch.costBrl30d).toBe(4.5);
+			expect(riWatch.tokens30d).toBe(900);
+		});
+
+		it('agente que nunca rodou vem sem execução e sem custo inventado', async () => {
+			const view = await service.list();
+			const aiEval = view.agents.find((agent) => agent.id === 'ai-eval')!;
+			expect(aiEval).toMatchObject({
+				lastRun: null,
+				errors7d: 0,
+				tokens30d: 0,
+				costBrl30d: null,
+			});
+		});
+
+		it('banco de rodadas fora não derruba a lista', async () => {
+			runsFail = true;
+			const view = await service.list();
+			expect(view.agents.length).toBeGreaterThan(0);
+			expect(view.agents[0].lastRun).toBeNull();
+		});
+
+		it('avisa as outras instâncias depois de gravar a mudança', async () => {
+			await service.change(actor, 'ri-watch', {
+				enabled: false,
+				reason,
+				version: 1,
+				totp: validCode,
+			});
+			expect(published).toEqual(['ri-watch']);
+		});
+
+		it('mudança recusada não avisa ninguém', async () => {
+			await expect(
+				service.change(actor, 'ri-watch', {
+					enabled: false,
+					version: 1,
+					totp: validCode,
+				})
+			).rejects.toBeInstanceOf(BadRequestException);
+			expect(published).toEqual([]);
+		});
 	});
 });
