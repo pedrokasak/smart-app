@@ -36,6 +36,7 @@ import { CHAT_NARRATIVE_SYNTHESIZER } from './orchestration/chat-narrative-synth
 import { ChatNarrativeSynthesisService } from './orchestration/chat-narrative-synthesis.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { AiService } from './ai.service';
+import { GenerationRecordsModule } from './generation-records/generation-records.module';
 import { AiInsightProducer } from './events/ai-insight.producer';
 import { InvestmentPolicyModule } from 'src/investment-policy/investment-policy.module';
 import { CopilotDidacticService } from './didactic/copilot-didactic.service';
@@ -54,6 +55,7 @@ import { CopilotDidacticService } from './didactic/copilot-didactic.service';
 		RagIngestionModule,
 		ChatHistoryModule,
 		InvestmentPolicyModule,
+		GenerationRecordsModule,
 	],
 	controllers: [AiController],
 	providers: [
