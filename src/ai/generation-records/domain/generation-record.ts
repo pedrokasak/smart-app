@@ -80,6 +80,26 @@ export function recordHashOf(
 	return sha256(canonicalize(record));
 }
 
+export type RecordIntegrity = 'intact' | 'altered';
+
+/**
+ * Recalcula o hash do registro lido e compara com o gravado. Mudar qualquer
+ * campo depois de gravado (modelo, prompt, saída, fontes) faz o hash não
+ * bater. Prova que o registro não foi alterado desde que foi gravado, não que
+ * a resposta está certa.
+ */
+export function verifyRecordIntegrity(
+	record: GenerationRecord
+): RecordIntegrity {
+	try {
+		const { recordHash, ...rest } = record;
+		return recordHashOf(rest) === recordHash ? 'intact' : 'altered';
+	} catch {
+		// Valor sem forma canônica (ex.: NaN gravado à mão) também é alteração.
+		return 'altered';
+	}
+}
+
 export function buildGenerationRecord(
 	provenance: GenerationProvenance,
 	userRef: string,
