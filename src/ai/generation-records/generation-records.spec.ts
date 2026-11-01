@@ -13,6 +13,7 @@ import {
 	buildGenerationRecord,
 	parseProvenance,
 	recordHashOf,
+	verifyRecordIntegrity,
 } from './domain/generation-record';
 import { GenerationRecordsController } from './generation-records.controller';
 
@@ -188,9 +189,38 @@ describe('registro de geração de IA (ADR-004, 9.2)', () => {
 			expect(result).toMatchObject({
 				generationId: 'gen_abc',
 				recordHash: expect.any(String),
+				integrity: 'intact',
 			});
 			// Chega ao cliente como JSON: `undefined` some.
 			expect(JSON.parse(JSON.stringify(result))).not.toHaveProperty('userRef');
+		});
+
+		it('registro mexido depois de gravado aparece como alterado', async () => {
+			const records = new InMemoryRecords();
+			await records.insert(
+				buildGenerationRecord(block(), actorRefOf('user-1'), now)
+			);
+			// Mongo devolve uma cópia: alteração no banco muda o que é lido.
+			records.rows[0] = {
+				...records.rows[0],
+				model: { requested: 'gemini', served_provider: 'outro', model: 'x' },
+			};
+			const controller = new GenerationRecordsController(records);
+
+			const result = await controller.get(
+				{ user: { userId: 'user-1' } },
+				'gen_abc'
+			);
+
+			expect(result.integrity).toBe('altered');
+		});
+
+		it('verifyRecordIntegrity: valor sem forma canônica conta como alterado', () => {
+			const record = buildGenerationRecord(block(), 'usr_x', now);
+			expect(verifyRecordIntegrity(record)).toBe('intact');
+			expect(
+				verifyRecordIntegrity({ ...record, inputs: { x: Number.NaN } })
+			).toBe('altered');
 		});
 
 		it('registro de outra pessoa responde 404, como id inexistente', async () => {

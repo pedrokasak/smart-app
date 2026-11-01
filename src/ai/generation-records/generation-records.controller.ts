@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
+import { verifyRecordIntegrity } from './domain/generation-record';
 import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import {
@@ -46,6 +47,11 @@ export class GenerationRecordsController {
 			throw new NotFoundException('Registro não encontrado');
 		}
 		// `userRef` fica de fora: é o pseudônimo, sem valor para quem o recebe.
-		return { ...record, userRef: undefined };
+		return {
+			...record,
+			userRef: undefined,
+			// Recalculado a cada leitura: mostra se o registro foi mexido depois de gravado.
+			integrity: verifyRecordIntegrity(record),
+		};
 	}
 }
