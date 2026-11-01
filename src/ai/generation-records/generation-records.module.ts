@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import {
+	GENERATION_CLOCK,
 	GENERATION_RECORDER,
 	GENERATION_RECORD_STORE,
 	GenerationRecorderService,
@@ -21,6 +22,7 @@ import { MongoGenerationRecordStore } from './infrastructure/mongo-generation-re
 	],
 	controllers: [GenerationRecordsController],
 	providers: [
+		{ provide: GENERATION_CLOCK, useValue: () => new Date() },
 		MongoGenerationRecordStore,
 		{
 			provide: GENERATION_RECORD_STORE,

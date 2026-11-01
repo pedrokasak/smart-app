@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import { ApiBearerAuth, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import {
 	GENERATION_RECORD_STORE,
@@ -32,6 +33,9 @@ export class GenerationRecordsController {
 	) {}
 
 	@Get(':generationId')
+	@OwnershipChecked(
+		'userRef do registro igual ao HMAC do usuário; outro dono responde 404'
+	)
 	@ApiOperation({ summary: 'Proveniência de uma resposta de IA do usuário' })
 	async get(@Request() req: any, @Param('generationId') generationId: string) {
 		const userId = String(req.user?.userId ?? req.user?.sub ?? '');

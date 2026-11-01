@@ -4,7 +4,6 @@ import {
 	AUDIT_TRAIL,
 	AuditTrail,
 } from 'src/audit/application/audit-trail.port';
-import { AUDIT_CLOCK } from 'src/audit/application/audit.tokens';
 import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
 import {
 	GenerationRecord,
@@ -14,6 +13,8 @@ import {
 
 export const GENERATION_RECORD_STORE = Symbol('GENERATION_RECORD_STORE');
 export const GENERATION_RECORDER = Symbol('GENERATION_RECORDER');
+// Relógio próprio: o `AuditModule` não exporta o dele.
+export const GENERATION_CLOCK = Symbol('GENERATION_CLOCK');
 
 export const AI_GENERATION_RECORDED = 'ai.generation.recorded';
 
@@ -38,7 +39,7 @@ export class GenerationRecorderService implements GenerationRecorder {
 		@Inject(GENERATION_RECORD_STORE)
 		private readonly store: GenerationRecordStore,
 		@Inject(AUDIT_TRAIL) private readonly trail: AuditTrail,
-		@Inject(AUDIT_CLOCK) private readonly clock: () => Date
+		@Inject(GENERATION_CLOCK) private readonly clock: () => Date
 	) {}
 
 	record(userId: string, provenance: unknown): void {
