@@ -5,7 +5,8 @@ import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
 import { ValidationPipe } from '@nestjs/common';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import { SwaggerModule } from '@nestjs/swagger';
+import { buildOpenApiDocument } from 'src/common/openapi/build-openapi-document';
 import { urlDevelopment, urlProduction } from 'src/env';
 import {
 	SWAGGER_DOCS_PATH,
@@ -99,25 +100,8 @@ async function bootstrap() {
 }
 
 function setupSwagger(app: Parameters<typeof SwaggerModule.setup>[1]): void {
-	const configSwagger = new DocumentBuilder()
-		.setTitle('TrackerInvest API')
-		.setDescription('The TrackerInvest API description')
-		.addTag('tracker-invest-api')
-		.setVersion('1.0')
-		.addBearerAuth(
-			{
-				type: 'http',
-				scheme: 'bearer',
-				bearerFormat: 'JWT',
-			},
-			'access-token'
-		)
-		.addBasicAuth()
-		.build();
-
-	const document = SwaggerModule.createDocument(app, configSwagger);
 	// Mesma constante que o CSP usa para escapar da política apertada
 	// (TRK-009). Se o path mudar aqui, a política do Swagger acompanha.
-	SwaggerModule.setup(SWAGGER_DOCS_PATH, app, document);
+	SwaggerModule.setup(SWAGGER_DOCS_PATH, app, buildOpenApiDocument(app));
 }
 bootstrap();
