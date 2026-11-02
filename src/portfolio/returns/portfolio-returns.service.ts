@@ -69,6 +69,17 @@ import {
  * `FiscalModule` inteiro só para ler negociações (CLAUDE.md §11).
  */
 
+/** Recorte de `PortfolioReturnsOutput` para telas que só mostram o resumo. */
+export interface PortfolioReturnsSummary {
+	/** Valor a mercado no último snapshot. */
+	currentValue: number;
+	/** Retorno time-weighted do período, em fração. */
+	twr: number | null;
+	/** Data do último snapshot. */
+	asOf: string | null;
+	staleDays: number;
+}
+
 export interface PortfolioReturnsOutput {
 	from: string | null;
 	to: string | null;
@@ -172,6 +183,8 @@ const IFIX = { symbol: '^IFIX', label: 'IFIX' } as const;
 const FII_DOMINANCE_PCT = 50;
 /** Janela pedida ao provedor. Um ano cobre os 252 pregões da anualização. */
 const BENCHMARK_RANGE = '1y';
+
+const round2 = (value: number): number => Math.round(value * 100) / 100;
 
 @Injectable()
 export class PortfolioReturnsService {
@@ -292,10 +305,41 @@ export class PortfolioReturnsService {
 		}
 	}
 
-	async getReturns(
+	/**
+	 * Só o valor atual e o TWR, sem benchmark, risco, CDI nem IPCA: nenhuma chamada
+	 * externa. Usa o mesmo cálculo de `getReturns`, então os números são os mesmos.
+	 */
+	async getReturnsSummary(
 		userId: string,
 		range?: { from?: string; to?: string }
-	): Promise<PortfolioReturnsOutput> {
+	): Promise<PortfolioReturnsSummary> {
+		const { series, trades, staleDays } = await this.loadDailySeries(
+			userId,
+			range
+		);
+		const flows = computeDailyCashFlows(
+			trades.map((trade) => ({
+				side: trade.side,
+				quantity: trade.quantity,
+				price: trade.price,
+				fees: trade.fees,
+				date: trade.date,
+			}))
+		);
+		const last = series[series.length - 1];
+
+		return {
+			currentValue: round2(last?.totalValue ?? 0),
+			twr: computeTwr({ series, flows: flows.byDay }).twr,
+			asOf: last?.date ?? null,
+			staleDays,
+		};
+	}
+
+	private async loadDailySeries(
+		userId: string,
+		range?: { from?: string; to?: string }
+	) {
 		const dateFilter: Record<string, string> = {};
 		if (range?.from) dateFilter.$gte = range.from;
 		if (range?.to) dateFilter.$lte = range.to;
@@ -311,8 +355,6 @@ export class PortfolioReturnsService {
 				.exec(),
 			this.tradeModel.find({ userId }).sort({ date: 1 }).lean().exec(),
 		]);
-
-		const unavailable: string[] = [];
 
 		// Usuário com mais de um portfólio tem os valores do mesmo dia somados,
 		// como já faz getUserPortfolioHistory.
@@ -348,6 +390,19 @@ export class PortfolioReturnsService {
 		const series = Array.from(byDate.values()).sort((a, b) =>
 			a.date.localeCompare(b.date)
 		);
+
+		return { series, trades, staleDays };
+	}
+
+	async getReturns(
+		userId: string,
+		range?: { from?: string; to?: string }
+	): Promise<PortfolioReturnsOutput> {
+		const { series, trades, staleDays } = await this.loadDailySeries(
+			userId,
+			range
+		);
+		const unavailable: string[] = [];
 
 		const from = series.length ? series[0].date : null;
 		const to = series.length ? series[series.length - 1].date : null;

@@ -17,6 +17,7 @@ import * as xlsx from 'xlsx';
 import { BrokerageNoteUploadModel } from 'src/broker-sync/schema/brokerage-note-upload.model';
 import { extractPdfText } from 'src/common/pdf/extract-pdf-text';
 import { InvestmentFundsService } from 'src/investment-funds/application/investment-funds.service';
+import { PortfolioMarkToMarketService } from 'src/portfolio/valuation/portfolio-mark-to-market.service';
 
 jest.mock('src/authentication/jwt-auth.guard', () => ({
 	JwtAuthGuard: jest.fn().mockImplementation(() => true),
@@ -136,6 +137,7 @@ describe('PortfolioController', () => {
 					useValue: mockQuoteFreshness,
 				},
 				{ provide: InvestmentFundsService, useValue: mockInvestmentFunds },
+				PortfolioMarkToMarketService,
 				{
 					provide: PortfolioPolicyService,
 					useValue: {

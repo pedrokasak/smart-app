@@ -45,6 +45,7 @@ import { NotificationsModule } from './notifications/events/notifications.module
 import { PushModule } from './notifications/push/push.module';
 import { PortfolioEvaluationModule } from './portfolio/evaluation/portfolio-evaluation.module';
 import { PrivacyModule } from './privacy/privacy.module';
+import { MobileModule } from './mobile/mobile.module';
 import { InvestmentPolicyModule } from './investment-policy/investment-policy.module';
 import { ReportsModule } from './reports/reports.module';
 import { FinancialPlanModule } from './financial-plan/financial-plan.module';
@@ -104,6 +105,7 @@ import { AuditModule } from './audit/audit.module';
 		NotificationsModule,
 		PushModule,
 		PrivacyModule,
+		MobileModule,
 		InvestmentPolicyModule,
 		ReportsModule,
 		FinancialPlanModule,

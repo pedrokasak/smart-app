@@ -59,6 +59,15 @@ const envSchema = z.object({
 	GOOGLE_MOBILE_CLIENT_IDS: z.string().optional(),
 	/** Bundle IDs aceitos no login com a Apple, separados por vírgula. */
 	APPLE_CLIENT_IDS: z.string().optional(),
+	/** Versão mínima do app aceita pela API. */
+	MOBILE_MIN_APP_VERSION: z.preprocess(
+		// Vazia no painel é o mesmo que não definida: não pode impedir o boot.
+		(value) => value || undefined,
+		z
+			.string()
+			.regex(/^\d+\.\d+\.\d+$/)
+			.default('0.0.0')
+	),
 	GOOGLE_CSE_API_KEY: z.string().optional(),
 	GOOGLE_CSE_ENGINE_ID: z.string().optional(),
 	BRAPI_SUPPORTED_RANGES: z.string().optional(),
@@ -179,6 +188,7 @@ export const googleClientIds: string[] = [
 	...parseIdList(env.data.GOOGLE_MOBILE_CLIENT_IDS),
 ];
 export const appleClientIds: string[] = parseIdList(env.data.APPLE_CLIENT_IDS);
+export const mobileMinAppVersion: string = env.data.MOBILE_MIN_APP_VERSION;
 export const googleCseApiKey: string | undefined = env.data.GOOGLE_CSE_API_KEY;
 export const googleCseEngineId: string | undefined =
 	env.data.GOOGLE_CSE_ENGINE_ID;
