@@ -32,6 +32,10 @@ import { isBootstrapAdminEmail } from 'src/admin/application/admin-bootstrap.pol
 import { Role } from 'src/auth/enums/role.enum';
 import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
 import {
+	SessionDevice,
+	UserSessionService,
+} from 'src/authentication/session/user-session.service';
+import {
 	SECURITY_AUDIT,
 	SecurityAudit,
 } from 'src/audit/application/security-audit.service';
@@ -53,9 +57,6 @@ export interface SessionUser {
 	email: string;
 	firstName?: string;
 	lastName?: string;
-	refreshToken?: string | null;
-	previousRefreshToken?: string | null;
-	refreshTokenRotatedAt?: Date | null;
 	lastLogin?: Date;
 	lastSeenAt?: Date;
 	save: () => Promise<unknown>;
@@ -80,6 +81,8 @@ export interface SessionTokens {
 export interface SessionOptions {
 	/** "Manter conectado": escolhe o prazo da sessão (TRA-245). */
 	keepConnected?: boolean;
+	/** Aparelho do app mobile. Sem ele, a sessão é do web. */
+	device?: SessionDevice;
 }
 
 /** Resposta da renovação. `refreshToken` vem quando o token foi girado. */
@@ -112,6 +115,7 @@ export class AuthenticationService {
 		private readonly emailService: EmailService,
 		private readonly passwordSecurityService: PasswordSecurityService,
 		private readonly breachedPasswordPolicy: BreachedPasswordPolicy,
+		private readonly userSessions: UserSessionService,
 		// Opcional: sem a trilha (testes, módulos isolados) o login segue igual.
 		@Optional()
 		@Inject(SECURITY_AUDIT)
@@ -121,7 +125,7 @@ export class AuthenticationService {
 	async signin(
 		createSigninDto: AuthenticateDto
 	): Promise<AuthenticationEntity> {
-		const { email, password, keepConnected } = createSigninDto;
+		const { email, password, keepConnected, device } = createSigninDto;
 
 		const verifyUser = await UserModel.findOne({ email })
 			.select('+password')
@@ -173,10 +177,13 @@ export class AuthenticationService {
 
 		// Se 2FA está habilitado, retorna um tempToken para verificação
 		if (verifyUser.twoFactorEnabled) {
-			return this.twoFactorChallenge(verifyUser.id, keepConnected);
+			return this.twoFactorChallenge(verifyUser.id, keepConnected, device);
 		}
 
-		return this.issueSessionTokens(verifyUser as any, { keepConnected });
+		return this.issueSessionTokens(verifyUser as any, {
+			keepConnected,
+			device,
+		});
 	}
 
 	/**
@@ -262,21 +269,36 @@ export class AuthenticationService {
 		}
 
 		if (user.twoFactorEnabled) {
-			return this.twoFactorChallenge(user.id, payload.keepConnected);
+			return this.twoFactorChallenge(
+				user.id,
+				payload.keepConnected,
+				payload.device
+			);
 		}
 
 		return this.issueSessionTokens(user as any, {
 			keepConnected: payload.keepConnected,
+			device: payload.device,
 		});
 	}
 
 	/**
 	 * Login com 2FA devolve um tempToken em vez da sessão. A escolha de
-	 * "Manter conectado" viaja nele (`keep`) até o código ser confirmado.
+	 * "Manter conectado" viaja nele (`keep`) até o código ser confirmado, e o
+	 * aparelho também.
 	 */
-	private twoFactorChallenge(userId: string, keepConnected?: boolean) {
+	private twoFactorChallenge(
+		userId: string,
+		keepConnected?: boolean,
+		device?: SessionDevice
+	) {
 		const tempToken = this.jwtService.sign(
-			{ userId, type: 'temp_2fa', keep: keepConnected === true },
+			{
+				userId,
+				type: 'temp_2fa',
+				keep: keepConnected === true,
+				...(device ? { device } : {}),
+			},
 			{ expiresIn: '5m' }
 		);
 		return { requiresTwoFactor: true, tempToken } as any;
@@ -290,6 +312,12 @@ export class AuthenticationService {
 			AuthErrorService.handleInvalidToken();
 		}
 		await this.tokenBlacklistService.addToBlacklist(token, verifyToken.exp);
+
+		// Token com sessão própria encerra só aquele aparelho.
+		if (verifyToken.userId && verifyToken.sid) {
+			await this.userSessions.revoke(verifyToken.sid, verifyToken.userId);
+			return { message: 'Signout successfully' };
+		}
 
 		// Sair também encerra a renovação (TRA-245). Antes só o access token
 		// ia para a blacklist e o refresh token seguia renovando por dias.
@@ -349,14 +377,8 @@ export class AuthenticationService {
 		options: SessionOptions = {}
 	): Promise<SessionTokens> {
 		const keepConnected = options.keepConnected === true;
-		const accessToken = this.jwtService.sign(
-			{
-				userId: user.id,
-				type: 'access',
-				role: user.role ?? 'user',
-			},
-			{ expiresIn: expireKeepAliveConected }
-		);
+		const sid = crypto.randomUUID();
+		const accessToken = this.signAccessToken(user, sid);
 
 		// `jti` aleatório: sem ele, dois refresh emitidos no mesmo segundo saem
 		// byte a byte iguais e a rotação/detecção de reuso não tem efeito.
@@ -366,26 +388,28 @@ export class AuthenticationService {
 				type: 'refresh',
 				keep: keepConnected,
 				jti: crypto.randomUUID(),
+				sid,
 			},
 			{ expiresIn: sessionTtl(keepConnected) }
 		);
 
-		// SHA-256, não Argon2 (TRA-143). Ver `refresh-token-hash.ts`: o token é
-		// um JWT assinado e já validado por `jwtService.verify` antes desta
-		// comparação; o hash serve para revogação/binding, não para resistir a
-		// dicionário. Argon2 aqui custava 64 MiB por login sem ganho.
-		user.refreshToken = hashRefreshToken(refreshToken);
-		// Login novo começa sem histórico de rotação.
-		user.previousRefreshToken = null;
-		user.refreshTokenRotatedAt = null;
-		// Sinal de atividade para a contagem do painel admin (TRA-192). Vai no
-		// mesmo `save()` que já grava o refresh token: nenhuma escrita extra
-		// no login. Todo fluxo de entrada (senha, Google, 2FA, recovery code)
-		// passa por aqui.
+		// Sinal de atividade para a contagem do painel admin (TRA-192). Todo
+		// fluxo de entrada (senha, Google, 2FA, recovery code) passa por aqui.
 		const now = new Date();
 		user.lastLogin = now;
 		user.lastSeenAt = now;
 		await user.save();
+
+		// Cada login tem a própria sessão: não toca nos campos legados do
+		// usuário, que seguem valendo para tokens emitidos antes das sessões
+		// por dispositivo até eles expirarem.
+		await this.userSessions.open({
+			sid,
+			userId: user.id,
+			refreshToken,
+			expiresAt: new Date(this.jwtService.decode(refreshToken).exp * 1000),
+			device: options.device,
+		});
 
 		this.securityAudit?.emit({
 			type: SECURITY_EVENT.LoginSucceeded,
@@ -405,6 +429,21 @@ export class AuthenticationService {
 				role: user.role ?? Role.User,
 			},
 		};
+	}
+
+	private signAccessToken(
+		user: { id?: string; role?: string },
+		sid?: string
+	): string {
+		return this.jwtService.sign(
+			{
+				userId: user.id,
+				type: 'access',
+				role: user.role ?? 'user',
+				...(sid ? { sid } : {}),
+			},
+			{ expiresIn: expireKeepAliveConected }
+		);
 	}
 
 	/**
@@ -433,6 +472,8 @@ export class AuthenticationService {
 	}
 
 	async signoutAll(userId: string) {
+		await this.userSessions.revokeAll(userId);
+
 		const user = await UserModel.findById(userId);
 		if (user) {
 			user.refreshToken = null;
@@ -458,6 +499,10 @@ export class AuthenticationService {
 
 			if (payload.type !== 'refresh') {
 				throw new Error('Invalid token type');
+			}
+
+			if (payload.sid) {
+				return await this.renewDeviceSession(refreshToken, payload);
 			}
 
 			// `refreshToken` e `select: false` no schema: sem projetar explicitamente,
@@ -488,10 +533,7 @@ export class AuthenticationService {
 				throw new Error('Refresh token reuse');
 			}
 
-			const newAccessToken = this.jwtService.sign(
-				{ userId: user.id, type: 'access', role: user.role ?? 'user' },
-				{ expiresIn: expireKeepAliveConected }
-			);
+			const newAccessToken = this.signAccessToken(user);
 
 			await this.touchLastSeen(user.id);
 
@@ -505,6 +547,43 @@ export class AuthenticationService {
 		}
 	}
 
+	/** Renovação de token com `sid`. Tokens sem ele seguem o caminho legado. */
+	private async renewDeviceSession(
+		presentedToken: string,
+		payload: { userId: string; sid: string; exp: number; keep?: boolean }
+	): Promise<RefreshedSession> {
+		const user = await UserModel.findById(payload.userId).select('role');
+		if (!user) {
+			throw new Error('Invalid refresh token');
+		}
+
+		const renewal = await this.userSessions.renew({
+			sid: payload.sid,
+			userId: payload.userId,
+			presentedToken,
+			issueSuccessor: () => this.signSuccessorToken(payload.userId, payload),
+		});
+
+		if (renewal.outcome === 'reused') {
+			this.logger.warn(
+				`[auth] refresh token já girado reapresentado; sessão revogada (user ${payload.userId}).`
+			);
+		}
+		if (renewal.outcome === 'reused' || renewal.outcome === 'unknown_session') {
+			throw new Error('Invalid refresh token');
+		}
+
+		await this.touchLastSeen(user.id);
+
+		return {
+			accessToken: this.signAccessToken(user, payload.sid),
+			...(renewal.outcome === 'rotated'
+				? { refreshToken: renewal.refreshToken }
+				: {}),
+			expiresIn: String(expireKeepAliveConected),
+		};
+	}
+
 	/**
 	 * Troca o refresh token gravado por um novo. A escrita só casa se o valor
 	 * gravado ainda é o que foi conferido: se outra requisição girou antes,
@@ -515,21 +594,7 @@ export class AuthenticationService {
 		storedValue: string,
 		payload: { exp: number; keep?: boolean }
 	): Promise<string | undefined> {
-		// `jti` novo a cada rotação: no mesmo segundo do token anterior, o JWT
-		// sairia idêntico (mesmos claims, `iat` e `exp`) e o "antigo" seguiria
-		// valendo como atual.
-		const claims: Record<string, unknown> = {
-			userId,
-			type: 'refresh',
-			jti: crypto.randomUUID(),
-		};
-		// Token emitido antes do TRA-245 não tem `keep`: o novo também não, e
-		// herda o mesmo fim de sessão.
-		if (typeof payload.keep === 'boolean') claims.keep = payload.keep;
-
-		const next = this.jwtService.sign(claims, {
-			expiresIn: remainingSessionSeconds(payload.exp),
-		});
+		const next = this.signSuccessorToken(userId, payload);
 
 		const result = await UserModel.updateOne(
 			{ _id: userId, refreshToken: storedValue },
@@ -547,6 +612,28 @@ export class AuthenticationService {
 		).exec();
 
 		return result.modifiedCount > 0 ? next : undefined;
+	}
+
+	private signSuccessorToken(
+		userId: string,
+		payload: { exp: number; keep?: boolean; sid?: string }
+	): string {
+		// `jti` novo a cada rotação: no mesmo segundo do token anterior, o JWT
+		// sairia idêntico (mesmos claims, `iat` e `exp`) e o "antigo" seguiria
+		// valendo como atual.
+		const claims: Record<string, unknown> = {
+			userId,
+			type: 'refresh',
+			jti: crypto.randomUUID(),
+		};
+		// Token emitido antes do TRA-245 não tem `keep`: o novo também não, e
+		// herda o mesmo fim de sessão.
+		if (typeof payload.keep === 'boolean') claims.keep = payload.keep;
+		if (payload.sid) claims.sid = payload.sid;
+
+		return this.jwtService.sign(claims, {
+			expiresIn: remainingSessionSeconds(payload.exp),
+		});
 	}
 
 	private isGracefulReuse(
@@ -646,7 +733,10 @@ export class AuthenticationService {
 
 		user.password = hashedPassword;
 		// Mesma razão do resetPassword: trocar a senha encerra as sessões
-		// anteriores (TRA-89).
+		// anteriores (TRA-89). Antes de gravar a senha: se revogar falhar, nada
+		// mudou e o usuário tenta de novo, em vez de ficar com senha nova e as
+		// sessões antigas vivas.
+		await this.userSessions.revokeAll(String(user.id), 'password_changed');
 		user.refreshToken = null;
 		await user.save();
 
@@ -820,6 +910,8 @@ export class AuthenticationService {
 		// Derruba a sessão existente (TRA-89). Quem redefine a senha
 		// normalmente o faz porque suspeita que alguém entrou na conta —
 		// manter o refresh token anterior válido deixava esse alguém dentro.
+		// Revoga antes de gravar pela mesma razão do updatePassword.
+		await this.userSessions.revokeAll(String(user.id), 'password_changed');
 		user.refreshToken = null;
 		await user.save();
 

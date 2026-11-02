@@ -1,11 +1,16 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
 	IsBoolean,
 	IsNotEmpty,
+	IsObject,
+	IsOptional,
 	IsString,
 	MaxLength,
 	MinLength,
+	ValidateNested,
 } from 'class-validator';
+import { SessionDeviceDto } from './session-device.dto';
 
 export class GoogleSigninDto {
 	@ApiProperty({
@@ -24,4 +29,11 @@ export class GoogleSigninDto {
 	})
 	@IsBoolean()
 	keepConnected = false;
+
+	@IsOptional()
+	@IsObject()
+	@ValidateNested()
+	@Type(() => SessionDeviceDto)
+	@ApiProperty({ type: SessionDeviceDto, required: false })
+	device?: SessionDeviceDto;
 }

@@ -11,6 +11,13 @@ import { TokenBlacklistModule } from 'src/token-blacklist/token-blacklist.module
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 import { BreachedPasswordModule } from 'src/authentication/breached-password.module';
+import { MongoUserSessionRepository } from 'src/authentication/infrastructure/mongo-user-session.repository';
+import { USER_SESSION_REPOSITORY } from 'src/authentication/session/user-session.repository';
+import {
+	USER_SESSION_CLOCK,
+	UserSessionService,
+} from 'src/authentication/session/user-session.service';
+import { UserSessionsController } from 'src/authentication/session/user-sessions.controller';
 
 @Module({
 	imports: [
@@ -25,15 +32,19 @@ import { BreachedPasswordModule } from 'src/authentication/breached-password.mod
 		EmailModule,
 		BreachedPasswordModule,
 	],
-	controllers: [AuthenticationController],
+	controllers: [AuthenticationController, UserSessionsController],
 	providers: [
 		AuthenticationService,
 		JwtStrategy,
 		JwtAuthGuard,
 		PasswordSecurityService,
+		UserSessionService,
+		{ provide: USER_SESSION_REPOSITORY, useClass: MongoUserSessionRepository },
+		{ provide: USER_SESSION_CLOCK, useValue: () => new Date() },
 	],
 	exports: [
 		AuthenticationService,
+		UserSessionService,
 		JwtAuthGuard,
 		TokenBlacklistModule,
 		PasswordSecurityService,

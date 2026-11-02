@@ -35,6 +35,21 @@ export function remainingSessionSeconds(
  */
 export const REFRESH_ROTATION_GRACE_MS = 60 * 1000;
 
+/**
+ * Teto de sessões simultâneas por usuário. Sessão do web não tem identificador
+ * de aparelho, então cada login abre uma nova; sem o teto, automação de login
+ * cresceria a coleção até o token expirar.
+ */
+export const MAX_SESSIONS_PER_USER = 10;
+
+/**
+ * Até quando, depois de uma rotação, o token anterior ainda recupera a sessão
+ * se o sucessor nunca foi usado (resposta da rotação perdida). Limita o tempo
+ * em que um token antigo roubado consegue renovar sem ser detectado. Quem
+ * voltar depois disto faz login de novo.
+ */
+export const REFRESH_RECOVERY_WINDOW_MS = 24 * 60 * 60 * 1000;
+
 export function isWithinRotationGrace(
 	rotatedAt: Date | null | undefined,
 	nowMs = Date.now()

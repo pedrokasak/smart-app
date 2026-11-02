@@ -10,6 +10,7 @@ import { AddressService } from 'src/address/address.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
+import { UserSessionService } from 'src/authentication/session/user-session.service';
 
 @Injectable()
 export class PrivacyService {
@@ -24,7 +25,8 @@ export class PrivacyService {
 		private readonly subscriptionService: SubscriptionService,
 		private readonly tokenBlacklistService: TokenBlacklistService,
 		private readonly jwtService: JwtService,
-		private readonly accountErasure: AccountErasureService
+		private readonly accountErasure: AccountErasureService,
+		private readonly userSessions: UserSessionService
 	) {}
 
 	/**
@@ -35,15 +37,23 @@ export class PrivacyService {
 	 * não pode derrubar a exportação inteira.
 	 */
 	async exportUserData(userId: string) {
-		const [user, profile, addresses, portfolios, trades, subscription] =
-			await Promise.all([
-				this.usersService.findOne(userId),
-				this.profileService.findOne(userId).catch(() => null),
-				this.addressService.findByUserId(userId).catch(() => []),
-				this.portfolioService.getUserPortfolios(userId).catch(() => []),
-				this.tradeModel.find({ userId }).lean().exec(),
-				this.subscriptionService.findUserSubscription(userId).catch(() => null),
-			]);
+		const [
+			user,
+			profile,
+			addresses,
+			portfolios,
+			trades,
+			subscription,
+			sessions,
+		] = await Promise.all([
+			this.usersService.findOne(userId),
+			this.profileService.findOne(userId).catch(() => null),
+			this.addressService.findByUserId(userId).catch(() => []),
+			this.portfolioService.getUserPortfolios(userId).catch(() => []),
+			this.tradeModel.find({ userId }).lean().exec(),
+			this.subscriptionService.findUserSubscription(userId).catch(() => null),
+			this.userSessions.listForUser(userId).catch(() => []),
+		]);
 
 		if (!user) {
 			throw new NotFoundException('Usuário não encontrado');
@@ -69,6 +79,7 @@ export class PrivacyService {
 			portfolios: portfolios ?? [],
 			transactions: trades ?? [],
 			subscription: subscription ?? null,
+			sessions: sessions ?? [],
 		};
 	}
 

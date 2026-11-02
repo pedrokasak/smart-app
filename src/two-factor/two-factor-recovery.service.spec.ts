@@ -15,6 +15,7 @@ import {
 	hashRecoveryCode,
 } from './security/recovery-codes';
 import { MAX_TWO_FACTOR_ATTEMPTS } from './security/two-factor-attempt-policy';
+import { inMemoryUserSessionProviders } from 'src/authentication/session/in-memory-user-session.repository.fixture';
 
 /**
  * `crypto.timingSafeEqual` não é redefinível no Node atual, então `jest.spyOn`
@@ -48,7 +49,11 @@ jest.mock('src/users/schema/user.model', () => ({
 describe('TwoFactorService — códigos de recuperação', () => {
 	let service: TwoFactorService;
 
-	const mockJwtService = { sign: jest.fn(), verify: jest.fn() };
+	const mockJwtService = {
+		decode: jest.fn().mockReturnValue({ exp: 4102444800 }),
+		sign: jest.fn(),
+		verify: jest.fn(),
+	};
 
 	const mockTokenBlacklistService = {
 		addToBlacklist: jest.fn().mockResolvedValue(undefined),
@@ -109,6 +114,7 @@ describe('TwoFactorService — códigos de recuperação', () => {
 			providers: [
 				TwoFactorService,
 				AuthenticationService,
+				...inMemoryUserSessionProviders(),
 				{ provide: JwtService, useValue: mockJwtService },
 				{ provide: TokenBlacklistService, useValue: mockTokenBlacklistService },
 				{ provide: EmailService, useValue: mockEmailService },
@@ -338,13 +344,8 @@ describe('TwoFactorService — códigos de recuperação', () => {
 				lastName: 'Doe',
 				role: 'user',
 			});
-			// Mesmo hash SHA-256 do login comum, nunca o token em texto puro.
-			expect(user.refreshToken).toBe(
-				crypto
-					.createHash('sha256')
-					.update(result.refreshToken, 'utf8')
-					.digest('hex')
-			);
+			// O token vai para a sessão, nunca para o documento do usuário.
+			expect(user.refreshToken).not.toBe(result.refreshToken);
 			expect(user.save).toHaveBeenCalled();
 		});
 

@@ -12,6 +12,8 @@ export const SECURITY_EVENT = {
 	TwoFactorDisabled: 'security.two_factor.disabled',
 	TwoFactorFailed: 'security.two_factor.failed',
 	PasswordChanged: 'security.password.changed',
+	SessionRevoked: 'security.session.revoked',
+	SessionReuseDetected: 'security.session.reuse_detected',
 	RoleChanged: 'security.role.changed',
 	ManualGrantCreated: 'billing.manual_grant.created',
 } as const;
@@ -27,6 +29,8 @@ export const SECURITY_EVENT_LABELS: Record<string, string> = {
 	[SECURITY_EVENT.TwoFactorDisabled]: '2FA desativado',
 	[SECURITY_EVENT.TwoFactorFailed]: 'Código 2FA recusado',
 	[SECURITY_EVENT.PasswordChanged]: 'Senha alterada',
+	[SECURITY_EVENT.SessionRevoked]: 'Sessão encerrada',
+	[SECURITY_EVENT.SessionReuseDetected]: 'Reuso de token de sessão',
 	[SECURITY_EVENT.RoleChanged]: 'Papel alterado',
 	[SECURITY_EVENT.ManualGrantCreated]: 'Concessão manual',
 	'agent.control.changed': 'Agente alterado',

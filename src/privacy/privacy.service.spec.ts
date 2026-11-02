@@ -10,6 +10,7 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { AccountErasureService } from './account-erasure.service';
+import { UserSessionService } from 'src/authentication/session/user-session.service';
 
 describe('PrivacyService', () => {
 	let service: PrivacyService;
@@ -42,6 +43,10 @@ describe('PrivacyService', () => {
 				{ provide: SubscriptionService, useValue: subscriptionService },
 				{ provide: TokenBlacklistService, useValue: tokenBlacklistService },
 				{ provide: AccountErasureService, useValue: accountErasure },
+				{
+					provide: UserSessionService,
+					useValue: { listForUser: jest.fn().mockResolvedValue([]) },
+				},
 			],
 		}).compile();
 
@@ -177,7 +182,15 @@ describe('PrivacyService', () => {
 					{ provide: SubscriptionService, useValue: subscriptionService },
 					{ provide: TokenBlacklistService, useValue: tokenBlacklistService },
 					{ provide: AccountErasureService, useValue: accountErasure },
+					{
+						provide: UserSessionService,
+						useValue: { listForUser: jest.fn().mockResolvedValue([]) },
+					},
 					{ provide: AccountErasureService, useValue: accountErasure },
+					{
+						provide: UserSessionService,
+						useValue: { listForUser: jest.fn().mockResolvedValue([]) },
+					},
 				],
 			}).compile();
 			service = module.get<PrivacyService>(PrivacyService);

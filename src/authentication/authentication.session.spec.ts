@@ -9,6 +9,7 @@ import { UserModel } from 'src/users/schema/user.model';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
 import { REFRESH_ROTATION_GRACE_MS } from 'src/authentication/session/session-policy';
+import { inMemoryUserSessionProviders } from 'src/authentication/session/in-memory-user-session.repository.fixture';
 
 jest.mock('src/users/schema/user.model', () => ({
 	UserModel: {
@@ -24,7 +25,11 @@ const sha256 = (value: string) =>
 /** Sessão (TRA-245): "Manter conectado", rotação do refresh token e logout. */
 describe('AuthenticationService — sessão (TRA-245)', () => {
 	let service: AuthenticationService;
-	const jwt = { sign: jest.fn(), verify: jest.fn() };
+	const jwt = {
+		decode: jest.fn().mockReturnValue({ exp: 4102444800 }),
+		sign: jest.fn(),
+		verify: jest.fn(),
+	};
 	const passwords = {
 		hashPassword: jest.fn(),
 		verifyPassword: jest.fn(),
@@ -36,6 +41,7 @@ describe('AuthenticationService — sessão (TRA-245)', () => {
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [
 				AuthenticationService,
+				...inMemoryUserSessionProviders(),
 				{ provide: JwtService, useValue: jwt },
 				{
 					provide: TokenBlacklistService,
@@ -117,16 +123,31 @@ describe('AuthenticationService — sessão (TRA-245)', () => {
 			);
 		});
 
-		it('login novo limpa o histórico de rotação', async () => {
-			const user: any = {
-				...loginUser(),
-				previousRefreshToken: 'old',
-				refreshTokenRotatedAt: new Date(),
-			};
+		it('login novo preserva os campos legados, que seguem valendo até expirar', async () => {
+			const user: any = { ...loginUser(), refreshToken: 'legacy-digest' };
 			await service.issueSessionTokens(user);
 
-			expect(user.previousRefreshToken).toBeNull();
-			expect(user.refreshTokenRotatedAt).toBeNull();
+			expect(user.refreshToken).toBe('legacy-digest');
+		});
+
+		it('com 2FA, o aparelho também viaja no tempToken', async () => {
+			mockFindUser(loginUser(true));
+			const device = {
+				deviceId: 'phone-0001',
+				deviceName: 'iPhone',
+				platform: 'ios',
+			};
+			await service.signin({
+				email: 'a@b.c',
+				password: 'x',
+				keepConnected: false,
+				device,
+			} as any);
+
+			expect(jwt.sign).toHaveBeenCalledWith(
+				{ userId: 'u1', type: 'temp_2fa', keep: false, device },
+				{ expiresIn: '5m' }
+			);
 		});
 	});
 
@@ -277,6 +298,128 @@ describe('AuthenticationService — sessão (TRA-245)', () => {
 		return Promise.all([first, second]).then(([a, b]) => {
 			expect(a.refreshToken).not.toBe(b.refreshToken);
 			expect(real.decode(a.refreshToken).jti).toEqual(expect.any(String));
+		});
+	});
+
+	describe('sessão por dispositivo', () => {
+		const real = new JwtService({ secret: 'spec-secret' });
+		const user = () =>
+			({ id: 'u1', email: 'a@b.c', role: 'user', save: jest.fn() }) as any;
+
+		beforeEach(() => {
+			jwt.sign.mockImplementation((claims: object, options: object) =>
+				real.sign(claims, options as any)
+			);
+			jwt.verify.mockImplementation((token: string, options?: object) =>
+				real.verify(token, options as any)
+			);
+			(jwt as any).decode.mockImplementation((token: string) =>
+				real.decode(token)
+			);
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({ id: 'u1', role: 'user' }),
+			});
+		});
+
+		afterEach(() => {
+			(jwt as any).decode.mockReturnValue({ exp: 4102444800 });
+			(jwt as any).decode.mockImplementation(() => ({ exp: 4102444800 }));
+		});
+
+		it('login em um aparelho não derruba o outro', async () => {
+			const web = await service.issueSessionTokens(user());
+			const phone = await service.issueSessionTokens(user(), {
+				device: {
+					deviceId: 'phone-0001',
+					deviceName: 'iPhone',
+					platform: 'ios',
+				},
+			});
+
+			await expect(
+				service.refreshAccessToken(web.refreshToken)
+			).resolves.toHaveProperty('refreshToken');
+			await expect(
+				service.refreshAccessToken(phone.refreshToken)
+			).resolves.toHaveProperty('refreshToken');
+		});
+
+		it('o access token renovado segue ligado à mesma sessão', async () => {
+			const session = await service.issueSessionTokens(user());
+			const { sid } = real.decode(session.refreshToken);
+
+			const renewed = await service.refreshAccessToken(session.refreshToken);
+
+			expect(real.decode(session.accessToken).sid).toBe(sid);
+			expect(real.decode(renewed.accessToken).sid).toBe(sid);
+			expect(real.decode(renewed.refreshToken!).sid).toBe(sid);
+		});
+
+		it('logout encerra só aquele aparelho, sem tocar nos campos legados', async () => {
+			const first = await service.issueSessionTokens(user());
+			const second = await service.issueSessionTokens(user());
+			updateOne.mockClear();
+
+			await service.signout(first.accessToken);
+
+			await expect(
+				service.refreshAccessToken(first.refreshToken)
+			).rejects.toThrow(UnauthorizedException);
+			await expect(
+				service.refreshAccessToken(second.refreshToken)
+			).resolves.toBeDefined();
+			expect(updateOne).not.toHaveBeenCalledWith(
+				{ _id: 'u1' },
+				expect.objectContaining({
+					$set: expect.objectContaining({ refreshToken: null }),
+				})
+			);
+		});
+
+		it('reuso derruba só a sessão comprometida', async () => {
+			const stolen = await service.issueSessionTokens(user());
+			const other = await service.issueSessionTokens(user());
+			const second = await service.refreshAccessToken(stolen.refreshToken);
+			const third = await service.refreshAccessToken(second.refreshToken!);
+			expect(third.refreshToken).toBeDefined();
+
+			await expect(
+				service.refreshAccessToken(stolen.refreshToken)
+			).rejects.toThrow(UnauthorizedException);
+
+			await expect(
+				service.refreshAccessToken(third.refreshToken!)
+			).rejects.toThrow(UnauthorizedException);
+			await expect(
+				service.refreshAccessToken(other.refreshToken)
+			).resolves.toBeDefined();
+		});
+
+		it('resposta de rotação perdida não encerra a sessão', async () => {
+			const session = await service.issueSessionTokens(user());
+			await service.refreshAccessToken(session.refreshToken);
+
+			const later = Date.now() + REFRESH_ROTATION_GRACE_MS + 1000;
+			jest.useFakeTimers({
+				now: later,
+				doNotFake: ['nextTick', 'setImmediate', 'queueMicrotask'],
+			});
+
+			const recovered = await service.refreshAccessToken(session.refreshToken);
+			jest.useRealTimers();
+
+			expect(recovered.refreshToken).toBeDefined();
+		});
+
+		it('signoutAll encerra todas as sessões', async () => {
+			const session = await service.issueSessionTokens(user());
+			(UserModel.findById as jest.Mock).mockResolvedValueOnce(user());
+
+			await service.signoutAll('u1');
+
+			await expect(
+				service.refreshAccessToken(session.refreshToken)
+			).rejects.toThrow(UnauthorizedException);
 		});
 	});
 
