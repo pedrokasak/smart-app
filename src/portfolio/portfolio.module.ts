@@ -38,6 +38,7 @@ import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-r
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
 import { upcomingDividendSchema } from 'src/portfolio/upcoming-dividends/upcoming-dividend.model';
 import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
+import { PortfolioMarkToMarketService } from 'src/portfolio/valuation/portfolio-mark-to-market.service';
 
 @Module({
 	imports: [
@@ -78,6 +79,7 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		MacroIndicatorsModule,
 	],
 	providers: [
+		PortfolioMarkToMarketService,
 		// Adapters
 		BrapiStockAdapter,
 		FiisApiAdapter,
@@ -122,6 +124,8 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		PortfolioCompositionService,
 		PortfolioHistoryBackfillService,
 		PortfolioRiskContributionService,
+		UpcomingDividendsService,
+		PortfolioMarkToMarketService,
 	],
 })
 export class PortfolioModule {}

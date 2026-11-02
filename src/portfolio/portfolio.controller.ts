@@ -15,7 +15,6 @@ import {
 	UploadedFile,
 	Logger,
 	UnprocessableEntityException,
-	Inject,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
@@ -41,11 +40,7 @@ import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { parseTradesFromCsv } from 'src/fiscal/import/csv-trade-parser';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 import { withDerivedAveragePrice } from 'src/portfolio/derive-average-price';
-import { applyLatestQuotes } from 'src/portfolio/valuation/market-quote-overlay';
-import {
-	QUOTE_FRESHNESS_STORE,
-	QuoteFreshnessStore,
-} from 'src/market-data/quote-staleness/application/ports/quote-freshness.port';
+import { PortfolioMarkToMarketService } from 'src/portfolio/valuation/portfolio-mark-to-market.service';
 import { buildDataHealthReport } from 'src/portfolio/portfolio-data-health';
 import { buildHistoryFromTrades } from 'src/portfolio/history-from-trades';
 import { Types } from 'mongoose';
@@ -96,8 +91,7 @@ export class PortfolioController {
 		private portfolioRiskContributionService: PortfolioRiskContributionService,
 		private portfolioHistoryBackfillService: PortfolioHistoryBackfillService,
 		private upcomingDividendsService: UpcomingDividendsService,
-		@Inject(QUOTE_FRESHNESS_STORE)
-		private readonly quoteFreshness: QuoteFreshnessStore,
+		private readonly markToMarketService: PortfolioMarkToMarketService,
 		private readonly planQuota: PlanQuotaService,
 		private readonly investmentFunds: InvestmentFundsService,
 		private readonly portfolioPolicy: PortfolioPolicyService
@@ -157,35 +151,8 @@ export class PortfolioController {
 		return this.markToMarket(withAverage);
 	}
 
-	/**
-	 * Marcação a mercado com a última cotação lida por símbolo (TRA-247).
-	 * Sem ela, posição, resultado e peso saíam do preço da importação — e as
-	 * três rotas que devolvem ativos precisam dar o mesmo número. Falha ao
-	 * ler o cache não derruba a carteira: fica o preço gravado.
-	 *
-	 * Fundo (`investment_fund`) é cotado pela cota diária da CVM (TRA-276),
-	 * não pela varredura de mercado: o símbolo dele é o CNPJ da classe.
-	 */
-	private async markToMarket<T extends AssetResponseDto>(
-		assets: T[]
-	): Promise<T[]> {
-		if (!assets.length) return assets;
-		const fundSymbols = assets
-			.filter((asset) => asset.type === INVESTMENT_FUND_ASSET_TYPE)
-			.map((asset) => asset.symbol);
-		const marketSymbols = assets
-			.filter((asset) => asset.type !== INVESTMENT_FUND_ASSET_TYPE)
-			.map((asset) => asset.symbol);
-
-		const [marketQuotes, fundQuotes] = await Promise.all([
-			marketSymbols.length
-				? this.quoteFreshness.findBySymbols(marketSymbols).catch(() => [])
-				: [],
-			fundSymbols.length
-				? this.investmentFunds.marketQuotes(fundSymbols).catch(() => [])
-				: [],
-		]);
-		return applyLatestQuotes(assets, [...marketQuotes, ...fundQuotes]);
+	private markToMarket<T extends AssetResponseDto>(assets: T[]): Promise<T[]> {
+		return this.markToMarketService.apply(assets);
 	}
 
 	@Get('transactions')
