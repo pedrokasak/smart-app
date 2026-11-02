@@ -1,6 +1,7 @@
 import {
 	ALLOCATION_BUCKETS,
 	computeBucketExposure,
+	positionValue,
 	type AllocationBucket,
 	type ExposurePosition,
 } from 'src/portfolio/target-allocation/application/allocation-exposure';
@@ -54,15 +55,6 @@ export interface RebalancingGapResult {
 }
 
 const round2 = (value: number): number => Number(value.toFixed(2));
-
-function positionValue(position: ExposurePosition): number {
-	const quantity = Number(position?.quantity) || 0;
-	const price = Number(position?.currentPrice) || Number(position?.price) || 0;
-	const total = Number(position?.total) || 0;
-	// Mesma precedência de `allocation-exposure`: valor a mercado quando dá,
-	// `total` como último recurso.
-	return quantity > 0 && price > 0 ? quantity * price : total;
-}
 
 export function computeRebalancingGap(params: {
 	positions: ExposurePosition[];

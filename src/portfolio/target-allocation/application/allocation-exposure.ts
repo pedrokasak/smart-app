@@ -40,22 +40,21 @@ export function toAllocationBucket(
 }
 
 /**
- * Valor de uma posicao, na mesma ordem de preferencia ja usada pelo motor
- * de inteligencia de portfolio: total gravado, depois cotacao atual, depois
- * preco de entrada. Nunca inventa preco.
+ * Valor de uma posicao a mercado: quantidade vezes a cotacao atual. Sem cotacao,
+ * o `total` gravado e depois o preco de entrada. `total` vem por ultimo porque e
+ * o custo de aquisicao: preferi-lo media a alocacao pelo que foi pago, nao pelo
+ * que a carteira vale. Nunca inventa preco.
  */
 export function positionValue(position: ExposurePosition): number {
+	const quantity = Number(position?.quantity || 0);
+	const current = Number(position?.currentPrice || 0);
+	if (quantity > 0 && current > 0) return quantity * current;
+
 	const total = Number(position?.total || 0);
 	if (total > 0) return total;
 
-	const quantity = Number(position?.quantity || 0);
-	if (quantity <= 0) return 0;
-
-	const current = Number(position?.currentPrice || 0);
-	if (current > 0) return quantity * current;
-
 	const price = Number(position?.price || 0);
-	return price > 0 ? quantity * price : 0;
+	return quantity > 0 && price > 0 ? quantity * price : 0;
 }
 
 /**
