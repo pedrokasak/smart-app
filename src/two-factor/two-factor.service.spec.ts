@@ -1,4 +1,3 @@
-import * as crypto from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
 import {
 	BadRequestException,
@@ -16,6 +15,7 @@ import { PasswordSecurityService } from 'src/authentication/security/password-se
 import { UserModel } from 'src/users/schema/user.model';
 import { SECURITY_AUDIT } from 'src/audit/application/security-audit.service';
 import { SECURITY_EVENT } from 'src/audit/domain/security-events';
+import { inMemoryUserSessionProviders } from 'src/authentication/session/in-memory-user-session.repository.fixture';
 
 jest.mock('src/users/schema/user.model', () => ({
 	UserModel: {
@@ -26,9 +26,6 @@ jest.mock('src/users/schema/user.model', () => ({
 		}),
 	},
 }));
-
-const sha256 = (value: string) =>
-	crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 
 /**
  * TRA-140: o fluxo de 2FA emitia a sessão por conta própria e gravava o
@@ -41,6 +38,7 @@ describe('TwoFactorService', () => {
 	let authenticationService: AuthenticationService;
 
 	const mockJwtService = {
+		decode: jest.fn().mockReturnValue({ exp: 4102444800 }),
 		sign: jest.fn(),
 		verify: jest.fn(),
 	};
@@ -79,6 +77,7 @@ describe('TwoFactorService', () => {
 			providers: [
 				TwoFactorService,
 				AuthenticationService,
+				...inMemoryUserSessionProviders(),
 				{ provide: JwtService, useValue: mockJwtService },
 				{ provide: TokenBlacklistService, useValue: mockTokenBlacklistService },
 				{ provide: EmailService, useValue: mockEmailService },
@@ -145,7 +144,7 @@ describe('TwoFactorService', () => {
 	});
 
 	describe('authenticateWithTwoFactor', () => {
-		it('stores the SHA-256 digest, never the refresh token in plaintext', async () => {
+		it('opens a session and never stores the refresh token on the user', async () => {
 			const user = buildUser();
 			(UserModel.findById as jest.Mock).mockReturnValue({
 				select: jest.fn().mockResolvedValue(user),
@@ -158,8 +157,6 @@ describe('TwoFactorService', () => {
 
 			expect(result.refreshToken).toBe('signed.refresh.token');
 			expect(user.refreshToken).not.toBe(result.refreshToken);
-			expect(user.refreshToken).toBe(sha256(result.refreshToken));
-			expect(user.refreshToken).toMatch(/^[0-9a-f]{64}$/);
 			expect(user.save).toHaveBeenCalled();
 		});
 
@@ -186,7 +183,13 @@ describe('TwoFactorService', () => {
 				);
 				expect(refreshCall).toEqual([
 					// `jti` aleatório: o refresh nunca sai igual ao anterior.
-					{ userId: 'u1', type: 'refresh', keep, jti: expect.any(String) },
+					{
+						userId: 'u1',
+						type: 'refresh',
+						keep,
+						jti: expect.any(String),
+						sid: expect.any(String),
+					},
 					{ expiresIn: keep ? '30d' : '1d' },
 				]);
 			}
@@ -204,11 +207,19 @@ describe('TwoFactorService', () => {
 			);
 
 			// Segunda etapa: o refresh usa o caminho comum do AuthenticationService,
-			// que projeta `+refreshToken` porque o campo é `select: false`.
+			// agora pela sessão aberta no login.
+			const { sid } = mockJwtService.sign.mock.calls.find(
+				([claims]) => claims.type === 'refresh'
+			)[0];
 			(UserModel.findById as jest.Mock).mockReturnValue({
 				select: jest.fn().mockResolvedValue(user),
 			});
-			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			mockJwtService.verify.mockReturnValue({
+				userId: 'u1',
+				type: 'refresh',
+				sid,
+				exp: Math.floor(Date.now() / 1000) + 3600,
+			});
 
 			const refreshed = await authenticationService.refreshAccessToken(
 				session.refreshToken
@@ -217,6 +228,34 @@ describe('TwoFactorService', () => {
 			expect(refreshed.accessToken).toBe('signed.access.token');
 			// Formato novo: nada de Argon2 no caminho quente do refresh.
 			expect(mockPasswordSecurityService.verifyPassword).not.toHaveBeenCalled();
+		});
+
+		it('carries the device from the temp token into the session', async () => {
+			const device = {
+				deviceId: 'phone-0001',
+				deviceName: 'iPhone',
+				platform: 'ios',
+			};
+			mockJwtService.verify.mockReturnValue({
+				userId: 'u1',
+				type: 'temp_2fa',
+				device,
+				exp: Math.floor(Date.now() / 1000) + 300,
+			});
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(buildUser()),
+			});
+			const issue = jest.spyOn(authenticationService, 'issueSessionTokens');
+
+			await service.authenticateWithTwoFactor(
+				'temp.token',
+				authenticator.generate(secret)
+			);
+
+			expect(issue).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ device })
+			);
 		});
 
 		it('invalidates the 2FA session on signoutAll', async () => {
@@ -230,11 +269,21 @@ describe('TwoFactorService', () => {
 				authenticator.generate(secret)
 			);
 
+			const { sid } = mockJwtService.sign.mock.calls.find(
+				([claims]) => claims.type === 'refresh'
+			)[0];
 			(UserModel.findById as jest.Mock).mockResolvedValue(user);
 			await authenticationService.signoutAll('u1');
 			expect(user.refreshToken).toBeNull();
 
-			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(user),
+			});
+			mockJwtService.verify.mockReturnValue({
+				userId: 'u1',
+				type: 'refresh',
+				sid,
+			});
 			await expect(
 				authenticationService.refreshAccessToken(session.refreshToken)
 			).rejects.toThrow(UnauthorizedException);

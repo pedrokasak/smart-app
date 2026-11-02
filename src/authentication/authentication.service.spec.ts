@@ -13,6 +13,7 @@ import { PasswordSecurityService } from 'src/authentication/security/password-se
 import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
 import { SECURITY_AUDIT } from 'src/audit/application/security-audit.service';
 import { SECURITY_EVENT } from 'src/audit/domain/security-events';
+import { inMemoryUserSessionProviders } from 'src/authentication/session/in-memory-user-session.repository.fixture';
 
 jest.mock('src/users/schema/user.model', () => {
 	// `updateOne(...)` no serviço é encadeado como `.exec()` (Mongoose), então
@@ -34,6 +35,7 @@ describe('AuthenticationService', () => {
 	let service: AuthenticationService;
 
 	const mockJwtService = {
+		decode: jest.fn().mockReturnValue({ exp: 4102444800 }),
 		sign: jest.fn(),
 		verify: jest.fn(),
 	};
@@ -63,6 +65,7 @@ describe('AuthenticationService', () => {
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [
 				AuthenticationService,
+				...inMemoryUserSessionProviders(),
 				{ provide: JwtService, useValue: mockJwtService },
 				{ provide: TokenBlacklistService, useValue: mockTokenBlacklistService },
 				{ provide: EmailService, useValue: mockEmailService },
@@ -1026,7 +1029,7 @@ describe('AuthenticationService', () => {
 		const sha256 = (value: string) =>
 			crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 
-		it('stores the SHA-256 digest of the refresh token on signin, without Argon2', async () => {
+		it('opens a session on signin without Argon2 or touching the legacy field', async () => {
 			const save = jest.fn().mockResolvedValue(undefined);
 			const mockUser = {
 				id: 'u1',
@@ -1047,15 +1050,14 @@ describe('AuthenticationService', () => {
 			mockPasswordSecurityService.needsRehash.mockReturnValue(false);
 			mockJwtService.sign.mockReturnValue('signed.jwt.token');
 
-			const result = await service.signin({
+			await service.signin({
 				email: 'test@example.com',
 				password: 'Password123@',
 				keepConnected: false,
 				token: '',
 			});
 
-			expect(mockUser.refreshToken).toBe(sha256(result.refreshToken));
-			expect(mockUser.refreshToken).toMatch(/^[0-9a-f]{64}$/);
+			expect(mockUser.refreshToken).toBeNull();
 			// Uma única operação Argon2 por login: a verificação da senha.
 			expect(mockPasswordSecurityService.hashPassword).not.toHaveBeenCalled();
 			expect(save).toHaveBeenCalled();

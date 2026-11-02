@@ -16,6 +16,7 @@ import {
 	SessionTokens,
 	SessionUser,
 } from 'src/authentication/authentication.service';
+import { SessionDevice } from 'src/authentication/session/user-session.service';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import {
 	SECURITY_AUDIT,
@@ -46,6 +47,14 @@ import {
 // celular do usuário e o do servidor sem esticar a validade real do código,
 // que continua expirando em segundos.
 authenticator.options = { window: 2 };
+
+interface TwoFactorChallengePayload {
+	userId: string;
+	type: string;
+	exp?: number;
+	keep?: boolean;
+	device?: SessionDevice;
+}
 
 @Injectable()
 export class TwoFactorService {
@@ -187,7 +196,7 @@ export class TwoFactorService {
 
 		return this.authenticationService.issueSessionTokens(
 			user as unknown as SessionUser,
-			{ keepConnected: payload.keep === true }
+			{ keepConnected: payload.keep === true, device: payload.device }
 		);
 	}
 
@@ -308,7 +317,7 @@ export class TwoFactorService {
 
 		return this.authenticationService.issueSessionTokens(
 			user as unknown as SessionUser,
-			{ keepConnected: payload.keep === true }
+			{ keepConnected: payload.keep === true, device: payload.device }
 		);
 	}
 
@@ -356,12 +365,12 @@ export class TwoFactorService {
 		tempToken: string,
 		extraProjection = ''
 	): Promise<{
-		payload: { userId: string; type: string; exp?: number; keep?: boolean };
+		payload: TwoFactorChallengePayload;
 		user: any;
 		attemptState: TwoFactorAttemptState;
 		now: Date;
 	}> {
-		let payload: { userId: string; type: string; exp?: number; keep?: boolean };
+		let payload: TwoFactorChallengePayload;
 		try {
 			payload = this.jwtService.verify(tempToken, { secret: jwtSecret }) as any;
 		} catch {
