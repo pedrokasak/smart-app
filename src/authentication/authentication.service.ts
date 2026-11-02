@@ -12,7 +12,7 @@ import { AuthenticateDto } from './dto/authenticate.dto';
 import { JwtService } from '@nestjs/jwt';
 import { AuthenticationEntity } from './entities/authentication-entity';
 import { UserModel } from 'src/users/schema/user.model';
-import { expireKeepAliveConected, googleClientId } from 'src/env';
+import { expireKeepAliveConected, googleClientIds } from 'src/env';
 import { AuthErrorService } from 'src/utils/errors-handler';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { UpdatePasswordDto } from './dto/update-password.dto';
@@ -83,6 +83,15 @@ export interface SessionOptions {
 	keepConnected?: boolean;
 	/** Aparelho do app mobile. Sem ele, a sessão é do web. */
 	device?: SessionDevice;
+}
+
+/** Dados de uma conta criada por login social. */
+export interface SocialAccount {
+	email: string;
+	firstName: string;
+	lastName: string;
+	avatar?: string;
+	appleSub?: string;
 }
 
 /** Resposta da renovação. `refreshToken` vem quando o token foi girado. */
@@ -219,9 +228,6 @@ export class AuthenticationService {
 
 		let user = await UserModel.findOne({ email }).select('+password').exec();
 		if (!user) {
-			const generatedPassword = crypto.randomBytes(24).toString('hex');
-			const hashedPassword =
-				await this.passwordSecurityService.hashPassword(generatedPassword);
 			const [firstName, ...lastParts] = String(
 				tokenInfo.given_name || tokenInfo.name || 'Usuário'
 			)
@@ -230,16 +236,16 @@ export class AuthenticationService {
 			const lastName = String(
 				tokenInfo.family_name || lastParts.join(' ') || ''
 			).trim();
-			user = await UserModel.create({
+			user = await this.createSocialUser({
 				email,
-				password: hashedPassword,
 				firstName,
 				lastName,
 				avatar: tokenInfo.picture || undefined,
-				isEmailVerified: true,
-				role: isBootstrapAdminEmail(email) ? Role.Admin : Role.User,
 			});
 		} else {
+			if (!user.isEmailVerified && !user.twoFactorEnabled) {
+				await this.claimUnverifiedAccount(user);
+			}
 			const updates: Record<string, unknown> = {};
 			if (!user.firstName && tokenInfo.given_name) {
 				updates.firstName = tokenInfo.given_name;
@@ -250,12 +256,13 @@ export class AuthenticationService {
 			if (!user.avatar && tokenInfo.picture) {
 				updates.avatar = tokenInfo.picture;
 			}
-			if (!user.isEmailVerified) {
-				updates.isEmailVerified = true;
-			}
 			// O Google acabou de provar a posse do e-mail: o dono que cadastrou
 			// por senha antes (nasce User) é promovido aqui, sem esperar um boot.
-			if (isBootstrapAdminEmail(email) && user.role !== Role.Admin) {
+			if (
+				user.isEmailVerified &&
+				isBootstrapAdminEmail(email) &&
+				user.role !== Role.Admin
+			) {
 				updates.role = Role.Admin;
 			}
 			if (Object.keys(updates).length > 0) {
@@ -268,18 +275,88 @@ export class AuthenticationService {
 			throw new InternalServerErrorException('Falha ao autenticar com Google');
 		}
 
-		if (user.twoFactorEnabled) {
-			return this.twoFactorChallenge(
-				user.id,
-				payload.keepConnected,
-				payload.device
-			);
-		}
-
-		return this.issueSessionTokens(user as any, {
+		return this.completeSocialLogin(user, {
 			keepConnected: payload.keepConnected,
 			device: payload.device,
 		});
+	}
+
+	/**
+	 * Conta nova vinda de login social. O provedor já provou a posse do e-mail;
+	 * a senha gerada só existe porque o campo é obrigatório, e ninguém a conhece.
+	 */
+	async createSocialUser(account: SocialAccount) {
+		const generatedPassword = crypto.randomBytes(24).toString('hex');
+		const password =
+			await this.passwordSecurityService.hashPassword(generatedPassword);
+		return UserModel.create({
+			...account,
+			password,
+			isEmailVerified: true,
+			role: isBootstrapAdminEmail(account.email) ? Role.Admin : Role.User,
+		});
+	}
+
+	/**
+	 * Primeiro login social em conta de senha com e-mail nunca verificado. O
+	 * cadastro por senha não confirma o e-mail, então quem criou esta conta pode
+	 * não ser quem acabou de provar a posse dele. Quem provou fica com a conta: a
+	 * senha é descartada e as sessões abertas caem.
+	 *
+	 * Conta com 2FA não passa por aqui. O desafio já impede quem não tem o
+	 * autenticador de entrar, e apagar o segundo fator enfraqueceria a conta.
+	 *
+	 * Revoga antes de gravar, como na troca de senha: se falhar, nada mudou.
+	 */
+	async claimUnverifiedAccount(user: {
+		_id?: unknown;
+		id?: string;
+		email?: string;
+		firstName?: string;
+		isEmailVerified?: boolean;
+	}): Promise<void> {
+		const userId = String(user.id ?? user._id);
+		await this.userSessions.revokeAll(userId, 'account_claimed');
+
+		const password = await this.passwordSecurityService.hashPassword(
+			crypto.randomBytes(24).toString('hex')
+		);
+		await UserModel.updateOne(
+			{ _id: user._id ?? user.id },
+			{
+				$set: {
+					password,
+					isEmailVerified: true,
+					refreshToken: null,
+					previousRefreshToken: null,
+					refreshTokenRotatedAt: null,
+				},
+				$unset: { resetPasswordToken: '', resetPasswordExpires: '' },
+			}
+		).exec();
+		user.isEmailVerified = true;
+
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.PasswordChanged,
+			actor: { userId },
+			payload: { via: 'social_login_claim' },
+		});
+		await this.notifyPasswordChanged(user);
+	}
+
+	/** Fim comum dos logins sociais: pede o 2FA ou abre a sessão. */
+	async completeSocialLogin(
+		user: any,
+		options: SessionOptions
+	): Promise<AuthenticationEntity> {
+		if (user.twoFactorEnabled) {
+			return this.twoFactorChallenge(
+				user.id,
+				options.keepConnected,
+				options.device
+			);
+		}
+		return this.issueSessionTokens(user, options);
 	}
 
 	/**
@@ -357,7 +434,9 @@ export class AuthenticationService {
 		if (!data?.aud || !data?.email) {
 			throw new UnauthorizedException('Token Google sem dados obrigatórios');
 		}
-		if (googleClientId && data.aud !== googleClientId) {
+		// Sem nenhuma audiência configurada, a lista vazia recusa todo token: aceitar
+		// deixaria entrar com token emitido para qualquer app Google.
+		if (!googleClientIds.includes(data.aud)) {
 			throw new UnauthorizedException('Token Google com audience inválida');
 		}
 		return data;

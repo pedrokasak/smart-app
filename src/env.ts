@@ -55,6 +55,10 @@ const envSchema = z.object({
 	 */
 	BENCHMARK_COHORT_JOB_ENABLED: z.string().optional(),
 	GOOGLE_CLIENT_ID: z.string().optional(),
+	/** Client IDs do app mobile, separados por vírgula. */
+	GOOGLE_MOBILE_CLIENT_IDS: z.string().optional(),
+	/** Bundle IDs aceitos no login com a Apple, separados por vírgula. */
+	APPLE_CLIENT_IDS: z.string().optional(),
 	GOOGLE_CSE_API_KEY: z.string().optional(),
 	GOOGLE_CSE_ENGINE_ID: z.string().optional(),
 	BRAPI_SUPPORTED_RANGES: z.string().optional(),
@@ -163,7 +167,18 @@ export const pixCheckoutEnabled: boolean =
 	env.data.PIX_CHECKOUT_ENABLED?.trim().toLowerCase() === 'true';
 export const benchmarkCohortJobEnabled: boolean =
 	env.data.BENCHMARK_COHORT_JOB_ENABLED?.trim().toLowerCase() === 'true';
-export const googleClientId: string | undefined = env.data.GOOGLE_CLIENT_ID;
+const parseIdList = (value?: string): string[] =>
+	(value ?? '')
+		.split(',')
+		.map((id) => id.trim())
+		.filter(Boolean);
+
+/** Audiências aceitas no login Google: o web e os builds do app. */
+export const googleClientIds: string[] = [
+	...parseIdList(env.data.GOOGLE_CLIENT_ID),
+	...parseIdList(env.data.GOOGLE_MOBILE_CLIENT_IDS),
+];
+export const appleClientIds: string[] = parseIdList(env.data.APPLE_CLIENT_IDS);
 export const googleCseApiKey: string | undefined = env.data.GOOGLE_CSE_API_KEY;
 export const googleCseEngineId: string | undefined =
 	env.data.GOOGLE_CSE_ENGINE_ID;

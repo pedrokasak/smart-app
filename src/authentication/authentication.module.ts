@@ -6,7 +6,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { UsersModule } from 'src/users/users.module';
 import { JwtStrategy } from './authentication.strategy';
 import { EmailModule } from 'src/notifications/email/email.module';
-import { jwtSecret, expireKeepAliveConected } from '../env';
+import { appleClientIds, jwtSecret, expireKeepAliveConected } from '../env';
 import { TokenBlacklistModule } from 'src/token-blacklist/token-blacklist.module';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
@@ -18,6 +18,13 @@ import {
 	UserSessionService,
 } from 'src/authentication/session/user-session.service';
 import { UserSessionsController } from 'src/authentication/session/user-sessions.controller';
+import { AppleSigninController } from 'src/authentication/apple-signin.controller';
+import { AppleSigninService } from 'src/authentication/application/apple-signin.service';
+import { APPLE_IDENTITY_VERIFIER } from 'src/authentication/application/ports/apple-identity-verifier.port';
+import {
+	APPLE_AUDIENCES,
+	AppleIdentityVerifierAdapter,
+} from 'src/authentication/infrastructure/apple-identity-verifier.adapter';
 
 @Module({
 	imports: [
@@ -32,7 +39,11 @@ import { UserSessionsController } from 'src/authentication/session/user-sessions
 		EmailModule,
 		BreachedPasswordModule,
 	],
-	controllers: [AuthenticationController, UserSessionsController],
+	controllers: [
+		AuthenticationController,
+		UserSessionsController,
+		AppleSigninController,
+	],
 	providers: [
 		AuthenticationService,
 		JwtStrategy,
@@ -41,6 +52,12 @@ import { UserSessionsController } from 'src/authentication/session/user-sessions
 		UserSessionService,
 		{ provide: USER_SESSION_REPOSITORY, useClass: MongoUserSessionRepository },
 		{ provide: USER_SESSION_CLOCK, useValue: () => new Date() },
+		AppleSigninService,
+		{ provide: APPLE_AUDIENCES, useValue: appleClientIds },
+		{
+			provide: APPLE_IDENTITY_VERIFIER,
+			useClass: AppleIdentityVerifierAdapter,
+		},
 	],
 	exports: [
 		AuthenticationService,
