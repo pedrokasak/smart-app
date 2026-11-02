@@ -15,6 +15,11 @@ import { SECURITY_AUDIT } from 'src/audit/application/security-audit.service';
 import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 import { inMemoryUserSessionProviders } from 'src/authentication/session/in-memory-user-session.repository.fixture';
 
+jest.mock('src/env', () => ({
+	...jest.requireActual('src/env'),
+	googleClientIds: ['any-aud'],
+}));
+
 jest.mock('src/users/schema/user.model', () => {
 	// `updateOne(...)` no serviço é encadeado como `.exec()` (Mongoose), então
 	// o mock precisa retornar um objeto com `exec` que resolve. Sem isto, o

@@ -28,6 +28,7 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 	private readonly rules: Record<string, RateLimitRule> = {
 		'POST:/auth/signin': { limit: 12, windowMs: 60_000 },
 		'POST:/auth/google/signin': { limit: 12, windowMs: 60_000 },
+		'POST:/auth/apple/signin': { limit: 12, windowMs: 60_000 },
 		'POST:/auth/forgot-password': { limit: 8, windowMs: 60_000 },
 		'POST:/auth/reset-password': { limit: 10, windowMs: 60_000 },
 		// Código TOTP tem 6 dígitos: no limite padrão de 300/min a força

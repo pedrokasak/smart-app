@@ -63,7 +63,8 @@ export type SessionRevocationReason =
 	| 'signout'
 	| 'user_request'
 	| 'signout_all'
-	| 'password_changed';
+	| 'password_changed'
+	| 'account_claimed';
 
 /**
  * Sessões por dispositivo (ADR-001, Revisão 1). Cada login abre uma sessão, e
