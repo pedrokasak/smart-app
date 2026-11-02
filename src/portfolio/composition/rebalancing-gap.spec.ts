@@ -118,4 +118,20 @@ describe('computeRebalancingGap', () => {
 		expect(other?.currentPct).toBeCloseTo(50, 2);
 		expect(other?.gapPct).toBeCloseTo(0, 2);
 	});
+
+	it('percentual e valor em reais usam a mesma base, a mercado', () => {
+		const result = computeRebalancingGap({
+			positions: [
+				{ type: 'crypto', quantity: 1, total: 1000, currentPrice: 10000 },
+				{ type: 'stock', quantity: 100, total: 10000, currentPrice: 100 },
+			],
+			target: { stocks: 50, crypto: 50 } as any,
+		});
+
+		expect(result.totalValue).toBe(20000);
+		for (const bucket of result.buckets) {
+			expect(bucket.currentPct).toBe(50);
+			expect(bucket.amount).toBe(0);
+		}
+	});
 });
