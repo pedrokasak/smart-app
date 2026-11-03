@@ -57,6 +57,28 @@ describe('IrReportService.generateIrReport', () => {
 		expect(report.notes.join(' ')).toContain('JCP:');
 	});
 
+	it.each([
+		[2025, '15% em 2025'],
+		[2026, '17,5% em 2026'],
+	])('cita a alíquota de JCP do ano %i', async (year, expected) => {
+		const service = buildService(
+			[],
+			[
+				{
+					symbol: 'ITSA4',
+					type: 'stock',
+					dividendHistory: [
+						{ date: `${year}-06-10`, value: 4, paymentType: 'JCP' },
+					],
+				},
+			]
+		);
+
+		const report = await service.generateIrReport(USER_ID, year);
+
+		expect(report.notes.join(' ')).toContain(expected);
+	});
+
 	it('avisa quando não há JCP lançado', async () => {
 		const service = buildService([], []);
 

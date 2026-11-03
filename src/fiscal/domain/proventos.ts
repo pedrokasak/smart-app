@@ -3,7 +3,7 @@
  *
  * O relatório de IR somava tudo (JCP incluído) no total de dividendos, que
  * vai para "Rendimentos Isentos", e deixava o JCP fixo em zero. JCP não é
- * isento: tem 15% retidos na fonte e vai para "Rendimentos Sujeitos à
+ * isento: tem imposto retido na fonte e vai para "Rendimentos Sujeitos à
  * Tributação Exclusiva". Apresentá-lo como dividendo faz o usuário declarar
  * o valor na ficha errada.
  *
@@ -34,6 +34,15 @@ export interface ProventosOfYear {
 
 const round2 = (value: number) =>
 	Math.round((value + Number.EPSILON) * 100) / 100;
+
+/**
+ * Alíquota de IR na fonte sobre JCP pelo ano do pagamento ou crédito: 17,5%
+ * desde 01/01/2026 (Lei 9.249/1995, art. 9º, § 2º, com a redação da LC
+ * 224/2025, art. 8º; efeitos pelo art. 14, III), 15% antes.
+ */
+export function jcpWithholdingRateLabel(year: number): string {
+	return year >= 2026 ? '17,5%' : '15%';
+}
 
 export function splitProventosByType(
 	assets: ProventoAsset[],

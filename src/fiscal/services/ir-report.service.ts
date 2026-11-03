@@ -5,7 +5,10 @@ import puppeteer from 'puppeteer';
 import { Asset } from 'src/assets/schema/assets.model';
 import { findIncompleteHistory } from 'src/fiscal/domain/history-completeness';
 import { buildIrGuideSteps } from 'src/fiscal/domain/ir-guide';
-import { splitProventosByType } from 'src/fiscal/domain/proventos';
+import {
+	jcpWithholdingRateLabel,
+	splitProventosByType,
+} from 'src/fiscal/domain/proventos';
 import {
 	IrOperationMonthlyItemDto,
 	IrPositionItemDto,
@@ -141,7 +144,7 @@ export class IrReportService {
 		const notes = [
 			'Relatório automatizado para apoio à declaração. Revise sempre com sua documentação oficial.',
 			jcp.length > 0
-				? 'JCP: os valores são os lançados no Trackerr e não separam o imposto retido na fonte (15%). Use o informe de rendimentos da corretora para o valor bruto e o imposto retido.'
+				? `JCP: os valores são os lançados no Trackerr e não separam o imposto retido na fonte (${jcpWithholdingRateLabel(year)} em ${year}). Use o informe de rendimentos da corretora para o valor bruto e o imposto retido.`
 				: `Nenhum JCP lançado em ${year}. Se você recebeu JCP, confira o informe de rendimentos da corretora.`,
 		];
 		if (incompleteHistory.length > 0) {

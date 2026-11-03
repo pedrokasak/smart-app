@@ -82,7 +82,7 @@ export function buildIrGuideSteps(year: number): IrGuideStep[] {
 		{
 			title: '3) Rendimentos Sujeitos à Tributação Exclusiva/Definitiva (JCP)',
 			details:
-				'Com os dados atuais, o sistema preenche JCP com zero por padrão. Se você teve JCP, complemente manualmente com o informe oficial.',
+				'Use a seção "JCP" como base e valide com o informe da corretora, que traz o valor bruto e o imposto retido na fonte.',
 		},
 		{
 			title: '4) Operações Comuns/Day Trade (Renda Variável)',
