@@ -39,6 +39,11 @@ describe('MarketUrlNormalizerImpl', () => {
 			const result = normalizer.canonicalize('HTTPS://InfoMoney.COM.BR/artigo');
 			expect(result).toContain('infomoney.com.br');
 		});
+
+		it('preserves path case (URLs are case-sensitive)', () => {
+			const result = normalizer.canonicalize('https://site.com/Artigo-Importante');
+			expect(result).toBe('https://site.com/Artigo-Importante');
+		});
 	});
 
 	describe('urlHash', () => {

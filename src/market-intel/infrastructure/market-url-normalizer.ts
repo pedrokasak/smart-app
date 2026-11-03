@@ -44,10 +44,10 @@ export class MarketUrlNormalizerImpl implements MarketUrlNormalizer {
 			parsed.pathname = parsed.pathname.slice(0, -1);
 		}
 
-		// Lowercase host + scheme; preserva path case (URLs são case-sensitive)
+		// protocol e host já vêm lowercase do parser WHATWG URL; preserva path case (case-sensitive)
 		return `${parsed.protocol}//${parsed.host}${parsed.pathname}${
 			parsed.search
-		}`.toLowerCase().normalize('NFC');
+		}`.normalize('NFC');
 	}
 
 	urlHash(canonicalUrl: string): string {

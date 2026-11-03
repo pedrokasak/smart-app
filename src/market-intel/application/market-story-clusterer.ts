@@ -26,12 +26,19 @@ export class MarketStoryClusterer {
 		@Inject(MARKET_STORY_STORE) private readonly storyStore: MarketStoryStore
 	) {}
 
-	async cluster(item: MarketNewsItem): Promise<ClusterResult> {
+	/**
+	 * @param candidates Stories não-indexadas do run atual (carregadas uma vez por
+	 * `MarketIntelService.ingest()`, não por item, para evitar N queries por run).
+	 * Mutado em memória conforme novos items chegam ou stories são atualizadas.
+	 */
+	async cluster(
+		item: MarketNewsItem,
+		candidates: MarketStory[]
+	): Promise<ClusterResult> {
 		const itemSimHash = BigInt(item.simHash);
 
-		const candidates = await this.storyStore.findUnindexed(200);
-
-		for (const story of candidates) {
+		for (let i = 0; i < candidates.length; i++) {
+			const story = candidates[i];
 			const ageDiff = Math.abs(
 				item.publishedAt.getTime() - story.latestAt.getTime()
 			);
@@ -48,6 +55,7 @@ export class MarketStoryClusterer {
 						item.publishedAt < story.earliestAt ? item.publishedAt : story.earliestAt,
 				};
 				await this.storyStore.upsert(updated);
+				candidates[i] = updated;
 				return { storyId: story.seedUrlHash, isNew: false };
 			}
 		}
@@ -62,6 +70,7 @@ export class MarketStoryClusterer {
 			indexedAt: null,
 		};
 		await this.storyStore.upsert(newStory);
+		candidates.push(newStory);
 		return { storyId: item.urlHash, isNew: true };
 	}
 }

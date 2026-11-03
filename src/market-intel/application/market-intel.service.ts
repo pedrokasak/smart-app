@@ -6,18 +6,18 @@ import {
 	MARKET_NEWS_STORE,
 	MARKET_SOURCE_STORE,
 	MARKET_STORY_STORE,
-	MARKET_URL_NORMALIZER,
 	MarketAnalysisQueue,
 	MarketFeedFetcher,
 	MarketIngestRunStore,
 	MarketNewsStore,
 	MarketSourceStore,
 	MarketStoryStore,
-	MarketUrlNormalizer,
 } from './market-intel.ports';
 import { MarketDeduplicator } from './market-deduplicator';
 import { MarketStoryClusterer } from './market-story-clusterer';
-import { MarketNewsItem } from 'src/market-intel/domain/market-intel.types';
+import { MarketNewsItem, MarketStory } from 'src/market-intel/domain/market-intel.types';
+
+const STORY_CANDIDATES_LIMIT = 500;
 
 export interface IngestResult {
 	sourcesTotal: number;
@@ -28,6 +28,7 @@ export interface IngestResult {
 	itemsDuplicate: number;
 	storiesCreated: number;
 	storiesMerged: number;
+	errors: string[];
 }
 
 @Injectable()
@@ -40,7 +41,6 @@ export class MarketIntelService {
 		@Inject(MARKET_STORY_STORE) private readonly storyStore: MarketStoryStore,
 		@Inject(MARKET_INGEST_RUN_STORE) private readonly runStore: MarketIngestRunStore,
 		@Inject(MARKET_FEED_FETCHER) private readonly fetcher: MarketFeedFetcher,
-		@Inject(MARKET_URL_NORMALIZER) private readonly normalizer: MarketUrlNormalizer,
 		private readonly deduplicator: MarketDeduplicator,
 		private readonly clusterer: MarketStoryClusterer,
 		@Optional() @Inject(MARKET_ANALYSIS_QUEUE) private readonly queue?: MarketAnalysisQueue
@@ -57,8 +57,12 @@ export class MarketIntelService {
 			itemsDuplicate: 0,
 			storiesCreated: 0,
 			storiesMerged: 0,
+			errors: [],
 		};
-		const errors: string[] = [];
+		const runId = await this.runStore.start(new Date(), sources.length);
+		const storyCandidates: MarketStory[] = await this.storyStore.findUnindexed(
+			STORY_CANDIDATES_LIMIT
+		);
 
 		for (const source of sources) {
 			try {
@@ -87,14 +91,6 @@ export class MarketIntelService {
 
 						if (dedup.isDuplicate) {
 							result.itemsDuplicate++;
-							if (dedup.reason === 'url') {
-								// já salvo — sem-op
-							} else {
-								// content/simhash dup — registra o urlHash novo como dup
-								const canonical = this.normalizer.canonicalize(raw.url);
-								const urlHash = this.normalizer.urlHash(canonical);
-								await this.newsStore.markDuplicate(urlHash).catch(() => void 0);
-							}
 							continue;
 						}
 
@@ -120,7 +116,7 @@ export class MarketIntelService {
 						await this.newsStore.insert(item);
 						result.itemsNew++;
 
-						const cluster = await this.clusterer.cluster(item);
+						const cluster = await this.clusterer.cluster(item, storyCandidates);
 						await this.newsStore.assignStory(item.urlHash, cluster.storyId);
 
 						if (cluster.isNew) {
@@ -146,9 +142,20 @@ export class MarketIntelService {
 				result.sourcesFailed++;
 				const msg = err instanceof Error ? err.message : String(err);
 				this.logger.error(`Fonte falhou [${source.id}]: ${msg}`);
-				errors.push(`[${source.id}] ${msg}`);
+				result.errors.push(`[${source.id}] ${msg}`);
 			}
 		}
+
+		await this.runStore.finish(runId, {
+			sourcesFetched: result.sourcesFetched,
+			sourcesFailed: result.sourcesFailed,
+			itemsFound: result.itemsFound,
+			itemsNew: result.itemsNew,
+			itemsDuplicate: result.itemsDuplicate,
+			storiesCreated: result.storiesCreated,
+			storiesMerged: result.storiesMerged,
+			errors: result.errors,
+		});
 
 		return result;
 	}

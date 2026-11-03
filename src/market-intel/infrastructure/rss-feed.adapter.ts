@@ -119,7 +119,8 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 			this.str(item['guid']) ??
 			'';
 		const publishedAt = this.parseDate(
-			this.str(item['pubDate']) ?? this.str(item['dc:date'])
+			this.str(item['pubDate']) ?? this.str(item['dc:date']),
+			source.id
 		);
 		const author =
 			this.str(item['dc:creator']) ??
@@ -147,7 +148,8 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 		const links = entry['link'] as unknown;
 		const url = this.extractAtomLink(links);
 		const publishedAt = this.parseDate(
-			this.str(entry['published']) ?? this.str(entry['updated'])
+			this.str(entry['published']) ?? this.str(entry['updated']),
+			source.id
 		);
 		const authorObj = entry['author'] as Record<string, unknown> | undefined;
 		const author = authorObj
@@ -191,9 +193,16 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 			.trim();
 	}
 
-	private parseDate(raw: string | null | undefined): Date {
-		if (!raw) return new Date();
+	private parseDate(raw: string | null | undefined, sourceId: string): Date {
+		if (!raw) {
+			this.logger.warn(`Item sem data de publicação [${sourceId}] — usando horário de ingestão`);
+			return new Date();
+		}
 		const d = new Date(raw);
-		return isNaN(d.getTime()) ? new Date() : d;
+		if (isNaN(d.getTime())) {
+			this.logger.warn(`Data de publicação inválida [${sourceId}]: "${raw}" — usando horário de ingestão`);
+			return new Date();
+		}
+		return d;
 	}
 }
