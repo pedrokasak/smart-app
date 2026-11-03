@@ -53,7 +53,11 @@ describe('RssFeedAdapter', () => {
 	});
 
 	it('parses RSS 2.0 items', () => {
-		const items = (adapter as unknown as { parse: (xml: string, src: MarketSource) => unknown[] }).parse(RSS_FIXTURE, SOURCE_A);
+		const items = (
+			adapter as unknown as {
+				parse: (xml: string, src: MarketSource) => unknown[];
+			}
+		).parse(RSS_FIXTURE, SOURCE_A);
 		expect(items).toHaveLength(2);
 		expect(items[0]).toMatchObject({
 			title: 'Banco Central eleva taxa Selic',
@@ -63,7 +67,11 @@ describe('RssFeedAdapter', () => {
 	});
 
 	it('parses Atom items', () => {
-		const items = (adapter as unknown as { parse: (xml: string, src: MarketSource) => unknown[] }).parse(ATOM_FIXTURE, SOURCE_A);
+		const items = (
+			adapter as unknown as {
+				parse: (xml: string, src: MarketSource) => unknown[];
+			}
+		).parse(ATOM_FIXTURE, SOURCE_A);
 		expect(items).toHaveLength(1);
 		expect(items[0]).toMatchObject({
 			title: 'Tesouro Direto atualiza taxas',
@@ -78,8 +86,14 @@ describe('RssFeedAdapter', () => {
 			'O Comitê de Política Monetária (Copom) decidiu elevar a taxa Selic em 0,25 ponto percentual.',
 			longDesc
 		);
-		const items = (adapter as unknown as { parse: (xml: string, src: MarketSource) => unknown[] }).parse(rss, SOURCE_B);
-		expect((items[0] as { description: string }).description.length).toBeLessThanOrEqual(300);
+		const items = (
+			adapter as unknown as {
+				parse: (xml: string, src: MarketSource) => unknown[];
+			}
+		).parse(rss, SOURCE_B);
+		expect(
+			(items[0] as { description: string }).description.length
+		).toBeLessThanOrEqual(300);
 	});
 
 	it('does NOT truncate description for layer A', () => {
@@ -88,7 +102,11 @@ describe('RssFeedAdapter', () => {
 			'O Comitê de Política Monetária (Copom) decidiu elevar a taxa Selic em 0,25 ponto percentual.',
 			longDesc
 		);
-		const items = (adapter as unknown as { parse: (xml: string, src: MarketSource) => unknown[] }).parse(rss, SOURCE_A);
+		const items = (
+			adapter as unknown as {
+				parse: (xml: string, src: MarketSource) => unknown[];
+			}
+		).parse(rss, SOURCE_A);
 		expect((items[0] as { description: string }).description.length).toBe(500);
 	});
 

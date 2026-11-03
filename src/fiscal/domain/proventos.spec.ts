@@ -1,4 +1,12 @@
-import { splitProventosByType } from './proventos';
+import { jcpWithholdingRateLabel, splitProventosByType } from './proventos';
+
+describe('jcpWithholdingRateLabel', () => {
+	it('usa 15% até 2025 e 17,5% desde 2026', () => {
+		expect(jcpWithholdingRateLabel(2025)).toBe('15%');
+		expect(jcpWithholdingRateLabel(2026)).toBe('17,5%');
+		expect(jcpWithholdingRateLabel(2027)).toBe('17,5%');
+	});
+});
 
 describe('splitProventosByType', () => {
 	const assets = [

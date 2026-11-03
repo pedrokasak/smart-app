@@ -26,10 +26,7 @@ const marketSourceSchema = new Schema<MarketSource>(
 );
 
 marketSourceSchema.index({ id: 1 }, { unique: true, name: 'market_source_id' });
-marketSourceSchema.index(
-	{ enabled: 1 },
-	{ name: 'market_source_enabled' }
-);
+marketSourceSchema.index({ enabled: 1 }, { name: 'market_source_enabled' });
 
 export const MarketSourceModel = model<MarketSource>(
 	'MarketSource',

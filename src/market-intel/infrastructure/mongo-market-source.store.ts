@@ -27,7 +27,11 @@ export class MongoMarketSourceStore implements MarketSourceStore {
 
 	async updateFetchMeta(
 		id: string,
-		meta: { etag: string | null; lastModified: string | null; lastFetchedAt: Date }
+		meta: {
+			etag: string | null;
+			lastModified: string | null;
+			lastFetchedAt: Date;
+		}
 	): Promise<void> {
 		await MarketSourceModel.updateOne({ id }, { $set: meta });
 	}

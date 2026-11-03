@@ -101,6 +101,12 @@ describe('guia do relatório de IR (buildIrGuideSteps)', () => {
 		expect(first.details).toContain('31/12/2026');
 	});
 
+	it('o passo do JCP aponta para a seção do relatório, sem dizer que vem zerado', () => {
+		const jcpStep = steps.find((step) => step.title.startsWith('3)'));
+		expect(jcpStep?.details).toContain('seção "JCP"');
+		expect(jcpStep?.details).not.toContain('zero');
+	});
+
 	it('não traz o código antigo das ações', () => {
 		expect(JSON.stringify(steps)).not.toContain('Código 31');
 	});

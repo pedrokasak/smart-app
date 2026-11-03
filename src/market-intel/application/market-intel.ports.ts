@@ -16,7 +16,11 @@ export interface MarketSourceStore {
 	save(source: MarketSource): Promise<void>;
 	updateFetchMeta(
 		id: string,
-		meta: { etag: string | null; lastModified: string | null; lastFetchedAt: Date }
+		meta: {
+			etag: string | null;
+			lastModified: string | null;
+			lastFetchedAt: Date;
+		}
 	): Promise<void>;
 }
 
@@ -26,7 +30,9 @@ export interface MarketNewsStore {
 	existsByUrlHash(urlHash: string): Promise<boolean>;
 	existsByContentHash(contentHash: string): Promise<boolean>;
 	/** Busca itens publicados nas últimas `windowHours` horas para SimHash. */
-	findRecentSimHashes(windowHours: number): Promise<{ urlHash: string; simHash: string }[]>;
+	findRecentSimHashes(
+		windowHours: number
+	): Promise<{ urlHash: string; simHash: string }[]>;
 	findPending(limit: number): Promise<MarketNewsItem[]>;
 	insert(item: MarketNewsItem): Promise<void>;
 	markDuplicate(urlHash: string): Promise<void>;

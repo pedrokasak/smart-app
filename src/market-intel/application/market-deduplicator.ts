@@ -32,7 +32,8 @@ export interface DeduplicationResult {
 export class MarketDeduplicator {
 	constructor(
 		@Inject(MARKET_NEWS_STORE) private readonly newsStore: MarketNewsStore,
-		@Inject(MARKET_URL_NORMALIZER) private readonly normalizer: MarketUrlNormalizer
+		@Inject(MARKET_URL_NORMALIZER)
+		private readonly normalizer: MarketUrlNormalizer
 	) {}
 
 	async check(
@@ -49,23 +50,54 @@ export class MarketDeduplicator {
 
 		// Nível 1: URL
 		if (await this.newsStore.existsByUrlHash(urlHash)) {
-			return { isDuplicate: true, reason: 'url', urlHash, contentHash, simHash, tokens };
+			return {
+				isDuplicate: true,
+				reason: 'url',
+				urlHash,
+				contentHash,
+				simHash,
+				tokens,
+			};
 		}
 
 		// Nível 2: conteúdo
 		if (await this.newsStore.existsByContentHash(contentHash)) {
-			return { isDuplicate: true, reason: 'content', urlHash, contentHash, simHash, tokens };
+			return {
+				isDuplicate: true,
+				reason: 'content',
+				urlHash,
+				contentHash,
+				simHash,
+				tokens,
+			};
 		}
 
 		// Nível 3: SimHash na janela de 48h
-		const recentHashes = await this.newsStore.findRecentSimHashes(SIMHASH_WINDOW_HOURS);
+		const recentHashes =
+			await this.newsStore.findRecentSimHashes(SIMHASH_WINDOW_HOURS);
 		for (const { simHash: existingSimHash } of recentHashes) {
 			const existing = BigInt(existingSimHash);
-			if (hammingDistance(simHashBigInt, existing) <= SIMHASH_HAMMING_THRESHOLD) {
-				return { isDuplicate: true, reason: 'simhash', urlHash, contentHash, simHash, tokens };
+			if (
+				hammingDistance(simHashBigInt, existing) <= SIMHASH_HAMMING_THRESHOLD
+			) {
+				return {
+					isDuplicate: true,
+					reason: 'simhash',
+					urlHash,
+					contentHash,
+					simHash,
+					tokens,
+				};
 			}
 		}
 
-		return { isDuplicate: false, reason: null, urlHash, contentHash, simHash, tokens };
+		return {
+			isDuplicate: false,
+			reason: null,
+			urlHash,
+			contentHash,
+			simHash,
+			tokens,
+		};
 	}
 }

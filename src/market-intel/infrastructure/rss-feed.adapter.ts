@@ -26,14 +26,14 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 	private readonly parser = new XMLParser({
 		ignoreAttributes: false,
 		attributeNamePrefix: '@_',
-		isArray: (name) =>
-			['item', 'entry', 'channel'].includes(name),
+		isArray: (name) => ['item', 'entry', 'channel'].includes(name),
 	});
 
 	async fetch(source: MarketSource): Promise<FetchResult> {
 		const headers: Record<string, string> = {
 			'User-Agent': 'Trackerr/1.0 (+https://trackerr.com.br; bot)',
-			Accept: 'application/rss+xml, application/atom+xml, application/xml, text/xml',
+			Accept:
+				'application/rss+xml, application/atom+xml, application/xml, text/xml',
 		};
 		if (source.etag) headers['If-None-Match'] = source.etag;
 		if (source.lastModified) headers['If-Modified-Since'] = source.lastModified;
@@ -51,7 +51,11 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 		}
 
 		if (response.status === 304) {
-			return { items: null, etag: source.etag, lastModified: source.lastModified };
+			return {
+				items: null,
+				etag: source.etag,
+				lastModified: source.lastModified,
+			};
 		}
 
 		if (!response.ok) {
@@ -77,7 +81,8 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 
 		// RSS 2.0: rss.channel[0].item[]
 		const rssItems = this.extractRssItems(parsed);
-		if (rssItems.length) return rssItems.map((i) => this.normalizeItem(i, source));
+		if (rssItems.length)
+			return rssItems.map((i) => this.normalizeItem(i, source));
 
 		// Atom: feed.entry[]
 		const atomItems = this.extractAtomItems(parsed);
@@ -87,7 +92,9 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 	private extractRssItems(parsed: Record<string, unknown>): unknown[] {
 		const rss = parsed['rss'] as Record<string, unknown> | undefined;
 		if (!rss) return [];
-		const channels = rss['channel'] as Array<Record<string, unknown>> | undefined;
+		const channels = rss['channel'] as
+			| Array<Record<string, unknown>>
+			| undefined;
 		if (!channels?.length) return [];
 		const items = channels[0]['item'] as unknown[] | undefined;
 		return Array.isArray(items) ? items : [];
@@ -100,19 +107,15 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 		return Array.isArray(entries) ? entries : [];
 	}
 
-	private normalizeItem(
-		raw: unknown,
-		source: MarketSource
-	): FeedItem {
+	private normalizeItem(raw: unknown, source: MarketSource): FeedItem {
 		const item = raw as Record<string, unknown>;
 		const title = this.str(item['title']) ?? '';
 		const rawDesc =
-			this.str(item['description']) ??
-			this.str(item['content:encoded']) ??
-			'';
-		const description = source.layer === 'B'
-			? this.stripHtml(rawDesc).slice(0, MAX_DESCRIPTION_B)
-			: this.stripHtml(rawDesc);
+			this.str(item['description']) ?? this.str(item['content:encoded']) ?? '';
+		const description =
+			source.layer === 'B'
+				? this.stripHtml(rawDesc).slice(0, MAX_DESCRIPTION_B)
+				: this.stripHtml(rawDesc);
 		const url =
 			this.str(item['link']) ??
 			this.str((item['guid'] as Record<string, unknown>)?.['#text']) ??
@@ -123,28 +126,22 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 			source.id
 		);
 		const author =
-			this.str(item['dc:creator']) ??
-			this.str(item['author']) ??
-			null;
+			this.str(item['dc:creator']) ?? this.str(item['author']) ?? null;
 		return { title, description, url, publishedAt, author };
 	}
 
-	private normalizeAtomItem(
-		raw: unknown,
-		source: MarketSource
-	): FeedItem {
+	private normalizeAtomItem(raw: unknown, source: MarketSource): FeedItem {
 		const entry = raw as Record<string, unknown>;
 		const title =
 			this.str(entry['title']) ??
 			this.str((entry['title'] as Record<string, unknown>)?.['#text']) ??
 			'';
 		const rawContent =
-			this.str(entry['content']) ??
-			this.str(entry['summary']) ??
-			'';
-		const description = source.layer === 'B'
-			? this.stripHtml(rawContent).slice(0, MAX_DESCRIPTION_B)
-			: this.stripHtml(rawContent);
+			this.str(entry['content']) ?? this.str(entry['summary']) ?? '';
+		const description =
+			source.layer === 'B'
+				? this.stripHtml(rawContent).slice(0, MAX_DESCRIPTION_B)
+				: this.stripHtml(rawContent);
 		const links = entry['link'] as unknown;
 		const url = this.extractAtomLink(links);
 		const publishedAt = this.parseDate(
@@ -152,9 +149,7 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 			source.id
 		);
 		const authorObj = entry['author'] as Record<string, unknown> | undefined;
-		const author = authorObj
-			? (this.str(authorObj['name']) ?? null)
-			: null;
+		const author = authorObj ? (this.str(authorObj['name']) ?? null) : null;
 		return { title, description, url, publishedAt, author };
 	}
 
@@ -195,12 +190,16 @@ export class RssFeedAdapter implements MarketFeedFetcher {
 
 	private parseDate(raw: string | null | undefined, sourceId: string): Date {
 		if (!raw) {
-			this.logger.warn(`Item sem data de publicação [${sourceId}] — usando horário de ingestão`);
+			this.logger.warn(
+				`Item sem data de publicação [${sourceId}] — usando horário de ingestão`
+			);
 			return new Date();
 		}
 		const d = new Date(raw);
 		if (isNaN(d.getTime())) {
-			this.logger.warn(`Data de publicação inválida [${sourceId}]: "${raw}" — usando horário de ingestão`);
+			this.logger.warn(
+				`Data de publicação inválida [${sourceId}]: "${raw}" — usando horário de ingestão`
+			);
 			return new Date();
 		}
 		return d;

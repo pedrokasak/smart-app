@@ -1,9 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { MARKET_STORY_STORE, MarketStoryStore } from './market-intel.ports';
 import {
-	MARKET_STORY_STORE,
-	MarketStoryStore,
-} from './market-intel.ports';
-import { MarketNewsItem, MarketStory } from 'src/market-intel/domain/market-intel.types';
+	MarketNewsItem,
+	MarketStory,
+} from 'src/market-intel/domain/market-intel.types';
 import { hammingDistance } from 'src/market-intel/infrastructure/market-url-normalizer';
 
 const SIMHASH_HAMMING_THRESHOLD = 3;
@@ -45,14 +45,20 @@ export class MarketStoryClusterer {
 			if (ageDiff > WINDOW_MS) continue;
 
 			const seedSimHash = BigInt(story.seedSimHash);
-			if (hammingDistance(itemSimHash, seedSimHash) <= SIMHASH_HAMMING_THRESHOLD) {
+			if (
+				hammingDistance(itemSimHash, seedSimHash) <= SIMHASH_HAMMING_THRESHOLD
+			) {
 				const updated: MarketStory = {
 					...story,
 					memberUrlHashes: [...story.memberUrlHashes, item.urlHash],
 					latestAt:
-						item.publishedAt > story.latestAt ? item.publishedAt : story.latestAt,
+						item.publishedAt > story.latestAt
+							? item.publishedAt
+							: story.latestAt,
 					earliestAt:
-						item.publishedAt < story.earliestAt ? item.publishedAt : story.earliestAt,
+						item.publishedAt < story.earliestAt
+							? item.publishedAt
+							: story.earliestAt,
 				};
 				await this.storyStore.upsert(updated);
 				candidates[i] = updated;
