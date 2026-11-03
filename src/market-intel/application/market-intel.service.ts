@@ -15,7 +15,10 @@ import {
 } from './market-intel.ports';
 import { MarketDeduplicator } from './market-deduplicator';
 import { MarketStoryClusterer } from './market-story-clusterer';
-import { MarketNewsItem, MarketStory } from 'src/market-intel/domain/market-intel.types';
+import {
+	MarketNewsItem,
+	MarketStory,
+} from 'src/market-intel/domain/market-intel.types';
 
 const STORY_CANDIDATES_LIMIT = 500;
 
@@ -36,14 +39,18 @@ export class MarketIntelService {
 	private readonly logger = new Logger(MarketIntelService.name);
 
 	constructor(
-		@Inject(MARKET_SOURCE_STORE) private readonly sourceStore: MarketSourceStore,
+		@Inject(MARKET_SOURCE_STORE)
+		private readonly sourceStore: MarketSourceStore,
 		@Inject(MARKET_NEWS_STORE) private readonly newsStore: MarketNewsStore,
 		@Inject(MARKET_STORY_STORE) private readonly storyStore: MarketStoryStore,
-		@Inject(MARKET_INGEST_RUN_STORE) private readonly runStore: MarketIngestRunStore,
+		@Inject(MARKET_INGEST_RUN_STORE)
+		private readonly runStore: MarketIngestRunStore,
 		@Inject(MARKET_FEED_FETCHER) private readonly fetcher: MarketFeedFetcher,
 		private readonly deduplicator: MarketDeduplicator,
 		private readonly clusterer: MarketStoryClusterer,
-		@Optional() @Inject(MARKET_ANALYSIS_QUEUE) private readonly queue?: MarketAnalysisQueue
+		@Optional()
+		@Inject(MARKET_ANALYSIS_QUEUE)
+		private readonly queue?: MarketAnalysisQueue
 	) {}
 
 	async ingest(): Promise<IngestResult> {
@@ -133,9 +140,7 @@ export class MarketIntelService {
 						}
 					} catch (err) {
 						const msg = err instanceof Error ? err.message : String(err);
-						this.logger.warn(
-							`Item ignorado [${source.id}] ${raw.url}: ${msg}`
-						);
+						this.logger.warn(`Item ignorado [${source.id}] ${raw.url}: ${msg}`);
 					}
 				}
 			} catch (err) {

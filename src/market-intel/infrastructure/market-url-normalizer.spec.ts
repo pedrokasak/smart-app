@@ -41,7 +41,9 @@ describe('MarketUrlNormalizerImpl', () => {
 		});
 
 		it('preserves path case (URLs are case-sensitive)', () => {
-			const result = normalizer.canonicalize('https://site.com/Artigo-Importante');
+			const result = normalizer.canonicalize(
+				'https://site.com/Artigo-Importante'
+			);
 			expect(result).toBe('https://site.com/Artigo-Importante');
 		});
 	});
