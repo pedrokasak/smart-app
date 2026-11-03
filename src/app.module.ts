@@ -55,6 +55,7 @@ import { QuoteStalenessModule } from './market-data/quote-staleness/quote-stalen
 import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 import { AgentControlModule } from './agent-control/agent-control.module';
 import { AuditModule } from './audit/audit.module';
+import { MarketIntelModule } from './market-intel/market-intel.module';
 
 @Module({
 	imports: [
@@ -111,6 +112,8 @@ import { AuditModule } from './audit/audit.module';
 		FinancialPlanModule,
 		DividendIncomeModule,
 		PixModule,
+		// Inteligência de mercado — ingestão de RSS e clusterização (ADR-004, F1).
+		MarketIntelModule,
 	],
 	controllers: [AppController],
 	providers: [

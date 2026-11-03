@@ -272,6 +272,24 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
 		defaultEnabled: true,
 	}),
 
+	// --- Notícias (ADR-004) ---
+	toggleable({
+		id: 'market-intel',
+		name: 'Inteligência de mercado',
+		kind: 'ai_agent',
+		schedule: '06h30',
+		defaultEnabled: false,
+		optIn: true,
+	}),
+	toggleable({
+		id: 'weekly-news-brief',
+		name: 'Resumo semanal de notícias',
+		kind: 'ai_agent',
+		schedule: 'segunda, 08h00',
+		defaultEnabled: false,
+		optIn: true,
+	}),
+
 	// --- Críticos: na lista, sem interruptor ---
 	locked({
 		id: 'cleanup',
