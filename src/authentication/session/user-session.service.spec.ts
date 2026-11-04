@@ -245,6 +245,50 @@ describe('UserSessionService', () => {
 		});
 	});
 
+	describe('credencial de biometria', () => {
+		const device = {
+			deviceId: 'phone-1',
+			deviceName: 'Pixel',
+			platform: 'android' as const,
+		};
+		let credentials: { deleteForDevice: jest.Mock; deleteAllOfUser: jest.Mock };
+
+		beforeEach(async () => {
+			credentials = { deleteForDevice: jest.fn(), deleteAllOfUser: jest.fn() };
+			service = new UserSessionService(
+				repository,
+				() => now,
+				undefined,
+				credentials as never
+			);
+			await open({ sid: 's1', device });
+		});
+
+		it('sobrevive ao logout do próprio aparelho', async () => {
+			await service.revoke('s1', 'u1');
+
+			expect(credentials.deleteForDevice).not.toHaveBeenCalled();
+		});
+
+		it('cai quando o aparelho é encerrado pela lista de sessões', async () => {
+			await service.revoke('s1', 'u1', 'user_request');
+
+			expect(credentials.deleteForDevice).toHaveBeenCalledWith('u1', 'phone-1');
+		});
+
+		it('não é tocada ao tentar encerrar a sessão de outra conta', async () => {
+			await service.revoke('s1', 'u2', 'user_request');
+
+			expect(credentials.deleteForDevice).not.toHaveBeenCalled();
+		});
+
+		it('cai junto com todas as sessões, como na troca de senha', async () => {
+			await service.revokeAll('u1', 'password_changed');
+
+			expect(credentials.deleteAllOfUser).toHaveBeenCalledWith('u1');
+		});
+	});
+
 	it('a listagem não expõe hash de token', async () => {
 		await open({
 			device: { deviceId: 'd', deviceName: 'Pixel', platform: 'android' },

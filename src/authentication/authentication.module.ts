@@ -18,6 +18,10 @@ import {
 	UserSessionService,
 } from 'src/authentication/session/user-session.service';
 import { UserSessionsController } from 'src/authentication/session/user-sessions.controller';
+import { BIOMETRIC_CREDENTIAL_REPOSITORY } from 'src/authentication/biometric/biometric-credential.repository';
+import { BiometricCredentialService } from 'src/authentication/biometric/biometric-credential.service';
+import { BiometricCredentialsController } from 'src/authentication/biometric/biometric-credentials.controller';
+import { MongoBiometricCredentialRepository } from 'src/authentication/infrastructure/mongo-biometric-credential.repository';
 import { AppleSigninController } from 'src/authentication/apple-signin.controller';
 import { AppleSigninService } from 'src/authentication/application/apple-signin.service';
 import { APPLE_IDENTITY_VERIFIER } from 'src/authentication/application/ports/apple-identity-verifier.port';
@@ -43,6 +47,7 @@ import {
 		AuthenticationController,
 		UserSessionsController,
 		AppleSigninController,
+		BiometricCredentialsController,
 	],
 	providers: [
 		AuthenticationService,
@@ -52,6 +57,11 @@ import {
 		UserSessionService,
 		{ provide: USER_SESSION_REPOSITORY, useClass: MongoUserSessionRepository },
 		{ provide: USER_SESSION_CLOCK, useValue: () => new Date() },
+		BiometricCredentialService,
+		{
+			provide: BIOMETRIC_CREDENTIAL_REPOSITORY,
+			useClass: MongoBiometricCredentialRepository,
+		},
 		AppleSigninService,
 		{ provide: APPLE_AUDIENCES, useValue: appleClientIds },
 		{

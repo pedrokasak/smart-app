@@ -25,6 +25,7 @@ const DISCRIMINATED_ROUTES = new Set([
 	'POST:/auth/signin',
 	'POST:/auth/google/signin',
 	'POST:/auth/apple/signin',
+	'POST:/auth/biometric/signin',
 	'POST:/auth/2fa/authenticate',
 	'POST:/auth/2fa/recovery-codes/consume',
 ]);
@@ -39,6 +40,7 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		'POST:/auth/signin': { limit: 12, windowMs: 60_000 },
 		'POST:/auth/google/signin': { limit: 12, windowMs: 60_000 },
 		'POST:/auth/apple/signin': { limit: 12, windowMs: 60_000 },
+		'POST:/auth/biometric/signin': { limit: 12, windowMs: 60_000 },
 		// Compõe retornos, risco e séries externas a cada chamada.
 		'GET:/mobile/v1/home': { limit: 30, windowMs: 60_000 },
 		'POST:/auth/forgot-password': { limit: 8, windowMs: 60_000 },
