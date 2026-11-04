@@ -40,6 +40,7 @@ export const ERASABLE_COLLECTIONS: ReadonlyArray<ErasableCollection> = [
 	{ model: 'Notification', ownerField: 'user' },
 	{ model: 'PushSubscription', ownerField: 'user' },
 	{ model: 'UserSession', ownerField: 'user' },
+	{ model: 'BiometricCredential', ownerField: 'user' },
 	{ model: 'ReportSchedule', ownerField: 'userId' },
 	{ model: 'ThresholdState', ownerField: 'user' },
 	{ model: 'FinancialPlan', ownerField: 'userId' },

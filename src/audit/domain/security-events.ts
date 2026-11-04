@@ -15,6 +15,8 @@ export const SECURITY_EVENT = {
 	SessionRevoked: 'security.session.revoked',
 	SocialAccountLinked: 'security.social_account.linked',
 	SessionReuseDetected: 'security.session.reuse_detected',
+	BiometricEnrolled: 'security.biometric.enrolled',
+	BiometricRevoked: 'security.biometric.revoked',
 	RoleChanged: 'security.role.changed',
 	ManualGrantCreated: 'billing.manual_grant.created',
 } as const;
@@ -33,6 +35,8 @@ export const SECURITY_EVENT_LABELS: Record<string, string> = {
 	[SECURITY_EVENT.SessionRevoked]: 'Sessão encerrada',
 	[SECURITY_EVENT.SocialAccountLinked]: 'Login social vinculado',
 	[SECURITY_EVENT.SessionReuseDetected]: 'Reuso de token de sessão',
+	[SECURITY_EVENT.BiometricEnrolled]: 'Biometria ligada',
+	[SECURITY_EVENT.BiometricRevoked]: 'Biometria desligada',
 	[SECURITY_EVENT.RoleChanged]: 'Papel alterado',
 	[SECURITY_EVENT.ManualGrantCreated]: 'Concessão manual',
 	'agent.control.changed': 'Agente alterado',

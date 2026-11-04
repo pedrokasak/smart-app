@@ -5,6 +5,10 @@ import {
 } from 'src/audit/application/security-audit.service';
 import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 import {
+	BIOMETRIC_CREDENTIAL_REPOSITORY,
+	BiometricCredentialRepository,
+} from 'src/authentication/biometric/biometric-credential.repository';
+import {
 	hashRefreshToken,
 	matchesRefreshTokenDigest,
 } from 'src/authentication/security/refresh-token-hash';
@@ -78,7 +82,10 @@ export class UserSessionService {
 		@Inject(USER_SESSION_CLOCK) private readonly clock: () => Date,
 		@Optional()
 		@Inject(SECURITY_AUDIT)
-		private readonly securityAudit?: SecurityAudit
+		private readonly securityAudit?: SecurityAudit,
+		@Optional()
+		@Inject(BIOMETRIC_CREDENTIAL_REPOSITORY)
+		private readonly biometricCredentials?: BiometricCredentialRepository
 	) {}
 
 	async open(input: OpenSessionInput): Promise<void> {
@@ -202,8 +209,20 @@ export class UserSessionService {
 		userId: string,
 		reason: SessionRevocationReason = 'signout'
 	): Promise<boolean> {
+		// Encerrar um aparelho pela lista de sessões também o impede de voltar por
+		// biometria. O logout do próprio aparelho mantém a credencial.
+		const session =
+			reason === 'user_request'
+				? await this.repository.find(sid, userId)
+				: null;
 		const deleted = await this.repository.deleteOne(sid, userId);
 		if (deleted) this.auditRevocation(userId, reason);
+		if (session?.deviceId) {
+			await this.biometricCredentials?.deleteForDevice(
+				userId,
+				session.deviceId
+			);
+		}
 		return deleted;
 	}
 
@@ -212,6 +231,8 @@ export class UserSessionService {
 		reason: SessionRevocationReason = 'signout_all'
 	): Promise<void> {
 		await this.repository.deleteAllOfUser(userId);
+		// Senha trocada ou "sair de todos": a biometria não pode reabrir a conta.
+		await this.biometricCredentials?.deleteAllOfUser(userId);
 		this.auditRevocation(userId, reason);
 	}
 
