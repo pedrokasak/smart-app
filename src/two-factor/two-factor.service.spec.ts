@@ -294,10 +294,12 @@ describe('TwoFactorService', () => {
 			// verificador legado (Argon2) lança nesse valor e o catch devolve
 			// false — logout forçado (401), nunca 500 e nunca sessão aceita.
 			const legacyPlaintext = 'header.payload.signature';
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				role: 'user',
-				refreshToken: legacyPlaintext,
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					role: 'user',
+					refreshToken: legacyPlaintext,
+				}),
 			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
