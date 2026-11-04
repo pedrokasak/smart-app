@@ -31,6 +31,7 @@ export interface AdvisoryRelationship {
 export interface ClientProfile {
 	id: string;
 	orgId: string;
+	name: string;
 	origin: ProfileOrigin;
 	ownerUserId?: string;
 }

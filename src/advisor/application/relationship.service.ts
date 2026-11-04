@@ -1,0 +1,49 @@
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { AdvisoryRelationship } from '../domain/entities';
+import { RelationshipStatus } from '../domain/enums';
+import { ADVISOR_RELATIONSHIP_STORE } from './advisor.tokens';
+import type { RelationshipStorePort } from './ports/relationship.store.port';
+
+@Injectable()
+export class RelationshipService {
+	constructor(
+		@Inject(ADVISOR_RELATIONSHIP_STORE)
+		private readonly relationships: RelationshipStorePort
+	) {}
+
+	/**
+	 * Cria a relação ACTIVE entre a org e o perfil. Idempotente: se já existe
+	 * uma ACTIVE, devolve ela. Se só existe REVOKED, cria uma nova linha.
+	 */
+	async create(
+		orgId: string,
+		clientProfileId: string
+	): Promise<AdvisoryRelationship> {
+		const existing = await this.relationships.findByOrgAndClient(
+			orgId,
+			clientProfileId
+		);
+		if (existing?.status === RelationshipStatus.Active) {
+			return existing;
+		}
+		return this.relationships.create({
+			orgId,
+			clientProfileId,
+			status: RelationshipStatus.Active,
+		});
+	}
+
+	async revoke(id: string): Promise<void> {
+		const relationship = await this.relationships.findById(id);
+		if (!relationship) {
+			throw new NotFoundException('Advisory relationship not found');
+		}
+		if (relationship.status === RelationshipStatus.Revoked) {
+			return;
+		}
+		await this.relationships.save({
+			...relationship,
+			status: RelationshipStatus.Revoked,
+		});
+	}
+}
