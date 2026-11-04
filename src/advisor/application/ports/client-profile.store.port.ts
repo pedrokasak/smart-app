@@ -5,4 +5,10 @@ export interface ClientProfileStorePort {
 	create(profile: Omit<ClientProfile, 'id'>): Promise<ClientProfile>;
 	findById(id: string): Promise<ClientProfile | null>;
 	save(profile: ClientProfile): Promise<ClientProfile>;
+	/**
+	 * Atômico: define `origin = CLIENT_CREATED` e `ownerUserId = userId` só se o
+	 * perfil for ADVISOR_CREATED e não tiver dono. Devolve o perfil atualizado,
+	 * ou null se não existir ou já tiver sido assumido (dono nunca muda).
+	 */
+	claimIfUnowned(id: string, userId: string): Promise<ClientProfile | null>;
 }

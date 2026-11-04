@@ -1,0 +1,70 @@
+import { Injectable } from '@nestjs/common';
+import { InjectModel } from '@nestjs/mongoose';
+import { Model } from 'mongoose';
+import { ClientProfileStorePort } from '../application/ports/client-profile.store.port';
+import { ClientProfile } from '../domain/entities';
+import { ProfileOrigin } from '../domain/enums';
+import { toClientProfile } from './advisor.mappers';
+import {
+	ADVISOR_CLIENT_PROFILE_MODEL,
+	AdvisorClientProfileDoc,
+} from './advisor.models';
+
+@Injectable()
+export class MongoClientProfileStore implements ClientProfileStorePort {
+	constructor(
+		@InjectModel(ADVISOR_CLIENT_PROFILE_MODEL)
+		private readonly profiles: Model<AdvisorClientProfileDoc>
+	) {}
+
+	async create(profile: Omit<ClientProfile, 'id'>): Promise<ClientProfile> {
+		const created = await this.profiles.create(profile);
+		return toClientProfile(created.toObject());
+	}
+
+	async findById(id: string): Promise<ClientProfile | null> {
+		const doc = await this.profiles
+			.findById(id)
+			.lean<AdvisorClientProfileDoc>()
+			.exec();
+		return doc ? toClientProfile(doc) : null;
+	}
+
+	async save(profile: ClientProfile): Promise<ClientProfile> {
+		const { id, ownerUserId, ...fields } = profile;
+		const update =
+			ownerUserId === undefined
+				? { $set: fields, $unset: { ownerUserId: '' as const } }
+				: { $set: { ...fields, ownerUserId } };
+		const doc = await this.profiles
+			.findOneAndUpdate({ _id: id }, update, {
+				new: true,
+				upsert: true,
+				setDefaultsOnInsert: true,
+			})
+			.lean<AdvisorClientProfileDoc>()
+			.exec();
+		return toClientProfile(doc);
+	}
+
+	/**
+	 * Um único `findOneAndUpdate` com o filtro "ADVISOR_CREATED e sem dono":
+	 * só uma chamada concorrente casa; as demais recebem null.
+	 */
+	async claimIfUnowned(
+		id: string,
+		userId: string
+	): Promise<ClientProfile | null> {
+		const doc = await this.profiles
+			.findOneAndUpdate(
+				{ _id: id, origin: ProfileOrigin.AdvisorCreated, ownerUserId: null },
+				{
+					$set: { origin: ProfileOrigin.ClientCreated, ownerUserId: userId },
+				},
+				{ new: true }
+			)
+			.lean<AdvisorClientProfileDoc>()
+			.exec();
+		return doc ? toClientProfile(doc) : null;
+	}
+}

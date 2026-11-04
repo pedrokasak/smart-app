@@ -29,23 +29,18 @@ export class ClientProfileService {
 
 	/**
 	 * O cliente assume um perfil criado pelo assessor. Só vale para perfil
-	 * ADVISOR_CREATED sem dono; nunca sobrescreve um dono existente.
+	 * ADVISOR_CREATED sem dono; nunca sobrescreve um dono existente. A
+	 * transição é atômica no store, sem janela entre ler e gravar.
 	 */
 	async claim(clientProfileId: string, userId: string): Promise<ClientProfile> {
-		const profile = await this.profiles.findById(clientProfileId);
-		if (!profile) {
+		const claimed = await this.profiles.claimIfUnowned(clientProfileId, userId);
+		if (claimed) {
+			return claimed;
+		}
+		const existing = await this.profiles.findById(clientProfileId);
+		if (!existing) {
 			throw new NotFoundException('Client profile not found');
 		}
-		if (
-			profile.origin !== ProfileOrigin.AdvisorCreated ||
-			profile.ownerUserId
-		) {
-			throw new ConflictException('Client profile already claimed');
-		}
-		return this.profiles.save({
-			...profile,
-			origin: ProfileOrigin.ClientCreated,
-			ownerUserId: userId,
-		});
+		throw new ConflictException('Client profile already claimed');
 	}
 }

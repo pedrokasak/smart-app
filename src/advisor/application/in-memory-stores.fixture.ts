@@ -5,7 +5,7 @@ import {
 	Membership,
 	Organization,
 } from '../domain/entities';
-import { RelationshipStatus } from '../domain/enums';
+import { ProfileOrigin, RelationshipStatus } from '../domain/enums';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
@@ -105,5 +105,26 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 	async save(profile: ClientProfile): Promise<ClientProfile> {
 		this.items.set(profile.id, profile);
 		return profile;
+	}
+
+	async claimIfUnowned(
+		id: string,
+		userId: string
+	): Promise<ClientProfile | null> {
+		const profile = this.items.get(id);
+		if (
+			!profile ||
+			profile.origin !== ProfileOrigin.AdvisorCreated ||
+			profile.ownerUserId
+		) {
+			return null;
+		}
+		const claimed: ClientProfile = {
+			...profile,
+			origin: ProfileOrigin.ClientCreated,
+			ownerUserId: userId,
+		};
+		this.items.set(id, claimed);
+		return claimed;
 	}
 }
