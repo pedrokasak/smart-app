@@ -112,7 +112,7 @@ describe('advisor in-memory stores', () => {
 		const store = new InMemoryClientProfileStore();
 		const created = await store.create({
 			orgId: 'o1',
-			name: 'Jo„o',
+			name: 'Jo√£o',
 			origin: ProfileOrigin.AdvisorCreated,
 		});
 		expect(await store.findById(created.id)).toEqual(created);
