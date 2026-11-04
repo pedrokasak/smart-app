@@ -13,6 +13,7 @@ import {
 	AdvisorRelationshipDoc,
 	advisorSchemas,
 } from './advisor.models';
+import { assertDisposableDb, buildTestDbName } from './mongo-test-database';
 import { MongoClientProfileStore } from './mongo-client-profile.store';
 import { MongoMembershipStore } from './mongo-membership.store';
 import { MongoOrganizationStore } from './mongo-organization.store';
@@ -21,6 +22,8 @@ import { MongoRelationshipStore } from './mongo-relationship.store';
 /**
  * Roda a suíte de contrato dos ports contra o Mongo real. Só executa com
  * `MONGO_TEST_URI` apontando para um Mongo descartável (nunca o do `.env`).
+ * Conecta num banco `advisor_contract_<uuid>` gerado por execução, ignorando o
+ * banco que a URI nomeia, e só derruba esse banco (com guarda de prefixo).
  */
 const TEST_URI = process.env.MONGO_TEST_URI;
 const describeMongo = TEST_URI ? describe : describe.skip;
@@ -35,7 +38,10 @@ describeMongo('advisor mongo stores', () => {
 	};
 
 	beforeAll(async () => {
-		conn = await createConnection(TEST_URI as string).asPromise();
+		conn = await createConnection(TEST_URI as string, {
+			dbName: buildTestDbName(),
+		}).asPromise();
+		assertDisposableDb(conn.name);
 		const orgModel = conn.model<AdvisorOrganizationDoc>(
 			ADVISOR_ORGANIZATION_MODEL,
 			advisorSchemas.organization
@@ -67,8 +73,11 @@ describeMongo('advisor mongo stores', () => {
 	});
 
 	afterAll(async () => {
-		await conn?.dropDatabase();
-		await conn?.close();
+		if (conn) {
+			assertDisposableDb(conn.name);
+			await conn.dropDatabase();
+			await conn.close();
+		}
 	});
 
 	describeAdvisorStoreContract('mongo', () => stores);
