@@ -70,13 +70,14 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
     orgId: string,
     clientProfileId: string,
   ): Promise<AdvisoryRelationship | null> {
+    // Map preserva a ordem de criação; o último é o mais recente.
+    const matches = [...this.items.values()].filter(
+      (r) => r.orgId === orgId && r.clientProfileId === clientProfileId,
+    );
     return (
-      [...this.items.values()].find(
-        (r) =>
-          r.orgId === orgId &&
-          r.clientProfileId === clientProfileId &&
-          r.status === RelationshipStatus.Active,
-      ) ?? null
+      matches.find((r) => r.status === RelationshipStatus.Active) ??
+      matches[matches.length - 1] ??
+      null
     );
   }
 

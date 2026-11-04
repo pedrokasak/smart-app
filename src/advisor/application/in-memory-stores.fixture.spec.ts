@@ -59,7 +59,7 @@ describe('advisor in-memory stores', () => {
     expect(await store.findByUserAndOrg('u3', 'o1')).toBeNull();
   });
 
-  it('relationship: findByOrgAndClient finds the active one; save persists', async () => {
+  it('relationship: findByOrgAndClient prefers ACTIVE, else most recent; save persists', async () => {
     const store = new InMemoryRelationshipStore();
     const revoked = await store.create({
       orgId: 'o1',
@@ -89,8 +89,23 @@ describe('advisor in-memory stores', () => {
     expect((await store.findById(active.id))?.status).toBe(
       RelationshipStatus.Revoked,
     );
-    expect(await store.findByOrgAndClient('o1', 'c1')).toBeNull();
+    // sem ACTIVE: devolve a mais recente (revogada), não null
+    const afterRevoke = await store.findByOrgAndClient('o1', 'c1');
+    expect(afterRevoke?.id).toBe(active.id);
+    expect(afterRevoke?.status).toBe(RelationshipStatus.Revoked);
     expect(await store.findById(revoked.id)).toEqual(revoked);
+  });
+
+  it('relationship: only a revoked row is still returned with its status', async () => {
+    const store = new InMemoryRelationshipStore();
+    const revoked = await store.create({
+      orgId: 'o1',
+      clientProfileId: 'c1',
+      status: RelationshipStatus.Revoked,
+    });
+    const found = await store.findByOrgAndClient('o1', 'c1');
+    expect(found?.id).toBe(revoked.id);
+    expect(found?.status).toBe(RelationshipStatus.Revoked);
   });
 
   it('client profile: create, findById and save round-trip', async () => {
