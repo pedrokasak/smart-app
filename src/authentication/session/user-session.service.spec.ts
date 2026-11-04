@@ -273,10 +273,7 @@ describe('UserSessionService', () => {
 		it('cai quando o aparelho é encerrado pela lista de sessões', async () => {
 			await service.revoke('s1', 'u1', 'user_request');
 
-			expect(credentials.deleteForDevice).toHaveBeenCalledWith(
-				'u1',
-				'phone-1'
-			);
+			expect(credentials.deleteForDevice).toHaveBeenCalledWith('u1', 'phone-1');
 		});
 
 		it('não é tocada ao tentar encerrar a sessão de outra conta', async () => {
