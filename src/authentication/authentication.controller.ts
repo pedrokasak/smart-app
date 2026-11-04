@@ -80,12 +80,7 @@ export class AuthenticationController {
 			throw new UnauthorizedException('Refresh Token is required');
 		}
 
-		try {
-			const result = await this.authService.refreshAccessToken(refreshToken);
-			return result;
-		} catch (error) {
-			throw new UnauthorizedException('Invalid or Expired Refresh Token');
-		}
+		return this.authService.refreshAccessToken(refreshToken);
 	}
 
 	@UseGuards(JwtAuthGuard)

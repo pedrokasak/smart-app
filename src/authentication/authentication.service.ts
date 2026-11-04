@@ -7,6 +7,7 @@ import {
 	NotFoundException,
 	InternalServerErrorException,
 	BadRequestException,
+	ServiceUnavailableException,
 } from '@nestjs/common';
 import { AuthenticateDto } from './dto/authenticate.dto';
 import { JwtService } from '@nestjs/jwt';
@@ -52,6 +53,9 @@ import {
  * Existe para que outros fluxos de login (ex.: 2FA) possam reaproveitar a
  * emissão de sessão sem depender do tipo completo do Mongoose.
  */
+const invalidRefreshToken = () =>
+	new UnauthorizedException('Invalid or expired refresh token');
+
 export interface SessionUser {
 	id: string;
 	email: string;
@@ -573,13 +577,9 @@ export class AuthenticationService {
 	 *   foi trocado; a sessão inteira cai.
 	 */
 	async refreshAccessToken(refreshToken: string): Promise<RefreshedSession> {
+		const payload = this.verifyRefreshPayload(refreshToken);
+
 		try {
-			const payload = this.jwtService.verify(refreshToken);
-
-			if (payload.type !== 'refresh') {
-				throw new Error('Invalid token type');
-			}
-
 			if (payload.sid) {
 				return await this.renewDeviceSession(refreshToken, payload);
 			}
@@ -592,7 +592,7 @@ export class AuthenticationService {
 				'+refreshToken +previousRefreshToken +refreshTokenRotatedAt'
 			);
 			if (!user || !user.refreshToken) {
-				throw new Error('Invalid refresh token');
+				throw invalidRefreshToken();
 			}
 
 			const isCurrent = await this.verifyStoredRefreshToken(
@@ -609,7 +609,7 @@ export class AuthenticationService {
 				);
 			} else if (!this.isGracefulReuse(refreshToken, user)) {
 				await this.revokeOnReuse(user.id);
-				throw new Error('Refresh token reuse');
+				throw invalidRefreshToken();
 			}
 
 			const newAccessToken = this.signAccessToken(user);
@@ -622,8 +622,27 @@ export class AuthenticationService {
 				expiresIn: String(expireKeepAliveConected),
 			};
 		} catch (error) {
-			throw new UnauthorizedException('Invalid or expired refresh token');
+			if (error instanceof UnauthorizedException) throw error;
+			// Banco fora do ar não diz nada sobre o token. Responder 401 aqui faria o
+			// app apagar uma sessão válida; com 503 ele mantém e tenta de novo.
+			this.logger.error(
+				`[auth] falha ao renovar a sessão: ${(error as Error)?.message}`
+			);
+			throw new ServiceUnavailableException(
+				'Não foi possível renovar a sessão agora'
+			);
 		}
+	}
+
+	private verifyRefreshPayload(refreshToken: string) {
+		let payload;
+		try {
+			payload = this.jwtService.verify(refreshToken);
+		} catch {
+			throw invalidRefreshToken();
+		}
+		if (payload.type !== 'refresh') throw invalidRefreshToken();
+		return payload;
 	}
 
 	/** Renovação de token com `sid`. Tokens sem ele seguem o caminho legado. */
@@ -633,7 +652,7 @@ export class AuthenticationService {
 	): Promise<RefreshedSession> {
 		const user = await UserModel.findById(payload.userId).select('role');
 		if (!user) {
-			throw new Error('Invalid refresh token');
+			throw invalidRefreshToken();
 		}
 
 		const renewal = await this.userSessions.renew({
@@ -649,7 +668,7 @@ export class AuthenticationService {
 			);
 		}
 		if (renewal.outcome === 'reused' || renewal.outcome === 'unknown_session') {
-			throw new Error('Invalid refresh token');
+			throw invalidRefreshToken();
 		}
 
 		await this.touchLastSeen(user.id);
