@@ -1,6 +1,10 @@
 import * as crypto from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+	BadRequestException,
+	ServiceUnavailableException,
+	UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
 	AuthenticationService,
@@ -524,7 +528,9 @@ describe('AuthenticationService', () => {
 			};
 
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue(mockUser);
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(mockUser),
+			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
 
 			await expect(service.refreshAccessToken('wrong-token')).rejects.toThrow(
@@ -534,10 +540,12 @@ describe('AuthenticationService', () => {
 
 		it('should throw when user has no refresh token stored', async () => {
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				refreshToken: null,
-				role: 'user',
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					refreshToken: null,
+					role: 'user',
+				}),
 			});
 
 			await expect(service.refreshAccessToken('any-token')).rejects.toThrow(
@@ -560,6 +568,32 @@ describe('AuthenticationService', () => {
 
 			await expect(service.refreshAccessToken('expired-token')).rejects.toThrow(
 				UnauthorizedException
+			);
+		});
+
+		it('should answer 503, not 401, when the database fails', async () => {
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockRejectedValue(new Error('mongo down')),
+			});
+
+			await expect(service.refreshAccessToken('valid-token')).rejects.toThrow(
+				ServiceUnavailableException
+			);
+		});
+
+		it('should answer 503 when a device session fails to load', async () => {
+			mockJwtService.verify.mockReturnValue({
+				userId: 'u1',
+				type: 'refresh',
+				sid: 's1',
+			});
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockRejectedValue(new Error('mongo down')),
+			});
+
+			await expect(service.refreshAccessToken('valid-token')).rejects.toThrow(
+				ServiceUnavailableException
 			);
 		});
 	});
@@ -1089,10 +1123,12 @@ describe('AuthenticationService', () => {
 
 		it('rejects a valid JWT that is not the stored token', async () => {
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				role: 'user',
-				refreshToken: sha256('the.issued.token'),
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					role: 'user',
+					refreshToken: sha256('the.issued.token'),
+				}),
 			});
 
 			await expect(
@@ -1117,6 +1153,9 @@ describe('AuthenticationService', () => {
 			expect(save).toHaveBeenCalled();
 
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(storedUser),
+			});
 
 			await expect(service.refreshAccessToken(rawToken)).rejects.toThrow(
 				UnauthorizedException
@@ -1150,10 +1189,12 @@ describe('AuthenticationService', () => {
 
 		it('rejects a legacy Argon2 hash that does not match', async () => {
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				role: 'user',
-				refreshToken: '$argon2id$v=19$m=65536,t=3,p=1$c29tZXNhbHQ$b3V0cm8',
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					role: 'user',
+					refreshToken: '$argon2id$v=19$m=65536,t=3,p=1$c29tZXNhbHQ$b3V0cm8',
+				}),
 			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
 
@@ -1167,10 +1208,12 @@ describe('AuthenticationService', () => {
 			// Um valor truncado no banco tem que virar 401, não 500.
 			const rawToken = 'valid.refresh.token';
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				role: 'user',
-				refreshToken: sha256(rawToken).slice(0, 32),
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					role: 'user',
+					refreshToken: sha256(rawToken).slice(0, 32),
+				}),
 			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
 
