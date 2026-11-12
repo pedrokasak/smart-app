@@ -36,6 +36,11 @@ export class ChatMessage {
 	@Prop()
 	aiGenerated?: boolean;
 
+	// Canal da mensagem (ADR-007). Ausente no histórico antigo, que é todo
+	// de texto.
+	@Prop({ enum: ['text', 'voice'] })
+	channel?: 'text' | 'voice';
+
 	@Prop({ default: Date.now, index: true })
 	createdAt: Date;
 }

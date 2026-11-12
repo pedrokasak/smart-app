@@ -41,4 +41,8 @@ export class AppendChatMessageRequestDto {
 	@IsOptional()
 	@IsBoolean()
 	aiGenerated?: boolean;
+
+	@IsOptional()
+	@IsIn(['text', 'voice'])
+	channel?: 'text' | 'voice';
 }

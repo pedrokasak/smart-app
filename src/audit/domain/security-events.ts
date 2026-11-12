@@ -19,6 +19,9 @@ export const SECURITY_EVENT = {
 	BiometricRevoked: 'security.biometric.revoked',
 	RoleChanged: 'security.role.changed',
 	ManualGrantCreated: 'billing.manual_grant.created',
+	// Consentimento da voz do Copiloto (ADR-007, decisão 10).
+	VoiceConsentAccepted: 'privacy.voice_consent.accepted',
+	VoiceConsentRevoked: 'privacy.voice_consent.revoked',
 } as const;
 
 export type SecurityEventType =
@@ -40,4 +43,6 @@ export const SECURITY_EVENT_LABELS: Record<string, string> = {
 	[SECURITY_EVENT.RoleChanged]: 'Papel alterado',
 	[SECURITY_EVENT.ManualGrantCreated]: 'Concessão manual',
 	'agent.control.changed': 'Agente alterado',
+	[SECURITY_EVENT.VoiceConsentAccepted]: 'Voz do Copiloto aceita',
+	[SECURITY_EVENT.VoiceConsentRevoked]: 'Voz do Copiloto revogada',
 };
