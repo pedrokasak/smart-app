@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { ChatMessage, ChatMessageDocument } from './schema/chat-message.schema';
 import { AppendChatMessageRequestDto } from './dto/append-chat-message-request.dto';
 
@@ -45,7 +45,24 @@ export class ChatHistoryService {
 			retryQuestion: dto.retryQuestion,
 			payload: dto.payload,
 			aiGenerated: dto.aiGenerated,
+			channel: dto.channel,
 		});
 		return created.toObject();
+	}
+
+	/**
+	 * Resposta do assistente do próprio usuário, para a voz gerar o áudio a
+	 * partir dela (ADR-007, decisão 8). Filtra por `userId`: um id de outra
+	 * pessoa responde como inexistente.
+	 */
+	async findOwnAssistantMessage(
+		userId: string,
+		messageId: string
+	): Promise<ChatMessage | null> {
+		if (!Types.ObjectId.isValid(messageId)) return null;
+		return this.chatMessageModel
+			.findOne({ _id: messageId, userId, role: 'assistant' })
+			.lean()
+			.exec();
 	}
 }

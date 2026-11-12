@@ -16,6 +16,7 @@ import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
 import { InvestmentPolicyService } from 'src/investment-policy/investment-policy.service';
 import { DEFAULT_INVESTMENT_POLICY } from 'src/investment-policy/domain/investment-policy';
 import { CopilotDidacticService } from './didactic/copilot-didactic.service';
+import { IntelligentChatAnswerService } from './intelligence/intelligent-chat-answer.service';
 import { UnauthorizedException } from '@nestjs/common';
 import {
 	PREMIUM_ACCESS_LEVEL,
@@ -160,6 +161,7 @@ describe('AiController', () => {
 				},
 				// Camada didática de verdade, com perfil e política mockados.
 				CopilotDidacticService,
+				IntelligentChatAnswerService,
 			],
 		}).compile();
 

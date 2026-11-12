@@ -37,6 +37,8 @@ export const ERASABLE_COLLECTIONS: ReadonlyArray<ErasableCollection> = [
 	{ model: 'InvestorProfile', ownerField: 'userId' },
 	{ model: 'Address', ownerField: 'userId' },
 	{ model: 'ChatMessage', ownerField: 'userId' },
+	{ model: 'VoiceConsent', ownerField: 'userId' },
+	{ model: 'VoiceUsage', ownerField: 'userId' },
 	{ model: 'Notification', ownerField: 'user' },
 	{ model: 'PushSubscription', ownerField: 'user' },
 	{ model: 'UserSession', ownerField: 'user' },
