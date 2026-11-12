@@ -1,4 +1,7 @@
-import { ChatOrchestratorService } from 'src/ai/orchestration/chat-orchestrator.service';
+import {
+	ChatOrchestratorService,
+	PORTFOLIO_FILTER_IGNORED,
+} from 'src/ai/orchestration/chat-orchestrator.service';
 import { ChatCostObserverPort } from 'src/ai/orchestration/chat-cost-observer.port';
 import { ChatResponseCachePort } from 'src/ai/orchestration/chat-response-cache.port';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
@@ -471,6 +474,26 @@ describe('ChatOrchestratorService', () => {
 			expect(response.assumptions).toContain(
 				'dividends_estimated_from_current_quantity'
 			);
+		});
+
+		it('com carteira escolhida, avisa que a composição é da conta inteira (ADR-007)', async () => {
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Quanto eu já recebi de proventos?',
+				{ portfolioId: '64b7f0c2a1b2c3d4e5f60718' }
+			);
+
+			expect(response.intent).toBe('dividends_received');
+			expect(response.warnings).toContain(PORTFOLIO_FILTER_IGNORED);
+		});
+
+		it('sem carteira escolhida, nenhum aviso de filtro', async () => {
+			const response = await makeService().orchestrate(
+				'user-1',
+				'Quanto eu já recebi de proventos?'
+			);
+
+			expect(response.warnings).not.toContain(PORTFOLIO_FILTER_IGNORED);
 		});
 
 		it('lista o que exige atenção em "Preciso fazer algo hoje?"', async () => {

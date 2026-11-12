@@ -1,9 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { PortfolioService } from 'src/portfolio/portfolio.service';
 import {
 	buildAnswerSources,
 	computeAnswerConfidence,
 	mergeAnswerConfidence,
 } from '../orchestration/answer-confidence';
+import { PORTFOLIO_FILTER_IGNORED } from '../orchestration/chat-orchestrator.service';
 import { ChatOrchestratorResponse } from '../orchestration/chat-orchestrator.types';
 import { isPortfolioAssetListQuestion } from '../orchestration/portfolio-asset-list-question';
 import { ChatToolRouterService } from '../orchestration/tool-routing/chat-tool-router.service';
@@ -24,16 +26,24 @@ export class IntelligentChatAnswerService {
 
 	constructor(
 		private readonly chatToolRouter: ChatToolRouterService,
-		private readonly copilotDidactic: CopilotDidacticService
+		private readonly copilotDidactic: CopilotDidacticService,
+		private readonly portfolios: PortfolioService
 	) {}
 
 	async answer(
 		userId: string,
 		body: Pick<
 			IntelligentChatRequestDto,
-			'question' | 'investorProfile' | 'copilotFlow' | 'decisionFlow'
+			| 'question'
+			| 'investorProfile'
+			| 'copilotFlow'
+			| 'decisionFlow'
+			| 'portfolioId'
 		>
 	): Promise<any> {
+		// Fora do try: carteira de outro usuário é erro do pedido (404), não
+		// falha do orquestrador para virar resposta genérica.
+		const portfolioId = await this.ownedPortfolioId(userId, body?.portfolioId);
 		try {
 			const { parts, routing } = await this.chatToolRouter.answer(
 				userId,
@@ -42,6 +52,8 @@ export class IntelligentChatAnswerService {
 					investorProfile: body?.investorProfile,
 					copilotFlow: body?.copilotFlow,
 					decisionFlow: body?.decisionFlow,
+					// Sem carteira escolhida, as opções ficam como sempre foram.
+					...(portfolioId ? { portfolioId } : {}),
 				}
 			);
 			const [orchestration] = parts;
@@ -58,12 +70,15 @@ export class IntelligentChatAnswerService {
 				route: orchestration.route,
 				// Uma intenção por parágrafo (TRA-241). Com compositor didático,
 				// a explicação no nível da pessoa; sem ele, a mensagem de sempre.
-				message: parts
-					.map(
-						(part, index) =>
-							explained[index].message ?? this.buildIntelligentMessage(part)
-					)
-					.join('\n\n'),
+				message: this.withScopeNote(
+					parts
+						.map(
+							(part, index) =>
+								explained[index].message ?? this.buildIntelligentMessage(part)
+						)
+						.join('\n\n'),
+					parts
+				),
 				// Campo aditivo: blocos estruturados para a bolha didática do web
 				// (docs/requisitos/ia-didatica.md), um por parte com compositor,
 				// na ordem dos parágrafos. Vazio quando nenhuma parte tem.
@@ -97,6 +112,8 @@ export class IntelligentChatAnswerService {
 				),
 				// Campo aditivo: o web ignora; serve a suporte e avaliação.
 				routing,
+				// Carteira usada na resposta; o histórico guarda junto.
+				portfolioId: portfolioId ?? null,
 			};
 		} catch (error: any) {
 			this.logger.error(
@@ -118,6 +135,37 @@ export class IntelligentChatAnswerService {
 				assumptions: [],
 			};
 		}
+	}
+
+	/**
+	 * Confere que a carteira é do usuário (ADR-007, decisão 10). De outro
+	 * usuário ou inexistente, o mesmo 404, sem dizer qual dos dois.
+	 */
+	private async ownedPortfolioId(
+		userId: string,
+		portfolioId?: string | null
+	): Promise<string | null> {
+		if (!portfolioId) return null;
+		const owned = await this.portfolios.getUserPortfolios(userId);
+		if (
+			!owned.some((portfolio: any) => String(portfolio?._id) === portfolioId)
+		) {
+			throw new NotFoundException('portfolio_not_found');
+		}
+		return portfolioId;
+	}
+
+	/** Diz quando uma parte respondeu sobre todas as carteiras apesar do filtro. */
+	private withScopeNote(
+		message: string,
+		parts: ChatOrchestratorResponse[]
+	): string {
+		const ignored = parts.some((part) =>
+			part.warnings?.includes(PORTFOLIO_FILTER_IGNORED)
+		);
+		return ignored
+			? `${message}\n\nEsta resposta considera todas as suas carteiras.`
+			: message;
 	}
 
 	private buildIntelligentMessage(response: ChatOrchestratorResponse): string {

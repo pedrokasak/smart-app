@@ -146,9 +146,16 @@ export class VoiceTurnService {
 		}
 	}
 
-	async answer(userId: string, question: string): Promise<any> {
+	async answer(
+		userId: string,
+		question: string,
+		portfolioId?: string
+	): Promise<any> {
 		await this.ensureAllowed(userId);
-		const response = await this.chatAnswer.answer(userId, { question });
+		const response = await this.chatAnswer.answer(userId, {
+			question,
+			portfolioId,
+		});
 		await this.chatHistory.append(userId, {
 			clientId: `voice-u-${randomUUID()}`,
 			role: 'user',
