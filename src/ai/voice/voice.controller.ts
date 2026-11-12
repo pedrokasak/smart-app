@@ -106,7 +106,11 @@ export class VoiceController {
 	@Post('answer')
 	@HttpCode(HttpStatus.OK)
 	answer(@Request() req: any, @Body() body: VoiceAnswerRequestDto) {
-		return this.voice.answer(userIdOf(req), body.question.trim());
+		return this.voice.answer(
+			userIdOf(req),
+			body.question.trim(),
+			body.portfolioId
+		);
 	}
 
 	@Post('speech')

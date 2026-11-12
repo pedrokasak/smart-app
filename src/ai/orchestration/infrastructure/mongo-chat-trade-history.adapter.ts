@@ -17,13 +17,17 @@ export class MongoChatTradeHistoryAdapter implements ChatTradeHistoryPort {
 
 	async listTrades(
 		userId: string,
-		query: TradeHistoryQuery
+		query: TradeHistoryQuery,
+		portfolioId?: string | null
 	): Promise<TradeRow[]> {
 		if (!Types.ObjectId.isValid(userId)) return [];
 
 		const filter: Record<string, unknown> = {
 			userId: new Types.ObjectId(userId),
 		};
+		if (portfolioId && Types.ObjectId.isValid(portfolioId)) {
+			filter.portfolioId = new Types.ObjectId(portfolioId);
+		}
 		if (query.symbol) filter.symbol = query.symbol.toUpperCase();
 		if (query.side) filter.side = query.side;
 		if (query.from || query.to) {

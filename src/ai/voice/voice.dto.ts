@@ -37,6 +37,11 @@ export class VoiceAnswerRequestDto {
 	@MinLength(2)
 	@MaxLength(VOICE_MAX_QUESTION_LENGTH)
 	question: string;
+
+	/** Carteira dos chips "Consultando"; sem ela, todas (ADR-007, decisão 10). */
+	@IsOptional()
+	@IsMongoId()
+	portfolioId?: string;
 }
 
 export class VoiceSpeechRequestDto {

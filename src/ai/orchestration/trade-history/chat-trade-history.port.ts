@@ -12,5 +12,10 @@ export const MAX_TRADES_READ = 2000;
  * operação de outra pessoa.
  */
 export interface ChatTradeHistoryPort {
-	listTrades(userId: string, query: TradeHistoryQuery): Promise<TradeRow[]>;
+	/** `portfolioId` restringe às operações daquela carteira (ADR-007). */
+	listTrades(
+		userId: string,
+		query: TradeHistoryQuery,
+		portfolioId?: string | null
+	): Promise<TradeRow[]>;
 }
