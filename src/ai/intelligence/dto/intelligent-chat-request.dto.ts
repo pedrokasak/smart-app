@@ -69,4 +69,9 @@ export class IntelligentChatRequestDto {
 	@IsOptional()
 	@IsMongoId()
 	portfolioId?: string;
+
+	/** Conversa aberta: dá o contexto do seguimento (ADR-007, fase 2). */
+	@IsOptional()
+	@IsMongoId()
+	conversationId?: string;
 }

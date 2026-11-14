@@ -1,4 +1,12 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+	Injectable,
+	Logger,
+	NotFoundException,
+	Optional,
+} from '@nestjs/common';
+import { ChatConversationService } from 'src/ai/chat-history/chat-conversation.service';
+import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
+import { resolveFollowUpQuestion } from './follow-up-question';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import {
 	buildAnswerSources,
@@ -27,7 +35,10 @@ export class IntelligentChatAnswerService {
 	constructor(
 		private readonly chatToolRouter: ChatToolRouterService,
 		private readonly copilotDidactic: CopilotDidacticService,
-		private readonly portfolios: PortfolioService
+		private readonly portfolios: PortfolioService,
+		// Opcionais: sem eles (testes antigos), a pergunta vai como veio.
+		@Optional() private readonly conversations?: ChatConversationService,
+		@Optional() private readonly history?: ChatHistoryService
 	) {}
 
 	async answer(
@@ -39,15 +50,21 @@ export class IntelligentChatAnswerService {
 			| 'copilotFlow'
 			| 'decisionFlow'
 			| 'portfolioId'
+			| 'conversationId'
 		>
 	): Promise<any> {
 		// Fora do try: carteira de outro usuário é erro do pedido (404), não
 		// falha do orquestrador para virar resposta genérica.
 		const portfolioId = await this.ownedPortfolioId(userId, body?.portfolioId);
+		const question = await this.withConversationContext(
+			userId,
+			body?.question || '',
+			body?.conversationId
+		);
 		try {
 			const { parts, routing } = await this.chatToolRouter.answer(
 				userId,
-				body?.question || '',
+				question,
 				{
 					investorProfile: body?.investorProfile,
 					copilotFlow: body?.copilotFlow,
@@ -114,6 +131,11 @@ export class IntelligentChatAnswerService {
 				routing,
 				// Carteira usada na resposta; o histórico guarda junto.
 				portfolioId: portfolioId ?? null,
+				// Pergunta que o orquestrador respondeu, quando o seguimento a
+				// reescreveu ("e a VALE3?"). O web pode mostrar o que entendeu.
+				...(question !== String(body?.question || '').trim()
+					? { resolvedQuestion: question }
+					: {}),
 			};
 		} catch (error: any) {
 			this.logger.error(
@@ -135,6 +157,26 @@ export class IntelligentChatAnswerService {
 				assumptions: [],
 			};
 		}
+	}
+
+	/**
+	 * Contexto da conversa (ADR-007, fase 2): confere o dono (404) e
+	 * reescreve a pergunta de seguimento com a anterior da mesma conversa.
+	 */
+	private async withConversationContext(
+		userId: string,
+		question: string,
+		conversationId?: string
+	): Promise<string> {
+		if (!conversationId || !this.conversations || !this.history) {
+			return question.trim();
+		}
+		await this.conversations.ensureOwned(userId, conversationId);
+		const previous = await this.history.lastUserQuestion(
+			userId,
+			conversationId
+		);
+		return resolveFollowUpQuestion(question, previous);
 	}
 
 	/**

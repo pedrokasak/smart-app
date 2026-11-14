@@ -109,7 +109,8 @@ export class VoiceController {
 		return this.voice.answer(
 			userIdOf(req),
 			body.question.trim(),
-			body.portfolioId
+			body.portfolioId,
+			body.conversationId
 		);
 	}
 

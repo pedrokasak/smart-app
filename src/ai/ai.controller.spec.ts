@@ -13,6 +13,7 @@ import { UserErrorRadarService } from 'src/intelligence/application/user-error-r
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
+import { ChatConversationService } from 'src/ai/chat-history/chat-conversation.service';
 import { InvestmentPolicyService } from 'src/investment-policy/investment-policy.service';
 import { DEFAULT_INVESTMENT_POLICY } from 'src/investment-policy/domain/investment-policy';
 import { CopilotDidacticService } from './didactic/copilot-didactic.service';
@@ -150,6 +151,10 @@ describe('AiController', () => {
 				{
 					provide: ChatHistoryService,
 					useValue: mockChatHistoryService,
+				},
+				{
+					provide: ChatConversationService,
+					useValue: { ensureOwned: jest.fn(), touch: jest.fn() },
 				},
 				{
 					provide: USER_PLAN_RESOLVER,

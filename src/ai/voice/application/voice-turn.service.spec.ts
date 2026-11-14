@@ -98,6 +98,10 @@ function setup() {
 			},
 		]),
 	};
+	const conversations = {
+		create: jest.fn().mockResolvedValue({ id: 'conv-new' }),
+		touch: jest.fn().mockResolvedValue(undefined),
+	};
 	const service = new VoiceTurnService(
 		speech,
 		consents,
@@ -106,6 +110,7 @@ function setup() {
 		() => NOW,
 		chatAnswer as any,
 		chatHistory as any,
+		conversations as any,
 		portfolios as any
 	);
 	return {
@@ -116,6 +121,7 @@ function setup() {
 		audit,
 		chatAnswer,
 		chatHistory,
+		conversations,
 		portfolios,
 	};
 }
@@ -259,9 +265,10 @@ describe('VoiceTurnService', () => {
 			await service.acceptConsent('u1', 'web');
 			const response = await service.answer('u1', 'A PETR4 pagou?');
 
-			expect(chatAnswer.answer).toHaveBeenCalledWith('u1', {
-				question: 'A PETR4 pagou?',
-			});
+			expect(chatAnswer.answer).toHaveBeenCalledWith(
+				'u1',
+				expect.objectContaining({ question: 'A PETR4 pagou?' })
+			);
 			expect(chatHistory.append).toHaveBeenNthCalledWith(
 				1,
 				'u1',
@@ -294,6 +301,48 @@ describe('VoiceTurnService', () => {
 			await service.acceptConsent('u1', 'web');
 			await service.answer('u1', 'oi?');
 			expect(usage.counts.size).toBe(0);
+		});
+	});
+
+	describe('answer em conversa (fase 2)', () => {
+		it('sem conversa aberta, abre uma nova e grava os dois lados nela', async () => {
+			const { service, chatAnswer, chatHistory, conversations } = setup();
+			await service.acceptConsent('u1', 'web');
+			const response = await service.answer('u1', 'A PETR4 pagou?');
+
+			expect(conversations.create).toHaveBeenCalledWith('u1');
+			expect(chatAnswer.answer).toHaveBeenCalledWith(
+				'u1',
+				expect.objectContaining({ conversationId: 'conv-new' })
+			);
+			expect(chatHistory.append).toHaveBeenCalledWith(
+				'u1',
+				expect.objectContaining({ role: 'user', conversationId: 'conv-new' })
+			);
+			expect(chatHistory.append).toHaveBeenCalledWith(
+				'u1',
+				expect.objectContaining({
+					role: 'assistant',
+					conversationId: 'conv-new',
+				})
+			);
+			expect(conversations.touch).toHaveBeenCalledWith('u1', 'conv-new', {
+				voice: true,
+				question: 'A PETR4 pagou?',
+			});
+			expect(response.conversationId).toBe('conv-new');
+		});
+
+		it('com conversa aberta, continua nela', async () => {
+			const { service, conversations, chatAnswer } = setup();
+			await service.acceptConsent('u1', 'web');
+			await service.answer('u1', 'e a VALE3?', undefined, 'conv-aberta');
+
+			expect(conversations.create).not.toHaveBeenCalled();
+			expect(chatAnswer.answer).toHaveBeenCalledWith(
+				'u1',
+				expect.objectContaining({ conversationId: 'conv-aberta' })
+			);
 		});
 	});
 

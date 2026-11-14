@@ -42,6 +42,11 @@ export class VoiceAnswerRequestDto {
 	@IsOptional()
 	@IsMongoId()
 	portfolioId?: string;
+
+	/** Conversa aberta; sem ela, a pergunta abre uma conversa nova. */
+	@IsOptional()
+	@IsMongoId()
+	conversationId?: string;
 }
 
 export class VoiceSpeechRequestDto {
