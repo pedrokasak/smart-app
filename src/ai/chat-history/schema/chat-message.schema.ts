@@ -41,9 +41,15 @@ export class ChatMessage {
 	@Prop({ enum: ['text', 'voice'] })
 	channel?: 'text' | 'voice';
 
+	// Conversa da mensagem (ADR-007, fase 2). Ausente no histórico antigo até
+	// a primeira listagem de conversas, que a adota (ChatConversationService).
+	@Prop()
+	conversationId?: string;
+
 	@Prop({ default: Date.now, index: true })
 	createdAt: Date;
 }
 
 export const ChatMessageSchema = SchemaFactory.createForClass(ChatMessage);
 ChatMessageSchema.index({ userId: 1, createdAt: 1 });
+ChatMessageSchema.index({ userId: 1, conversationId: 1, createdAt: 1 });

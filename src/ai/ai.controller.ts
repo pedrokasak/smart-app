@@ -3,6 +3,7 @@ import {
 	Get,
 	Post,
 	Put,
+	Query,
 	Body,
 	UseGuards,
 	Request,
@@ -47,6 +48,7 @@ import { InvestorSophisticationProfile } from 'src/intelligence/application/inve
 import { InvestorProfileOverrideDto } from './dto/investor-profile-override.dto';
 import { enrichPayloadWithProfile } from './analysis/enrich-payload-with-profile';
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
+import { ChatConversationService } from 'src/ai/chat-history/chat-conversation.service';
 import { AppendChatMessageRequestDto } from 'src/ai/chat-history/dto/append-chat-message-request.dto';
 import { ChatMessage } from 'src/ai/chat-history/schema/chat-message.schema';
 import { OpportunityRadarRequestDto } from './dto/opportunity-radar-request.dto';
@@ -72,6 +74,7 @@ export class AiController {
 		private readonly ragColdStart: RagColdStartService,
 		private readonly investorProfileService: InvestorProfileService,
 		private readonly chatHistoryService: ChatHistoryService,
+		private readonly conversations: ChatConversationService,
 		private readonly chatAnswer: IntelligentChatAnswerService
 	) {}
 
@@ -227,12 +230,18 @@ export class AiController {
 	@Get('chat/history')
 	@UseGuards(JwtAuthGuard)
 	@HttpCode(HttpStatus.OK)
-	async getChatHistory(@Request() req: any): Promise<ChatMessage[]> {
+	async getChatHistory(
+		@Request() req: any,
+		@Query('conversationId') conversationId?: string
+	): Promise<ChatMessage[]> {
 		const userId = String(req.user?.userId ?? req.user?.sub ?? '');
 		if (!userId) {
 			throw new UnauthorizedException('User ID ausente no token');
 		}
-		return this.chatHistoryService.listByUser(userId);
+		// Sem conversa, o histórico inteiro, como sempre foi (compatível).
+		if (!conversationId) return this.chatHistoryService.listByUser(userId);
+		await this.conversations.ensureOwned(userId, conversationId);
+		return this.chatHistoryService.listByUser(userId, conversationId);
 	}
 
 	/**
@@ -251,7 +260,17 @@ export class AiController {
 		if (!userId) {
 			throw new UnauthorizedException('User ID ausente no token');
 		}
-		return this.chatHistoryService.append(userId, body);
+		if (body.conversationId) {
+			await this.conversations.ensureOwned(userId, body.conversationId);
+		}
+		const saved = await this.chatHistoryService.append(userId, body);
+		if (body.conversationId) {
+			await this.conversations.touch(userId, body.conversationId, {
+				voice: body.channel === 'voice',
+				question: body.role === 'user' ? body.text : undefined,
+			});
+		}
+		return saved;
 	}
 
 	/**

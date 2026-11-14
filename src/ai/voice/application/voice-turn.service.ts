@@ -15,6 +15,7 @@ import {
 } from 'src/audit/application/security-audit.service';
 import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
+import { ChatConversationService } from 'src/ai/chat-history/chat-conversation.service';
 import { IntelligentChatAnswerService } from 'src/ai/intelligence/intelligent-chat-answer.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { toSpokenText } from '../domain/spoken-text';
@@ -67,6 +68,7 @@ export class VoiceTurnService {
 		@Inject(VOICE_CLOCK) private readonly clock: () => Date,
 		private readonly chatAnswer: IntelligentChatAnswerService,
 		private readonly chatHistory: ChatHistoryService,
+		private readonly conversations: ChatConversationService,
 		private readonly portfolios: PortfolioService
 	) {}
 
@@ -149,18 +151,24 @@ export class VoiceTurnService {
 	async answer(
 		userId: string,
 		question: string,
-		portfolioId?: string
+		portfolioId?: string,
+		conversationId?: string
 	): Promise<any> {
 		await this.ensureAllowed(userId);
+		// Sem conversa aberta, a pergunta por voz abre uma nova.
+		const conversation =
+			conversationId ?? (await this.conversations.create(userId)).id;
 		const response = await this.chatAnswer.answer(userId, {
 			question,
 			portfolioId,
+			conversationId: conversation,
 		});
 		await this.chatHistory.append(userId, {
 			clientId: `voice-u-${randomUUID()}`,
 			role: 'user',
 			text: question,
 			channel: 'voice',
+			conversationId: conversation,
 		});
 		const saved: any = await this.chatHistory.append(userId, {
 			clientId: `voice-a-${randomUUID()}`,
@@ -174,8 +182,17 @@ export class VoiceTurnService {
 			// IntelligentChatAnswerService); o texto não é gerado por LLM.
 			aiGenerated: false,
 			channel: 'voice',
+			conversationId: conversation,
 		});
-		return { ...response, messageId: String(saved?._id ?? '') };
+		await this.conversations.touch(userId, conversation, {
+			voice: true,
+			question,
+		});
+		return {
+			...response,
+			messageId: String(saved?._id ?? ''),
+			conversationId: conversation,
+		};
 	}
 
 	async speak(

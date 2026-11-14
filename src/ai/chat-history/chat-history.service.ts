@@ -19,12 +19,15 @@ export class ChatHistoryService {
 		private readonly chatMessageModel: Model<ChatMessageDocument>
 	) {}
 
-	async listByUser(userId: string): Promise<ChatMessage[]> {
+	async listByUser(
+		userId: string,
+		conversationId?: string
+	): Promise<ChatMessage[]> {
 		// Busca as MAX_HISTORY_MESSAGES mais recentes (desc) e reordena para asc
 		// antes de devolver — sem isso, o limit cortaria as mensagens mais
 		// novas de uma conversa longa em vez das mais antigas.
 		const messages = await this.chatMessageModel
-			.find({ userId })
+			.find(conversationId ? { userId, conversationId } : { userId })
 			.sort({ createdAt: -1 })
 			.limit(MAX_HISTORY_MESSAGES)
 			.lean()
@@ -46,8 +49,22 @@ export class ChatHistoryService {
 			payload: dto.payload,
 			aiGenerated: dto.aiGenerated,
 			channel: dto.channel,
+			conversationId: dto.conversationId,
 		});
 		return created.toObject();
+	}
+
+	/** Última pergunta do usuário na conversa: o contexto do seguimento. */
+	async lastUserQuestion(
+		userId: string,
+		conversationId: string
+	): Promise<string | null> {
+		const last = await this.chatMessageModel
+			.findOne({ userId, conversationId, role: 'user' })
+			.sort({ createdAt: -1 })
+			.lean()
+			.exec();
+		return last?.text ?? null;
 	}
 
 	/**
