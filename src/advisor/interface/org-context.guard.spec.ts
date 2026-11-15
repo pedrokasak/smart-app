@@ -77,5 +77,12 @@ describe('OrgContextGuard', () => {
 		await expect(guard.canActivate(ctxOf(req))).rejects.toThrow(
 			ForbiddenException
 		);
+		expect(req.orgContext).toBeUndefined();
+	});
+
+	it('trims a padded header before matching the membership', async () => {
+		const req = reqFor('u1', { 'x-org-id': ' orgB ' });
+		await expect(guard.canActivate(ctxOf(req))).resolves.toBe(true);
+		expect(req.orgContext).toEqual({ orgId: 'orgB', role: OrgRole.OrgAdmin });
 	});
 });

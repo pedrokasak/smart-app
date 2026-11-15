@@ -199,13 +199,14 @@ export function describeAdvisorStoreContract(
 			expect(await s.profiles.findById('not-an-object-id')).toBeNull();
 		});
 
-		it('client profile: save persists the owner', async () => {
+		it('client profile: create persists the owner when given', async () => {
 			const created = await s.profiles.create({
 				orgId: randomUUID(),
 				name: 'Maria',
 				origin: ProfileOrigin.AdvisorCreated,
+				ownerUserId: 'u1',
 			});
-			await s.profiles.save({ ...created, ownerUserId: 'u1' });
+			expect(created.ownerUserId).toBe('u1');
 			expect((await s.profiles.findById(created.id))?.ownerUserId).toBe('u1');
 		});
 

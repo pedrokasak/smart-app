@@ -66,10 +66,18 @@ describe('AuthorizationService', () => {
 			subject: 'clientA',
 			actorRef: actorRefOf(userId),
 		});
-		expect(event.payload).toMatchObject({
-			action: 'VIEW_PORTFOLIO',
-			orgId: 'orgA',
-		});
+		expect(Object.keys(event).sort()).toEqual(
+			[
+				'eventId',
+				'type',
+				'version',
+				'subject',
+				'actorRef',
+				'occurredAt',
+				'payload',
+			].sort()
+		);
+		expect(event.payload).toEqual({ action: 'VIEW_PORTFOLIO', orgId: 'orgA' });
 		expect(event.eventId).toEqual(expect.any(String));
 		expect(event.occurredAt).toBeInstanceOf(Date);
 		expect(JSON.stringify(event)).not.toContain(userId);

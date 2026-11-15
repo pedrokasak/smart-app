@@ -102,11 +102,6 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 		return this.items.get(id) ?? null;
 	}
 
-	async save(profile: ClientProfile): Promise<ClientProfile> {
-		this.items.set(profile.id, profile);
-		return profile;
-	}
-
 	async claimIfUnowned(
 		id: string,
 		userId: string

@@ -30,23 +30,6 @@ export class MongoClientProfileStore implements ClientProfileStorePort {
 		return doc ? toClientProfile(doc) : null;
 	}
 
-	async save(profile: ClientProfile): Promise<ClientProfile> {
-		const { id, ownerUserId, ...fields } = profile;
-		const update =
-			ownerUserId === undefined
-				? { $set: fields, $unset: { ownerUserId: '' as const } }
-				: { $set: { ...fields, ownerUserId } };
-		const doc = await this.profiles
-			.findOneAndUpdate({ _id: id }, update, {
-				new: true,
-				upsert: true,
-				setDefaultsOnInsert: true,
-			})
-			.lean<AdvisorClientProfileDoc>()
-			.exec();
-		return toClientProfile(doc);
-	}
-
 	/**
 	 * Um único `findOneAndUpdate` com o filtro "ADVISOR_CREATED e sem dono":
 	 * só uma chamada concorrente casa; as demais recebem null.

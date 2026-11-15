@@ -39,8 +39,12 @@ describe('ClientProfileService', () => {
 	});
 
 	it('claim of an ADVISOR_CREATED profile that already has an owner throws and keeps the owner', async () => {
-		const p = await svc.createByAdvisor('orgA', { name: 'João' });
-		await store.save({ ...p, ownerUserId: 'u1' });
+		const p = await store.create({
+			orgId: 'orgA',
+			name: 'João',
+			origin: ProfileOrigin.AdvisorCreated,
+			ownerUserId: 'u1',
+		});
 		await expect(svc.claim(p.id, 'u2')).rejects.toThrow(ConflictException);
 		const stored = await store.findById(p.id);
 		expect(stored?.ownerUserId).toBe('u1');

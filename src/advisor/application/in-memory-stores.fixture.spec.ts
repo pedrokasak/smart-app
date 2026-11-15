@@ -108,7 +108,7 @@ describe('advisor in-memory stores', () => {
 		expect(found?.status).toBe(RelationshipStatus.Revoked);
 	});
 
-	it('client profile: create, findById and save round-trip', async () => {
+	it('client profile: create, findById and claimIfUnowned round-trip', async () => {
 		const store = new InMemoryClientProfileStore();
 		const created = await store.create({
 			orgId: 'o1',
@@ -116,9 +116,9 @@ describe('advisor in-memory stores', () => {
 			origin: ProfileOrigin.AdvisorCreated,
 		});
 		expect(await store.findById(created.id)).toEqual(created);
-		const saved = await store.save({ ...created, ownerUserId: 'u1' });
+		const claimed = await store.claimIfUnowned(created.id, 'u1');
+		expect(claimed?.ownerUserId).toBe('u1');
 		expect((await store.findById(created.id))?.ownerUserId).toBe('u1');
-		expect(saved.ownerUserId).toBe('u1');
 		expect(await store.findById('missing')).toBeNull();
 	});
 });
