@@ -86,7 +86,7 @@ describe('IntelligentChatAnswerService: filtro por carteira (ADR-007, decisão 1
 });
 
 describe('IntelligentChatAnswerService: contexto da conversa (ADR-007, fase 2)', () => {
-	function setupWithConversation(previous: string | null) {
+	function setupWithConversation(previous: string | string[] | null) {
 		const router = {
 			answer: jest
 				.fn()
@@ -99,7 +99,17 @@ describe('IntelligentChatAnswerService: contexto da conversa (ADR-007, fase 2)',
 		const conversations = {
 			ensureOwned: jest.fn().mockResolvedValue(undefined),
 		};
-		const history = { lastUserQuestion: jest.fn().mockResolvedValue(previous) };
+		const history = {
+			recentUserQuestions: jest
+				.fn()
+				.mockResolvedValue(
+					previous === null
+						? []
+						: Array.isArray(previous)
+							? previous
+							: [previous]
+				),
+		};
 		const service = new IntelligentChatAnswerService(
 			router as any,
 			didactic as any,
@@ -125,6 +135,21 @@ describe('IntelligentChatAnswerService: contexto da conversa (ADR-007, fase 2)',
 		);
 		expect(response.resolvedQuestion).toBe(
 			'Quanto a VALE3 pagou de dividendos?'
+		);
+	});
+
+	it('seguimento de seguimento usa o contexto resolvido em cadeia', async () => {
+		const { service, router } = setupWithConversation([
+			'Quanto a PETR4 pagou de dividendos?',
+			'e a VALE3?',
+		]);
+		await service.answer('u1', {
+			question: 'e a ITUB4?',
+			conversationId: 'conv-1',
+		});
+
+		expect(router.answer.mock.calls[0][1]).toBe(
+			'Quanto a ITUB4 pagou de dividendos?'
 		);
 	});
 

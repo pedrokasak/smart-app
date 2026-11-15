@@ -6,7 +6,10 @@ import {
 } from '@nestjs/common';
 import { ChatConversationService } from 'src/ai/chat-history/chat-conversation.service';
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
-import { resolveFollowUpQuestion } from './follow-up-question';
+import {
+	conversationContext,
+	resolveFollowUpQuestion,
+} from './follow-up-question';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import {
 	buildAnswerSources,
@@ -161,7 +164,8 @@ export class IntelligentChatAnswerService {
 
 	/**
 	 * Contexto da conversa (ADR-007, fase 2): confere o dono (404) e
-	 * reescreve a pergunta de seguimento com a anterior da mesma conversa.
+	 * reescreve a pergunta de seguimento com o contexto da conversa, resolvido
+	 * em cadeia ("e a ITUB4?" depois de "e a VALE3?" também é entendido).
 	 */
 	private async withConversationContext(
 		userId: string,
@@ -172,11 +176,11 @@ export class IntelligentChatAnswerService {
 			return question.trim();
 		}
 		await this.conversations.ensureOwned(userId, conversationId);
-		const previous = await this.history.lastUserQuestion(
+		const previous = await this.history.recentUserQuestions(
 			userId,
 			conversationId
 		);
-		return resolveFollowUpQuestion(question, previous);
+		return resolveFollowUpQuestion(question, conversationContext(previous));
 	}
 
 	/**

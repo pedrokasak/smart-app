@@ -36,3 +36,22 @@ export function resolveFollowUpQuestion(
 		return next;
 	});
 }
+
+/**
+ * Contexto da conversa para a próxima pergunta: resolve as perguntas
+ * anteriores em ordem, cada uma contra o contexto da anterior. Assim, depois
+ * de "Quanto a PETR4 pagou de dividendos?" e "e a VALE3?", o contexto é
+ * "Quanto a VALE3 pagou de dividendos?", e "e a ITUB4?" também é entendido.
+ * As perguntas vêm na ordem em que foram feitas (a mais antiga primeiro).
+ */
+export function conversationContext(
+	previousQuestions: readonly string[]
+): string | null {
+	let context: string | null = null;
+	for (const question of previousQuestions) {
+		const text = String(question || '').trim();
+		if (!text) continue;
+		context = resolveFollowUpQuestion(text, context);
+	}
+	return context;
+}

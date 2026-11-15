@@ -1,4 +1,7 @@
-import { resolveFollowUpQuestion } from './follow-up-question';
+import {
+	conversationContext,
+	resolveFollowUpQuestion,
+} from './follow-up-question';
 
 describe('resolveFollowUpQuestion (ADR-007, fase 2)', () => {
 	const previous = 'Quanto a PETR4 pagou de dividendos este ano?';
@@ -37,5 +40,34 @@ describe('resolveFollowUpQuestion (ADR-007, fase 2)', () => {
 		expect(
 			resolveFollowUpQuestion('e a VALE3?', 'Como está minha carteira?')
 		).toBe('e a VALE3?');
+	});
+});
+
+describe('conversationContext: seguimentos em cadeia', () => {
+	it('resolve cada pergunta contra a anterior já resolvida', () => {
+		const context = conversationContext([
+			'Quanto a PETR4 pagou de dividendos este ano?',
+			'e a VALE3?',
+		]);
+
+		expect(context).toBe('Quanto a VALE3 pagou de dividendos este ano?');
+		expect(resolveFollowUpQuestion('e a ITUB4?', context)).toBe(
+			'Quanto a ITUB4 pagou de dividendos este ano?'
+		);
+	});
+
+	it('pergunta completa no meio reinicia o contexto', () => {
+		expect(
+			conversationContext([
+				'Quanto a PETR4 pagou de dividendos este ano?',
+				'e a VALE3?',
+				'Como está o risco da minha carteira?',
+			])
+		).toBe('Como está o risco da minha carteira?');
+	});
+
+	it('sem perguntas, sem contexto', () => {
+		expect(conversationContext([])).toBeNull();
+		expect(conversationContext(['', '  '])).toBeNull();
 	});
 });

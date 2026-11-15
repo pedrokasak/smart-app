@@ -11,6 +11,8 @@ import { AppendChatMessageRequestDto } from './dto/append-chat-message-request.d
  * IntelligentChatRequestDto.
  */
 const MAX_HISTORY_MESSAGES = 200;
+/** Perguntas anteriores usadas para resolver seguimentos em cadeia. */
+const RECENT_QUESTIONS_FOR_CONTEXT = 5;
 
 @Injectable()
 export class ChatHistoryService {
@@ -54,17 +56,25 @@ export class ChatHistoryService {
 		return created.toObject();
 	}
 
-	/** Última pergunta do usuário na conversa: o contexto do seguimento. */
-	async lastUserQuestion(
+	/**
+	 * Últimas perguntas do usuário na conversa, da mais antiga para a mais
+	 * nova: o contexto do seguimento, resolvido em cadeia
+	 * (`conversationContext`). Poucas bastam, porque só seguimentos curtos
+	 * ("e a VALE3?") dependem das anteriores.
+	 */
+	async recentUserQuestions(
 		userId: string,
-		conversationId: string
-	): Promise<string | null> {
-		const last = await this.chatMessageModel
-			.findOne({ userId, conversationId, role: 'user' })
+		conversationId: string,
+		limit = RECENT_QUESTIONS_FOR_CONTEXT
+	): Promise<string[]> {
+		const recent = await this.chatMessageModel
+			.find({ userId, conversationId, role: 'user' })
 			.sort({ createdAt: -1 })
+			.limit(limit)
+			.select({ text: 1 })
 			.lean()
 			.exec();
-		return last?.text ?? null;
+		return recent.map((message) => String(message.text ?? '')).reverse();
 	}
 
 	/**
