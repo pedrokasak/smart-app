@@ -38,3 +38,18 @@ describe('toSpokenText', () => {
 		expect(toSpokenText('')).toBe('');
 	});
 });
+
+describe('toSpokenText: projeção de proventos (melhoria 1dfh60pm56k)', () => {
+	it('lê a projeção inteira, sem cortar antes do valor mensal', () => {
+		const message =
+			'Com a carteira de hoje, a projeção é de cerca de R$ 1.200,00 por mês (R$ 14.400 em 12 meses, yield de 7,2%). ' +
+			'A maior parte vem de FIIs (65,0%); 2 de 5 ativos ficaram de fora por não terem histórico de proventos. ' +
+			'FIIs costumam pagar todo mês; ações e ETFs pagam em datas espaçadas ao longo do ano.';
+
+		const spoken = toSpokenText(message);
+
+		expect(spoken).toContain('R$ 1.200,00 por mês');
+		expect(spoken).toContain('FIIs costumam pagar todo mês');
+		expect(spoken).not.toContain('Os detalhes estão no chat.');
+	});
+});
