@@ -257,6 +257,43 @@ describe('TransactionService', () => {
 		});
 	});
 
+	describe('ledger with a pre-existing oversell of another symbol', () => {
+		const seedLegacySale = () =>
+			transactions.createMany([
+				{
+					...buy({ symbol: 'VALE3', side: TransactionSide.Sell }),
+					orgId: 'orgA',
+					clientProfileId: 'clientA',
+					provenance: Provenance.Verified,
+					source: TransactionSource.CsvImport,
+					createdByUserId: userId,
+				},
+			]);
+
+		it('still allows writing and removing an unrelated symbol', async () => {
+			await seedLegacySale();
+			const added = await service.addManual(ctx, 'clientA', buy());
+			await expect(
+				service.removeManual(ctx, 'clientA', added.id)
+			).resolves.toBeUndefined();
+		});
+
+		it('still refuses another sale of the oversold symbol', async () => {
+			await seedLegacySale();
+			const error = await service
+				.addManual(
+					ctx,
+					'clientA',
+					buy({ symbol: 'vale3', side: TransactionSide.Sell })
+				)
+				.catch((e: unknown) => e);
+			expect(error).toBeInstanceOf(OversellError);
+			expect((error as OversellError).getResponse()).toMatchObject({
+				symbol: 'VALE3',
+			});
+		});
+	});
+
 	describe('reads', () => {
 		it('getPositions equals derivePositions of the ledger and audits VIEW_PORTFOLIO', async () => {
 			await service.addManual(ctx, 'clientA', buy());

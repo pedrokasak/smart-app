@@ -70,7 +70,7 @@ export class TransactionService {
 			clientProfileId
 		);
 		const oversell = findOversell([
-			...ledger,
+			...ledger.filter((t) => t.symbol === normalized.symbol),
 			{ ...normalized, createdAt: new Date() },
 		]);
 		if (oversell) throw new OversellError(oversell);
@@ -124,7 +124,9 @@ export class TransactionService {
 			ctx.orgId,
 			clientProfileId
 		);
-		const oversell = findOversell(ledger.filter((t) => t.id !== target.id));
+		const oversell = findOversell(
+			ledger.filter((t) => t.symbol === target.symbol && t.id !== target.id)
+		);
 		if (oversell) throw new OversellError(oversell);
 
 		await this.transactions.deleteById(ctx.orgId, clientProfileId, target.id);
