@@ -6,10 +6,20 @@ import {
 	Organization,
 } from '../domain/entities';
 import { ProfileOrigin, RelationshipStatus } from '../domain/enums';
+import {
+	AllocationTarget,
+	NewTransaction,
+	Transaction,
+} from '../domain/portfolio.entities';
+import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
 import { RelationshipStorePort } from './ports/relationship.store.port';
+import {
+	DuplicateImportError,
+	TransactionStorePort,
+} from './ports/transaction.store.port';
 
 /** Stores em memória para testes de unidade da camada de aplicação. */
 export class InMemoryOrganizationStore implements OrganizationStorePort {
@@ -121,5 +131,115 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 		};
 		this.items.set(id, claimed);
 		return claimed;
+	}
+}
+
+export class InMemoryTransactionStore implements TransactionStorePort {
+	private readonly items = new Map<string, Transaction>();
+	/** chave (org, cliente, hash) -> importBatchId */
+	private readonly claims = new Map<string, string>();
+
+	async createMany(items: NewTransaction[]): Promise<Transaction[]> {
+		const createdAt = new Date();
+		const created = items.map(
+			(item): Transaction => ({ ...item, id: randomUUID(), createdAt })
+		);
+		for (const tx of created) this.items.set(tx.id, tx);
+		return created;
+	}
+
+	async listByClient(
+		orgId: string,
+		clientProfileId: string
+	): Promise<Transaction[]> {
+		return [...this.items.values()]
+			.filter((t) => t.orgId === orgId && t.clientProfileId === clientProfileId)
+			.sort(
+				(a, b) =>
+					a.tradeDate.localeCompare(b.tradeDate) ||
+					a.createdAt.getTime() - b.createdAt.getTime()
+			);
+	}
+
+	async findById(
+		orgId: string,
+		clientProfileId: string,
+		id: string
+	): Promise<Transaction | null> {
+		const tx = this.items.get(id);
+		return tx && tx.orgId === orgId && tx.clientProfileId === clientProfileId
+			? tx
+			: null;
+	}
+
+	async deleteById(
+		orgId: string,
+		clientProfileId: string,
+		id: string
+	): Promise<boolean> {
+		return (
+			(await this.findById(orgId, clientProfileId, id)) !== null &&
+			this.items.delete(id)
+		);
+	}
+
+	async claimImport(
+		orgId: string,
+		clientProfileId: string,
+		sourceHash: string
+	): Promise<string> {
+		const key = JSON.stringify([orgId, clientProfileId, sourceHash]);
+		if (this.claims.has(key)) throw new DuplicateImportError();
+		const batchId = randomUUID();
+		this.claims.set(key, batchId);
+		return batchId;
+	}
+
+	async discardImport(
+		orgId: string,
+		clientProfileId: string,
+		importBatchId: string
+	): Promise<void> {
+		for (const [id, tx] of this.items) {
+			if (
+				tx.orgId === orgId &&
+				tx.clientProfileId === clientProfileId &&
+				tx.importBatchId === importBatchId
+			) {
+				this.items.delete(id);
+			}
+		}
+		for (const [key, batchId] of this.claims) {
+			const [claimOrg, claimClient] = JSON.parse(key) as string[];
+			if (
+				batchId === importBatchId &&
+				claimOrg === orgId &&
+				claimClient === clientProfileId
+			) {
+				this.claims.delete(key);
+			}
+		}
+	}
+}
+
+export class InMemoryAllocationTargetStore implements AllocationTargetStorePort {
+	private readonly items = new Map<string, AllocationTarget>();
+
+	async upsert(
+		target: Omit<AllocationTarget, 'updatedAt'>
+	): Promise<AllocationTarget> {
+		const saved: AllocationTarget = { ...target, updatedAt: new Date() };
+		this.items.set(
+			JSON.stringify([target.orgId, target.clientProfileId]),
+			saved
+		);
+		return saved;
+	}
+
+	async find(
+		orgId: string,
+		clientProfileId: string
+	): Promise<AllocationTarget | null> {
+		return this.items.get(JSON.stringify([orgId, clientProfileId])) ?? null;
 	}
 }

@@ -1,14 +1,24 @@
 import { randomUUID } from 'crypto';
 import {
 	AdvisorType,
+	AssetClass,
 	OrgRole,
 	ProfileOrigin,
+	Provenance,
 	RelationshipStatus,
+	TransactionSide,
+	TransactionSource,
 } from '../domain/enums';
+import { NewTransaction } from '../domain/portfolio.entities';
+import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
 import { RelationshipStorePort } from './ports/relationship.store.port';
+import {
+	DuplicateImportError,
+	TransactionStorePort,
+} from './ports/transaction.store.port';
 
 export interface AdvisorStores {
 	orgs: OrganizationStorePort;
@@ -255,6 +265,235 @@ export function describeAdvisorStoreContract(
 				s.profiles.claimIfUnowned(created.id, 'c'),
 			]);
 			expect(results.filter((r) => r !== null)).toHaveLength(1);
+		});
+	});
+}
+
+export interface AdvisorPortfolioStores {
+	transactions: TransactionStorePort;
+	targets: AllocationTargetStorePort;
+}
+
+const newTx = (
+	orgId: string,
+	clientProfileId: string,
+	overrides: Partial<NewTransaction> = {}
+): NewTransaction => ({
+	orgId,
+	clientProfileId,
+	symbol: 'PETR4',
+	assetClass: AssetClass.Stock,
+	side: TransactionSide.Buy,
+	quantity: 10,
+	unitPriceMinor: 3500,
+	feesMinor: 100,
+	currency: 'BRL',
+	tradeDate: '2026-01-10',
+	provenance: Provenance.Manual,
+	source: TransactionSource.ManualEntry,
+	createdByUserId: 'u1',
+	...overrides,
+});
+
+/**
+ * Suíte de contrato dos ports de carteira (transações e meta de alocação).
+ * Roda contra qualquer implementação (em memória, Mongo); ids aleatórios por
+ * teste, sem exigir coleção limpa.
+ */
+export function describeAdvisorPortfolioStoreContract(
+	name: string,
+	makeStores: () => AdvisorPortfolioStores
+): void {
+	describe(`${name} - advisor portfolio store contract`, () => {
+		let s: AdvisorPortfolioStores;
+		beforeEach(() => {
+			s = makeStores();
+		});
+
+		it('transactions: createMany returns an empty array for empty input', async () => {
+			expect(await s.transactions.createMany([])).toEqual([]);
+		});
+
+		it('transactions: createMany/listByClient round trip, ordered by tradeDate then createdAt, distinct ids', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const [late] = await s.transactions.createMany([
+				newTx(orgId, clientId, { tradeDate: '2026-03-01', symbol: 'LATE' }),
+			]);
+			await tick();
+			const [earlyFirst] = await s.transactions.createMany([
+				newTx(orgId, clientId, { tradeDate: '2026-01-01', symbol: 'E1' }),
+			]);
+			await tick();
+			const [earlySecond] = await s.transactions.createMany([
+				newTx(orgId, clientId, { tradeDate: '2026-01-01', symbol: 'E2' }),
+			]);
+
+			expect(late.id).toBeTruthy();
+			expect(late.createdAt).toBeInstanceOf(Date);
+			expect(new Set([late.id, earlyFirst.id, earlySecond.id]).size).toBe(3);
+			expect(await s.transactions.listByClient(orgId, clientId)).toEqual([
+				earlyFirst,
+				earlySecond,
+				late,
+			]);
+		});
+
+		it('transactions: isolates by org (list, findById, deleteById)', async () => {
+			const orgA = randomUUID();
+			const orgB = randomUUID();
+			const clientId = randomUUID();
+			const [tx] = await s.transactions.createMany([newTx(orgA, clientId)]);
+
+			expect(await s.transactions.listByClient(orgB, clientId)).toEqual([]);
+			expect(await s.transactions.findById(orgB, clientId, tx.id)).toBeNull();
+			expect(await s.transactions.deleteById(orgB, clientId, tx.id)).toBe(
+				false
+			);
+			expect(await s.transactions.findById(orgA, clientId, tx.id)).toEqual(tx);
+		});
+
+		it('transactions: isolates by client within the same org', async () => {
+			const orgId = randomUUID();
+			const [tx] = await s.transactions.createMany([
+				newTx(orgId, randomUUID()),
+			]);
+			const otherClient = randomUUID();
+
+			expect(await s.transactions.listByClient(orgId, otherClient)).toEqual([]);
+			expect(
+				await s.transactions.findById(orgId, otherClient, tx.id)
+			).toBeNull();
+			expect(await s.transactions.deleteById(orgId, otherClient, tx.id)).toBe(
+				false
+			);
+		});
+
+		it('transactions: deleteById removes the record; unknown or malformed id gives false', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const [tx] = await s.transactions.createMany([newTx(orgId, clientId)]);
+
+			expect(
+				await s.transactions.deleteById(orgId, clientId, randomUUID())
+			).toBe(false);
+			expect(
+				await s.transactions.deleteById(orgId, clientId, 'not-an-object-id')
+			).toBe(false);
+			expect(await s.transactions.deleteById(orgId, clientId, '')).toBe(false);
+			expect(await s.transactions.deleteById(orgId, clientId, tx.id)).toBe(
+				true
+			);
+			expect(await s.transactions.findById(orgId, clientId, tx.id)).toBeNull();
+			expect(await s.transactions.deleteById(orgId, clientId, tx.id)).toBe(
+				false
+			);
+		});
+
+		it('transactions: claimImport rejects a duplicate hash for the same client', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const hash = randomUUID();
+			const batchId = await s.transactions.claimImport(
+				orgId,
+				clientId,
+				hash,
+				'u1'
+			);
+			expect(batchId).toBeTruthy();
+			await expect(
+				s.transactions.claimImport(orgId, clientId, hash, 'u1')
+			).rejects.toBeInstanceOf(DuplicateImportError);
+		});
+
+		it('transactions: claimImport accepts the same hash for another client or org', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const hash = randomUUID();
+			await s.transactions.claimImport(orgId, clientId, hash, 'u1');
+
+			await expect(
+				s.transactions.claimImport(orgId, randomUUID(), hash, 'u1')
+			).resolves.toBeTruthy();
+			await expect(
+				s.transactions.claimImport(randomUUID(), clientId, hash, 'u1')
+			).resolves.toBeTruthy();
+		});
+
+		it('transactions: discardImport deletes only that batch and releases the hash', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const hash = randomUUID();
+			const batchId = await s.transactions.claimImport(
+				orgId,
+				clientId,
+				hash,
+				'u1'
+			);
+			const [kept] = await s.transactions.createMany([
+				newTx(orgId, clientId, { symbol: 'KEEP' }),
+			]);
+			await s.transactions.createMany([
+				newTx(orgId, clientId, {
+					symbol: 'B1',
+					source: TransactionSource.CsvImport,
+					importBatchId: batchId,
+				}),
+				newTx(orgId, clientId, {
+					symbol: 'B2',
+					source: TransactionSource.CsvImport,
+					importBatchId: batchId,
+				}),
+			]);
+			expect(await s.transactions.listByClient(orgId, clientId)).toHaveLength(
+				3
+			);
+
+			await s.transactions.discardImport(orgId, clientId, batchId);
+
+			expect(await s.transactions.listByClient(orgId, clientId)).toEqual([
+				kept,
+			]);
+			await expect(
+				s.transactions.claimImport(orgId, clientId, hash, 'u1')
+			).resolves.toBeTruthy();
+		});
+
+		it('targets: upsert twice keeps a single record, last value wins', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			await s.targets.upsert({
+				orgId,
+				clientProfileId: clientId,
+				targets: { [AssetClass.Stock]: 60, [AssetClass.Fii]: 40 },
+				updatedByUserId: 'u1',
+			});
+			const second = await s.targets.upsert({
+				orgId,
+				clientProfileId: clientId,
+				targets: { [AssetClass.Stock]: 100 },
+				updatedByUserId: 'u2',
+			});
+
+			expect(second.updatedAt).toBeInstanceOf(Date);
+			const found = await s.targets.find(orgId, clientId);
+			expect(found).toEqual(second);
+			expect(found?.targets).toEqual({ [AssetClass.Stock]: 100 });
+			expect(found?.updatedByUserId).toBe('u2');
+		});
+
+		it('targets: find is isolated by org and client', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			await s.targets.upsert({
+				orgId,
+				clientProfileId: clientId,
+				targets: { [AssetClass.Stock]: 100 },
+				updatedByUserId: 'u1',
+			});
+
+			expect(await s.targets.find(randomUUID(), clientId)).toBeNull();
+			expect(await s.targets.find(orgId, randomUUID())).toBeNull();
 		});
 	});
 }
