@@ -151,3 +151,159 @@ describe('IntelligentChatAnswerService: contexto da conversa (ADR-007, fase 2)',
 		expect(response).not.toHaveProperty('resolvedQuestion');
 	});
 });
+
+describe('IntelligentChatAnswerService: projeção de proventos (melhoria 1dfh60pm56k)', () => {
+	function answerFor(intent: string, data: Record<string, unknown>) {
+		const router = {
+			answer: jest.fn().mockResolvedValue({
+				parts: [{ ...part(), intent, data }],
+				routing: { mode: 'regex' },
+			}),
+		};
+		// Sem compositor didático para a parte: vale o texto do serviço.
+		const didactic = { explain: jest.fn().mockResolvedValue([{}]) };
+		const service = new IntelligentChatAnswerService(
+			router as any,
+			didactic as any,
+			{ getUserPortfolios: jest.fn() } as any
+		);
+		return service.answer('u1', {
+			question: 'Como recebo dividendos todo mês?',
+		});
+	}
+
+	const projection = (overrides: Record<string, unknown> = {}) => ({
+		modelVersion: 'deterministic_v1',
+		projectedAnnualIncome: 14400,
+		projectedMonthlyIncome: 1200,
+		projectedYieldOnPortfolioPct: 7.2,
+		coverage: {
+			positionsWithData: 5,
+			positionsWithoutData: 0,
+			dataCoveragePct: 100,
+		},
+		byAssetClass: [
+			{
+				assetClass: 'equities',
+				annualIncome: 5040,
+				monthlyIncome: 420,
+				sharePct: 35,
+			},
+			{
+				assetClass: 'real_estate',
+				annualIncome: 9360,
+				monthlyIncome: 780,
+				sharePct: 65,
+			},
+		],
+		...overrides,
+	});
+
+	it('diz a renda projetada, de onde vem e quem paga todo mês, sem prometer painel', async () => {
+		const response = await answerFor('dividend_projection', {
+			dividendProjection: projection(),
+		});
+
+		// Reais inteiros: com centavos a voz leria "e zero centavos".
+		expect(response.message).toMatch(/cerca de R\$\s?1\.200 por mês/);
+		expect(response.message).toMatch(/R\$\s?14\.400 em 12 meses/);
+		expect(response.message).toContain('yield de 7,2%');
+		expect(response.message).toContain('A maior parte vem de FIIs (65,0%)');
+		expect(response.message).toContain('FIIs costumam pagar todo mês');
+		expect(response.message).not.toMatch(/painel/i);
+	});
+
+	it('com cobertura parcial, avisa quantos ativos ficaram de fora', async () => {
+		const response = await answerFor('dividend_projection', {
+			dividendProjection: projection({
+				coverage: {
+					positionsWithData: 3,
+					positionsWithoutData: 2,
+					dataCoveragePct: 60,
+				},
+			}),
+		});
+
+		expect(response.message).toContain(
+			'2 de 5 ativos ficaram de fora por não terem histórico de proventos'
+		);
+	});
+
+	it('um ativo de fora usa o singular', async () => {
+		const response = await answerFor('dividend_projection', {
+			dividendProjection: projection({
+				coverage: {
+					positionsWithData: 4,
+					positionsWithoutData: 1,
+					dataCoveragePct: 80,
+				},
+			}),
+		});
+
+		expect(response.message).toContain(
+			'1 de 5 ativos ficou de fora por não ter histórico de proventos'
+		);
+	});
+
+	it('sem divisão por classe nem yield, não inventa classe nem "NaN%"', async () => {
+		const response = await answerFor('dividend_projection', {
+			dividendProjection: projection({
+				byAssetClass: [],
+				projectedYieldOnPortfolioPct: undefined,
+			}),
+		});
+
+		expect(response.message).not.toContain('A maior parte vem de');
+		expect(response.message).not.toContain('NaN');
+		expect(response.message).toMatch(/R\$\s?14\.400 em 12 meses\)\./);
+	});
+
+	it('renda mensal abaixo de R$ 10 mantém os centavos', async () => {
+		const response = await answerFor('dividend_projection', {
+			dividendProjection: projection({
+				projectedMonthlyIncome: 4.5,
+				projectedAnnualIncome: 54,
+			}),
+		});
+
+		expect(response.message).toContain('cerca de R$ 4,50 por mês');
+	});
+
+	it('anual ausente não vira "R$ 0 em 12 meses"', async () => {
+		const response = await answerFor('dividend_projection', {
+			dividendProjection: projection({ projectedAnnualIncome: undefined }),
+		});
+
+		expect(response.message).toBe(
+			'Ainda não tenho histórico de proventos dos seus ativos para projetar a renda.'
+		);
+	});
+
+	it('sem histórico de proventos, diz isso em vez de projetar zero', async () => {
+		const response = await answerFor('dividend_projection', {
+			dividendProjection: projection({
+				projectedAnnualIncome: 0,
+				projectedMonthlyIncome: 0,
+				coverage: {
+					positionsWithData: 0,
+					positionsWithoutData: 4,
+					dataCoveragePct: 0,
+				},
+				byAssetClass: [],
+			}),
+		});
+
+		expect(response.message).toBe(
+			'Ainda não tenho histórico de proventos dos seus ativos para projetar a renda.'
+		);
+	});
+
+	it('intenção sem texto próprio não promete painel', async () => {
+		const response = await answerFor('future_scenario', {});
+
+		expect(response.message).not.toMatch(/painel/i);
+		expect(response.message).toBe(
+			'Consultei os dados da sua carteira, mas ainda não consigo resumir essa análise em texto.'
+		);
+	});
+});

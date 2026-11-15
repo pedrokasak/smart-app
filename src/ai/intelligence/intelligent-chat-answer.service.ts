@@ -516,7 +516,9 @@ export class IntelligentChatAnswerService {
 					}
 					return `Se você vender a posição, seu lucro será de R$ ${pnl.toFixed(2)}, isento de imposto (dentro das regras vigentes).`;
 				}
-				return 'A simulação fiscal foi processada com sucesso no painel abaixo.';
+				// Sem imposto e lucro calculados não há o que mostrar nem o que
+				// ler em voz alta: diz isso, sem apontar para um painel.
+				return 'Não consegui calcular o imposto dessa venda com os dados disponíveis agora.';
 			}
 			case 'asset_comparison':
 				return 'Aqui está o comparativo detalhado das métricas de fundamentos dos ativos solicitados:';
@@ -548,9 +550,85 @@ export class IntelligentChatAnswerService {
 					? `O patrimônio total estimado atual da sua carteira é de R$ ${totalValue.toLocaleString('pt-BR', { minimumFractionDigits: 2 })}.`
 					: 'Resumi os saldos e a distribuição de ativos da sua carteira.';
 			}
+			case 'dividend_projection':
+				return this.buildDividendProjectionMessage(
+					(data as any)?.dividendProjection,
+					ptBr2,
+					ptBr1,
+					money
+				);
 			default:
-				return 'Analisei seus dados com sucesso e organizei os fatos no painel interativo abaixo.';
+				// Sem texto próprio para a intenção: nada de prometer um painel que
+				// a tela pode não ter, e a voz lê esta frase em voz alta.
+				return 'Consultei os dados da sua carteira, mas ainda não consigo resumir essa análise em texto.';
 		}
+	}
+
+	/**
+	 * Projeção de proventos (melhoria 1dfh60pm56k). Curta, porque a voz lê
+	 * este texto: renda projetada, de onde vem e um fato neutro sobre quem
+	 * paga todo mês. Explica, nunca recomenda (CVM 20).
+	 */
+	private buildDividendProjectionMessage(
+		projection: any,
+		ptBr2: (value: number) => string,
+		ptBr1: (value: number) => string,
+		money: (value: number) => string
+	): string {
+		const isNumber = (value: unknown): value is number =>
+			typeof value === 'number' && Number.isFinite(value);
+		const coverage = projection?.coverage ?? {};
+		const monthly = projection?.projectedMonthlyIncome;
+		const annual = projection?.projectedAnnualIncome;
+		if (
+			!isNumber(monthly) ||
+			!isNumber(annual) ||
+			annual <= 0 ||
+			coverage.positionsWithData === 0
+		) {
+			return 'Ainda não tenho histórico de proventos dos seus ativos para projetar a renda.';
+		}
+
+		// Valor aproximado em reais inteiros: com centavos, a voz lê "e zero
+		// centavos". Só abaixo de R$ 10 os centavos dizem alguma coisa.
+		const monthlyLabel =
+			monthly >= 10 ? money(monthly) : `R$ ${ptBr2(monthly)}`;
+		const yieldPct = projection.projectedYieldOnPortfolioPct;
+		const yieldNote = isNumber(yieldPct)
+			? `, yield de ${ptBr1(yieldPct)}%`
+			: '';
+		const sentences = [
+			`Com a carteira de hoje, a projeção é de cerca de ${monthlyLabel} por mês (${money(annual)} em 12 meses${yieldNote}).`,
+		];
+
+		const CLASS_LABEL: Record<string, string> = {
+			equities: 'ações',
+			real_estate: 'FIIs',
+			crypto: 'cripto',
+			etf: 'ETFs',
+			fund: 'fundos',
+			other: 'outros ativos',
+		};
+		const top = [...(projection.byAssetClass ?? [])]
+			.filter((item: any) => isNumber(item?.sharePct) && item.sharePct > 0)
+			.sort((a: any, b: any) => b.sharePct - a.sharePct)[0];
+		const withoutData = Number(coverage.positionsWithoutData) || 0;
+		const totalPositions =
+			(Number(coverage.positionsWithData) || 0) + withoutData;
+		const details = [
+			top
+				? `A maior parte vem de ${CLASS_LABEL[top.assetClass] ?? 'outros ativos'} (${ptBr1(top.sharePct)}%)`
+				: '',
+			withoutData > 0
+				? `${withoutData} de ${totalPositions} ativos ${withoutData === 1 ? 'ficou' : 'ficaram'} de fora por não ter${withoutData === 1 ? '' : 'em'} histórico de proventos`
+				: '',
+		].filter(Boolean);
+		if (details.length) sentences.push(`${details.join('; ')}.`);
+
+		sentences.push(
+			'FIIs costumam pagar todo mês; ações e ETFs pagam em datas espaçadas ao longo do ano.'
+		);
+		return sentences.join(' ');
 	}
 
 	/**
