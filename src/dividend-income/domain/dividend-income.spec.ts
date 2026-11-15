@@ -1,6 +1,7 @@
 import {
 	type DividendAsset,
 	analyzeDividendIncome,
+	monthlyDividendIncome,
 	monthsToTarget,
 } from './dividend-income';
 
@@ -208,5 +209,56 @@ describe('monthsToTarget', () => {
 		expect(monthsToTarget(1000, 0, 0, 500)).toBe(0);
 		expect(monthsToTarget(0, 100, 0, 1200)).toBe(12);
 		expect(monthsToTarget(0, 0, 0, 1000)).toBeNull();
+	});
+});
+
+describe('monthlyDividendIncome', () => {
+	const now = Date.UTC(2026, 10, 10);
+	const asset = {
+		symbol: 'ITUB4',
+		quantity: 100,
+		dividendHistory: [
+			{ date: '2026-11-03', value: 0.5 },
+			{ date: '2026-10-15', value: 0.2 },
+			{ date: '2026-10-28', value: 0.1 },
+			{ date: '2025-11-20', value: 1 },
+			{ date: '2025-10-20', value: 9 },
+			{ date: '2026-11-30', value: 9 },
+		],
+	};
+
+	it('soma por mês com a quantidade de hoje, do mais antigo ao atual', () => {
+		const months = monthlyDividendIncome([asset], 12, now);
+
+		expect(months).toHaveLength(12);
+		expect(months[0]).toEqual({ month: '2025-12', amount: 0 });
+		expect(months[10]).toEqual({ month: '2026-10', amount: 30 });
+		expect(months[11]).toEqual({ month: '2026-11', amount: 50 });
+	});
+
+	it('deixa de fora pagamento futuro e o que caiu antes da janela', () => {
+		const months = monthlyDividendIncome([asset], 12, now);
+
+		expect(months.reduce((sum, item) => sum + item.amount, 0)).toBe(80);
+	});
+
+	it('ignora posição zerada e valor inválido', () => {
+		const months = monthlyDividendIncome(
+			[
+				{ ...asset, quantity: 0 },
+				{
+					symbol: 'X',
+					quantity: 10,
+					dividendHistory: [
+						{ date: 'x', value: 1 },
+						{ date: '2026-11-01', value: -1 },
+					],
+				},
+			],
+			3,
+			now
+		);
+
+		expect(months.every((item) => item.amount === 0)).toBe(true);
 	});
 });

@@ -1,6 +1,7 @@
 import { Type } from 'class-transformer';
 import {
 	IsIn,
+	IsMongoId,
 	IsNumber,
 	IsOptional,
 	IsString,
@@ -63,4 +64,14 @@ export class IntelligentChatRequestDto {
 	@ValidateNested()
 	@Type(() => DecisionFlowDto)
 	decisionFlow?: DecisionFlowDto;
+
+	/** Carteira dos chips "Consultando"; sem ela, todas (ADR-007, decisão 10). */
+	@IsOptional()
+	@IsMongoId()
+	portfolioId?: string;
+
+	/** Conversa aberta: dá o contexto do seguimento (ADR-007, fase 2). */
+	@IsOptional()
+	@IsMongoId()
+	conversationId?: string;
 }

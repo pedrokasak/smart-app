@@ -40,11 +40,35 @@ import { GenerationRecordsModule } from './generation-records/generation-records
 import { AiInsightProducer } from './events/ai-insight.producer';
 import { InvestmentPolicyModule } from 'src/investment-policy/investment-policy.module';
 import { CopilotDidacticService } from './didactic/copilot-didactic.service';
+import { IntelligentChatAnswerService } from './intelligence/intelligent-chat-answer.service';
+import { VoiceController } from './voice/voice.controller';
+import { VoiceTurnService } from './voice/application/voice-turn.service';
+import {
+	SPEECH_GATEWAY,
+	VOICE_CLOCK,
+	VOICE_CONSENT_REPOSITORY,
+	VOICE_USAGE,
+} from './voice/application/voice.ports';
+import { TrackerrIaSpeechAdapter } from './voice/infrastructure/trackerr-ia-speech.adapter';
+import {
+	MongoVoiceConsentAdapter,
+	MongoVoiceUsageAdapter,
+} from './voice/infrastructure/mongo-voice.adapters';
+import {
+	VoiceConsent,
+	VoiceConsentSchema,
+	VoiceUsage,
+	VoiceUsageSchema,
+} from './voice/infrastructure/voice.schemas';
 
 @Module({
 	imports: [
 		HttpModule,
-		MongooseModule.forFeature([{ name: 'Trade', schema: tradeSchema }]),
+		MongooseModule.forFeature([
+			{ name: 'Trade', schema: tradeSchema },
+			{ name: VoiceConsent.name, schema: VoiceConsentSchema },
+			{ name: VoiceUsage.name, schema: VoiceUsageSchema },
+		]),
 		PortfolioModule,
 		MarketDataModule,
 		ComparisonModule,
@@ -57,11 +81,17 @@ import { CopilotDidacticService } from './didactic/copilot-didactic.service';
 		InvestmentPolicyModule,
 		GenerationRecordsModule,
 	],
-	controllers: [AiController],
+	controllers: [AiController, VoiceController],
 	providers: [
 		AiService,
 		AiInsightProducer,
 		IntelligentChatService,
+		IntelligentChatAnswerService,
+		VoiceTurnService,
+		{ provide: SPEECH_GATEWAY, useClass: TrackerrIaSpeechAdapter },
+		{ provide: VOICE_CONSENT_REPOSITORY, useClass: MongoVoiceConsentAdapter },
+		{ provide: VOICE_USAGE, useClass: MongoVoiceUsageAdapter },
+		{ provide: VOICE_CLOCK, useValue: () => new Date() },
 		ChatOrchestratorService,
 		InMemoryChatResponseCacheAdapter,
 		LoggingChatCostObserverAdapter,

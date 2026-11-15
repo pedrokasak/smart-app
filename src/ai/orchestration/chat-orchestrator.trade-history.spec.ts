@@ -86,6 +86,18 @@ describe('ChatOrchestratorService: trade_history (ADR-002, TRA-16, fase 2)', () 
 		});
 	});
 
+	it('com carteira escolhida, lê só as operações dela (ADR-007)', async () => {
+		await build().orchestrate('user-1', 'Quando comprei ITSA4?', {
+			portfolioId: '64b7f0c2a1b2c3d4e5f60718',
+		});
+
+		expect(tradeHistory.listTrades).toHaveBeenCalledWith(
+			'user-1',
+			expect.objectContaining({ symbol: 'ITSA4' }),
+			'64b7f0c2a1b2c3d4e5f60718'
+		);
+	});
+
 	it('NEVER reads or writes the shared response cache (its key is the portfolio hash)', async () => {
 		const response = await build().orchestrate(
 			'user-1',

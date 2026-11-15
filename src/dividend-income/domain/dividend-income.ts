@@ -290,3 +290,49 @@ export function analyzeDividendIncome(
 		goal,
 	};
 }
+
+export interface MonthlyIncome {
+	/** `AAAA-MM`, em UTC. */
+	month: string;
+	amount: number;
+}
+
+/**
+ * Proventos por mês dos últimos `months` meses, terminando no mês de `now`.
+ * Mesma conta de `analyzeDividendIncome`: valor por cota do histórico vezes a
+ * quantidade de hoje, então as barras somam o mesmo total de 12 meses.
+ */
+export function monthlyDividendIncome(
+	assets: DividendAsset[],
+	months: number,
+	now: number = Date.now()
+): MonthlyIncome[] {
+	const today = new Date(now);
+	const keys = Array.from({ length: months }, (_, index) => {
+		const date = new Date(
+			Date.UTC(
+				today.getUTCFullYear(),
+				today.getUTCMonth() - (months - 1 - index),
+				1
+			)
+		);
+		return date.toISOString().slice(0, 7);
+	});
+	const amounts = new Map(keys.map((key) => [key, 0]));
+
+	for (const asset of assets || []) {
+		const quantity = Number(asset?.quantity) || 0;
+		if (quantity <= 0) continue;
+		for (const payout of asset?.dividendHistory || []) {
+			const time = toTime(payout?.date);
+			const value = Number(payout?.value);
+			if (time === null || time > now) continue;
+			if (!Number.isFinite(value) || value <= 0) continue;
+			const key = new Date(time).toISOString().slice(0, 7);
+			if (amounts.has(key))
+				amounts.set(key, amounts.get(key)! + value * quantity);
+		}
+	}
+
+	return keys.map((month) => ({ month, amount: round2(amounts.get(month)!) }));
+}

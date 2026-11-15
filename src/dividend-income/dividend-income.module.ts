@@ -6,11 +6,12 @@ import { DividendIncomeController } from './dividend-income.controller';
 
 /**
  * Renda de proventos explicada (RF-8 de docs/requisitos/ia-didatica.md).
- * Lê carteira e plano; nenhum módulo depende deste.
+ * Lê carteira e plano. O BFF mobile usa o serviço para a tela de proventos.
  */
 @Module({
 	imports: [PortfolioModule, FinancialPlanModule],
 	controllers: [DividendIncomeController],
 	providers: [DividendIncomeService],
+	exports: [DividendIncomeService],
 })
 export class DividendIncomeModule {}

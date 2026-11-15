@@ -1,6 +1,7 @@
 import {
 	IsBoolean,
 	IsIn,
+	IsMongoId,
 	IsObject,
 	IsOptional,
 	IsString,
@@ -41,4 +42,13 @@ export class AppendChatMessageRequestDto {
 	@IsOptional()
 	@IsBoolean()
 	aiGenerated?: boolean;
+
+	@IsOptional()
+	@IsIn(['text', 'voice'])
+	channel?: 'text' | 'voice';
+
+	/** Conversa da mensagem; sem ela, fica no histórico geral como antes. */
+	@IsOptional()
+	@IsMongoId()
+	conversationId?: string;
 }
