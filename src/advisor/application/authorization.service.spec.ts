@@ -124,6 +124,19 @@ describe('AuthorizationService', () => {
 		expect(audit.recorded).toHaveLength(0);
 	});
 
+	it('denies ctx.orgId of an org the user is not in, even if the client is active in the user org', async () => {
+		// member of orgA only, ACTIVE orgA<->clientA; a fallback would allow this
+		await rel.create('orgA', 'clientA');
+		await expect(
+			authz.ensureCanAccessClient(
+				{ userId, orgId: 'orgB' },
+				'clientA',
+				'VIEW_PORTFOLIO'
+			)
+		).rejects.toThrow(ForbiddenException);
+		expect(audit.recorded).toHaveLength(0);
+	});
+
 	it('fails closed when the audit trail cannot record', async () => {
 		await rel.create('orgA', 'clientA');
 		audit.failWith = new Error('audit store down');

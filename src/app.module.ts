@@ -56,6 +56,7 @@ import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 import { AgentControlModule } from './agent-control/agent-control.module';
 import { AuditModule } from './audit/audit.module';
 import { MarketIntelModule } from './market-intel/market-intel.module';
+import { AdvisorModule } from './advisor/advisor.module';
 
 @Module({
 	imports: [
@@ -114,6 +115,8 @@ import { MarketIntelModule } from './market-intel/market-intel.module';
 		PixModule,
 		// Inteligência de mercado — ingestão de RSS e clusterização (ADR-004, F1).
 		MarketIntelModule,
+		// Fundacao do Trackerr Advisor: orgs, vinculos e autorizacao (P1).
+		AdvisorModule,
 	],
 	controllers: [AppController],
 	providers: [
