@@ -34,14 +34,56 @@ interface OpenPosition {
 	liquidityDays?: number;
 }
 
+type QuantityItem = Pick<
+	Transaction,
+	'symbol' | 'side' | 'quantity' | 'tradeDate' | 'createdAt'
+>;
+
+interface LedgerVisitor<T extends QuantityItem> {
+	buy(t: T): void;
+	sell(t: T, heldBefore: number, closes: boolean): void;
+	/** Returns true to stop the walk. */
+	oversell(t: T): boolean;
+}
+
+/**
+ * The single per-symbol walk behind both derivePositions and findOversell,
+ * so the write-time check and the read-time derivation cannot disagree.
+ * A sell is an oversell when there is no open position or when it exceeds
+ * the balance by more than the epsilon; an oversell closes the position.
+ */
+function walkLedger<T extends QuantityItem>(
+	ledger: T[],
+	visitor: LedgerVisitor<T>
+): void {
+	const held = new Map<string, number>();
+	for (const t of sortLedger(ledger)) {
+		const balance = held.get(t.symbol);
+		if (t.side === TransactionSide.Buy) {
+			held.set(t.symbol, (balance ?? 0) + t.quantity);
+			visitor.buy(t);
+			continue;
+		}
+		if (balance === undefined || t.quantity > balance + QUANTITY_EPSILON) {
+			held.delete(t.symbol);
+			if (visitor.oversell(t)) return;
+			continue;
+		}
+		const remaining = balance - t.quantity;
+		const closes = remaining < QUANTITY_EPSILON;
+		if (closes) held.delete(t.symbol);
+		else held.set(t.symbol, remaining);
+		visitor.sell(t, balance, closes);
+	}
+}
+
 export function derivePositions(ledger: Transaction[]): DerivedPortfolio {
 	const open = new Map<string, OpenPosition>();
 	const inconsistencies: string[] = [];
 
-	for (const t of sortLedger(ledger)) {
-		const current = open.get(t.symbol);
-
-		if (t.side === TransactionSide.Buy) {
+	walkLedger(ledger, {
+		buy(t) {
+			const current = open.get(t.symbol);
 			const cost = Math.round(t.quantity * t.unitPriceMinor) + t.feesMinor;
 			open.set(t.symbol, {
 				symbol: t.symbol,
@@ -53,30 +95,30 @@ export function derivePositions(ledger: Transaction[]): DerivedPortfolio {
 					t.provenance === Provenance.Verified,
 				liquidityDays: t.liquidityDays ?? current?.liquidityDays,
 			});
-			continue;
-		}
-
-		if (!current || t.quantity > current.quantity + QUANTITY_EPSILON) {
+		},
+		sell(t, heldBefore, closes) {
+			if (closes) {
+				open.delete(t.symbol);
+				return;
+			}
+			const current = open.get(t.symbol);
+			open.set(t.symbol, {
+				...current,
+				quantity: heldBefore - t.quantity,
+				costMinor:
+					current.costMinor -
+					Math.round((current.costMinor * t.quantity) / heldBefore),
+				allVerified:
+					current.allVerified && t.provenance === Provenance.Verified,
+				liquidityDays: t.liquidityDays ?? current.liquidityDays,
+			});
+		},
+		oversell(t) {
 			inconsistencies.push(`${t.symbol}@${t.tradeDate}`);
 			open.delete(t.symbol);
-			continue;
-		}
-
-		const remaining = current.quantity - t.quantity;
-		if (remaining < QUANTITY_EPSILON) {
-			open.delete(t.symbol);
-			continue;
-		}
-		open.set(t.symbol, {
-			...current,
-			quantity: remaining,
-			costMinor:
-				current.costMinor -
-				Math.round((current.costMinor * t.quantity) / current.quantity),
-			allVerified: current.allVerified && t.provenance === Provenance.Verified,
-			liquidityDays: t.liquidityDays ?? current.liquidityDays,
-		});
-	}
+			return false;
+		},
+	});
 
 	const positions: Position[] = [...open.values()].map((p) => ({
 		symbol: p.symbol,
@@ -90,24 +132,16 @@ export function derivePositions(ledger: Transaction[]): DerivedPortfolio {
 }
 
 export function findOversell(
-	ledger: Array<
-		Pick<
-			Transaction,
-			'symbol' | 'side' | 'quantity' | 'tradeDate' | 'createdAt'
-		>
-	>
+	ledger: QuantityItem[]
 ): { symbol: string; tradeDate: string } | null {
-	const held = new Map<string, number>();
-	for (const t of sortLedger(ledger)) {
-		const balance = held.get(t.symbol) ?? 0;
-		if (t.side === TransactionSide.Buy) {
-			held.set(t.symbol, balance + t.quantity);
-			continue;
-		}
-		if (t.quantity > balance + QUANTITY_EPSILON) {
-			return { symbol: t.symbol, tradeDate: t.tradeDate };
-		}
-		held.set(t.symbol, balance - t.quantity);
-	}
-	return null;
+	let found: { symbol: string; tradeDate: string } | null = null;
+	walkLedger(ledger, {
+		buy: () => undefined,
+		sell: () => undefined,
+		oversell(t) {
+			found = { symbol: t.symbol, tradeDate: t.tradeDate };
+			return true;
+		},
+	});
+	return found;
 }

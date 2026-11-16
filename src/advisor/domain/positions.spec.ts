@@ -193,3 +193,62 @@ describe('findOversell', () => {
 		expect(findOversell([tx()])).toBeNull();
 	});
 });
+
+describe('findOversell e derivePositions concordam', () => {
+	const cases: Array<[string, () => Transaction[], boolean]> = [
+		[
+			'venda de poeira sem posicao',
+			() => [tx({ side: Sell, quantity: 1e-8, tradeDate: '2025-01-02' })],
+			true,
+		],
+		[
+			'venda de poeira depois de fechar a posicao',
+			() => [
+				tx({ quantity: 0.5, tradeDate: '2025-01-02' }),
+				tx({ side: Sell, quantity: 0.5, tradeDate: '2025-01-03' }),
+				tx({ side: Sell, quantity: 1e-8, tradeDate: '2025-01-04' }),
+			],
+			true,
+		],
+		[
+			'venda que excede o saldo exatamente pelo epsilon',
+			() => [
+				tx({ quantity: 1, tradeDate: '2025-01-02' }),
+				tx({ side: Sell, quantity: 1.00000001, tradeDate: '2025-01-03' }),
+			],
+			false,
+		],
+		[
+			'0.1 + 0.2 e venda de 0.3',
+			() => [
+				tx({ quantity: 0.1, tradeDate: '2025-01-02' }),
+				tx({ quantity: 0.2, tradeDate: '2025-01-03' }),
+				tx({ side: Sell, quantity: 0.3, tradeDate: '2025-01-04' }),
+			],
+			false,
+		],
+		[
+			'venda descoberta comum',
+			() => [
+				tx({ quantity: 10, tradeDate: '2025-01-02' }),
+				tx({ side: Sell, quantity: 11, tradeDate: '2025-01-03' }),
+			],
+			true,
+		],
+		[
+			'livro sem problemas',
+			() => [
+				tx({ quantity: 10, tradeDate: '2025-01-02' }),
+				tx({ side: Sell, quantity: 4, tradeDate: '2025-01-03' }),
+			],
+			false,
+		],
+	];
+
+	it.each(cases)('%s', (_name, build, oversold) => {
+		const ledger = build();
+		const derived = derivePositions(ledger);
+		expect(findOversell(ledger) !== null).toBe(oversold);
+		expect(derived.inconsistencies.length > 0).toBe(oversold);
+	});
+});
