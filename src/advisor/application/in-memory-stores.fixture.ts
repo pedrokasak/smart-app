@@ -5,16 +5,21 @@ import {
 	Membership,
 	Organization,
 } from '../domain/entities';
-import { ProfileOrigin, RelationshipStatus } from '../domain/enums';
+import { AssetClass, ProfileOrigin, RelationshipStatus } from '../domain/enums';
 import {
 	AllocationTarget,
 	NewTransaction,
 	Transaction,
 } from '../domain/portfolio.entities';
 import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
+import {
+	BenchmarkKey,
+	BenchmarkSeriesPort,
+} from './ports/benchmark-series.port';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
+import { DailyCloseMinor, PriceHistoryPort } from './ports/price-history.port';
 import { RelationshipStorePort } from './ports/relationship.store.port';
 import {
 	DuplicateImportError,
@@ -241,5 +246,74 @@ export class InMemoryAllocationTargetStore implements AllocationTargetStorePort 
 		clientProfileId: string
 	): Promise<AllocationTarget | null> {
 		return this.items.get(JSON.stringify([orgId, clientProfileId])) ?? null;
+	}
+}
+
+/** Fonte de preços em memória; `failFor` faz o símbolo rejeitar. */
+export class InMemoryPriceHistory implements PriceHistoryPort {
+	private readonly series = new Map<string, DailyCloseMinor[]>();
+	private readonly failing = new Set<string>();
+	readonly calls: Array<{
+		symbol: string;
+		assetClass: AssetClass;
+		from: string;
+		to: string;
+	}> = [];
+	private inFlight = 0;
+	maxInFlight = 0;
+
+	set(symbol: string, closes: DailyCloseMinor[]): void {
+		this.series.set(symbol, closes);
+	}
+
+	failFor(symbol: string): void {
+		this.failing.add(symbol);
+	}
+
+	async getDailyCloses(
+		symbol: string,
+		assetClass: AssetClass,
+		from: string,
+		to: string
+	): Promise<DailyCloseMinor[]> {
+		this.calls.push({ symbol, assetClass, from, to });
+		this.inFlight += 1;
+		this.maxInFlight = Math.max(this.maxInFlight, this.inFlight);
+		try {
+			await new Promise((resolve) => setImmediate(resolve));
+			if (this.failing.has(symbol)) {
+				throw new Error('price source unavailable');
+			}
+			return (this.series.get(symbol) ?? []).filter(
+				(c) => c.date >= from && c.date <= to
+			);
+		} finally {
+			this.inFlight -= 1;
+		}
+	}
+}
+
+/** Benchmarks em memória; `failFor` faz o índice rejeitar. */
+export class InMemoryBenchmarkSeries implements BenchmarkSeriesPort {
+	private readonly values = new Map<BenchmarkKey, number | null>();
+	private readonly failing = new Set<BenchmarkKey>();
+	readonly calls: Array<{ key: BenchmarkKey; from: string; to: string }> = [];
+
+	set(key: BenchmarkKey, value: number | null): void {
+		this.values.set(key, value);
+	}
+
+	failFor(key: BenchmarkKey): void {
+		this.failing.add(key);
+	}
+
+	async periodReturn(
+		key: BenchmarkKey,
+		from: string,
+		to: string
+	): Promise<number | null> {
+		this.calls.push({ key, from, to });
+		if (this.failing.has(key)) throw new Error('benchmark unavailable');
+		return this.values.get(key) ?? null;
 	}
 }
