@@ -113,7 +113,8 @@ function tokenize(text: string, delimiter: Delimiter): RawRecord[] {
 
 	const endRecord = () => {
 		cells.push(cell);
-		const blank = cells.length === 1 && cells[0].trim() === '';
+		// Excel deixa `;;;;;;` em linhas apagadas: só delimitadores é linha em branco.
+		const blank = cells.every((c) => c.trim() === '');
 		if (!blank) records.push({ line: recordLine, cells });
 		cells = [];
 		cell = '';
@@ -159,7 +160,7 @@ function splitNumber(
 	const value = raw.trim();
 	const pattern =
 		delimiter === ';'
-			? /^(\d{1,3}(?:\.\d{3})+|\d+)(?:,(\d+))?$/
+			? /^([1-9]\d{0,2}(?:\.\d{3})+|\d+)(?:,(\d+))?$/
 			: /^(\d+)(?:\.(\d+))?$/;
 	const match = pattern.exec(value);
 	if (!match) return null;

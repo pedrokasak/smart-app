@@ -157,6 +157,53 @@ describe('parseAdvisorCsv', () => {
 		});
 	});
 
+	it.each(['0.125', '0.500', '00.123'])(
+		'quantity %s in a semicolon file is INVALID_QUANTITY, not thousands',
+		(quantity) => {
+			const csv = `${HEADER}\n01/10/2024;BTC;CRIPTO;C;${quantity};1.500;0\n`;
+			expect(parseAdvisorCsv(csv, today)).toEqual({
+				ok: false,
+				errors: [{ line: 2, code: 'INVALID_QUANTITY', column: 'quantidade' }],
+			});
+		}
+	);
+
+	it('price 0.500 in a semicolon file is INVALID_PRICE', () => {
+		const csv = `${HEADER}\n01/10/2024;BTC;CRIPTO;C;1;0.500;0\n`;
+		expect(parseAdvisorCsv(csv, today)).toEqual({
+			ok: false,
+			errors: [{ line: 2, code: 'INVALID_PRICE', column: 'preco' }],
+		});
+	});
+
+	it.each([
+		['1.234', 1234],
+		['0,125', 0.125],
+	])('quantity %s in a semicolon file is %d', (raw, quantity) => {
+		const csv = `${HEADER}\n01/10/2024;BTC;CRIPTO;C;${raw};1.500;0\n`;
+		expect(parseAdvisorCsv(csv, today)).toMatchObject({
+			ok: true,
+			rows: [{ quantity, unitPriceMinor: 150000 }],
+		});
+	});
+
+	it('a delimiter-only row (cleared in Excel) is a blank line', () => {
+		const csv = [
+			HEADER,
+			'02/01/2025;PETR4;ACAO;C;1;10,00;0',
+			';;;;;;',
+			'',
+		].join('\n');
+		expect(parseAdvisorCsv(csv, today)).toMatchObject({
+			ok: true,
+			rows: [{ symbol: 'PETR4' }],
+		});
+		expect(parseAdvisorCsv(`${HEADER}\n;;;;;;;\n`, today)).toEqual({
+			ok: false,
+			errors: [{ line: 1, code: 'EMPTY_FILE' }],
+		});
+	});
+
 	it('caps the reported errors at 100', () => {
 		const csv = [HEADER, ...Array(150).fill('02/01/2025;P;ACAO;X;1;10,00;0')];
 		const result = parseAdvisorCsv(csv.join('\n'), today);
