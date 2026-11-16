@@ -205,6 +205,19 @@ describe('PortfolioMetricsService', () => {
 		]);
 	});
 
+	it('fetches no benchmark for an inconsistent ledger', async () => {
+		await transactions.createMany([
+			newTx(),
+			newTx({ side: TransactionSide.Sell, quantity: 15, tradeDate: DAYS[3] }),
+		]);
+
+		const m = await service.getMetrics(ctxA, 'client-1');
+
+		expect(m.performance.unavailable).toBe('INCONSISTENT_LEDGER');
+		expect(benchmarks.calls).toHaveLength(0);
+		expect(m.benchmarks.map((b) => b.periodReturn)).toEqual([null, null, null]);
+	});
+
 	it('never asks the price port for FIXED_INCOME or OTHER', async () => {
 		await transactions.createMany([
 			newTx(),

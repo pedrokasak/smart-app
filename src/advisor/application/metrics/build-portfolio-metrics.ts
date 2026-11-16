@@ -5,7 +5,7 @@ import {
 	TransactionSide,
 } from '../../domain/enums';
 import { Transaction } from '../../domain/portfolio.entities';
-import { derivePositions } from '../../domain/positions';
+import { derivePositions, sortLedger } from '../../domain/positions';
 import {
 	allocationByClass,
 	allocationDrift,
@@ -37,6 +37,7 @@ import {
 
 export type Unavailable =
 	| 'NO_TRANSACTIONS'
+	| 'INCONSISTENT_LEDGER'
 	| 'NO_PRICED_POSITIONS'
 	| 'INSUFFICIENT_HISTORY';
 
@@ -157,8 +158,15 @@ function analyseSeries(input: {
 		measuredTo: null,
 	});
 	if (input.ledger.length === 0) return empty('NO_TRANSACTIONS');
+	// Venda descoberta: a série limitaria a venda ao saldo, mas o fluxo
+	// registraria a retirada inteira, e a retirada fantasma viraria retorno.
+	if (derivePositions(input.ledger).inconsistencies.length > 0) {
+		return empty('INCONSISTENT_LEDGER');
+	}
 
-	const symbols = new Set(input.ledger.map((t) => t.symbol));
+	// Mesma ordem do snapshot: no mesmo dia, compra antes de venda.
+	const ledger = sortLedger(input.ledger);
+	const symbols = new Set(ledger.map((t) => t.symbol));
 	const prices: PriceLookup = new Map();
 	for (const symbol of symbols) {
 		const series = validCloses(input.closes.get(symbol), input.asOf);
@@ -170,16 +178,14 @@ function analyseSeries(input: {
 	}
 	if (prices.size === 0) return empty('NO_PRICED_POSITIONS');
 
-	const trades: Array<BackfillTrade & { fees: number }> = input.ledger.map(
-		(t) => ({
-			symbol: t.symbol,
-			side: t.side === TransactionSide.Buy ? 'buy' : 'sell',
-			quantity: t.quantity,
-			price: toReais(t.unitPriceMinor),
-			fees: toReais(t.feesMinor),
-			date: t.tradeDate,
-		})
-	);
+	const trades: Array<BackfillTrade & { fees: number }> = ledger.map((t) => ({
+		symbol: t.symbol,
+		side: t.side === TransactionSide.Buy ? 'buy' : 'sell',
+		quantity: t.quantity,
+		price: toReais(t.unitPriceMinor),
+		fees: toReais(t.feesMinor),
+		date: t.tradeDate,
+	}));
 	const points = backfillSeries({ trades, prices, until: input.asOf }).points;
 	const flows = computeDailyCashFlows(trades).byDay;
 	const { returns } = computeDailyReturns({ series: points, flows });

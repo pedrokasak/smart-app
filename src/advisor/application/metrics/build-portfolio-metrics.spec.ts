@@ -76,6 +76,33 @@ const expectNoNaN = (metrics: ClientPortfolioMetrics): void => {
 	expect(numbers.filter((n) => Number.isNaN(n))).toEqual([]);
 };
 
+/** Livro inconsistente: o snapshot sai, a série não é calculada. */
+const expectSeriesRefused = (m: ClientPortfolioMetrics): void => {
+	expect(m.performance).toEqual({
+		twr: null,
+		twrAnnualized: null,
+		mwr: null,
+		measuredFrom: null,
+		measuredTo: null,
+		observations: 0,
+		unavailable: 'INCONSISTENT_LEDGER',
+	});
+	expect(m.risk).toEqual({
+		volatilityAnnualized: null,
+		maxDrawdown: null,
+		drawdownPeakDate: null,
+		drawdownTroughDate: null,
+		var95: null,
+		unavailable: 'INCONSISTENT_LEDGER',
+	});
+	expect(m.benchmarks.every((b) => b.excess === null)).toBe(true);
+	expect(m.positions.length).toBeGreaterThan(0);
+	expect(m.totalValueMinor).toBeGreaterThan(0);
+	expect(m.concentration.hhi).not.toBeNull();
+	expect(m.concentration.top.length).toBeGreaterThan(0);
+	expect(m.liquidity.D1_2).toBe(100);
+};
+
 const build = (over: {
 	asOf: string;
 	ledger: Transaction[];
@@ -348,7 +375,81 @@ describe('buildPortfolioMetrics', () => {
 
 		expect(m.warnings.ledgerInconsistencies).toEqual([`VALE3@${days31[2]}`]);
 		expect(m.positions.map((p) => p.symbol)).toEqual(['PETR4']);
+		expectSeriesRefused(m);
 		expectNoNaN(m);
+	});
+
+	it('refuses the series when a sale exceeds the holding', () => {
+		const m = build({
+			asOf: asOf31,
+			ledger: [
+				tx({ tradeDate: days31[0] }),
+				tx({ tradeDate: days31[1], symbol: 'VALE3' }),
+				tx({
+					tradeDate: days31[5],
+					symbol: 'VALE3',
+					side: TransactionSide.Sell,
+					quantity: 15,
+				}),
+			],
+			closes: new Map([
+				['PETR4', rising(days31, 10000, 0.01)],
+				['VALE3', rising(days31, 10000, 0.01)],
+			]),
+			benchmarkReturns: {},
+		});
+
+		expect(m.warnings.ledgerInconsistencies).toEqual([`VALE3@${days31[5]}`]);
+		expect(m.positions.map((p) => p.symbol)).toEqual(['PETR4']);
+		expectSeriesRefused(m);
+		expect(
+			measuredWindow({
+				asOf: asOf31,
+				ledger: [
+					tx({ tradeDate: days31[0] }),
+					tx({
+						tradeDate: days31[5],
+						side: TransactionSide.Sell,
+						quantity: 15,
+					}),
+				],
+				closes: new Map([['PETR4', rising(days31, 10000, 0.01)]]),
+			})
+		).toBeNull();
+		expectNoNaN(m);
+	});
+
+	it('replays a same-day sell-before-buy in ledger order', () => {
+		const closes = new Map([
+			['PETR4', rising(days31, 10000, 0.01)],
+			['VALE3', rising(days31, 5000, 0.02)],
+		]);
+		const base = [tx({ tradeDate: days31[0] })];
+		const dayTrade = days31[10];
+		const sell = tx({
+			tradeDate: dayTrade,
+			symbol: 'VALE3',
+			side: TransactionSide.Sell,
+			unitPriceMinor: 6000,
+		});
+		const buy = tx({
+			tradeDate: dayTrade,
+			symbol: 'VALE3',
+			unitPriceMinor: 6000,
+		});
+		expect(sell.createdAt.getTime()).toBeLessThan(buy.createdAt.getTime());
+
+		const withTrade = build({
+			asOf: asOf31,
+			ledger: [...base, sell, buy],
+			closes,
+		});
+		const without = build({ asOf: asOf31, ledger: base, closes });
+
+		expect(withTrade.warnings.ledgerInconsistencies).toEqual([]);
+		expect(withTrade.positions.map((p) => p.symbol)).toEqual(['PETR4']);
+		expect(withTrade.performance.unavailable).toBeNull();
+		expect(withTrade.performance.twr).toBeCloseTo(without.performance.twr, 4);
 	});
 
 	it('never words anything as a recommendation', () => {
