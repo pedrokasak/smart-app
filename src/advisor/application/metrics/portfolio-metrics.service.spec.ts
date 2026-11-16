@@ -205,6 +205,22 @@ describe('PortfolioMetricsService', () => {
 		]);
 	});
 
+	it.each([Number.NaN, Number.POSITIVE_INFINITY])(
+		'turns a non-finite benchmark value (%s) into null',
+		async (value) => {
+			await transactions.createMany([newTx()]);
+			benchmarks.set('IBOV', value);
+
+			const m = await service.getMetrics(ctxA, 'client-1');
+
+			expect(m.benchmarks).toEqual([
+				expect.objectContaining({ key: 'CDI', periodReturn: 0.01 }),
+				{ key: 'IBOV', periodReturn: null, excess: null },
+				expect.objectContaining({ key: 'IPCA', periodReturn: 0.004 }),
+			]);
+		}
+	);
+
 	it('fetches no benchmark for an inconsistent ledger', async () => {
 		await transactions.createMany([
 			newTx(),

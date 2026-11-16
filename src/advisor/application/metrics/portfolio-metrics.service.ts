@@ -115,7 +115,7 @@ export class PortfolioMetricsService {
 		return closes;
 	}
 
-	/** Benchmark que rejeitar fica null; os outros seguem. */
+	/** Benchmark que rejeitar ou vier não finito fica null; os outros seguem. */
 	private async loadBenchmarks(
 		from: string,
 		to: string
@@ -126,7 +126,9 @@ export class PortfolioMetricsService {
 		const returns: Partial<Record<BenchmarkKey, number | null>> = {};
 		results.forEach((result, i) => {
 			returns[BENCHMARK_KEYS[i]] =
-				result.status === 'fulfilled' ? result.value : null;
+				result.status === 'fulfilled' && Number.isFinite(result.value)
+					? result.value
+					: null;
 		});
 		return returns;
 	}
