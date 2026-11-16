@@ -367,6 +367,23 @@ export function describeAdvisorPortfolioStoreContract(
 			expect(await s.transactions.deleteById(orgId, otherClient, tx.id)).toBe(
 				false
 			);
+			expect(
+				await s.transactions.findById(orgId, tx.clientProfileId, tx.id)
+			).toEqual(tx);
+		});
+
+		it('transactions: rows of one createMany with the same tradeDate keep the order they were passed', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const symbols = ['R0', 'R1', 'R2', 'R3', 'R4', 'R5'];
+			await s.transactions.createMany(
+				symbols.map((symbol) =>
+					newTx(orgId, clientId, { tradeDate: '2026-02-02', symbol })
+				)
+			);
+
+			const listed = await s.transactions.listByClient(orgId, clientId);
+			expect(listed.map((t) => t.symbol)).toEqual(symbols);
 		});
 
 		it('transactions: deleteById removes the record; unknown or malformed id gives false', async () => {
@@ -457,6 +474,92 @@ export function describeAdvisorPortfolioStoreContract(
 			await expect(
 				s.transactions.claimImport(orgId, clientId, hash, 'u1')
 			).resolves.toBeTruthy();
+		});
+
+		it('transactions: discardImport with another org or client is a no-op', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const hash = randomUUID();
+			const batchId = await s.transactions.claimImport(
+				orgId,
+				clientId,
+				hash,
+				'u1'
+			);
+			await s.transactions.createMany([
+				newTx(orgId, clientId, {
+					source: TransactionSource.CsvImport,
+					importBatchId: batchId,
+				}),
+			]);
+
+			await s.transactions.discardImport(randomUUID(), clientId, batchId);
+			await s.transactions.discardImport(orgId, randomUUID(), batchId);
+
+			expect(await s.transactions.listByClient(orgId, clientId)).toHaveLength(
+				1
+			);
+			await expect(
+				s.transactions.claimImport(orgId, clientId, hash, 'u1')
+			).rejects.toBeInstanceOf(DuplicateImportError);
+		});
+
+		it('transactions: discardImport leaves the rows of another batch untouched', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const batchA = await s.transactions.claimImport(
+				orgId,
+				clientId,
+				randomUUID(),
+				'u1'
+			);
+			const batchB = await s.transactions.claimImport(
+				orgId,
+				clientId,
+				randomUUID(),
+				'u1'
+			);
+			await s.transactions.createMany([
+				newTx(orgId, clientId, {
+					symbol: 'A1',
+					source: TransactionSource.CsvImport,
+					importBatchId: batchA,
+				}),
+			]);
+			const [keptB] = await s.transactions.createMany([
+				newTx(orgId, clientId, {
+					symbol: 'B1',
+					source: TransactionSource.CsvImport,
+					importBatchId: batchB,
+				}),
+			]);
+
+			await s.transactions.discardImport(orgId, clientId, batchA);
+
+			expect(await s.transactions.listByClient(orgId, clientId)).toEqual([
+				keptB,
+			]);
+		});
+
+		it('transactions: concurrent claimImport of the same hash fulfils exactly once', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const hash = randomUUID();
+
+			const results = await Promise.allSettled(
+				[1, 2, 3].map(() =>
+					s.transactions.claimImport(orgId, clientId, hash, 'u1')
+				)
+			);
+
+			expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+			const rejected = results.filter(
+				(r): r is PromiseRejectedResult => r.status === 'rejected'
+			);
+			expect(rejected).toHaveLength(2);
+			for (const r of rejected) {
+				expect(r.reason).toBeInstanceOf(DuplicateImportError);
+			}
 		});
 
 		it('targets: upsert twice keeps a single record, last value wins', async () => {
