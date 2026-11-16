@@ -218,9 +218,15 @@ describe('PortfolioMetricsService', () => {
 		expect(m.benchmarks.map((b) => b.periodReturn)).toEqual([null, null, null]);
 	});
 
-	it('never asks the price port for FIXED_INCOME or OTHER', async () => {
+	it('never asks the price port for FIXED_INCOME, OTHER or FUND', async () => {
 		await transactions.createMany([
 			newTx(),
+			newTx({
+				symbol: 'FUNDO-Z',
+				assetClass: AssetClass.Fund,
+				unitPriceMinor: 20000,
+				quantity: 1,
+			}),
 			newTx({
 				symbol: 'CDB-X',
 				assetClass: AssetClass.FixedIncome,
@@ -238,7 +244,7 @@ describe('PortfolioMetricsService', () => {
 		const m = await service.getMetrics(ctxA, 'client-1');
 
 		expect(prices.calls.map((c) => c.symbol)).toEqual(['PETR4']);
-		expect(m.warnings.unpricedSymbols).toEqual(['CDB-X', 'COE-Y']);
+		expect(m.warnings.unpricedSymbols).toEqual(['CDB-X', 'COE-Y', 'FUNDO-Z']);
 	});
 
 	it('runs at most 5 price lookups at a time', async () => {

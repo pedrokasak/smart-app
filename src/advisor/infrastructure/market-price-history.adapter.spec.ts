@@ -65,7 +65,7 @@ describe('MarketPriceHistoryAdapter', () => {
 			{ date: '2026-02-04', close: 5 },
 		]);
 		const result = await adapter.getDailyCloses(
-			'X',
+			'KNRI11',
 			AssetClass.Fii,
 			'2026-02-01',
 			'2026-02-28'
@@ -73,7 +73,7 @@ describe('MarketPriceHistoryAdapter', () => {
 		expect(result).toEqual([{ date: '2026-02-04', closeMinor: 500 }]);
 	});
 
-	it.each([AssetClass.FixedIncome, AssetClass.Other])(
+	it.each([AssetClass.FixedIncome, AssetClass.Other, AssetClass.Fund])(
 		'%s does not call the provider',
 		async (assetClass) => {
 			const result = await adapter.getDailyCloses(
@@ -86,6 +86,45 @@ describe('MarketPriceHistoryAdapter', () => {
 			expect(getDailyCloses).not.toHaveBeenCalled();
 		}
 	);
+
+	it.each([
+		['VALE', AssetClass.Stock],
+		['XP', AssetClass.Fund],
+		['BTC-USD', AssetClass.Crypto],
+		['PETR4F', AssetClass.Stock],
+	])(
+		'%s (%s) is not provably BRL: [] without calling the provider',
+		async (symbol, assetClass) => {
+			const result = await adapter.getDailyCloses(
+				symbol,
+				assetClass,
+				'2026-02-01',
+				'2026-02-28'
+			);
+			expect(result).toEqual([]);
+			expect(getDailyCloses).not.toHaveBeenCalled();
+		}
+	);
+
+	it.each([
+		['PETR4', AssetClass.Stock],
+		['KNRI11', AssetClass.Fii],
+		['BTC', AssetClass.Crypto],
+		['BTC-BRL', AssetClass.Crypto],
+	])('%s (%s) is BRL: calls the provider', async (symbol, assetClass) => {
+		getDailyCloses.mockResolvedValue([]);
+		await adapter.getDailyCloses(
+			symbol,
+			assetClass,
+			'2026-02-01',
+			'2026-02-28'
+		);
+		expect(getDailyCloses).toHaveBeenCalledWith(
+			symbol,
+			expect.any(String),
+			expect.any(String)
+		);
+	});
 
 	it('returns [] and warns with only the ticker when the provider throws', async () => {
 		getDailyCloses.mockRejectedValue(new Error('boom'));

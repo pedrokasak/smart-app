@@ -23,12 +23,27 @@ const RANGES: ReadonlyArray<{ range: string; days: number }> = [
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
-const ASSET_TYPE_BY_CLASS: Partial<Record<AssetClass, MarketAssetType>> = {
-	[AssetClass.Stock]: 'stock',
-	[AssetClass.Fii]: 'fii',
-	[AssetClass.Etf]: 'etf',
-	[AssetClass.Crypto]: 'crypto',
-	[AssetClass.Fund]: 'fund',
+const B3_TICKER = /^[A-Z]{4}\d{1,2}$/;
+const isB3Ticker = (symbol: string): boolean => B3_TICKER.test(symbol);
+const isBrlCrypto = (symbol: string): boolean =>
+	!symbol.includes('-') || symbol.endsWith('-BRL');
+
+/**
+ * Só consulta o provider quando o fechamento é comprovadamente em BRL: o
+ * provider manda o que não parece ticker da B3 para o namespace global e
+ * repassa pares cripto como `BTC-USD`, devolvendo fechamentos em USD.
+ * FUND, FIXED_INCOME e OTHER nunca são consultados.
+ */
+const QUOTED_CLASSES: Partial<
+	Record<
+		AssetClass,
+		{ assetType: MarketAssetType; isBrl: (symbol: string) => boolean }
+	>
+> = {
+	[AssetClass.Stock]: { assetType: 'stock', isBrl: isB3Ticker },
+	[AssetClass.Fii]: { assetType: 'fii', isBrl: isB3Ticker },
+	[AssetClass.Etf]: { assetType: 'etf', isBrl: isB3Ticker },
+	[AssetClass.Crypto]: { assetType: 'crypto', isBrl: isBrlCrypto },
 };
 
 /**
@@ -61,14 +76,14 @@ export class MarketPriceHistoryAdapter implements PriceHistoryPort {
 		from: string,
 		to: string
 	): Promise<DailyCloseMinor[]> {
-		const assetType = ASSET_TYPE_BY_CLASS[assetClass];
-		if (!assetType) return [];
+		const quoted = QUOTED_CLASSES[assetClass];
+		if (!quoted || !quoted.isBrl(symbol)) return [];
 		try {
 			const today = new Date().toISOString().slice(0, 10);
 			const closes = await this.market.getDailyCloses(
 				symbol,
 				selectProviderRange(from, today),
-				assetType
+				quoted.assetType
 			);
 			const result: DailyCloseMinor[] = [];
 			for (const point of closes) {

@@ -31,6 +31,7 @@ const MAX_PARALLEL_PRICE_LOOKUPS = 5;
 const UNQUOTED_CLASSES = new Set<AssetClass>([
 	AssetClass.FixedIncome,
 	AssetClass.Other,
+	AssetClass.Fund,
 ]);
 
 @Injectable()
