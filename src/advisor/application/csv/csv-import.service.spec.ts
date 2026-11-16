@@ -132,6 +132,38 @@ describe('CsvImportService', () => {
 			).resolves.toEqual(expect.objectContaining({ imported: 1 }));
 		});
 
+		it('points at the file sale when the reported oversell is a stored later sale', async () => {
+			const base = {
+				symbol: 'PETR4',
+				assetClass: 'STOCK' as never,
+				quantity: 100,
+				unitPriceMinor: 3000,
+				feesMinor: 0,
+				currency: 'BRL',
+				orgId: 'orgA',
+				clientProfileId: 'clientA',
+				provenance: Provenance.Manual,
+				source: TransactionSource.ManualEntry,
+				createdByUserId: userId,
+			};
+			await transactions.createMany([
+				{ ...base, side: 'BUY' as never, tradeDate: '2025-01-01' },
+				{ ...base, side: 'SELL' as never, tradeDate: '2025-02-01' },
+			]);
+			const csv = csvOf('15/01/2025;PETR4;ACAO;V;50;35,00;0');
+			const claim = jest.spyOn(transactions, 'claimImport');
+
+			const error = await service
+				.importCsv(ctx, 'clientA', csv)
+				.catch((e: unknown) => e);
+			expect(error).toBeInstanceOf(CsvRejectedError);
+			expect((error as CsvRejectedError).getResponse()).toEqual({
+				errors: [{ line: 2, code: 'INVALID_QUANTITY' }],
+			});
+			expect(await stored()).toHaveLength(2);
+			expect(claim).not.toHaveBeenCalled();
+		});
+
 		it('ignores a pre-existing uncovered sale of a symbol the file does not touch', async () => {
 			await transactions.createMany([
 				{

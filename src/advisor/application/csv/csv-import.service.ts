@@ -129,11 +129,18 @@ export class CsvImportService {
 				...fileRows.map((r) => ({ ...r.input, createdAt: importedAt })),
 			]);
 			if (!oversell) continue;
-			const culprit = fileRows.find(
-				(r) =>
-					r.input.side === TransactionSide.Sell &&
-					r.input.tradeDate === oversell.tradeDate
+			const fileSells = fileRows.filter(
+				(r) => r.input.side === TransactionSide.Sell
 			);
+			// O SELL reportado pode ser um já gravado (venda do arquivo retroativa
+			// que consome o saldo dele): cai no último SELL do arquivo até a data.
+			const culprit =
+				fileSells.find((r) => r.input.tradeDate === oversell.tradeDate) ??
+				fileSells
+					.filter((r) => r.input.tradeDate <= oversell.tradeDate)
+					.sort((a, b) =>
+						b.input.tradeDate.localeCompare(a.input.tradeDate)
+					)[0];
 			errors.push({
 				line: culprit?.line ?? 1,
 				code: 'INVALID_QUANTITY',
