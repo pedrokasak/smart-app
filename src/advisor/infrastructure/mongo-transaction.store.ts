@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { randomUUID } from 'crypto';
 import { Model } from 'mongoose';
@@ -34,6 +34,8 @@ function isImportHashDuplicate(error: unknown): boolean {
 
 @Injectable()
 export class MongoTransactionStore implements TransactionStorePort {
+	private readonly logger = new Logger(MongoTransactionStore.name);
+
 	constructor(
 		@InjectModel(ADVISOR_TRANSACTION_MODEL)
 		private readonly transactions: Model<AdvisorTransactionDoc>,
@@ -60,9 +62,18 @@ export class MongoTransactionStore implements TransactionStorePort {
 		try {
 			await this.transactions.insertMany(docs, { ordered: true });
 		} catch (error) {
-			await this.transactions
-				.deleteMany({ _id: { $in: docs.map((d) => d._id) } })
-				.exec();
+			try {
+				await this.transactions
+					.deleteMany({ _id: { $in: docs.map((d) => d._id) } })
+					.exec();
+			} catch (cleanupError) {
+				// O erro original sempre vence; só registramos a falha da limpeza.
+				this.logger.error(
+					`createMany cleanup failed for ${docs.length} rows: ${
+						(cleanupError as Error)?.name ?? 'unknown error'
+					}`
+				);
+			}
 			throw error;
 		}
 		return docs.map((doc) => toTransaction(doc.toObject()));

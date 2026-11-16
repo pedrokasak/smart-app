@@ -585,6 +585,29 @@ export function describeAdvisorPortfolioStoreContract(
 			expect(found?.updatedByUserId).toBe('u2');
 		});
 
+		it('targets: concurrent first upserts all fulfil and leave a single record', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const submitted = [10, 20, 30, 40, 50].map((pct) => ({
+				[AssetClass.Stock]: pct,
+			}));
+
+			const results = await Promise.allSettled(
+				submitted.map((targets, i) =>
+					s.targets.upsert({
+						orgId,
+						clientProfileId: clientId,
+						targets,
+						updatedByUserId: `u${i}`,
+					})
+				)
+			);
+
+			expect(results.every((r) => r.status === 'fulfilled')).toBe(true);
+			const found = await s.targets.find(orgId, clientId);
+			expect(submitted).toContainEqual(found?.targets);
+		});
+
 		it('targets: find is isolated by org and client', async () => {
 			const orgId = randomUUID();
 			const clientId = randomUUID();
