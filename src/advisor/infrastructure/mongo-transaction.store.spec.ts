@@ -1,7 +1,12 @@
 import { Logger } from '@nestjs/common';
 import mongoose, { Model } from 'mongoose';
 import {
+	DuplicateImportError,
+	STALE_IMPORT_MS,
+} from '../application/ports/transaction.store.port';
+import {
 	AssetClass,
+	ImportBatchStatus,
 	Provenance,
 	TransactionSide,
 	TransactionSource,
@@ -103,5 +108,137 @@ describe('MongoTransactionStore.createMany compensation', () => {
 		await expect(store.createMany([])).resolves.toEqual([]);
 		expect(insertMany).not.toHaveBeenCalled();
 		expect(deleteMany).not.toHaveBeenCalled();
+	});
+});
+
+describe('MongoTransactionStore import batches', () => {
+	const NOW = new Date('2026-11-16T12:00:00.000Z');
+	const duplicateKey = Object.assign(new Error('E11000'), {
+		code: 11000,
+		keyPattern: { orgId: 1, clientProfileId: 1, sourceHash: 1 },
+	});
+	let batches: Model<AdvisorImportBatchDoc>;
+	let store: MongoTransactionStore;
+	let create: jest.SpyInstance;
+	let findOne: jest.SpyInstance;
+	let deleteOne: jest.SpyInstance;
+	let deleteManyRows: jest.SpyInstance;
+	let updateOne: jest.SpyInstance;
+	let staleBatch: { _id: string } | null;
+	let batchDeleted: number;
+
+	beforeEach(() => {
+		const suffix = Math.random().toString(36).slice(2);
+		const transactions = mongoose.model<AdvisorTransactionDoc>(
+			`AdvisorTransactionBatchSpec${suffix}`,
+			advisorPortfolioSchemas.transaction
+		);
+		batches = mongoose.model<AdvisorImportBatchDoc>(
+			`AdvisorImportBatchBatchSpec${suffix}`,
+			advisorPortfolioSchemas.importBatch
+		);
+		staleBatch = null;
+		batchDeleted = 1;
+		create = jest.spyOn(batches, 'create');
+		findOne = jest.spyOn(batches, 'findOne').mockImplementation(
+			() =>
+				({
+					lean: () => ({ exec: async () => staleBatch }),
+				}) as never
+		);
+		deleteOne = jest
+			.spyOn(batches, 'deleteOne')
+			.mockImplementation(
+				() => ({ exec: async () => ({ deletedCount: batchDeleted }) }) as never
+			);
+		updateOne = jest
+			.spyOn(batches, 'updateOne')
+			.mockImplementation(
+				() => ({ exec: async () => ({ modifiedCount: 1 }) }) as never
+			);
+		deleteManyRows = jest
+			.spyOn(transactions, 'deleteMany')
+			.mockImplementation(
+				() => ({ exec: async () => ({ deletedCount: 2 }) }) as never
+			);
+		store = new MongoTransactionStore(transactions, batches);
+	});
+
+	afterEach(() => jest.restoreAllMocks());
+
+	it('claims a PENDING batch created at the given now', async () => {
+		create.mockResolvedValue({ _id: 'b1' } as never);
+
+		await expect(store.claimImport('o', 'c', 'h', 'u1', NOW)).resolves.toBe(
+			'b1'
+		);
+		expect(create).toHaveBeenCalledWith({
+			orgId: 'o',
+			clientProfileId: 'c',
+			sourceHash: 'h',
+			createdByUserId: 'u1',
+			status: ImportBatchStatus.Pending,
+			createdAt: NOW,
+		});
+	});
+
+	it('looks only for a PENDING batch older than the stale window and rejects when there is none', async () => {
+		create.mockRejectedValue(duplicateKey);
+
+		await expect(
+			store.claimImport('o', 'c', 'h', 'u1', NOW)
+		).rejects.toBeInstanceOf(DuplicateImportError);
+		expect(findOne).toHaveBeenCalledWith({
+			orgId: 'o',
+			clientProfileId: 'c',
+			sourceHash: 'h',
+			status: ImportBatchStatus.Pending,
+			createdAt: { $lt: new Date(NOW.getTime() - STALE_IMPORT_MS) },
+		});
+		expect(deleteManyRows).not.toHaveBeenCalled();
+		expect(create).toHaveBeenCalledTimes(1);
+	});
+
+	it('takes over a stale batch: removes its rows, then the batch, then claims again', async () => {
+		staleBatch = { _id: 'old' };
+		create
+			.mockRejectedValueOnce(duplicateKey)
+			.mockResolvedValueOnce({ _id: 'new' } as never);
+
+		await expect(store.claimImport('o', 'c', 'h', 'u1', NOW)).resolves.toBe(
+			'new'
+		);
+		expect(deleteManyRows).toHaveBeenCalledWith({
+			orgId: 'o',
+			clientProfileId: 'c',
+			importBatchId: 'old',
+		});
+		expect(deleteOne).toHaveBeenCalledWith({
+			_id: 'old',
+			orgId: 'o',
+			clientProfileId: 'c',
+			status: ImportBatchStatus.Pending,
+		});
+		expect(create).toHaveBeenCalledTimes(2);
+	});
+
+	it('is a duplicate when another caller removed the stale batch first', async () => {
+		staleBatch = { _id: 'old' };
+		batchDeleted = 0;
+		create.mockRejectedValue(duplicateKey);
+
+		await expect(
+			store.claimImport('o', 'c', 'h', 'u1', NOW)
+		).rejects.toBeInstanceOf(DuplicateImportError);
+		expect(create).toHaveBeenCalledTimes(1);
+	});
+
+	it('completeImport sets COMPLETED scoped to org and client', async () => {
+		await store.completeImport('o', 'c', 'b1');
+
+		expect(updateOne).toHaveBeenCalledWith(
+			{ _id: 'b1', orgId: 'o', clientProfileId: 'c' },
+			{ $set: { status: ImportBatchStatus.Completed } }
+		);
 	});
 });

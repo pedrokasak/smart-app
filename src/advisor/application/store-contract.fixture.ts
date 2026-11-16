@@ -541,6 +541,89 @@ export function describeAdvisorPortfolioStoreContract(
 			]);
 		});
 
+		describe('transactions: stale PENDING import takeover', () => {
+			const MINUTE = 60_000;
+			const claimAt = (
+				orgId: string,
+				clientId: string,
+				hash: string,
+				now: Date
+			): Promise<string> =>
+				s.transactions.claimImport(orgId, clientId, hash, 'u1', now);
+
+			it('a PENDING batch older than 10 minutes is discarded and claimed again with a new id', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const hash = randomUUID();
+				const base = new Date();
+				const oldBatch = await claimAt(orgId, clientId, hash, base);
+				const [kept] = await s.transactions.createMany([
+					newTx(orgId, clientId, { symbol: 'KEEP' }),
+				]);
+				await s.transactions.createMany([
+					newTx(orgId, clientId, {
+						symbol: 'PART',
+						source: TransactionSource.CsvImport,
+						importBatchId: oldBatch,
+					}),
+				]);
+
+				const newBatch = await claimAt(
+					orgId,
+					clientId,
+					hash,
+					new Date(base.getTime() + 11 * MINUTE)
+				);
+
+				expect(newBatch).toBeTruthy();
+				expect(newBatch).not.toBe(oldBatch);
+				expect(await s.transactions.listByClient(orgId, clientId)).toEqual([
+					kept,
+				]);
+			});
+
+			it('a PENDING batch younger than 10 minutes is still a duplicate', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const hash = randomUUID();
+				const base = new Date();
+				await claimAt(orgId, clientId, hash, base);
+
+				await expect(
+					claimAt(orgId, clientId, hash, new Date(base.getTime() + MINUTE))
+				).rejects.toBeInstanceOf(DuplicateImportError);
+			});
+
+			it('a COMPLETED batch is a duplicate however old it is', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const hash = randomUUID();
+				const base = new Date();
+				const batchId = await claimAt(orgId, clientId, hash, base);
+				await s.transactions.completeImport(orgId, clientId, batchId);
+
+				await expect(
+					claimAt(orgId, clientId, hash, new Date(base.getTime() + 11 * MINUTE))
+				).rejects.toBeInstanceOf(DuplicateImportError);
+			});
+
+			it('completeImport with another org or client is a no-op (batch stays PENDING)', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const hash = randomUUID();
+				const base = new Date();
+				const batchId = await claimAt(orgId, clientId, hash, base);
+
+				await s.transactions.completeImport(randomUUID(), clientId, batchId);
+				await s.transactions.completeImport(orgId, randomUUID(), batchId);
+
+				// Ainda PENDING: a retomada depois de 10 minutos funciona.
+				await expect(
+					claimAt(orgId, clientId, hash, new Date(base.getTime() + 11 * MINUTE))
+				).resolves.toBeTruthy();
+			});
+		});
+
 		it('transactions: concurrent claimImport of the same hash fulfils exactly once', async () => {
 			const orgId = randomUUID();
 			const clientId = randomUUID();

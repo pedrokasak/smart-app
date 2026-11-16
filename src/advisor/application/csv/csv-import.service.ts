@@ -3,6 +3,7 @@ import {
 	ConflictException,
 	Inject,
 	Injectable,
+	Logger,
 	UnprocessableEntityException,
 } from '@nestjs/common';
 import {
@@ -14,6 +15,7 @@ import { NewTransaction } from '../../domain/portfolio.entities';
 import { findOversell } from '../../domain/positions';
 import { ADVISOR_TRANSACTION_STORE } from '../advisor.tokens';
 import { AccessContext, AuthorizationService } from '../authorization.service';
+import { OversellError } from '../transaction.service';
 import {
 	DuplicateImportError,
 	type TransactionStorePort,
@@ -38,6 +40,8 @@ export interface CsvImportResult {
 
 @Injectable()
 export class CsvImportService {
+	private readonly logger = new Logger(CsvImportService.name);
+
 	constructor(
 		private readonly authorization: AuthorizationService,
 		@Inject(ADVISOR_TRANSACTION_STORE)
@@ -100,14 +104,66 @@ export class CsvImportService {
 		try {
 			await this.transactions.createMany(items);
 		} catch (error) {
-			await this.transactions.discardImport(
-				ctx.orgId,
-				clientProfileId,
-				importBatchId
-			);
+			try {
+				await this.transactions.discardImport(
+					ctx.orgId,
+					clientProfileId,
+					importBatchId
+				);
+			} catch (discardError) {
+				// O erro original sempre vence; o lote fica PENDING e é retomado
+				// depois de STALE_IMPORT_MS.
+				this.logger.error(
+					`discardImport failed after createMany failed: ${
+						(discardError as Error)?.name ?? 'unknown error'
+					}`
+				);
+			}
 			throw error;
 		}
+		await this.transactions.completeImport(
+			ctx.orgId,
+			clientProfileId,
+			importBatchId
+		);
 		return { importBatchId, imported: items.length };
+	}
+
+	/**
+	 * Desfaz um import inteiro. Recusa (OversellError, nada removido) se tirar as
+	 * linhas do lote deixar descoberta uma venda que fica no livro. Lote
+	 * desconhecido remove 0, mas o discard ainda libera um hash preso.
+	 */
+	async revertImport(
+		ctx: AccessContext,
+		clientProfileId: string,
+		importBatchId: string
+	): Promise<{ removed: number }> {
+		await this.authorization.ensureCanAccessClient(
+			ctx,
+			clientProfileId,
+			'EDIT_POSITION'
+		);
+
+		const ledger = await this.transactions.listByClient(
+			ctx.orgId,
+			clientProfileId
+		);
+		const removed = ledger.filter((t) => t.importBatchId === importBatchId);
+		const remaining = ledger.filter((t) => t.importBatchId !== importBatchId);
+		for (const symbol of new Set(removed.map((t) => t.symbol))) {
+			const oversell = findOversell(
+				remaining.filter((t) => t.symbol === symbol)
+			);
+			if (oversell) throw new OversellError(oversell);
+		}
+
+		await this.transactions.discardImport(
+			ctx.orgId,
+			clientProfileId,
+			importBatchId
+		);
+		return { removed: removed.length };
 	}
 
 	/** Por símbolo do arquivo: livro gravado do símbolo + linhas do arquivo. */

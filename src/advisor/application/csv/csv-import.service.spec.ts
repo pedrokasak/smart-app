@@ -1,4 +1,5 @@
-import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { AuditEventInput } from 'src/audit/domain/audit-event';
 import { OrgRole, Provenance, TransactionSource } from '../../domain/enums';
@@ -8,8 +9,12 @@ import {
 	InMemoryRelationshipStore,
 	InMemoryTransactionStore,
 } from '../in-memory-stores.fixture';
+import {
+	DuplicateImportError,
+	STALE_IMPORT_MS,
+} from '../ports/transaction.store.port';
 import { RelationshipService } from '../relationship.service';
-import { TransactionService } from '../transaction.service';
+import { OversellError, TransactionService } from '../transaction.service';
 import { CSV_MAX_BYTES } from './advisor-csv.parser';
 import { CsvImportService, CsvRejectedError } from './csv-import.service';
 
@@ -206,6 +211,127 @@ describe('CsvImportService', () => {
 		await expect(service.importCsv(ctx, 'clientA', THREE)).resolves.toEqual(
 			expect.objectContaining({ imported: 3 })
 		);
+	});
+
+	it('surfaces the createMany error even when discardImport also fails', async () => {
+		const logged = jest
+			.spyOn(Logger.prototype, 'error')
+			.mockImplementation(() => undefined);
+		const failure = new Error('db down');
+		jest.spyOn(transactions, 'createMany').mockRejectedValueOnce(failure);
+		jest
+			.spyOn(transactions, 'discardImport')
+			.mockRejectedValueOnce(new Error('discard failed'));
+
+		await expect(service.importCsv(ctx, 'clientA', THREE)).rejects.toBe(
+			failure
+		);
+		expect(logged).toHaveBeenCalledTimes(1);
+		expect(String(logged.mock.calls[0][0])).not.toMatch(/PETR4|VALE3|clientA/);
+		logged.mockRestore();
+	});
+
+	it('leaves a successful import COMPLETED: never taken over, even later', async () => {
+		const complete = jest.spyOn(transactions, 'completeImport');
+		const { importBatchId } = await service.importCsv(ctx, 'clientA', THREE);
+
+		expect(complete).toHaveBeenCalledWith('orgA', 'clientA', importBatchId);
+		const hash = createHash('sha256').update(THREE).digest('hex');
+		await expect(
+			transactions.claimImport(
+				'orgA',
+				'clientA',
+				hash,
+				userId,
+				new Date(Date.now() + STALE_IMPORT_MS + 60_000)
+			)
+		).rejects.toBeInstanceOf(DuplicateImportError);
+		await expect(
+			service.importCsv(ctx, 'clientA', THREE)
+		).rejects.toBeInstanceOf(ConflictException);
+	});
+
+	describe('revertImport', () => {
+		it('removes the rows of the batch and frees the file for a new import', async () => {
+			await manual.addManual(ctx, 'clientA', {
+				symbol: 'ITUB4',
+				assetClass: 'STOCK' as never,
+				side: 'BUY' as never,
+				quantity: 1,
+				unitPriceMinor: 3000,
+				feesMinor: 0,
+				currency: 'BRL',
+				tradeDate: '2025-01-02',
+			});
+			const { importBatchId } = await service.importCsv(ctx, 'clientA', THREE);
+
+			await expect(
+				service.revertImport(ctx, 'clientA', importBatchId)
+			).resolves.toEqual({ removed: 3 });
+
+			expect((await stored()).map((t) => t.symbol)).toEqual(['ITUB4']);
+			await expect(service.importCsv(ctx, 'clientA', THREE)).resolves.toEqual(
+				expect.objectContaining({ imported: 3 })
+			);
+		});
+
+		it('refuses with OversellError and removes nothing when a later MANUAL sale would be uncovered', async () => {
+			const { importBatchId } = await service.importCsv(ctx, 'clientA', THREE);
+			await manual.addManual(ctx, 'clientA', {
+				symbol: 'VALE3',
+				assetClass: 'STOCK' as never,
+				side: 'SELL' as never,
+				quantity: 20,
+				unitPriceMinor: 6500,
+				feesMinor: 0,
+				currency: 'BRL',
+				tradeDate: '2025-03-03',
+			});
+			const discard = jest.spyOn(transactions, 'discardImport');
+
+			const error = await service
+				.revertImport(ctx, 'clientA', importBatchId)
+				.catch((e: unknown) => e);
+
+			expect(error).toBeInstanceOf(OversellError);
+			expect((error as OversellError).getResponse()).toMatchObject({
+				symbol: 'VALE3',
+				tradeDate: '2025-03-03',
+			});
+			expect(discard).not.toHaveBeenCalled();
+			expect(await stored()).toHaveLength(4);
+		});
+
+		it('refuses another org and another client, removing nothing', async () => {
+			const { importBatchId } = await service.importCsv(ctx, 'clientA', THREE);
+			const discard = jest.spyOn(transactions, 'discardImport');
+
+			await expect(
+				service.revertImport(
+					{ userId, orgId: 'orgB' },
+					'clientA',
+					importBatchId
+				)
+			).rejects.toBeInstanceOf(ForbiddenException);
+			await expect(
+				service.revertImport(ctx, 'clientB', importBatchId)
+			).rejects.toBeInstanceOf(ForbiddenException);
+
+			expect(discard).not.toHaveBeenCalled();
+			expect(await stored()).toHaveLength(3);
+		});
+
+		it('returns removed 0 for an unknown batch and still calls discard', async () => {
+			await service.importCsv(ctx, 'clientA', THREE);
+			const discard = jest.spyOn(transactions, 'discardImport');
+
+			await expect(
+				service.revertImport(ctx, 'clientA', 'unknown-batch')
+			).resolves.toEqual({ removed: 0 });
+
+			expect(discard).toHaveBeenCalledWith('orgA', 'clientA', 'unknown-batch');
+			expect(await stored()).toHaveLength(3);
+		});
 	});
 
 	it('rejects text above 1 MB with FILE_TOO_LARGE before parsing', async () => {

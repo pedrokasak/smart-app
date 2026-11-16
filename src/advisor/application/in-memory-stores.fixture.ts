@@ -5,7 +5,12 @@ import {
 	Membership,
 	Organization,
 } from '../domain/entities';
-import { AssetClass, ProfileOrigin, RelationshipStatus } from '../domain/enums';
+import {
+	AssetClass,
+	ImportBatchStatus,
+	ProfileOrigin,
+	RelationshipStatus,
+} from '../domain/enums';
 import {
 	AllocationTarget,
 	NewTransaction,
@@ -23,8 +28,15 @@ import { DailyCloseMinor, PriceHistoryPort } from './ports/price-history.port';
 import { RelationshipStorePort } from './ports/relationship.store.port';
 import {
 	DuplicateImportError,
+	STALE_IMPORT_MS,
 	TransactionStorePort,
 } from './ports/transaction.store.port';
+
+interface ImportClaim {
+	batchId: string;
+	status: ImportBatchStatus;
+	createdAt: Date;
+}
 
 /** Stores em memória para testes de unidade da camada de aplicação. */
 export class InMemoryOrganizationStore implements OrganizationStorePort {
@@ -141,8 +153,8 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 
 export class InMemoryTransactionStore implements TransactionStorePort {
 	private readonly items = new Map<string, Transaction>();
-	/** chave (org, cliente, hash) -> importBatchId */
-	private readonly claims = new Map<string, string>();
+	/** chave (org, cliente, hash) -> lote */
+	private readonly claims = new Map<string, ImportClaim>();
 
 	async createMany(items: NewTransaction[]): Promise<Transaction[]> {
 		const createdAt = new Date();
@@ -191,13 +203,46 @@ export class InMemoryTransactionStore implements TransactionStorePort {
 	async claimImport(
 		orgId: string,
 		clientProfileId: string,
-		sourceHash: string
+		sourceHash: string,
+		_createdByUserId?: string,
+		now: Date = new Date()
 	): Promise<string> {
 		const key = JSON.stringify([orgId, clientProfileId, sourceHash]);
-		if (this.claims.has(key)) throw new DuplicateImportError();
+		const existing = this.claims.get(key);
+		if (existing) {
+			const stale =
+				existing.status === ImportBatchStatus.Pending &&
+				now.getTime() - existing.createdAt.getTime() > STALE_IMPORT_MS;
+			if (!stale) throw new DuplicateImportError();
+		}
+		// Reserva antes de qualquer await: duas retomadas simultâneas não passam.
 		const batchId = randomUUID();
-		this.claims.set(key, batchId);
+		this.claims.set(key, {
+			batchId,
+			status: ImportBatchStatus.Pending,
+			createdAt: now,
+		});
+		if (existing) {
+			await this.discardImport(orgId, clientProfileId, existing.batchId);
+		}
 		return batchId;
+	}
+
+	async completeImport(
+		orgId: string,
+		clientProfileId: string,
+		importBatchId: string
+	): Promise<void> {
+		for (const [key, claim] of this.claims) {
+			const [claimOrg, claimClient] = JSON.parse(key) as string[];
+			if (
+				claim.batchId === importBatchId &&
+				claimOrg === orgId &&
+				claimClient === clientProfileId
+			) {
+				claim.status = ImportBatchStatus.Completed;
+			}
+		}
 	}
 
 	async discardImport(
@@ -214,10 +259,10 @@ export class InMemoryTransactionStore implements TransactionStorePort {
 				this.items.delete(id);
 			}
 		}
-		for (const [key, batchId] of this.claims) {
+		for (const [key, claim] of this.claims) {
 			const [claimOrg, claimClient] = JSON.parse(key) as string[];
 			if (
-				batchId === importBatchId &&
+				claim.batchId === importBatchId &&
 				claimOrg === orgId &&
 				claimClient === clientProfileId
 			) {

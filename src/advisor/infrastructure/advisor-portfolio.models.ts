@@ -2,6 +2,7 @@ import { randomUUID } from 'crypto';
 import { Schema } from 'mongoose';
 import {
 	AssetClass,
+	ImportBatchStatus,
 	Provenance,
 	TransactionSide,
 	TransactionSource,
@@ -49,6 +50,8 @@ export interface AdvisorImportBatchDoc extends TimestampedDoc {
 	clientProfileId: string;
 	sourceHash: string;
 	createdByUserId: string;
+	/** PENDING da reserva do hash até as linhas gravarem; então COMPLETED. */
+	status: ImportBatchStatus;
 }
 
 export interface AdvisorAllocationTargetDoc extends TimestampedDoc {
@@ -143,6 +146,12 @@ const importBatchSchema = new Schema<AdvisorImportBatchDoc>(
 		clientProfileId: { type: String, required: true },
 		sourceHash: { type: String, required: true },
 		createdByUserId: { type: String, required: true },
+		status: {
+			type: String,
+			enum: Object.values(ImportBatchStatus),
+			required: true,
+			default: ImportBatchStatus.Pending,
+		},
 	},
 	{ ...baseOptions, collection: 'advisor_import_batches' }
 );

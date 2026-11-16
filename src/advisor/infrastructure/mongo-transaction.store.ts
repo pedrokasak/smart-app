@@ -4,8 +4,10 @@ import { randomUUID } from 'crypto';
 import { Model } from 'mongoose';
 import {
 	DuplicateImportError,
+	STALE_IMPORT_MS,
 	TransactionStorePort,
 } from '../application/ports/transaction.store.port';
+import { ImportBatchStatus } from '../domain/enums';
 import { NewTransaction, Transaction } from '../domain/portfolio.entities';
 import { toTransaction } from './advisor.mappers';
 import {
@@ -114,24 +116,92 @@ export class MongoTransactionStore implements TransactionStorePort {
 		return result.deletedCount === 1;
 	}
 
+	/**
+	 * O índice único decide quem reserva. Na colisão, só um lote PENDING mais
+	 * velho que STALE_IMPORT_MS é retomado: apaga as linhas dele primeiro (para
+	 * nunca deixar linha VERIFIED sem lote), depois o lote com filtro em
+	 * PENDING (só um concorrente vence) e reserva de novo.
+	 */
 	async claimImport(
 		orgId: string,
 		clientProfileId: string,
 		sourceHash: string,
-		createdByUserId: string
+		createdByUserId: string,
+		now: Date = new Date()
 	): Promise<string> {
-		try {
+		const claim = async (): Promise<string> => {
 			const batch = await this.batches.create({
 				orgId,
 				clientProfileId,
 				sourceHash,
 				createdByUserId,
+				status: ImportBatchStatus.Pending,
+				createdAt: now,
 			});
 			return batch._id;
+		};
+		try {
+			return await claim();
+		} catch (error) {
+			if (!isImportHashDuplicate(error)) throw error;
+		}
+		const tookOver = await this.discardStaleImport(
+			orgId,
+			clientProfileId,
+			sourceHash,
+			now
+		);
+		if (!tookOver) throw new DuplicateImportError();
+		try {
+			return await claim();
 		} catch (error) {
 			if (isImportHashDuplicate(error)) throw new DuplicateImportError();
 			throw error;
 		}
+	}
+
+	async completeImport(
+		orgId: string,
+		clientProfileId: string,
+		importBatchId: string
+	): Promise<void> {
+		await this.batches
+			.updateOne(
+				{ _id: importBatchId, orgId, clientProfileId },
+				{ $set: { status: ImportBatchStatus.Completed } }
+			)
+			.exec();
+	}
+
+	private async discardStaleImport(
+		orgId: string,
+		clientProfileId: string,
+		sourceHash: string,
+		now: Date
+	): Promise<boolean> {
+		const stale = await this.batches
+			.findOne({
+				orgId,
+				clientProfileId,
+				sourceHash,
+				status: ImportBatchStatus.Pending,
+				createdAt: { $lt: new Date(now.getTime() - STALE_IMPORT_MS) },
+			})
+			.lean<AdvisorImportBatchDoc>()
+			.exec();
+		if (!stale) return false;
+		await this.transactions
+			.deleteMany({ orgId, clientProfileId, importBatchId: stale._id })
+			.exec();
+		const removed = await this.batches
+			.deleteOne({
+				_id: stale._id,
+				orgId,
+				clientProfileId,
+				status: ImportBatchStatus.Pending,
+			})
+			.exec();
+		return removed.deletedCount === 1;
 	}
 
 	async discardImport(

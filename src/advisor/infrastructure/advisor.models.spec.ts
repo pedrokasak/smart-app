@@ -1,6 +1,7 @@
 import mongoose, { Model } from 'mongoose';
 import { advisorSchemas } from './advisor.models';
 import {
+	AdvisorImportBatchDoc,
 	advisorPortfolioSchemas,
 	AdvisorTransactionDoc,
 } from './advisor-portfolio.models';
@@ -141,6 +142,40 @@ describe('advisor portfolio schemas', () => {
 		])('rejects %s', (_label, patch) => {
 			const M = model();
 			expect(new M({ ...valid, ...patch }).validateSync()).toBeDefined();
+		});
+	});
+
+	describe('import batch status', () => {
+		const model = (): Model<AdvisorImportBatchDoc> =>
+			mongoose.model<AdvisorImportBatchDoc>(
+				`AdvisorImportBatchSpec${Math.random()}`,
+				advisorPortfolioSchemas.importBatch
+			);
+		const valid = {
+			orgId: 'o',
+			clientProfileId: 'c',
+			sourceHash: 'h',
+			createdByUserId: 'u1',
+		};
+
+		it('defaults to PENDING and is required', () => {
+			const M = model();
+			const doc = new M(valid);
+			expect(doc.status).toBe('PENDING');
+			expect(doc.validateSync()).toBeUndefined();
+			expect(
+				new M({ ...valid, status: null }).validateSync()?.errors.status
+			).toBeDefined();
+		});
+
+		it('accepts COMPLETED and rejects an unknown status', () => {
+			const M = model();
+			expect(
+				new M({ ...valid, status: 'COMPLETED' }).validateSync()
+			).toBeUndefined();
+			expect(
+				new M({ ...valid, status: 'DONE' }).validateSync()?.errors.status
+			).toBeDefined();
 		});
 	});
 });

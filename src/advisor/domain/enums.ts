@@ -55,6 +55,11 @@ export enum TransactionSource {
 	CsvImport = 'CSV_IMPORT',
 }
 
+export enum ImportBatchStatus {
+	Pending = 'PENDING',
+	Completed = 'COMPLETED',
+}
+
 export enum LiquidityBucket {
 	D0 = 'D0',
 	D1_2 = 'D1_2',
