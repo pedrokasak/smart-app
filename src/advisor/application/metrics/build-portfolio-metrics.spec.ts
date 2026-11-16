@@ -82,9 +82,11 @@ const expectSeriesRefused = (m: ClientPortfolioMetrics): void => {
 		twr: null,
 		twrAnnualized: null,
 		mwr: null,
+		mwrAnnualized: null,
 		measuredFrom: null,
 		measuredTo: null,
 		observations: 0,
+		coveragePct: 100,
 		unavailable: 'INCONSISTENT_LEDGER',
 	});
 	expect(m.risk).toEqual({
@@ -126,6 +128,7 @@ describe('buildPortfolioMetrics', () => {
 	it('reports NO_TRANSACTIONS for an empty ledger, with no NaN anywhere', () => {
 		const m = build({ asOf: '2025-06-30', ledger: [] });
 
+		expect(m.performance.coveragePct).toBe(0);
 		expect(m.performance.unavailable).toBe('NO_TRANSACTIONS');
 		expect(m.risk.unavailable).toBe('NO_TRANSACTIONS');
 		expect(m.totalValueMinor).toBe(0);
@@ -152,6 +155,7 @@ describe('buildPortfolioMetrics', () => {
 		expect(m.performance.twr).toBeNull();
 		expect(m.performance.twrAnnualized).toBeNull();
 		expect(m.performance.mwr).toBeNull();
+		expect(m.performance.mwrAnnualized).toBeNull();
 		expect(m.performance.observations).toBe(9);
 		expect(m.risk.unavailable).toBe('INSUFFICIENT_HISTORY');
 		expect(m.risk.volatilityAnnualized).toBeNull();
@@ -189,6 +193,8 @@ describe('buildPortfolioMetrics', () => {
 		// computeXirr procura (-99,9% a +1000% a.a.): a IRR sai null, não um
 		// número absurdo. A IRR positiva é coberta no teste de benchmarks.
 		expect(m.performance.mwr).toBeNull();
+		expect(m.performance.mwrAnnualized).toBeNull();
+		expect(m.performance.coveragePct).toBe(100);
 		expectNoNaN(m);
 	});
 
@@ -256,7 +262,77 @@ describe('buildPortfolioMetrics', () => {
 		expect(xpto.marketValueMinor).toBe(xpto.costMinor);
 		expect(m.warnings.unpricedSymbols).toEqual(['XPTO11']);
 		expect(m.performance.unavailable).toBeNull();
+		expect(m.performance.twr).toBeCloseTo(
+			1.01 ** m.performance.observations - 1,
+			4
+		);
 		expectNoNaN(m);
+	});
+
+	describe('an unpriced position does not dilute return and risk', () => {
+		const days = tradingDays('2025-05-05', 60);
+		const asOf = days[59];
+		// Sobe em zigue-zague e depois cai: volatilidade e VaR de 21 dias > 0.
+		let level = 10000;
+		const closes = days.map((date, i) => {
+			if (i > 0) {
+				const up = i % 2 === 1;
+				level *= i <= 30 ? (up ? 1.03 : 0.99) : up ? 1.005 : 0.98;
+			}
+			return { date, closeMinor: Math.round(level) };
+		});
+		const priced = [tx({ tradeDate: days[0] })];
+		const pricedValueMinor = 10 * closes[59].closeMinor;
+		const unpriced = tx({
+			tradeDate: days[0],
+			symbol: 'CDB-X',
+			assetClass: AssetClass.FixedIncome,
+			quantity: 1,
+			unitPriceMinor: 9 * pricedValueMinor,
+		});
+		const alone = build({
+			asOf,
+			ledger: priced,
+			closes: new Map([['PETR4', closes]]),
+		});
+		const mixed = build({
+			asOf,
+			ledger: [...priced, unpriced],
+			closes: new Map([['PETR4', closes]]),
+		});
+
+		it('keeps twr and volatility of the priced series', () => {
+			expect(alone.performance.unavailable).toBeNull();
+			expect(mixed.performance.unavailable).toBeNull();
+			expect(mixed.performance.twr).toBeCloseTo(alone.performance.twr, 6);
+			expect(mixed.risk.volatilityAnnualized).toBeCloseTo(
+				alone.risk.volatilityAnnualized,
+				6
+			);
+			expect(mixed.risk.volatilityAnnualized).toBeGreaterThan(0);
+		});
+
+		it('applies VaR to the priced market value only', () => {
+			expect(mixed.risk.var95).not.toBeNull();
+			expect(mixed.risk.var95.amountMinor).toBeGreaterThan(0);
+			expect(mixed.risk.var95).toEqual(alone.risk.var95);
+			expect(mixed.risk.var95.amountMinor).toBe(
+				Math.round(pricedValueMinor * mixed.risk.var95.pct)
+			);
+		});
+
+		it('reports the priced share of market value as coveragePct', () => {
+			expect(mixed.totalValueMinor).toBe(10 * pricedValueMinor);
+			expect(mixed.performance.coveragePct).toBeCloseTo(10, 4);
+			expect(alone.performance.coveragePct).toBe(100);
+		});
+
+		it('keeps the unpriced position at cost in the snapshot', () => {
+			const cdb = mixed.positions.find((p) => p.symbol === 'CDB-X');
+			expect(cdb.priced).toBe(false);
+			expect(cdb.marketValueMinor).toBe(9 * pricedValueMinor);
+			expect(mixed.allocation.current.FIXED_INCOME).toBeCloseTo(90, 4);
+		});
 	});
 
 	it('reports NO_PRICED_POSITIONS when nothing has a close', () => {
@@ -281,6 +357,7 @@ describe('buildPortfolioMetrics', () => {
 		});
 
 		expect(m.performance.unavailable).toBe('NO_PRICED_POSITIONS');
+		expect(m.performance.coveragePct).toBe(0);
 		expect(m.risk.unavailable).toBe('NO_PRICED_POSITIONS');
 		expect(m.totalValueMinor).toBe(5 * 2000 + 100000);
 		expect(m.warnings.unpricedSymbols).toEqual(['CDB-X', 'XPTO11']);
@@ -331,7 +408,34 @@ describe('buildPortfolioMetrics', () => {
 			periodReturn: null,
 			excess: null,
 		});
+		// Janela curta: a MWR é a do período, sem anualizar.
 		expect(m.performance.mwr).toBeGreaterThan(0);
+		expect(m.performance.mwr).toBeLessThan(0.05);
+		expect(m.performance.mwrAnnualized).toBeNull();
+	});
+
+	it('annualizes the MWR only over 365 days or more', () => {
+		const days = tradingDays('2024-05-06', 260);
+		const asOf = days[259];
+		const calendarDays = Math.round(
+			(Date.parse(`${asOf}T00:00:00Z`) - Date.parse(`${days[0]}T00:00:00Z`)) /
+				86_400_000
+		);
+		expect(calendarDays).toBeGreaterThanOrEqual(365);
+
+		const m = build({
+			asOf,
+			ledger: [tx({ tradeDate: days[0] })],
+			closes: new Map([['PETR4', rising(days, 10000, 0.0005)]]),
+		});
+
+		expect(m.performance.mwrAnnualized).not.toBeNull();
+		expect(m.performance.mwrAnnualized).toBeGreaterThan(0);
+		expect(m.performance.mwr).toBeCloseTo(
+			(1 + m.performance.mwrAnnualized) ** (calendarDays / 365) - 1,
+			6
+		);
+		expect(m.performance.mwr).toBeCloseTo(1.0005 ** 259 - 1, 3);
 	});
 
 	it('fills drift only when a target is given', () => {

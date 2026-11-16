@@ -61,10 +61,15 @@ export interface ClientPortfolioMetrics {
 	performance: {
 		twr: number | null;
 		twrAnnualized: number | null;
+		/** Retorno ponderado por dinheiro do período (não anualizado). */
 		mwr: number | null;
+		/** A XIRR anual; só com 365 dias corridos ou mais. */
+		mwrAnnualized: number | null;
 		measuredFrom: string | null;
 		measuredTo: string | null;
 		observations: number;
+		/** Parte do valor a mercado com cotação, 0-100. */
+		coveragePct: number;
 		unavailable: Unavailable | null;
 	};
 	risk: {
@@ -178,14 +183,19 @@ function analyseSeries(input: {
 	}
 	if (prices.size === 0) return empty('NO_PRICED_POSITIONS');
 
-	const trades: Array<BackfillTrade & { fees: number }> = ledger.map((t) => ({
-		symbol: t.symbol,
-		side: t.side === TransactionSide.Buy ? 'buy' : 'sell',
-		quantity: t.quantity,
-		price: toReais(t.unitPriceMinor),
-		fees: toReais(t.feesMinor),
-		date: t.tradeDate,
-	}));
+	// Só o que tem cotação entra na série: sem cotação o backfill valeria o
+	// ativo pelo custo todo dia, um ativo de 0% que dilui retorno e risco.
+	const pricedLedger = ledger.filter((t) => prices.has(t.symbol));
+	const trades: Array<BackfillTrade & { fees: number }> = pricedLedger.map(
+		(t) => ({
+			symbol: t.symbol,
+			side: t.side === TransactionSide.Buy ? 'buy' : 'sell',
+			quantity: t.quantity,
+			price: toReais(t.unitPriceMinor),
+			fees: toReais(t.feesMinor),
+			date: t.tradeDate,
+		})
+	);
 	const points = backfillSeries({ trades, prices, until: input.asOf }).points;
 	const flows = computeDailyCashFlows(trades).byDay;
 	const { returns } = computeDailyReturns({ series: points, flows });
@@ -215,16 +225,46 @@ export function measuredWindow(input: {
 	return { from: series.measuredFrom, to: series.measuredTo };
 }
 
+const round = (value: number, decimals: number): number =>
+	Number(value.toFixed(decimals));
+
+/**
+ * MWR do período, como o TWR: a XIRR (anual) reduzida aos dias corridos
+ * entre o primeiro fluxo e `asOf`. A XIRR só sai como anualizada com
+ * 365 dias ou mais. O valor terminal é só o valor a mercado com cotação, como
+ * os fluxos.
+ */
 function moneyWeightedReturn(
 	flows: DailyCashFlow[],
 	asOf: string,
-	totalValueMinor: number
-): number | null {
+	pricedValueMinor: number
+): { mwr: number | null; mwrAnnualized: number | null } {
+	const none = { mwr: null, mwrAnnualized: null };
+	if (flows.length === 0) return none;
 	const irrFlows = flows.map((f) => ({ date: f.date, amount: f.flow }));
-	if (totalValueMinor > 0) {
-		irrFlows.push({ date: asOf, amount: -toReais(totalValueMinor) });
+	if (pricedValueMinor > 0) {
+		irrFlows.push({ date: asOf, amount: -toReais(pricedValueMinor) });
 	}
-	return computeXirr(irrFlows);
+	const xirr = computeXirr(irrFlows);
+	const firstFlow = flows.reduce(
+		(min, f) => (f.date < min ? f.date : min),
+		flows[0].date
+	);
+	const days = daysBetween(firstFlow, asOf);
+	if (xirr === null || !Number.isFinite(xirr) || days <= 0) return none;
+	return {
+		mwr: round((1 + xirr) ** (days / ANNUALIZE_FROM_DAYS) - 1, 6),
+		mwrAnnualized: days >= ANNUALIZE_FROM_DAYS ? xirr : null,
+	};
+}
+
+/** Parte do valor a mercado com cotação, 0-100 com 4 casas; 0 sem valor. */
+function coveragePct(
+	pricedValueMinor: number,
+	totalValueMinor: number
+): number {
+	if (totalValueMinor <= 0) return 0;
+	return round((pricedValueMinor / totalValueMinor) * 100, 4);
 }
 
 export function buildPortfolioMetrics(
@@ -239,6 +279,9 @@ export function buildPortfolioMetrics(
 		(sum, p) => sum + p.marketValueMinor,
 		0
 	);
+	const pricedValueMinor = valued
+		.filter((p) => p.priced)
+		.reduce((sum, p) => sum + p.marketValueMinor, 0);
 	const concentration = computeConcentration(
 		valued.map((p) => p.marketValueMinor)
 	);
@@ -263,11 +306,14 @@ export function buildPortfolioMetrics(
 	const drawdown = measured ? computeDrawdown(series.returns) : null;
 	const historicalVar = measured
 		? computeHistoricalVar(series.returns, {
-				portfolioValue: toReais(totalValueMinor),
+				portfolioValue: toReais(pricedValueMinor),
 				horizonDays: VAR_HORIZON_DAYS,
 				confidence: VAR_CONFIDENCE,
 			})
 		: null;
+	const mwr = measured
+		? moneyWeightedReturn(series.flows, input.asOf, pricedValueMinor)
+		: { mwr: null, mwrAnnualized: null };
 
 	return {
 		asOf: input.asOf,
@@ -289,12 +335,12 @@ export function buildPortfolioMetrics(
 		performance: {
 			twr: series.twr,
 			twrAnnualized,
-			mwr: measured
-				? moneyWeightedReturn(series.flows, input.asOf, totalValueMinor)
-				: null,
+			mwr: mwr.mwr,
+			mwrAnnualized: mwr.mwrAnnualized,
 			measuredFrom: series.measuredFrom,
 			measuredTo: series.measuredTo,
 			observations: series.returns.length,
+			coveragePct: coveragePct(pricedValueMinor, totalValueMinor),
 			unavailable: series.unavailable,
 		},
 		risk: {
