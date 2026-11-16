@@ -34,9 +34,15 @@ describe('validateTransactionInput', () => {
 		).toEqual([]);
 	});
 
+	it.each(['BTC-BRL', 'BRK.B'])('simbolo %s e valido', (symbol) => {
+		expect(validateTransactionInput({ ...valid(), symbol }, today)).toEqual([]);
+	});
+
 	it.each([
 		[{ symbol: 'PETR 4' }, 'INVALID_SYMBOL'],
 		[{ symbol: '' }, 'INVALID_SYMBOL'],
+		[{ symbol: '-A1' }, 'INVALID_SYMBOL'],
+		[{ symbol: '.SA' }, 'INVALID_SYMBOL'],
 		[{ quantity: 0 }, 'INVALID_QUANTITY'],
 		[{ quantity: NaN }, 'INVALID_QUANTITY'],
 		[{ quantity: 0.123456789 }, 'INVALID_QUANTITY'],

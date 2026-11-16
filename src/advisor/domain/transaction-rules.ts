@@ -15,7 +15,7 @@ export type TransactionRuleError =
 	| 'INVALID_LIQUIDITY_DAYS'
 	| 'AMOUNT_OVERFLOW';
 
-const SYMBOL_PATTERN = /^[A-Z0-9.-]{1,20}$/;
+const SYMBOL_PATTERN = /^[A-Z0-9][A-Z0-9.-]{0,19}$/;
 const DATE_PATTERN = /^(\d{4})-(\d{2})-(\d{2})$/;
 const MIN_TRADE_DATE = '1990-01-01';
 const MAX_QUANTITY = 1e12;
