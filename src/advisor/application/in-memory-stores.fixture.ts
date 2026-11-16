@@ -5,11 +5,38 @@ import {
 	Membership,
 	Organization,
 } from '../domain/entities';
-import { ProfileOrigin, RelationshipStatus } from '../domain/enums';
+import {
+	AssetClass,
+	ImportBatchStatus,
+	ProfileOrigin,
+	RelationshipStatus,
+} from '../domain/enums';
+import {
+	AllocationTarget,
+	NewTransaction,
+	Transaction,
+} from '../domain/portfolio.entities';
+import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
+import {
+	BenchmarkKey,
+	BenchmarkSeriesPort,
+} from './ports/benchmark-series.port';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
+import { DailyCloseMinor, PriceHistoryPort } from './ports/price-history.port';
 import { RelationshipStorePort } from './ports/relationship.store.port';
+import {
+	DuplicateImportError,
+	STALE_IMPORT_MS,
+	TransactionStorePort,
+} from './ports/transaction.store.port';
+
+interface ImportClaim {
+	batchId: string;
+	status: ImportBatchStatus;
+	createdAt: Date;
+}
 
 /** Stores em memória para testes de unidade da camada de aplicação. */
 export class InMemoryOrganizationStore implements OrganizationStorePort {
@@ -121,5 +148,217 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 		};
 		this.items.set(id, claimed);
 		return claimed;
+	}
+}
+
+export class InMemoryTransactionStore implements TransactionStorePort {
+	private readonly items = new Map<string, Transaction>();
+	/** chave (org, cliente, hash) -> lote */
+	private readonly claims = new Map<string, ImportClaim>();
+
+	async createMany(items: NewTransaction[]): Promise<Transaction[]> {
+		const createdAt = new Date();
+		const created = items.map(
+			(item): Transaction => ({ ...item, id: randomUUID(), createdAt })
+		);
+		for (const tx of created) this.items.set(tx.id, tx);
+		return created;
+	}
+
+	async listByClient(
+		orgId: string,
+		clientProfileId: string
+	): Promise<Transaction[]> {
+		return [...this.items.values()]
+			.filter((t) => t.orgId === orgId && t.clientProfileId === clientProfileId)
+			.sort(
+				(a, b) =>
+					a.tradeDate.localeCompare(b.tradeDate) ||
+					a.createdAt.getTime() - b.createdAt.getTime()
+			);
+	}
+
+	async findById(
+		orgId: string,
+		clientProfileId: string,
+		id: string
+	): Promise<Transaction | null> {
+		const tx = this.items.get(id);
+		return tx && tx.orgId === orgId && tx.clientProfileId === clientProfileId
+			? tx
+			: null;
+	}
+
+	async deleteById(
+		orgId: string,
+		clientProfileId: string,
+		id: string
+	): Promise<boolean> {
+		return (
+			(await this.findById(orgId, clientProfileId, id)) !== null &&
+			this.items.delete(id)
+		);
+	}
+
+	async claimImport(
+		orgId: string,
+		clientProfileId: string,
+		sourceHash: string,
+		_createdByUserId?: string,
+		now: Date = new Date()
+	): Promise<string> {
+		const key = JSON.stringify([orgId, clientProfileId, sourceHash]);
+		const existing = this.claims.get(key);
+		if (existing) {
+			const stale =
+				existing.status === ImportBatchStatus.Pending &&
+				now.getTime() - existing.createdAt.getTime() > STALE_IMPORT_MS;
+			if (!stale) throw new DuplicateImportError();
+		}
+		// Reserva antes de qualquer await: duas retomadas simultâneas não passam.
+		const batchId = randomUUID();
+		this.claims.set(key, {
+			batchId,
+			status: ImportBatchStatus.Pending,
+			createdAt: now,
+		});
+		if (existing) {
+			await this.discardImport(orgId, clientProfileId, existing.batchId);
+		}
+		return batchId;
+	}
+
+	async completeImport(
+		orgId: string,
+		clientProfileId: string,
+		importBatchId: string
+	): Promise<void> {
+		for (const [key, claim] of this.claims) {
+			const [claimOrg, claimClient] = JSON.parse(key) as string[];
+			if (
+				claim.batchId === importBatchId &&
+				claimOrg === orgId &&
+				claimClient === clientProfileId
+			) {
+				claim.status = ImportBatchStatus.Completed;
+			}
+		}
+	}
+
+	async discardImport(
+		orgId: string,
+		clientProfileId: string,
+		importBatchId: string
+	): Promise<void> {
+		for (const [id, tx] of this.items) {
+			if (
+				tx.orgId === orgId &&
+				tx.clientProfileId === clientProfileId &&
+				tx.importBatchId === importBatchId
+			) {
+				this.items.delete(id);
+			}
+		}
+		for (const [key, claim] of this.claims) {
+			const [claimOrg, claimClient] = JSON.parse(key) as string[];
+			if (
+				claim.batchId === importBatchId &&
+				claimOrg === orgId &&
+				claimClient === clientProfileId
+			) {
+				this.claims.delete(key);
+			}
+		}
+	}
+}
+
+export class InMemoryAllocationTargetStore implements AllocationTargetStorePort {
+	private readonly items = new Map<string, AllocationTarget>();
+
+	async upsert(
+		target: Omit<AllocationTarget, 'updatedAt'>
+	): Promise<AllocationTarget> {
+		const saved: AllocationTarget = { ...target, updatedAt: new Date() };
+		this.items.set(
+			JSON.stringify([target.orgId, target.clientProfileId]),
+			saved
+		);
+		return saved;
+	}
+
+	async find(
+		orgId: string,
+		clientProfileId: string
+	): Promise<AllocationTarget | null> {
+		return this.items.get(JSON.stringify([orgId, clientProfileId])) ?? null;
+	}
+}
+
+/** Fonte de preços em memória; `failFor` faz o símbolo rejeitar. */
+export class InMemoryPriceHistory implements PriceHistoryPort {
+	private readonly series = new Map<string, DailyCloseMinor[]>();
+	private readonly failing = new Set<string>();
+	readonly calls: Array<{
+		symbol: string;
+		assetClass: AssetClass;
+		from: string;
+		to: string;
+	}> = [];
+	private inFlight = 0;
+	maxInFlight = 0;
+
+	set(symbol: string, closes: DailyCloseMinor[]): void {
+		this.series.set(symbol, closes);
+	}
+
+	failFor(symbol: string): void {
+		this.failing.add(symbol);
+	}
+
+	async getDailyCloses(
+		symbol: string,
+		assetClass: AssetClass,
+		from: string,
+		to: string
+	): Promise<DailyCloseMinor[]> {
+		this.calls.push({ symbol, assetClass, from, to });
+		this.inFlight += 1;
+		this.maxInFlight = Math.max(this.maxInFlight, this.inFlight);
+		try {
+			await new Promise((resolve) => setImmediate(resolve));
+			if (this.failing.has(symbol)) {
+				throw new Error('price source unavailable');
+			}
+			return (this.series.get(symbol) ?? []).filter(
+				(c) => c.date >= from && c.date <= to
+			);
+		} finally {
+			this.inFlight -= 1;
+		}
+	}
+}
+
+/** Benchmarks em memória; `failFor` faz o índice rejeitar. */
+export class InMemoryBenchmarkSeries implements BenchmarkSeriesPort {
+	private readonly values = new Map<BenchmarkKey, number | null>();
+	private readonly failing = new Set<BenchmarkKey>();
+	readonly calls: Array<{ key: BenchmarkKey; from: string; to: string }> = [];
+
+	set(key: BenchmarkKey, value: number | null): void {
+		this.values.set(key, value);
+	}
+
+	failFor(key: BenchmarkKey): void {
+		this.failing.add(key);
+	}
+
+	async periodReturn(
+		key: BenchmarkKey,
+		from: string,
+		to: string
+	): Promise<number | null> {
+		this.calls.push({ key, from, to });
+		if (this.failing.has(key)) throw new Error('benchmark unavailable');
+		return this.values.get(key) ?? null;
 	}
 }

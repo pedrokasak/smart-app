@@ -1,6 +1,9 @@
 import { randomUUID } from 'crypto';
 import { Connection, createConnection } from 'mongoose';
-import { describeAdvisorStoreContract } from '../application/store-contract.fixture';
+import {
+	describeAdvisorPortfolioStoreContract,
+	describeAdvisorStoreContract,
+} from '../application/store-contract.fixture';
 import { OrgRole, ProfileOrigin, RelationshipStatus } from '../domain/enums';
 import {
 	ADVISOR_CLIENT_PROFILE_MODEL,
@@ -13,6 +16,17 @@ import {
 	AdvisorRelationshipDoc,
 	advisorSchemas,
 } from './advisor.models';
+import {
+	ADVISOR_ALLOCATION_TARGET_MODEL,
+	ADVISOR_IMPORT_BATCH_MODEL,
+	ADVISOR_TRANSACTION_MODEL,
+	AdvisorAllocationTargetDoc,
+	AdvisorImportBatchDoc,
+	AdvisorTransactionDoc,
+	advisorPortfolioSchemas,
+} from './advisor-portfolio.models';
+import { MongoAllocationTargetStore } from './mongo-allocation-target.store';
+import { MongoTransactionStore } from './mongo-transaction.store';
 import { assertDisposableDb, buildTestDbName } from './mongo-test-database';
 import { MongoClientProfileStore } from './mongo-client-profile.store';
 import { MongoMembershipStore } from './mongo-membership.store';
@@ -36,6 +50,10 @@ describeMongo('advisor mongo stores', () => {
 		relationships: MongoRelationshipStore;
 		profiles: MongoClientProfileStore;
 	};
+	let portfolioStores: {
+		transactions: MongoTransactionStore;
+		targets: MongoAllocationTargetStore;
+	};
 
 	beforeAll(async () => {
 		conn = await createConnection(TEST_URI as string, {
@@ -58,12 +76,37 @@ describeMongo('advisor mongo stores', () => {
 			ADVISOR_CLIENT_PROFILE_MODEL,
 			advisorSchemas.clientProfile
 		);
+		const transactionModel = conn.model<AdvisorTransactionDoc>(
+			ADVISOR_TRANSACTION_MODEL,
+			advisorPortfolioSchemas.transaction
+		);
+		const importBatchModel = conn.model<AdvisorImportBatchDoc>(
+			ADVISOR_IMPORT_BATCH_MODEL,
+			advisorPortfolioSchemas.importBatch
+		);
+		const targetModel = conn.model<AdvisorAllocationTargetDoc>(
+			ADVISOR_ALLOCATION_TARGET_MODEL,
+			advisorPortfolioSchemas.allocationTarget
+		);
 		// `syncIndexes` garante que os índices únicos existem antes dos testes.
 		await Promise.all(
-			[orgModel, membershipModel, relationshipModel, profileModel].map((m) =>
-				m.syncIndexes()
-			)
+			[
+				orgModel,
+				membershipModel,
+				relationshipModel,
+				profileModel,
+				transactionModel,
+				importBatchModel,
+				targetModel,
+			].map((m) => m.syncIndexes())
 		);
+		portfolioStores = {
+			transactions: new MongoTransactionStore(
+				transactionModel,
+				importBatchModel
+			),
+			targets: new MongoAllocationTargetStore(targetModel),
+		};
 		stores = {
 			orgs: new MongoOrganizationStore(orgModel),
 			memberships: new MongoMembershipStore(membershipModel),
@@ -81,6 +124,7 @@ describeMongo('advisor mongo stores', () => {
 	});
 
 	describeAdvisorStoreContract('mongo', () => stores);
+	describeAdvisorPortfolioStoreContract('mongo', () => portfolioStores);
 
 	describe('indexes', () => {
 		it('rejects a duplicate membership for the same user and org', async () => {
