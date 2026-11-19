@@ -27,13 +27,16 @@ receivers:
       memory: {}
       load: {}
       filesystem:
+        # O `/` do container é overlay, tipo que o scraper ignora por padrão.
+        include_virtual_filesystems: true
         include_mount_points:
           match_type: strict
           mount_points: ["/"]
 
   # CPU e memória por container: é o que calibra os limites da TRA-222.
   docker_stats:
-    endpoint: unix:///var/run/docker.sock
+    # Pelo docker-socket-proxy (só leitura de containers), nunca pelo socket.
+    endpoint: tcp://docker-socket-proxy:2375
     collection_interval: 30s
     # O padrão do receiver (1.25) é recusado pelo Docker 29+, que exige no
     # mínimo 1.44. Se a VPS rodar Docker anterior ao 25, baixar este valor.

@@ -11,7 +11,7 @@ server / trackerr-ia --OTLP--> otel-collector --> prometheus (métricas, 15 dias
 
 ## Subir no Coolify
 
-1. Confira a RAM livre da VPS. Os limites somam cerca de 1,8 GB, e a VPS já caiu por falta de memória.
+1. Confira a RAM livre da VPS. Os limites somam cerca de 1,9 GB, e a VPS já caiu por falta de memória.
 2. **New Resource → Docker Compose** a partir deste repositório:
    - branch `release`;
    - base directory `/infra/observability`;
@@ -47,7 +47,7 @@ A instrumentação do MongoDB não grava os valores das consultas.
 ## Segurança
 
 - Nenhum serviço publica porta no host; só o Grafana é exposto, pelo proxy do Coolify.
-- O Collector monta o socket do Docker como somente leitura, para medir CPU e memória por container. Isso ainda dá acesso ao daemon, então ele não recebe nada além de OTLP pela rede interna.
+- O socket do Docker fica só no `docker-socket-proxy`, que libera apenas leitura de containers (`CONTAINERS=1`, `POST=0`). O Collector lê as métricas por esse proxy e não monta o socket nem roda como root. O proxy não está na rede `coolify`, então as aplicações não o alcançam.
 - O Grafana não aceita cadastro nem acesso anônimo.
 
 ## Painéis e alertas (F1d)

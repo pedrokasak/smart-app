@@ -11,7 +11,7 @@
 #                                       --> tempo (traces)
 #        grafana lê os três.
 #
-# Limites de memória somam ~1,8 GB. A VPS já caiu por falta de memória
+# Limites de memória somam ~1,9 GB. A VPS já caiu por falta de memória
 # (28/09); se não couber, o Tempo é o primeiro a sair.
 #
 # Variáveis no Coolify:
@@ -24,15 +24,10 @@ services:
     image: otel/opentelemetry-collector-contrib:0.161.0
     command: ["--config=/etc/otelcol/config.yaml"]
     restart: unless-stopped
-    # O receiver docker_stats lê o socket do Docker para medir CPU e memória
-    # por container (é o dado que falta para calibrar os limites da TRA-222).
-    # O `:ro` não restringe a API do Docker: quem fala com o socket controla
-    # o daemon. Por isso o Collector não monta mais nada do host, não expõe
-    # porta pública e só roda os receivers deste arquivo.
-    user: "0:0"
+    # Sem socket do Docker aqui: o receiver docker_stats conversa com o
+    # docker-socket-proxy (abaixo), que só libera leitura de containers.
     volumes:
       - ./otel-collector.yaml:/etc/otelcol/config.yaml:ro
-      - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       default:
       coolify:
@@ -47,6 +42,25 @@ services:
       - prometheus
       - loki
       - tempo
+      - docker-socket-proxy
+
+  # Quem fala com o socket do Docker controla o daemon, então o socket fica
+  # só neste proxy, e o proxy só libera os endpoints de leitura de containers
+  # (POST=0 bloqueia criar, parar e executar). Fica na rede interna do
+  # arquivo, sem alcance das aplicações nem da rede `coolify`.
+  docker-socket-proxy:
+    image: tecnativa/docker-socket-proxy:0.3
+    restart: unless-stopped
+    environment:
+      CONTAINERS: 1
+      POST: 0
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    deploy:
+      resources:
+        limits:
+          memory: 64M
+          cpus: "0.10"
 
   prometheus:
     image: prom/prometheus:v3.14.0

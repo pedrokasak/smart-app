@@ -12,6 +12,9 @@
  *
  * Sem `OTEL_EXPORTER_OTLP_ENDPOINT` nada é iniciado (ver telemetry-config).
  */
+// Carrega o .env antes de ler OTEL_*: o import de `main.ts` é içado acima do
+// `config()` do dotenv, então sem isto o endpoint do .env local seria ignorado.
+import 'dotenv/config';
 import { NodeSDK } from '@opentelemetry/sdk-node';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { ExpressLayerType } from '@opentelemetry/instrumentation-express';
