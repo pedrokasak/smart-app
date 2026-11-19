@@ -1,6 +1,9 @@
-import * as crypto from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+	BadRequestException,
+	ForbiddenException,
+	UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { authenticator } from 'otplib';
 import { TwoFactorService } from './two-factor.service';
@@ -10,6 +13,9 @@ import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.servi
 import { EmailService } from 'src/notifications/email/email.service';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 import { UserModel } from 'src/users/schema/user.model';
+import { SECURITY_AUDIT } from 'src/audit/application/security-audit.service';
+import { SECURITY_EVENT } from 'src/audit/domain/security-events';
+import { inMemoryUserSessionProviders } from 'src/authentication/session/in-memory-user-session.repository.fixture';
 
 jest.mock('src/users/schema/user.model', () => ({
 	UserModel: {
@@ -20,9 +26,6 @@ jest.mock('src/users/schema/user.model', () => ({
 		}),
 	},
 }));
-
-const sha256 = (value: string) =>
-	crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 
 /**
  * TRA-140: o fluxo de 2FA emitia a sessão por conta própria e gravava o
@@ -35,6 +38,7 @@ describe('TwoFactorService', () => {
 	let authenticationService: AuthenticationService;
 
 	const mockJwtService = {
+		decode: jest.fn().mockReturnValue({ exp: 4102444800 }),
 		sign: jest.fn(),
 		verify: jest.fn(),
 	};
@@ -51,6 +55,8 @@ describe('TwoFactorService', () => {
 		verifyPassword: jest.fn(),
 		needsRehash: jest.fn(),
 	};
+
+	const mockSecurityAudit = { emit: jest.fn() };
 
 	const secret = authenticator.generateSecret();
 
@@ -71,6 +77,7 @@ describe('TwoFactorService', () => {
 			providers: [
 				TwoFactorService,
 				AuthenticationService,
+				...inMemoryUserSessionProviders(),
 				{ provide: JwtService, useValue: mockJwtService },
 				{ provide: TokenBlacklistService, useValue: mockTokenBlacklistService },
 				{ provide: EmailService, useValue: mockEmailService },
@@ -87,6 +94,7 @@ describe('TwoFactorService', () => {
 					provide: BreachedPasswordPolicy,
 					useValue: { assertNotBreached: jest.fn() },
 				},
+				{ provide: SECURITY_AUDIT, useValue: mockSecurityAudit },
 			],
 		}).compile();
 
@@ -136,7 +144,7 @@ describe('TwoFactorService', () => {
 	});
 
 	describe('authenticateWithTwoFactor', () => {
-		it('stores the SHA-256 digest, never the refresh token in plaintext', async () => {
+		it('opens a session and never stores the refresh token on the user', async () => {
 			const user = buildUser();
 			(UserModel.findById as jest.Mock).mockReturnValue({
 				select: jest.fn().mockResolvedValue(user),
@@ -149,8 +157,6 @@ describe('TwoFactorService', () => {
 
 			expect(result.refreshToken).toBe('signed.refresh.token');
 			expect(user.refreshToken).not.toBe(result.refreshToken);
-			expect(user.refreshToken).toBe(sha256(result.refreshToken));
-			expect(user.refreshToken).toMatch(/^[0-9a-f]{64}$/);
 			expect(user.save).toHaveBeenCalled();
 		});
 
@@ -176,7 +182,14 @@ describe('TwoFactorService', () => {
 					([claims]) => claims.type === 'refresh'
 				);
 				expect(refreshCall).toEqual([
-					{ userId: 'u1', type: 'refresh', keep },
+					// `jti` aleatório: o refresh nunca sai igual ao anterior.
+					{
+						userId: 'u1',
+						type: 'refresh',
+						keep,
+						jti: expect.any(String),
+						sid: expect.any(String),
+					},
 					{ expiresIn: keep ? '30d' : '1d' },
 				]);
 			}
@@ -194,11 +207,19 @@ describe('TwoFactorService', () => {
 			);
 
 			// Segunda etapa: o refresh usa o caminho comum do AuthenticationService,
-			// que projeta `+refreshToken` porque o campo é `select: false`.
+			// agora pela sessão aberta no login.
+			const { sid } = mockJwtService.sign.mock.calls.find(
+				([claims]) => claims.type === 'refresh'
+			)[0];
 			(UserModel.findById as jest.Mock).mockReturnValue({
 				select: jest.fn().mockResolvedValue(user),
 			});
-			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			mockJwtService.verify.mockReturnValue({
+				userId: 'u1',
+				type: 'refresh',
+				sid,
+				exp: Math.floor(Date.now() / 1000) + 3600,
+			});
 
 			const refreshed = await authenticationService.refreshAccessToken(
 				session.refreshToken
@@ -207,6 +228,34 @@ describe('TwoFactorService', () => {
 			expect(refreshed.accessToken).toBe('signed.access.token');
 			// Formato novo: nada de Argon2 no caminho quente do refresh.
 			expect(mockPasswordSecurityService.verifyPassword).not.toHaveBeenCalled();
+		});
+
+		it('carries the device from the temp token into the session', async () => {
+			const device = {
+				deviceId: 'phone-0001',
+				deviceName: 'iPhone',
+				platform: 'ios',
+			};
+			mockJwtService.verify.mockReturnValue({
+				userId: 'u1',
+				type: 'temp_2fa',
+				device,
+				exp: Math.floor(Date.now() / 1000) + 300,
+			});
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(buildUser()),
+			});
+			const issue = jest.spyOn(authenticationService, 'issueSessionTokens');
+
+			await service.authenticateWithTwoFactor(
+				'temp.token',
+				authenticator.generate(secret)
+			);
+
+			expect(issue).toHaveBeenCalledWith(
+				expect.anything(),
+				expect.objectContaining({ device })
+			);
 		});
 
 		it('invalidates the 2FA session on signoutAll', async () => {
@@ -220,11 +269,21 @@ describe('TwoFactorService', () => {
 				authenticator.generate(secret)
 			);
 
+			const { sid } = mockJwtService.sign.mock.calls.find(
+				([claims]) => claims.type === 'refresh'
+			)[0];
 			(UserModel.findById as jest.Mock).mockResolvedValue(user);
 			await authenticationService.signoutAll('u1');
 			expect(user.refreshToken).toBeNull();
 
-			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(user),
+			});
+			mockJwtService.verify.mockReturnValue({
+				userId: 'u1',
+				type: 'refresh',
+				sid,
+			});
 			await expect(
 				authenticationService.refreshAccessToken(session.refreshToken)
 			).rejects.toThrow(UnauthorizedException);
@@ -235,10 +294,12 @@ describe('TwoFactorService', () => {
 			// verificador legado (Argon2) lança nesse valor e o catch devolve
 			// false — logout forçado (401), nunca 500 e nunca sessão aceita.
 			const legacyPlaintext = 'header.payload.signature';
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				role: 'user',
-				refreshToken: legacyPlaintext,
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					role: 'user',
+					refreshToken: legacyPlaintext,
+				}),
 			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
@@ -379,6 +440,100 @@ describe('TwoFactorService', () => {
 					},
 				}
 			);
+		});
+	});
+	describe('trilha de auditoria', () => {
+		const stubSecretUser = (user: Record<string, unknown> | null) =>
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(user),
+			});
+
+		beforeEach(() => mockSecurityAudit.emit.mockClear());
+
+		it('registra quando o 2FA é ativado', async () => {
+			stubSecretUser(buildUser());
+			await service.enableTwoFactor('u1', authenticator.generate(secret));
+			expect(mockSecurityAudit.emit).toHaveBeenCalledWith({
+				type: SECURITY_EVENT.TwoFactorEnabled,
+				actor: { userId: 'u1' },
+			});
+		});
+
+		it('registra quando o 2FA é desativado', async () => {
+			stubSecretUser(buildUser());
+			await service.disableTwoFactor('u1', authenticator.generate(secret));
+			expect(mockSecurityAudit.emit).toHaveBeenCalledWith({
+				type: SECURITY_EVENT.TwoFactorDisabled,
+				actor: { userId: 'u1' },
+			});
+		});
+
+		it('não registra ativação com código errado', async () => {
+			stubSecretUser(buildUser());
+			await expect(service.enableTwoFactor('u1', '000000')).rejects.toThrow();
+			expect(mockSecurityAudit.emit).not.toHaveBeenCalled();
+		});
+
+		it('registra o código recusado na reautenticação, sem o código', async () => {
+			stubSecretUser(buildUser());
+			await expect(
+				service.verifyStepUpCode('u1', '000000')
+			).rejects.toBeInstanceOf(ForbiddenException);
+			expect(mockSecurityAudit.emit).toHaveBeenCalledWith({
+				type: SECURITY_EVENT.TwoFactorFailed,
+				actor: { userId: 'u1' },
+				payload: { context: 'step_up' },
+			});
+		});
+	});
+
+	describe('verifyStepUpCode (ADR-005)', () => {
+		const stubUser = (user: Record<string, unknown> | null) =>
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(user),
+			});
+
+		it('aceita o código atual do autenticador', async () => {
+			stubUser(buildUser());
+
+			await expect(
+				service.verifyStepUpCode('u1', authenticator.generate(secret))
+			).resolves.toBeUndefined();
+		});
+
+		it('recusa com 403, e não 401, o código errado e conta a tentativa', async () => {
+			stubUser(buildUser());
+			(UserModel.updateOne as jest.Mock).mockClear();
+
+			await expect(
+				service.verifyStepUpCode('u1', '000000')
+			).rejects.toBeInstanceOf(ForbiddenException);
+			expect(UserModel.updateOne).toHaveBeenCalledWith(
+				{ _id: 'u1' },
+				{
+					$set: expect.objectContaining({ twoFactorFailedAttempts: 1 }),
+				}
+			);
+		});
+
+		it('exige 2FA ativo na conta', async () => {
+			stubUser({ ...buildUser(), twoFactorEnabled: false });
+
+			await expect(
+				service.verifyStepUpCode('u1', authenticator.generate(secret))
+			).rejects.toBeInstanceOf(ForbiddenException);
+		});
+
+		it('respeita o bloqueio por excesso de tentativas, mesmo com o código certo', async () => {
+			stubUser({
+				...buildUser(),
+				twoFactorFailedAttempts: 5,
+				twoFactorFirstFailedAttemptAt: new Date(),
+			});
+
+			await expect(
+				service.verifyStepUpCode('u1', authenticator.generate(secret))
+			).rejects.toThrow('Muitas tentativas');
 		});
 	});
 });

@@ -376,19 +376,52 @@ describe('YahooFinanceAdapter', () => {
 			expect(fetchSpy).toHaveBeenCalledTimes(1);
 		});
 
-		it('nao cacheia falha: a proxima chamada tenta de novo', async () => {
+		// TRA-47, N4: falha que não é 429 fica 10 minutos no cache — ticker
+		// deslistado não martela o Yahoo a cada request — e depois tenta de novo.
+		// Nunca as 12h da resposta boa.
+		it('falha comum fica so 10 minutos no cache e depois tenta de novo', async () => {
+			const now = jest.spyOn(Date, 'now');
+			now.mockReturnValue(1_000_000);
+			try {
+				const adapter = new YahooFinanceAdapter();
+				const fetchSpy = jest
+					.spyOn(adapter as any, 'fetchQuoteSummary')
+					.mockRejectedValueOnce(new Error('rede caiu'))
+					.mockResolvedValueOnce({ summaryDetail: { payoutRatio: 0.42 } });
+
+				const first = await adapter.getPayoutInputs('FAIL3');
+				expect(first.payoutRatio).toBeNull();
+
+				// Dentro da janela curta: não chama de novo.
+				now.mockReturnValue(1_000_000 + 9 * 60 * 1000);
+				expect((await adapter.getPayoutInputs('FAIL3')).payoutRatio).toBeNull();
+				expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+				// Passados 10 minutos, tenta e recupera.
+				now.mockReturnValue(1_000_000 + 11 * 60 * 1000);
+				const third = await adapter.getPayoutInputs('FAIL3');
+				expect(third.payoutRatio).toBeCloseTo(0.42, 5);
+				expect(fetchSpy).toHaveBeenCalledTimes(2);
+			} finally {
+				now.mockRestore();
+			}
+		});
+
+		// TRA-47, N5: quem altera o resultado não envenena o cache de 12h.
+		it('devolve copia do valor em cache', async () => {
 			const adapter = new YahooFinanceAdapter();
-			const fetchSpy = jest
+			jest
 				.spyOn(adapter as any, 'fetchQuoteSummary')
-				.mockRejectedValueOnce(new Error('rede caiu'))
-				.mockResolvedValueOnce({ summaryDetail: { payoutRatio: 0.42 } });
+				.mockResolvedValue({ summaryDetail: { payoutRatio: 0.61 } });
 
-			const first = await adapter.getPayoutInputs('FAIL3');
-			expect(first.payoutRatio).toBeNull();
+			await adapter.getPayoutInputs('COPY3');
+			const cached = await adapter.getPayoutInputs('COPY3');
+			cached.payoutRatio = 999;
 
-			const second = await adapter.getPayoutInputs('FAIL3');
-			expect(second.payoutRatio).toBeCloseTo(0.42, 5);
-			expect(fetchSpy).toHaveBeenCalledTimes(2);
+			expect((await adapter.getPayoutInputs('COPY3')).payoutRatio).toBeCloseTo(
+				0.61,
+				5
+			);
 		});
 
 		it('nao devolve periodo quando os exercicios divergem', async () => {

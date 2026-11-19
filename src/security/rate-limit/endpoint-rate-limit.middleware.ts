@@ -6,6 +6,7 @@ import {
 	NestMiddleware,
 	Optional,
 } from '@nestjs/common';
+import { JwtService } from '@nestjs/jwt';
 import { createHash } from 'crypto';
 import { NextFunction, Request, Response } from 'express';
 import {
@@ -19,6 +20,16 @@ type RateLimitRule = {
 	windowMs: number;
 };
 
+/** Rotas sem sessão em que aparelhos atrás do mesmo IP precisam se separar. */
+const DISCRIMINATED_ROUTES = new Set([
+	'POST:/auth/signin',
+	'POST:/auth/google/signin',
+	'POST:/auth/apple/signin',
+	'POST:/auth/biometric/signin',
+	'POST:/auth/2fa/authenticate',
+	'POST:/auth/2fa/recovery-codes/consume',
+]);
+
 @Injectable()
 export class EndpointRateLimitMiddleware implements NestMiddleware {
 	private readonly defaultRule: RateLimitRule = {
@@ -28,6 +39,10 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 	private readonly rules: Record<string, RateLimitRule> = {
 		'POST:/auth/signin': { limit: 12, windowMs: 60_000 },
 		'POST:/auth/google/signin': { limit: 12, windowMs: 60_000 },
+		'POST:/auth/apple/signin': { limit: 12, windowMs: 60_000 },
+		'POST:/auth/biometric/signin': { limit: 12, windowMs: 60_000 },
+		// Compõe retornos, risco e séries externas a cada chamada.
+		'GET:/mobile/v1/home': { limit: 30, windowMs: 60_000 },
 		'POST:/auth/forgot-password': { limit: 8, windowMs: 60_000 },
 		'POST:/auth/reset-password': { limit: 10, windowMs: 60_000 },
 		// Código TOTP tem 6 dígitos: no limite padrão de 300/min a força
@@ -46,6 +61,11 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		'GET:/auth/2fa/recovery-codes/status': { limit: 30, windowMs: 60_000 },
 		'POST:/broker-sync/upload-note': { limit: 20, windowMs: 10 * 60_000 },
 		'POST:/leads/purchase-intent': { limit: 5, windowMs: 60_000 },
+		// Movimentam dinheiro/cobrança no Stripe: teto baixo contra automação e
+		// duplo clique. O estorno ainda é idempotente por cobrança.
+		'POST:/subscription/refund': { limit: 3, windowMs: 10 * 60_000 },
+		'POST:/subscription/cancel': { limit: 5, windowMs: 10 * 60_000 },
+		'POST:/subscription/portal': { limit: 20, windowMs: 10 * 60_000 },
 		// Cada chamada pode criar cliente e cobranca no Asaas e aceita CPF:
 		// limite baixo contra enumeracao de CPF e lixo no provedor (TRA-195).
 		'POST:/payments/pix/checkout': { limit: 10, windowMs: 10 * 60_000 },
@@ -97,7 +117,10 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 	 * default (contador em memória) é o mesmo comportamento de antes da
 	 * TRA-138. Em produção o RateLimitModule injeta a implementação Redis.
 	 */
-	constructor(@Optional() @Inject(RATE_LIMIT_STORE) store?: RateLimitStore) {
+	constructor(
+		@Optional() @Inject(RATE_LIMIT_STORE) store?: RateLimitStore,
+		@Optional() private readonly jwtService?: JwtService
+	) {
 		this.store = store ?? new InMemoryRateLimitStore();
 	}
 
@@ -120,7 +143,7 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		);
 		const routeKey = patternMatch?.key ?? `${method}:${req.path}`;
 		const rule = patternMatch?.rule || this.rules[routeKey] || this.defaultRule;
-		const fingerprint = this.buildFingerprint(req);
+		const fingerprint = this.buildFingerprint(req, routeKey);
 		const key = `${routeKey}:${fingerprint}`;
 
 		const hit = await this.store.hit(key, rule.windowMs);
@@ -163,7 +186,10 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 	 * controlados pelo cliente, mas agora só ajudam a SEPARAR quem divide um
 	 * IP — não a escapar do próprio IP.
 	 */
-	private buildFingerprint(req: Request): string {
+	private buildFingerprint(req: Request, routeKey: string): string {
+		const mobileUser = this.mobileUserOf(req);
+		if (mobileUser) return `user:${mobileUser}`;
+
 		const ip = req.ip || req.socket?.remoteAddress || 'unknown';
 		const userAgent = String(req.headers['user-agent'] || '').slice(0, 300);
 		const acceptLanguage = String(req.headers['accept-language'] || '').slice(
@@ -171,7 +197,49 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 			120
 		);
 		return createHash('sha256')
-			.update(`${ip}|${userAgent}|${acceptLanguage}`)
+			.update(
+				`${ip}|${userAgent}|${acceptLanguage}|${this.clientDiscriminator(req, routeKey)}`
+			)
 			.digest('hex');
+	}
+
+	/**
+	 * No app, o user-agent é quase igual para todos, e operadoras móveis
+	 * compartilham IP. Rota do BFF com token válido conta por conta. Precisa
+	 * validar a assinatura: um token forjado escolheria o próprio contador.
+	 */
+	private mobileUserOf(req: Request): string | null {
+		if (!this.jwtService || !req.path?.startsWith('/mobile/v1/')) return null;
+
+		const [scheme, token] = String(req.headers.authorization || '').split(' ');
+		if (scheme !== 'Bearer' || !token) return null;
+
+		try {
+			const payload = this.jwtService.verify(token);
+			return payload?.type === 'access' && payload.userId
+				? String(payload.userId)
+				: null;
+		} catch {
+			return null;
+		}
+	}
+
+	/**
+	 * Separa aparelhos que dividem IP e user-agent nas rotas sem sessão. Vem do
+	 * cliente, como o user-agent: serve para separar, não para garantir limite.
+	 * Não usa o e-mail tentado, que daria a cada tentativa de senha em contas
+	 * diferentes um contador próprio. Só vale no login: em qualquer outra rota,
+	 * um valor novo no corpo abriria um contador novo a cada requisição.
+	 */
+	private clientDiscriminator(req: Request, routeKey: string): string {
+		if (!DISCRIMINATED_ROUTES.has(routeKey)) return '';
+
+		const body = (req.body ?? {}) as {
+			device?: { deviceId?: unknown };
+			tempToken?: unknown;
+		};
+		const deviceId = body.device?.deviceId;
+		if (typeof deviceId === 'string') return deviceId.slice(0, 64);
+		return typeof body.tempToken === 'string' ? body.tempToken.slice(-64) : '';
 	}
 }

@@ -1,4 +1,11 @@
 import z from 'zod';
+import {
+	AgentGate,
+	withPanelSwitch,
+} from 'src/agent-control/application/agent-gate.port';
+import { envKills } from 'src/agent-control/domain/env-switch';
+// `killSwitch` (abaixo) reaproveita `envKills`: uma regra só para "desligar
+// pelo ambiente" no vigia e no painel.
 
 /**
  * Configuracao do vigia de RI (TRA-240), lida do ambiente com schema proprio
@@ -86,10 +93,60 @@ function field<T>(parser: z.ZodType<T>, value: unknown): T | undefined {
  * perder num jeito diferente de escrever "desligado".
  */
 function killSwitch(value: string | undefined): boolean {
-	const normalized = String(value ?? '')
-		.trim()
-		.toLowerCase();
-	return normalized === '' || normalized === 'true';
+	// Mesma regra do kill switch do painel de agentes (ADR-005).
+	return !envKills(value);
+}
+
+/** Etapas do vigia no painel de agentes (ADR-005, `agent-catalog.ts`). */
+interface RiWatchPanelSteps extends Record<string, unknown> {
+	enet: boolean;
+	fii: boolean;
+	notify: boolean;
+	index: boolean;
+}
+
+/**
+ * Configuração do vigia controlada pelo painel de agentes (ADR-005): o
+ * vigia e as quatro etapas viram getters que consultam o painel, e quem lê
+ * `config.notifyEnabled` passa a seguir o painel sem mudar.
+ *
+ * A variável de cada etapa continua como kill switch: escrita com qualquer
+ * valor que não seja "true", desliga a etapa por cima do painel. Antes do
+ * primeiro carregamento do painel (ou sem ele, em teste), vale o ambiente.
+ */
+export function withAgentPanel(
+	base: RiWatchConfig,
+	gate: AgentGate | undefined | null,
+	env: NodeJS.ProcessEnv = process.env
+): RiWatchConfig {
+	const step = (
+		key: keyof RiWatchPanelSteps,
+		legacy: boolean,
+		killSwitch: string
+	): boolean => {
+		const panel = gate?.peekConfig<RiWatchPanelSteps>('ri-watch');
+		if (!panel || typeof panel[key] !== 'boolean') return legacy;
+		return panel[key] && !envKills(env[killSwitch]);
+	};
+	const config = withPanelSwitch(base, gate, 'ri-watch');
+	return Object.defineProperties(config, {
+		dailyFeedEnabled: {
+			get: () => step('enet', base.dailyFeedEnabled, 'RI_WATCH_ENET_ENABLED'),
+			enumerable: true,
+		},
+		fiiEnabled: {
+			get: () => step('fii', base.fiiEnabled, 'RI_WATCH_FII_ENABLED'),
+			enumerable: true,
+		},
+		notifyEnabled: {
+			get: () => step('notify', base.notifyEnabled, 'RI_WATCH_NOTIFY_ENABLED'),
+			enumerable: true,
+		},
+		indexEnabled: {
+			get: () => step('index', base.indexEnabled, 'RI_WATCH_INDEX_ENABLED'),
+			enumerable: true,
+		},
+	});
 }
 
 export function loadRiWatchConfig(

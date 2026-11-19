@@ -3,7 +3,13 @@ import {
 	Injectable,
 	Logger,
 	OnApplicationBootstrap,
+	Optional,
 } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+} from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { InvestmentFundIngestionService } from './investment-fund-ingestion.service';
 import {
@@ -29,7 +35,8 @@ export class InvestmentFundsScheduler implements OnApplicationBootstrap {
 	constructor(
 		private readonly ingestion: InvestmentFundIngestionService,
 		@Inject(INVESTMENT_FUND_STORE)
-		private readonly store: InvestmentFundStore
+		private readonly store: InvestmentFundStore,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
 	) {}
 
 	onApplicationBootstrap(): void {
@@ -41,6 +48,7 @@ export class InvestmentFundsScheduler implements OnApplicationBootstrap {
 		name: 'investment-funds-registry',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('investment-funds')
 	async refreshRegistry(): Promise<void> {
 		try {
 			const stored = await this.ingestion.refreshRegistry();
@@ -60,6 +68,7 @@ export class InvestmentFundsScheduler implements OnApplicationBootstrap {
 		name: 'investment-funds-quotes',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('investment-funds')
 	async refreshQuotes(): Promise<void> {
 		try {
 			const results = await this.ingestion.refreshQuotes();

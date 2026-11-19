@@ -149,6 +149,7 @@ describe('FixedIncomeController', () => {
 		},
 		selicMeta: null,
 		ipca12m: null,
+		ipcaFocus: null,
 		tesouro: null,
 	};
 	const ratesService = { getRates: jest.fn(async () => rates) };

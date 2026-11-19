@@ -21,6 +21,7 @@ const rates = {
 			source: 'BACEN_SGS_433',
 			stale: false,
 		},
+		ipcaFocus: null,
 		tesouro: null,
 	}),
 } as unknown as FixedIncomeRatesService;

@@ -1,6 +1,7 @@
 import {
+	firstSnapshotDate,
+	ownCostOnlyPoint,
 	PortfolioHistoryBackfillService,
-	replaceableCostPoint,
 } from './portfolio-history-backfill.service';
 
 describe('PortfolioHistoryBackfillService', () => {
@@ -9,6 +10,7 @@ describe('PortfolioHistoryBackfillService', () => {
 		closes?: Record<string, { date: string; close: number }[]>;
 		upsertedCount?: number;
 		modifiedCount?: number;
+		existingRows?: { date: string; createdAt: Date }[];
 		assetTypes?: Record<string, string>;
 	}) => {
 		const tradeModel = {
@@ -21,6 +23,13 @@ describe('PortfolioHistoryBackfillService', () => {
 			}),
 		};
 		const historyModel = {
+			find: jest.fn().mockReturnValue({
+				select: jest.fn().mockReturnValue({
+					lean: jest.fn().mockReturnValue({
+						exec: jest.fn().mockResolvedValue(params.existingRows ?? []),
+					}),
+				}),
+			}),
 			bulkWrite: jest.fn().mockResolvedValue({
 				upsertedCount: params.upsertedCount ?? 10,
 				modifiedCount: params.modifiedCount ?? 0,
@@ -144,13 +153,12 @@ describe('PortfolioHistoryBackfillService', () => {
 		expect(operations[0].updateOne.update.$set).toBeUndefined();
 	});
 
-	// TRA-279: o ponto gravado a custo numa reconstrução sem fechamento fazia
-	// a diferença custo → mercado virar rendimento de um dia só.
-	it('troca ponto a custo pelo valor com fechamento, sem criar ponto novo', async () => {
+	// TRA-279: a rodada anterior não achou fechamento e gravou tudo a custo.
+	it('troca só a linha a custo que ela mesma gravou, sem upsert', async () => {
 		const { service, historyModel } = makeService({
 			trades: [trade()],
 			closes: { PETR4: closes(daysAgo(30), 31) },
-			modifiedCount: 12,
+			modifiedCount: 20,
 		});
 
 		const result = await service.backfill({ userId: 'u1', portfolioId: 'p1' });
@@ -158,28 +166,60 @@ describe('PortfolioHistoryBackfillService', () => {
 		const [operations] = (historyModel.bulkWrite as jest.Mock).mock.calls[0];
 		const replace = operations[1].updateOne;
 		expect(replace.upsert).toBeUndefined();
+		expect(replace.update.$setOnInsert).toBeUndefined();
 		expect(replace.filter).toMatchObject({
 			portfolioId: 'p1',
-			...replaceableCostPoint(0),
+			date: iso(daysAgo(30)),
+			...ownCostOnlyPoint(iso(daysAgo(30)), 0),
 		});
-		expect(replace.update.$set).toMatchObject({ stale: false });
-		expect(replace.update.$set.totalValue).toBeGreaterThan(0);
-		expect(replace.update.$setOnInsert).toBeUndefined();
-		expect(result.replaced).toBe(12);
+		expect(replace.update.$set.stale).toBe(false);
+		expect(result.replaced).toBe(20);
 	});
 
-	it('com símbolo ainda sem cotação, só troca ponto pior que o novo', async () => {
+	// TRA-279: num dia sem snapshot (08/10) a reconstrução gravava o valor só
+	// dos ativos com nota, sem as posições do relatório consolidado.
+	it('não escreve a partir do primeiro snapshot diário', async () => {
+		const snapshotDay = iso(daysAgo(10));
 		const { service, historyModel } = makeService({
-			trades: [trade(), trade({ symbol: 'XPTO3' })],
+			trades: [trade()],
+			closes: { PETR4: closes(daysAgo(30), 31) },
+			existingRows: [
+				{ date: snapshotDay, createdAt: new Date(`${snapshotDay}T22:30:00Z`) },
+			],
+		});
+
+		const result = await service.backfill({ userId: 'u1', portfolioId: 'p1' });
+
+		const [operations] = (historyModel.bulkWrite as jest.Mock).mock.calls[0];
+		const dates = operations.map((op: any) => op.updateOne.filter.date);
+		expect(dates.every((date: string) => date < snapshotDay)).toBe(true);
+		expect(result.to).toBe(iso(daysAgo(11)));
+	});
+
+	it('sem snapshot, reconstrói até ontem: o de hoje sai às 19:30', async () => {
+		const { service } = makeService({
+			trades: [trade()],
+			closes: { PETR4: closes(daysAgo(30), 31) },
+		});
+
+		const result = await service.backfill({ userId: 'u1', portfolioId: 'p1' });
+
+		expect(result.to).toBe(iso(daysAgo(1)));
+	});
+
+	it('linha nova grava as próprias datas e não toca updatedAt das existentes', async () => {
+		const { service, historyModel } = makeService({
+			trades: [trade()],
 			closes: { PETR4: closes(daysAgo(30), 31) },
 		});
 
 		await service.backfill({ userId: 'u1', portfolioId: 'p1' });
 
 		const [operations] = (historyModel.bulkWrite as jest.Mock).mock.calls[0];
-		expect(operations[1].updateOne.filter).toMatchObject(
-			replaceableCostPoint(1)
-		);
+		expect(operations[0].updateOne.timestamps).toBe(false);
+		expect(
+			operations[0].updateOne.update.$setOnInsert.createdAt
+		).toBeInstanceOf(Date);
 	});
 
 	it('declara o símbolo sem cotação em vez de escondê-lo', async () => {
@@ -271,25 +311,47 @@ describe('PortfolioHistoryBackfillService', () => {
 	});
 });
 
-describe('replaceableCostPoint (TRA-279)', () => {
-	// O filtro roda no Mongo; aqui fica o contrato de quem ele pode trocar.
-	it('casa ponto anterior à TRA-143 (sem investedValue)', () => {
-		expect(replaceableCostPoint(0).$or).toContainEqual({
-			investedValue: { $exists: false },
-		});
+describe('ownCostOnlyPoint (TRA-279)', () => {
+	// O snapshot diário grava o próprio dia; só a reconstrução escreve no
+	// passado. É isso que impede de trocar um snapshot da carteira inteira por
+	// um valor que só conhece os ativos com negociação.
+	it('exige que a linha tenha sido gravada depois do dia que representa', () => {
+		const filter = ownCostOnlyPoint('2025-07-21', 0);
+		expect(filter.createdAt.$gt.toISOString()).toBe('2025-07-23T00:00:00.000Z');
 	});
 
-	it('casa ponto stale só se tiver mais símbolos sem cotação que o novo', () => {
-		const staleBranch = replaceableCostPoint(2).$or[1] as any;
-		expect(staleBranch.stale).toBe(true);
-		expect(staleBranch.$expr.$gt[1]).toBe(2);
+	it('exige stale, custo registrado e valor igual ao custo', () => {
+		const filter = ownCostOnlyPoint('2025-07-21', 0) as any;
+		expect(filter.stale).toBe(true);
+		expect(filter.investedValue).toEqual({ $exists: true, $ne: null });
+		expect(filter.$expr.$and[0].$lte[1]).toBe(0.01);
 	});
 
-	it('nunca casa snapshot com cotação: exige stale ou investedValue ausente', () => {
-		for (const branch of replaceableCostPoint(0).$or as any[]) {
-			const requiresStale = branch.stale === true;
-			const requiresLegacy = branch.investedValue?.$exists === false;
-			expect(requiresStale || requiresLegacy).toBe(true);
-		}
+	it('só troca se o ponto novo tiver menos símbolos sem cotação', () => {
+		const filter = ownCostOnlyPoint('2025-07-21', 2) as any;
+		expect(filter.$expr.$and[1].$gt[1]).toBe(2);
+	});
+});
+
+describe('firstSnapshotDate (TRA-279)', () => {
+	it('é o primeiro dia gravado no próprio dia, não pela reconstrução', () => {
+		expect(
+			firstSnapshotDate([
+				// reconstrução: gravada meses depois
+				{ date: '2025-01-07', createdAt: new Date('2026-09-15T03:59:00Z') },
+				// snapshot das 19:30 (22:30 UTC)
+				{ date: '2026-09-14', createdAt: new Date('2026-09-14T22:30:00Z') },
+				{ date: '2026-09-15', createdAt: new Date('2026-09-15T22:30:00Z') },
+			])
+		).toBe('2026-09-14');
+	});
+
+	it('sem snapshot devolve null', () => {
+		expect(
+			firstSnapshotDate([
+				{ date: '2025-01-07', createdAt: new Date('2026-09-15T03:59:00Z') },
+			])
+		).toBeNull();
+		expect(firstSnapshotDate([])).toBeNull();
 	});
 });

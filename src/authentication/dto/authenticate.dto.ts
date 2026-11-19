@@ -1,13 +1,18 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { Type } from 'class-transformer';
 import {
 	IsBoolean,
 	IsEmail,
 	IsEmpty,
 	IsNotEmpty,
+	IsObject,
+	IsOptional,
 	IsString,
 	MaxLength,
 	MinLength,
+	ValidateNested,
 } from 'class-validator';
+import { SessionDeviceDto } from './session-device.dto';
 
 export class AuthenticateDto {
 	@IsEmail()
@@ -27,6 +32,13 @@ export class AuthenticateDto {
 	@IsNotEmpty()
 	@ApiProperty()
 	keepConnected: boolean;
+
+	@IsOptional()
+	@IsObject()
+	@ValidateNested()
+	@Type(() => SessionDeviceDto)
+	@ApiProperty({ type: SessionDeviceDto, required: false })
+	device?: SessionDeviceDto;
 
 	@IsEmpty()
 	token: string;

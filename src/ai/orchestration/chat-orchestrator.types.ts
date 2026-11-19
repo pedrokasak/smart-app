@@ -34,6 +34,9 @@ export type ChatOrchestratorIntent =
 	| 'contribution_simulation'
 	| 'dividends_received'
 	| 'action_checklist'
+	// "Quando comprei ITSA4?", "quanto paguei de corretagem em 2025?": número
+	// exato, lido das operações do usuário e somado em código (ADR-002, TRA-16).
+	| 'trade_history'
 	| 'unknown';
 
 export type ChatRouteType = 'deterministic_no_llm' | 'synthesis_required';
@@ -83,6 +86,7 @@ export interface ChatOrchestratorResponse {
 		riSummary?: unknown;
 		riComparison?: unknown;
 		riAnswer?: unknown;
+		tradeHistory?: unknown;
 		trackerrScore?: unknown;
 		tradePlaybook?: unknown;
 		riTimeline?: unknown;

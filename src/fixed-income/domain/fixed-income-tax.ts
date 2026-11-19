@@ -56,3 +56,18 @@ export function regressiveTaxRatePct(days: number): number {
 	// A última faixa é infinita, então `find` nunca devolve undefined.
 	return (bracket as { ratePct: number }).ratePct;
 }
+
+/**
+ * IOF regressivo sobre o rendimento de quem resgata antes de 30 dias
+ * corridos (Decreto 6.306/2007, anexo): % retido do dia 1 ao dia 29 (TRA-230).
+ */
+const IOF_TABLE_PCT = [
+	96, 93, 90, 86, 83, 80, 76, 73, 70, 66, 63, 60, 56, 53, 50, 46, 43, 40, 36,
+	33, 30, 26, 23, 20, 16, 13, 10, 6, 3,
+];
+
+/** Resgate no mesmo dia da aplicação não tem rendimento; a partir do 30º dia, zero. */
+export function iofRatePct(days: number): number {
+	if (days < 1) return 0;
+	return IOF_TABLE_PCT[days - 1] ?? 0;
+}

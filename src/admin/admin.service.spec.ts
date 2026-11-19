@@ -5,6 +5,8 @@ import { AdminService } from './admin.service';
 import { StripeService } from 'src/subscription/stripe.service';
 import { EmailService } from 'src/notifications/email/email.service';
 import { ManualGrantType } from './constants/admin.constants';
+import { SECURITY_AUDIT } from 'src/audit/application/security-audit.service';
+import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 
 jest.mock('../env.ts', () => ({
 	jwtSecret: 'fakeJwtSecretsdadxczxc,mfnlfnvlvnvlzmxcmv',
@@ -626,8 +628,10 @@ describe('AdminService — grantSubscriptionByEmail', () => {
 	let mockUserSubscriptionModel: any;
 	let mockManualGrantAuditModel: any;
 	let mockStripeService: any;
+	const mockSecurityAudit = { emit: jest.fn() };
 
 	beforeEach(async () => {
+		mockSecurityAudit.emit.mockClear();
 		mockUserModel = { findOne: jest.fn(), findById: jest.fn() };
 		mockSubscriptionModel = { findById: jest.fn() };
 		mockUserSubscriptionModel = { findOneAndUpdate: jest.fn() };
@@ -652,6 +656,7 @@ describe('AdminService — grantSubscriptionByEmail', () => {
 				},
 				{ provide: StripeService, useValue: mockStripeService },
 				{ provide: EmailService, useValue: mockEmailService },
+				{ provide: SECURITY_AUDIT, useValue: mockSecurityAudit },
 			],
 		}).compile();
 
@@ -727,6 +732,34 @@ describe('AdminService — grantSubscriptionByEmail', () => {
 				discountPercent: 25,
 			})
 		);
+	});
+
+	it('registra a concessão na trilha sem e-mail nem observações', async () => {
+		setupHappyPath();
+
+		await service.grantSubscriptionByEmail('admin-1', {
+			email: 'user@example.com',
+			planId: '507f1f77bcf86cd799439011',
+			grantType: ManualGrantType.Trial,
+			trialDurationDays: 30,
+			discountPercent: 25,
+			notes: 'cliente VIP, pediu por telefone',
+		} as any);
+
+		const event = mockSecurityAudit.emit.mock.calls[0][0];
+		expect(event).toEqual({
+			type: SECURITY_EVENT.ManualGrantCreated,
+			actor: { userId: 'admin-1' },
+			subject: { userId: 'user-1' },
+			payload: {
+				planId: 'plan-1',
+				grantType: ManualGrantType.Trial,
+				trialDurationDays: 30,
+				discountPercent: 25,
+			},
+		});
+		expect(JSON.stringify(event)).not.toContain('@');
+		expect(JSON.stringify(event)).not.toContain('VIP');
 	});
 
 	it('does not require trialDurationDays for PERMANENT grants', async () => {

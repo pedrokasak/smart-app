@@ -1,6 +1,10 @@
 import * as crypto from 'crypto';
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, UnauthorizedException } from '@nestjs/common';
+import {
+	BadRequestException,
+	ServiceUnavailableException,
+	UnauthorizedException,
+} from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import {
 	AuthenticationService,
@@ -11,6 +15,14 @@ import { EmailService } from 'src/notifications/email/email.service';
 import { UserModel } from 'src/users/schema/user.model';
 import { PasswordSecurityService } from 'src/authentication/security/password-security.service';
 import { BreachedPasswordPolicy } from 'src/authentication/application/breached-password.policy';
+import { SECURITY_AUDIT } from 'src/audit/application/security-audit.service';
+import { SECURITY_EVENT } from 'src/audit/domain/security-events';
+import { inMemoryUserSessionProviders } from 'src/authentication/session/in-memory-user-session.repository.fixture';
+
+jest.mock('src/env', () => ({
+	...jest.requireActual('src/env'),
+	googleClientIds: ['any-aud'],
+}));
 
 jest.mock('src/users/schema/user.model', () => {
 	// `updateOne(...)` no serviço é encadeado como `.exec()` (Mongoose), então
@@ -32,6 +44,7 @@ describe('AuthenticationService', () => {
 	let service: AuthenticationService;
 
 	const mockJwtService = {
+		decode: jest.fn().mockReturnValue({ exp: 4102444800 }),
 		sign: jest.fn(),
 		verify: jest.fn(),
 	};
@@ -49,6 +62,8 @@ describe('AuthenticationService', () => {
 		assertNotBreached: jest.fn().mockResolvedValue(undefined),
 	};
 
+	const mockSecurityAudit = { emit: jest.fn() };
+
 	const mockPasswordSecurityService = {
 		hashPassword: jest.fn(),
 		verifyPassword: jest.fn(),
@@ -59,6 +74,7 @@ describe('AuthenticationService', () => {
 		const module: TestingModule = await Test.createTestingModule({
 			providers: [
 				AuthenticationService,
+				...inMemoryUserSessionProviders(),
 				{ provide: JwtService, useValue: mockJwtService },
 				{ provide: TokenBlacklistService, useValue: mockTokenBlacklistService },
 				{ provide: EmailService, useValue: mockEmailService },
@@ -73,6 +89,7 @@ describe('AuthenticationService', () => {
 					provide: BreachedPasswordPolicy,
 					useValue: mockBreachedPasswordPolicy,
 				},
+				{ provide: SECURITY_AUDIT, useValue: mockSecurityAudit },
 			],
 		}).compile();
 
@@ -149,6 +166,126 @@ describe('AuthenticationService', () => {
 					token: '',
 				})
 			).rejects.toThrow('E-mail ou senha inválidos');
+		});
+
+		describe('trilha de auditoria', () => {
+			const found = (user: unknown) =>
+				(UserModel.findOne as jest.Mock).mockReturnValue({
+					select: jest.fn().mockReturnValue({
+						exec: jest.fn().mockResolvedValue(user),
+					}),
+				});
+
+			it('registra o login que deu certo, sem e-mail nem senha', async () => {
+				found({
+					id: 'u1',
+					email: 'test@example.com',
+					password: 'stored-hash',
+					role: 'user',
+					twoFactorEnabled: false,
+					save: jest.fn().mockResolvedValue(undefined),
+				});
+				mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
+				mockPasswordSecurityService.needsRehash.mockReturnValue(false);
+				mockJwtService.sign.mockReturnValue('token');
+
+				await service.signin({
+					email: 'test@example.com',
+					password: 'Password123@',
+					keepConnected: true,
+					token: '',
+				});
+
+				expect(mockSecurityAudit.emit).toHaveBeenCalledTimes(1);
+				const event = mockSecurityAudit.emit.mock.calls[0][0];
+				expect(event).toMatchObject({
+					type: SECURITY_EVENT.LoginSucceeded,
+					actor: { userId: 'u1' },
+				});
+				expect(JSON.stringify(event)).not.toContain('test@example.com');
+				expect(JSON.stringify(event)).not.toContain('Password123@');
+			});
+
+			it('registra a senha errada com o e-mail digitado só como referência', async () => {
+				found({
+					id: 'u1',
+					email: 'test@example.com',
+					password: 'stored-hash',
+					twoFactorEnabled: false,
+				});
+				mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
+
+				await expect(
+					service.signin({
+						email: 'test@example.com',
+						password: 'Wrong123@',
+						keepConnected: false,
+						token: '',
+					})
+				).rejects.toThrow(UnauthorizedException);
+
+				expect(mockSecurityAudit.emit).toHaveBeenCalledWith({
+					type: SECURITY_EVENT.LoginFailed,
+					actor: { emailAttempted: 'test@example.com' },
+					payload: { reason: 'wrong_password' },
+				});
+			});
+
+			it('registra o e-mail inexistente depois de gastar o Argon2 (TRA-89)', async () => {
+				found(null);
+				const order: string[] = [];
+				mockPasswordSecurityService.hashPassword.mockResolvedValue('dummy');
+				mockPasswordSecurityService.verifyPassword.mockImplementation(
+					async () => {
+						order.push('argon2');
+						return false;
+					}
+				);
+				mockSecurityAudit.emit.mockImplementation(() => order.push('audit'));
+
+				await expect(
+					service.signin({
+						email: 'ninguem@example.com',
+						password: 'Password123@',
+						keepConnected: false,
+						token: '',
+					})
+				).rejects.toThrow(UnauthorizedException);
+
+				expect(order).toEqual(['argon2', 'audit']);
+				expect(mockSecurityAudit.emit).toHaveBeenCalledWith(
+					expect.objectContaining({
+						type: SECURITY_EVENT.LoginFailed,
+						payload: { reason: 'unknown_email_or_no_password' },
+					})
+				);
+				mockSecurityAudit.emit.mockReset();
+			});
+
+			it('registra a troca de senha', async () => {
+				(UserModel.findById as jest.Mock).mockReturnValue({
+					select: jest.fn().mockResolvedValue({
+						id: 'u1',
+						email: 'investidor@example.com',
+						password: 'hash-antigo',
+						save: jest.fn().mockResolvedValue(undefined),
+					}),
+				});
+				mockPasswordSecurityService.verifyPassword.mockResolvedValue(true);
+				mockPasswordSecurityService.hashPassword.mockResolvedValue('hash-novo');
+				mockEmailService.sendPasswordChangedEmail.mockResolvedValue(undefined);
+
+				await service.updatePassword('u1', {
+					oldPassword: 'antiga',
+					newPassword: 'NovaSenhaForte1!',
+				} as any);
+
+				expect(mockSecurityAudit.emit).toHaveBeenCalledWith({
+					type: SECURITY_EVENT.PasswordChanged,
+					actor: { userId: 'u1' },
+					payload: { via: 'update_password' },
+				});
+			});
 		});
 
 		it('should migrate legacy hash on successful login', async () => {
@@ -391,7 +528,9 @@ describe('AuthenticationService', () => {
 			};
 
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue(mockUser);
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(mockUser),
+			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
 
 			await expect(service.refreshAccessToken('wrong-token')).rejects.toThrow(
@@ -401,10 +540,12 @@ describe('AuthenticationService', () => {
 
 		it('should throw when user has no refresh token stored', async () => {
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				refreshToken: null,
-				role: 'user',
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					refreshToken: null,
+					role: 'user',
+				}),
 			});
 
 			await expect(service.refreshAccessToken('any-token')).rejects.toThrow(
@@ -427,6 +568,32 @@ describe('AuthenticationService', () => {
 
 			await expect(service.refreshAccessToken('expired-token')).rejects.toThrow(
 				UnauthorizedException
+			);
+		});
+
+		it('should answer 503, not 401, when the database fails', async () => {
+			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockRejectedValue(new Error('mongo down')),
+			});
+
+			await expect(service.refreshAccessToken('valid-token')).rejects.toThrow(
+				ServiceUnavailableException
+			);
+		});
+
+		it('should answer 503 when a device session fails to load', async () => {
+			mockJwtService.verify.mockReturnValue({
+				userId: 'u1',
+				type: 'refresh',
+				sid: 's1',
+			});
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockRejectedValue(new Error('mongo down')),
+			});
+
+			await expect(service.refreshAccessToken('valid-token')).rejects.toThrow(
+				ServiceUnavailableException
 			);
 		});
 	});
@@ -901,7 +1068,7 @@ describe('AuthenticationService', () => {
 		const sha256 = (value: string) =>
 			crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 
-		it('stores the SHA-256 digest of the refresh token on signin, without Argon2', async () => {
+		it('opens a session on signin without Argon2 or touching the legacy field', async () => {
 			const save = jest.fn().mockResolvedValue(undefined);
 			const mockUser = {
 				id: 'u1',
@@ -922,15 +1089,14 @@ describe('AuthenticationService', () => {
 			mockPasswordSecurityService.needsRehash.mockReturnValue(false);
 			mockJwtService.sign.mockReturnValue('signed.jwt.token');
 
-			const result = await service.signin({
+			await service.signin({
 				email: 'test@example.com',
 				password: 'Password123@',
 				keepConnected: false,
 				token: '',
 			});
 
-			expect(mockUser.refreshToken).toBe(sha256(result.refreshToken));
-			expect(mockUser.refreshToken).toMatch(/^[0-9a-f]{64}$/);
+			expect(mockUser.refreshToken).toBeNull();
 			// Uma única operação Argon2 por login: a verificação da senha.
 			expect(mockPasswordSecurityService.hashPassword).not.toHaveBeenCalled();
 			expect(save).toHaveBeenCalled();
@@ -957,10 +1123,12 @@ describe('AuthenticationService', () => {
 
 		it('rejects a valid JWT that is not the stored token', async () => {
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				role: 'user',
-				refreshToken: sha256('the.issued.token'),
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					role: 'user',
+					refreshToken: sha256('the.issued.token'),
+				}),
 			});
 
 			await expect(
@@ -985,6 +1153,9 @@ describe('AuthenticationService', () => {
 			expect(save).toHaveBeenCalled();
 
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue(storedUser),
+			});
 
 			await expect(service.refreshAccessToken(rawToken)).rejects.toThrow(
 				UnauthorizedException
@@ -1018,10 +1189,12 @@ describe('AuthenticationService', () => {
 
 		it('rejects a legacy Argon2 hash that does not match', async () => {
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				role: 'user',
-				refreshToken: '$argon2id$v=19$m=65536,t=3,p=1$c29tZXNhbHQ$b3V0cm8',
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					role: 'user',
+					refreshToken: '$argon2id$v=19$m=65536,t=3,p=1$c29tZXNhbHQ$b3V0cm8',
+				}),
 			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
 
@@ -1035,10 +1208,12 @@ describe('AuthenticationService', () => {
 			// Um valor truncado no banco tem que virar 401, não 500.
 			const rawToken = 'valid.refresh.token';
 			mockJwtService.verify.mockReturnValue({ userId: 'u1', type: 'refresh' });
-			(UserModel.findById as jest.Mock).mockResolvedValue({
-				id: 'u1',
-				role: 'user',
-				refreshToken: sha256(rawToken).slice(0, 32),
+			(UserModel.findById as jest.Mock).mockReturnValue({
+				select: jest.fn().mockResolvedValue({
+					id: 'u1',
+					role: 'user',
+					refreshToken: sha256(rawToken).slice(0, 32),
+				}),
 			});
 			mockPasswordSecurityService.verifyPassword.mockResolvedValue(false);
 

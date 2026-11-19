@@ -12,5 +12,6 @@ import { financialPlanSchema } from './infrastructure/financial-plan.model';
 	],
 	controllers: [FinancialPlanController],
 	providers: [FinancialPlanService],
+	exports: [FinancialPlanService],
 })
 export class FinancialPlanModule {}

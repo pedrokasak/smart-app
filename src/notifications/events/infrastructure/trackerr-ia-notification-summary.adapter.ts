@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+	panelEnabled,
+} from 'src/agent-control/application/agent-gate.port';
 import { AiService } from 'src/ai/ai.service';
 import { InsightDto } from 'src/ai/dto/insight.dto';
 import {
@@ -42,14 +47,22 @@ export class TrackerrIaNotificationSummaryAdapter implements NotificationSummary
 		TrackerrIaNotificationSummaryAdapter.name
 	);
 
-	constructor(private readonly ai: AiService) {}
+	constructor(
+		private readonly ai: AiService,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
+	) {}
 
+	/**
+	 * Ligado pelo painel de agentes (ADR-005). A variável continua valendo
+	 * como kill switch, já dentro do estado efetivo do painel; sem o painel
+	 * (teste), vale a regra antiga dela.
+	 */
 	private get enabled(): boolean {
-		return (
+		const legacy =
 			(process.env.NOTIFICATION_AI_SUMMARY_ENABLED ?? 'true')
 				.trim()
-				.toLowerCase() !== 'false'
-		);
+				.toLowerCase() !== 'false';
+		return panelEnabled(this.agentGate, 'notification-ai-summary', legacy);
 	}
 
 	private get timeoutMs(): number {

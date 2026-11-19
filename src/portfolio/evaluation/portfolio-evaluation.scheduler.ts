@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+} from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron, CronExpression } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -35,13 +40,15 @@ export class PortfolioEvaluationScheduler {
 		private readonly portfolioModel: Model<Portfolio>,
 		private readonly targetAllocation: TargetAllocationService,
 		private readonly breachProducer: AllocationBreachProducer,
-		private readonly scoreProducer: PortfolioScoreProducer
+		private readonly scoreProducer: PortfolioScoreProducer,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
 	) {}
 
 	@Cron(CronExpression.EVERY_DAY_AT_7AM, {
 		name: 'portfolio-evaluation',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('portfolio-evaluation')
 	async runDaily(): Promise<void> {
 		try {
 			const evaluated = await this.sweep();

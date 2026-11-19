@@ -10,11 +10,17 @@ import { RagIngestionScheduler } from 'src/ai/rag-ingestion/application/rag-inge
 import { RagColdStartService } from 'src/ai/rag-ingestion/application/rag-cold-start.service';
 import { RAG_INGESTION } from 'src/ai/rag-ingestion/application/rag-ingestion.port';
 import { TrackerrIaRagIngestionAdapter } from 'src/ai/rag-ingestion/infrastructure/trackerr-ia-rag-ingestion.adapter';
+import { RAG_TRADE_SOURCE } from 'src/ai/rag-ingestion/application/rag-trade-source.port';
+import { MongoRagTradeSourceAdapter } from 'src/ai/rag-ingestion/infrastructure/mongo-rag-trade-source.adapter';
+import { tradeSchema } from 'src/fiscal/schema/trade.model';
 
 @Module({
 	imports: [
 		HttpModule,
-		MongooseModule.forFeature([{ name: 'User', schema: UserModel.schema }]),
+		MongooseModule.forFeature([
+			{ name: 'User', schema: UserModel.schema },
+			{ name: 'Trade', schema: tradeSchema },
+		]),
 		PortfolioModule,
 		IntelligenceModule,
 		SubscriptionModule,
@@ -27,6 +33,11 @@ import { TrackerrIaRagIngestionAdapter } from 'src/ai/rag-ingestion/infrastructu
 		{
 			provide: RAG_INGESTION,
 			useExisting: TrackerrIaRagIngestionAdapter,
+		},
+		MongoRagTradeSourceAdapter,
+		{
+			provide: RAG_TRADE_SOURCE,
+			useExisting: MongoRagTradeSourceAdapter,
 		},
 	],
 	exports: [RagFactBuilderService, RagColdStartService],

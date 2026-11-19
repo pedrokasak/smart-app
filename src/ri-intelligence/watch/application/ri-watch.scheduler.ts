@@ -1,4 +1,10 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+} from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
+import { reportAgentRun } from 'src/agent-control/application/agent-run-context';
 import { Cron } from '@nestjs/schedule';
 import { RiWatchFiiScanner } from './ri-watch-fii.scanner';
 import { RI_WATCH_CONFIG, RiWatchConfig } from './ri-watch.config';
@@ -33,13 +39,15 @@ export class RiWatchScheduler {
 		private readonly fiiScanner: RiWatchFiiScanner,
 		private readonly notifier: RiWatchNotifier,
 		private readonly indexer: RiWatchIndexer,
-		@Inject(RI_WATCH_CONFIG) private readonly config: RiWatchConfig
+		@Inject(RI_WATCH_CONFIG) private readonly config: RiWatchConfig,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
 	) {}
 
 	@Cron('0 7,12,18 * * *', {
 		name: 'ri-watch',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('ri-watch')
 	async run(): Promise<void> {
 		if (!this.config.enabled) return;
 		// Um resumo pode levar dezenas de segundos; uma rodada longa nao pode
@@ -81,6 +89,10 @@ export class RiWatchScheduler {
 
 			try {
 				const processed = await this.watch.processPending();
+				reportAgentRun({
+					items: processed.summarized,
+					errors: processed.failed,
+				});
 				this.logger.log(
 					`Vigia de RI: ${processed.summarized} resumido(s), ` +
 						`${processed.skipped} ignorado(s), ${processed.failed} com falha`

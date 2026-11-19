@@ -1,3 +1,5 @@
+import type { IrGuideStep } from 'src/fiscal/domain/ir-guide';
+
 export interface IrPositionItemDto {
 	symbol: string;
 	quantity: number;
@@ -16,9 +18,13 @@ export interface IrOperationMonthlyItemDto {
 	realizedResult: number;
 }
 
-export interface IrGuideStepDto {
-	title: string;
-	details: string;
+export type IrGuideStepDto = IrGuideStep;
+
+/** Ativo cujo histórico de negociações não fecha (venda maior que a posição conhecida). */
+export interface IrIncompleteHistoryItemDto {
+	symbol: string;
+	missingQuantity: number;
+	firstShortfallDate: string;
 }
 
 export interface IrCryptoSectionDto {
@@ -41,5 +47,7 @@ export interface IrReportResponseDto {
 	compensableLossesTotal: number;
 	crypto: IrCryptoSectionDto;
 	guide: IrGuideStepDto[];
+	/** Ativos com venda sem posição suficiente: posição e custo podem estar errados. */
+	incompleteHistory: IrIncompleteHistoryItemDto[];
 	notes: string[];
 }

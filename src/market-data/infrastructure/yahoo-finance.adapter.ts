@@ -75,6 +75,12 @@ export class YahooFinanceAdapter {
 	// anual, entao 12h e folgado e ainda assim reduz 20 chamadas de um refresh
 	// de carteira a 20 uma unica vez por meio dia.
 	private static readonly PAYOUT_CACHE_TTL_MS = 12 * 60 * 60 * 1000;
+	/**
+	 * Falha que não é 429 (ticker deslistado, 404) fica pouco tempo no cache
+	 * (TRA-47, N4): minutos, não horas — limita a repetição sem transformar um
+	 * erro passageiro em meio dia de payout nulo.
+	 */
+	private static readonly PAYOUT_FAILURE_TTL_MS = 10 * 60 * 1000;
 	private static readonly NEGATIVE_CACHE_TTL_MS = 3 * 60 * 1000;
 	private static readonly FETCH_TIMEOUT_MS = 8000;
 	private static readonly RATE_LIMIT_COOLDOWN_MS = 60 * 1000;
@@ -315,7 +321,8 @@ export class YahooFinanceAdapter {
 		const now = Date.now();
 
 		const cached = YahooFinanceAdapter.payoutCache.get(yahooSymbol);
-		if (cached && cached.expiresAt > now) return cached.data;
+		// Cópia (TRA-47, N5): quem alterar o resultado não envenena o cache.
+		if (cached && cached.expiresAt > now) return { ...cached.data };
 
 		if (YahooFinanceAdapter.rateLimitedUntil > now) {
 			return empty;
@@ -362,9 +369,15 @@ export class YahooFinanceAdapter {
 			return inputs;
 		} catch (error) {
 			if (this.isRateLimitError(error)) {
+				// 429 já tem o cooldown compartilhado.
 				this.triggerRateLimitCooldown();
+			} else {
+				YahooFinanceAdapter.payoutCache.set(yahooSymbol, {
+					expiresAt: Date.now() + YahooFinanceAdapter.PAYOUT_FAILURE_TTL_MS,
+					data: empty,
+				});
 			}
-			return empty;
+			return { ...empty };
 		}
 	}
 

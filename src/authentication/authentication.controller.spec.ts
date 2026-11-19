@@ -1,7 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { AuthenticationController } from './authentication.controller';
 import { AuthenticationService } from './authentication.service';
-import { UnauthorizedException } from '@nestjs/common';
+import {
+	ServiceUnavailableException,
+	UnauthorizedException,
+} from '@nestjs/common';
 import { AuthenticateDto } from 'src/authentication/dto/authenticate.dto';
 
 jest.mock('../env.ts', () => ({
@@ -112,14 +115,14 @@ describe('AuthenticationController', () => {
 			).rejects.toThrow(UnauthorizedException);
 		});
 
-		it('should throw UnauthorizedException if service throws', async () => {
+		it('should keep the status decided by the service', async () => {
 			mockAuthService.refreshAccessToken.mockRejectedValue(
-				new Error('expired')
+				new ServiceUnavailableException()
 			);
 
 			await expect(
 				controller.refreshToken({ refreshToken: 'bad' })
-			).rejects.toThrow(UnauthorizedException);
+			).rejects.toThrow(ServiceUnavailableException);
 		});
 	});
 

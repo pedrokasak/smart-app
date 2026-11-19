@@ -247,7 +247,9 @@ export class StripeService {
 		userId: string,
 		priceId: string,
 		successUrl: string,
-		cancelUrl: string
+		cancelUrl: string,
+		/** Teste grátis (TRA-182); quem chama decide se a pessoa tem direito. */
+		trialDays = 0
 	): Promise<Stripe.Checkout.Session> {
 		try {
 			const user = await this.userModel.findById(userId);
@@ -272,7 +274,10 @@ export class StripeService {
 				client_reference_id: userId,
 				// A assinatura também carrega o dono: eventos dela chegam sem a
 				// sessão e ainda assim identificam o usuário.
-				subscription_data: { metadata: { userId } },
+				subscription_data: {
+					metadata: { userId },
+					...(trialDays > 0 ? { trial_period_days: trialDays } : {}),
+				},
 				customer: stripeCustomerId,
 				payment_method_types: ['card', 'boleto'],
 				line_items: [
@@ -296,6 +301,65 @@ export class StripeService {
 	}
 
 	/**
+	 * Cupom + código promocional (TRA-182), para o admin operar promoção sem
+	 * entrar no painel do Stripe. O cupom guarda o desconto; o código é o que
+	 * a pessoa digita no checkout (que já aceita `allow_promotion_codes`).
+	 */
+	async createPromotion(input: {
+		code: string;
+		percentOff?: number;
+		amountOffCents?: number;
+		duration: 'once' | 'repeating' | 'forever';
+		durationInMonths?: number;
+		maxRedemptions?: number;
+		redeemBy?: Date;
+	}): Promise<Stripe.PromotionCode> {
+		const coupon = await this.stripe.coupons.create({
+			name: input.code,
+			...(input.percentOff !== undefined
+				? { percent_off: input.percentOff }
+				: { amount_off: input.amountOffCents, currency: 'brl' }),
+			duration: input.duration,
+			...(input.duration === 'repeating'
+				? { duration_in_months: input.durationInMonths }
+				: {}),
+			...(input.maxRedemptions
+				? { max_redemptions: input.maxRedemptions }
+				: {}),
+			...(input.redeemBy
+				? { redeem_by: Math.floor(input.redeemBy.getTime() / 1000) }
+				: {}),
+		});
+		return this.stripe.promotionCodes.create({
+			coupon: coupon.id,
+			code: input.code,
+			...(input.maxRedemptions
+				? { max_redemptions: input.maxRedemptions }
+				: {}),
+			...(input.redeemBy
+				? { expires_at: Math.floor(input.redeemBy.getTime() / 1000) }
+				: {}),
+		});
+	}
+
+	async listPromotions(): Promise<Stripe.PromotionCode[]> {
+		const { data } = await this.stripe.promotionCodes.list({
+			active: true,
+			limit: 100,
+			expand: ['data.coupon'],
+		});
+		return data;
+	}
+
+	async deactivatePromotion(
+		promotionCodeId: string
+	): Promise<Stripe.PromotionCode> {
+		return this.stripe.promotionCodes.update(promotionCodeId, {
+			active: false,
+		});
+	}
+
+	/**
 	 * O cliente já tem assinatura aberta no Stripe? Consulta o Stripe, e não o
 	 * banco: no incidente de 27/09/2026 o banco não sabia da primeira compra
 	 * (webhook ausente) e o app deixou comprar de novo — duas assinaturas
@@ -312,6 +376,50 @@ export class StripeService {
 		} catch (error) {
 			// Cliente gravado em outro modo (teste x live) não tem assinatura aqui.
 			if (isStripeResourceMissing(error)) return false;
+			throw error;
+		}
+	}
+
+	/**
+	 * Cobranças do cliente (todas, para a política de reembolso enxergar o
+	 * histórico completo). Cliente de outro modo (teste x live) não tem nenhuma.
+	 */
+	async listCustomerCharges(customerId: string): Promise<Stripe.Charge[]> {
+		try {
+			const charges = await this.stripe.charges.list({
+				customer: customerId,
+				limit: 100,
+			});
+			return charges.data;
+		} catch (error) {
+			if (isStripeResourceMissing(error)) return [];
+			throw error;
+		}
+	}
+
+	/**
+	 * Estorno integral. A chave de idempotência amarra o estorno à cobrança:
+	 * duplo clique ou retry devolve o mesmo estorno em vez de um segundo.
+	 */
+	async refundCharge(
+		chargeId: string,
+		metadata: Record<string, string>
+	): Promise<Stripe.Refund> {
+		try {
+			const refund = await this.stripe.refunds.create(
+				{
+					charge: chargeId,
+					reason: 'requested_by_customer',
+					metadata,
+				},
+				{ idempotencyKey: `self-service-refund:${chargeId}` }
+			);
+			this.logger.log(
+				`Estorno ${refund.id} criado para a cobrança ${chargeId}`
+			);
+			return refund;
+		} catch (error) {
+			this.logger.error('Erro ao estornar cobrança no Stripe:', error);
 			throw error;
 		}
 	}

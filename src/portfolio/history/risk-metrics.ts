@@ -39,6 +39,43 @@ const sampleStdDev = (values: number[]): number => {
 
 // ── Sharpe ──────────────────────────────────────────────────────────────────
 
+export interface VolatilityResult {
+	/** Desvio-padrão dos retornos diários × √252, em fração. */
+	annualized: number | null;
+	observations: number;
+}
+
+/**
+ * Volatilidade anualizada sobre os retornos ajustados por fluxo (TRA-279).
+ *
+ * O web calculava sobre a variação bruta do valor da carteira; um dia gravado
+ * a custo seguido de um a mercado, ou um snapshot zerado, entrava como
+ * oscilação e a carteira aparecia com 198% ao ano. Aqui a série é a mesma do
+ * TWR e do Sharpe — dias não comparáveis já ficaram de fora.
+ */
+export function computeAnnualVolatility(
+	returns: { date: string; value: number }[]
+): VolatilityResult {
+	const values = (returns || [])
+		.map((point) => Number(point?.value))
+		.filter((value) => Number.isFinite(value));
+	const observations = values.length;
+	if (observations < MIN_OBSERVATIONS) {
+		return { annualized: null, observations };
+	}
+	const mean = values.reduce((sum, value) => sum + value, 0) / observations;
+	const variance =
+		values.reduce((sum, value) => sum + (value - mean) ** 2, 0) /
+		(observations - 1);
+	const annualized = Math.sqrt(variance) * Math.sqrt(252);
+	return {
+		annualized: Number.isFinite(annualized)
+			? Number(annualized.toFixed(6))
+			: null,
+		observations,
+	};
+}
+
 export interface SharpeResult {
 	/** Anualizado (× √252). */
 	sharpe: number | null;

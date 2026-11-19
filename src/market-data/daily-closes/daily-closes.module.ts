@@ -2,6 +2,11 @@ import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
 import { AssetModel } from 'src/assets/schema/assets.model';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
+import {
+	AgentGate,
+	OPTIONAL_AGENT_GATE,
+	withPanelSwitch,
+} from 'src/agent-control/application/agent-gate.port';
 import { DailyClosesAdminController } from './admin/daily-closes-admin.controller';
 import { AssetBetaService } from './application/asset-beta.service';
 import {
@@ -44,7 +49,13 @@ import { MongoHeldSymbolsReader } from './infrastructure/mongo-held-symbols.read
 	],
 	controllers: [DailyClosesAdminController],
 	providers: [
-		{ provide: DAILY_CLOSES_CONFIG, useFactory: () => loadDailyClosesConfig() },
+		{
+			provide: DAILY_CLOSES_CONFIG,
+			// Ligado pelo painel de agentes (ADR-005); a variável vira kill switch.
+			useFactory: (gate?: AgentGate) =>
+				withPanelSwitch(loadDailyClosesConfig(), gate, 'daily-closes'),
+			inject: [OPTIONAL_AGENT_GATE],
+		},
 		MongoDailyCloseStore,
 		{ provide: DAILY_CLOSE_STORE, useExisting: MongoDailyCloseStore },
 		B3CotahistSource,

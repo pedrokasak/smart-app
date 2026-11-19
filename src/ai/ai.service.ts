@@ -1,10 +1,19 @@
 import { HttpService } from '@nestjs/axios';
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+	Inject,
+	Injectable,
+	InternalServerErrorException,
+	Optional,
+} from '@nestjs/common';
 import { firstValueFrom } from 'rxjs';
 import { AiAnalysisResponseDto } from './dto/ai-analysis-response.dto';
 import { InsightsResponseDto } from './dto/insight.dto';
 import { trackerrIaHeaders } from 'src/ai/infrastructure/trackerr-ia-request';
 import { AiInsightProducer } from 'src/ai/events/ai-insight.producer';
+import {
+	GENERATION_RECORDER,
+	GenerationRecorder,
+} from 'src/ai/generation-records/application/generation-recorder.service';
 
 /**
  * Opcoes da chamada a `/api/insights` (TRA-136, fase 5). Aditivo: quem nao
@@ -16,6 +25,8 @@ export type GetInsightsOptions = {
 	publishInsightEvents?: boolean;
 	/** Teto de espera em ms. Default: 30000. */
 	timeoutMs?: number;
+	/** Nível da explicação do "por que" (IA didática); ausente = intermediário. */
+	level?: string;
 };
 
 @Injectable()
@@ -25,7 +36,11 @@ export class AiService {
 
 	constructor(
 		private readonly httpService: HttpService,
-		private readonly insightProducer: AiInsightProducer
+		private readonly insightProducer: AiInsightProducer,
+		// Opcional: sem o registro (testes, módulos isolados) a IA responde igual.
+		@Optional()
+		@Inject(GENERATION_RECORDER)
+		private readonly generationRecorder?: GenerationRecorder
 	) {}
 
 	/**
@@ -43,6 +58,11 @@ export class AiService {
 						timeout: 60000, // 60s — análise pode ser lenta
 					}
 				)
+			);
+			// ADR-004, 9.2: o registro de geração não atrasa nem derruba a resposta.
+			this.generationRecorder?.record(
+				String(payload?.user_id ?? ''),
+				(response.data as { provenance?: unknown })?.provenance
 			);
 			return response.data;
 		} catch (error) {
@@ -98,6 +118,7 @@ export class AiService {
 					{
 						user_profile: userProfile,
 						data_freshness_days: dataFreshnessDays,
+						...(options?.level ? { level: options.level } : {}),
 					},
 					{
 						headers: trackerrIaHeaders(),
@@ -120,6 +141,10 @@ export class AiService {
 				);
 			}
 
+			this.generationRecorder?.record(
+				String(userProfile?.user_id ?? ''),
+				(response.data as { provenance?: unknown })?.provenance
+			);
 			return response.data;
 		} catch (error) {
 			const msg =

@@ -18,11 +18,15 @@ import { TradeDecisionService } from 'src/intelligence/application/trade-decisio
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { MarketDataModule } from 'src/market-data/market-data.module';
 import { PortfolioModule } from 'src/portfolio/portfolio.module';
+import { InvestmentPolicyModule } from 'src/investment-policy/investment-policy.module';
+import { UserErrorRadarService } from 'src/intelligence/application/user-error-radar.service';
 
 @Module({
 	imports: [
 		PortfolioModule,
 		TaxEngineModule,
+		// Limites da política do usuário viram evidência no radar (Insights IA).
+		InvestmentPolicyModule,
 		ComparisonModule,
 		MarketDataModule,
 		MongooseModule.forFeature([{ name: 'User', schema: UserModel.schema }]),
@@ -32,6 +36,7 @@ import { PortfolioModule } from 'src/portfolio/portfolio.module';
 		OpportunityRadarService,
 		PortfolioScoreService,
 		PortfolioErrorRadarService,
+		UserErrorRadarService,
 		AssetOpinionService,
 		FutureSimulatorService,
 		PremiumInsightsService,
@@ -46,6 +51,7 @@ import { PortfolioModule } from 'src/portfolio/portfolio.module';
 		UnifiedIntelligenceFacade,
 		PortfolioScoreService,
 		PortfolioErrorRadarService,
+		UserErrorRadarService,
 		AssetOpinionService,
 		TradeDecisionService,
 		TrackerrScoreService,

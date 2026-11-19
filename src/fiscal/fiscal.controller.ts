@@ -20,8 +20,10 @@ import { Types } from 'mongoose';
 import { AiService } from 'src/ai/ai.service';
 import { AssetModel } from 'src/assets/schema/assets.model';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
+import { buildSummaryGuide } from 'src/fiscal/domain/ir-guide';
 import { GenerateIrReportDto } from 'src/fiscal/dto/generate-ir-report.dto';
 import { GenerateReportDto } from 'src/fiscal/dto/generate-report.dto';
+import { SalePreviewDto } from 'src/fiscal/dto/sale-preview.dto';
 import { FiscalService } from 'src/fiscal/fiscal.service';
 import { TradeModel } from 'src/fiscal/schema/trade.model';
 import { IrReportService } from 'src/fiscal/services/ir-report.service';
@@ -115,12 +117,10 @@ export class FiscalController {
 				const potentialGain = (marketPrice - averagePrice) * quantity;
 				if (potentialGain <= 0) return null;
 
-				const availableLoss =
-					category === 'stock'
-						? losses.stock
-						: category === 'fii'
-							? losses.fii
-							: losses.crypto;
+				const availableLoss = this.fiscalService.availableLossFor(
+					category,
+					losses
+				);
 				if (availableLoss <= 0) return null;
 
 				const offsetUsed = Math.min(potentialGain, availableLoss);
@@ -274,12 +274,13 @@ export class FiscalController {
 		const totals = monthly.reduce(
 			(acc, m) => {
 				acc.stockProfit += m.stockProfit;
+				acc.etfProfit += m.etfProfit;
 				acc.fiiProfit += m.fiiProfit;
 				acc.cryptoProfit += m.cryptoProfit;
 				acc.taxDue += m.totalTax;
 				return acc;
 			},
-			{ stockProfit: 0, fiiProfit: 0, cryptoProfit: 0, taxDue: 0 }
+			{ stockProfit: 0, etfProfit: 0, fiiProfit: 0, cryptoProfit: 0, taxDue: 0 }
 		);
 
 		return {
@@ -287,29 +288,13 @@ export class FiscalController {
 			monthly,
 			totals,
 			taxDrivers,
-			guide: [
-				'Passo 1: Abra o programa da Receita Federal.',
-				'Passo 2: Vá em Bens e Direitos.',
-				'Passo 3: Para ações, use Grupo 03 / Código 31.',
-				'Passo 4: Para FIIs, use Grupo 07 / Código 03.',
-				'Passo 5: Informe posição em 31/12 e custo de aquisição.',
-				'Passo 6: Lance dividendos e JCP na ficha Rendimentos.',
-			],
+			guide: buildSummaryGuide(yearNum),
 		};
 	}
 
 	@Post('sale-preview')
 	@ApiOperation({ summary: 'Simula venda e imposto estimado' })
-	async previewSale(
-		@Req() req: any,
-		@Body()
-		body: {
-			symbol: string;
-			quantity: number;
-			sellPrice: number;
-			portfolioId?: string;
-		}
-	) {
+	async previewSale(@Req() req: any, @Body() body: SalePreviewDto) {
 		const userId =
 			req.user?.userId || req.user?.sub || req.user?._id || req.user?.id;
 		const symbol = String(body.symbol || '').toUpperCase();

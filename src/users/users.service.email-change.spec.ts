@@ -30,6 +30,22 @@ describe('UsersService.update — troca de e-mail (TRA-219)', () => {
 		jest.spyOn(UserModel, 'exists').mockResolvedValue(null as any);
 	});
 
+	it('o e-mail novo deixa de contar como verificado', async () => {
+		const updated: any = await service.update('u1', {
+			email: 'novo@exemplo.com',
+		} as any);
+
+		expect(updated.isEmailVerified).toBe(false);
+	});
+
+	it('sem troca de e-mail, a verificação não muda', async () => {
+		const updated: any = await service.update('u1', {
+			firstName: 'Bia',
+		} as any);
+
+		expect(updated).not.toHaveProperty('isEmailVerified');
+	});
+
 	it('avisa o e-mail antigo e grava o novo normalizado', async () => {
 		const updated: any = await service.update('u1', {
 			email: ' Novo@Exemplo.com ',

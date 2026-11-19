@@ -44,6 +44,12 @@ import {
 import { RiDocumentSummaryOutput } from 'src/ri-intelligence/application/ri-summary.types';
 import { StockService } from 'src/stocks/stocks.service';
 import {
+	CHAT_TRADE_HISTORY,
+	ChatTradeHistoryPort,
+} from 'src/ai/orchestration/trade-history/chat-trade-history.port';
+import { parseTradeHistoryQuery } from 'src/ai/orchestration/trade-history/trade-history.query';
+import { summarizeTrades } from 'src/ai/orchestration/trade-history/trade-history.summary';
+import {
 	planHasCapability,
 	USER_PLAN_RESOLVER,
 	UserPlanResolverPort,
@@ -88,6 +94,9 @@ interface ChatResponseEnvelope {
 	ttlSeconds: number;
 }
 
+/** Aviso de resposta que considerou todas as carteiras apesar do filtro. */
+export const PORTFOLIO_FILTER_IGNORED = 'portfolio_filter_ignored';
+
 @Injectable()
 export class ChatOrchestratorService {
 	private readonly logger = new Logger(ChatOrchestratorService.name);
@@ -114,7 +123,12 @@ export class ChatOrchestratorService {
 		@Inject(RI_KNOWLEDGE) private readonly riKnowledge: RiKnowledgePort,
 		@Optional()
 		@Inject(RI_DOCUMENT_QUERY)
-		private readonly riDocumentQuery?: RiDocumentQueryPort
+		private readonly riDocumentQuery?: RiDocumentQueryPort,
+		// Histórico de operações (ADR-002, TRA-16). Opcional: sem ele, a
+		// pergunta responde que o dado não está disponível.
+		@Optional()
+		@Inject(CHAT_TRADE_HISTORY)
+		private readonly tradeHistory?: ChatTradeHistoryPort
 	) {}
 
 	async orchestrate(
@@ -152,6 +166,12 @@ export class ChatOrchestratorService {
 				intent: ChatOrchestratorIntent;
 				symbols: string[];
 			} | null;
+			/**
+			 * Carteira escolhida nos chips "Consultando" (ADR-007, decisão 10).
+			 * Sem ele, todas as carteiras, como sempre foi. Quem chama já conferiu
+			 * que a carteira é do usuário.
+			 */
+			portfolioId?: string | null;
 		}
 	): Promise<ChatOrchestratorResponse> {
 		const normalizedQuestion = String(question || '').trim();
@@ -181,7 +201,13 @@ export class ChatOrchestratorService {
 				? 'synthesis_required'
 				: 'deterministic_no_llm';
 
-		const portfolios = await this.portfolioService.getUserPortfolios(userId);
+		const portfolioId = options?.portfolioId || null;
+		const allPortfolios = await this.portfolioService.getUserPortfolios(userId);
+		const portfolios = portfolioId
+			? allPortfolios.filter(
+					(portfolio: any) => String(portfolio?._id) === portfolioId
+				)
+			: allPortfolios;
 		const assets = portfolios.flatMap((portfolio: any) =>
 			Array.isArray(portfolio?.assets) ? portfolio.assets : []
 		);
@@ -225,6 +251,7 @@ export class ChatOrchestratorService {
 			// sem a intenção na chave, uma parte leria do cache a outra.
 			plannedIntent: plannedCall ? intent : undefined,
 			plannedSymbols: plannedCall ? symbols : undefined,
+			portfolioId,
 		});
 		const ttlSeconds = this.resolveCacheTtl(intent, predictedRouteType);
 		const canCache = this.canCacheIntent(intent, marketDataVersion);
@@ -285,6 +312,29 @@ export class ChatOrchestratorService {
 			cacheHit,
 			ttlSeconds,
 		};
+
+		// Histórico de operações (ADR-002, TRA-16): lê as operações do usuário do
+		// token e soma em código. Nada vai para o LLM.
+		if (intent === 'trade_history') {
+			if (!this.tradeHistory) {
+				unavailable.push('trade_history_unavailable');
+				return this.finish(env, {
+					routeType: 'deterministic_no_llm',
+					routeReason: 'insufficient_structured_data',
+					data: {},
+				});
+			}
+			const query = parseTradeHistoryQuery(normalizedQuestion, symbols);
+			// Sem carteira escolhida, a chamada fica como sempre foi.
+			const trades = portfolioId
+				? await this.tradeHistory.listTrades(userId, query, portfolioId)
+				: await this.tradeHistory.listTrades(userId, query);
+			return this.finish(env, {
+				routeType: 'deterministic_no_llm',
+				routeReason: 'rules_resolved',
+				data: { tradeHistory: { query, ...summarizeTrades(trades) } },
+			});
+		}
 
 		if (intent === 'portfolio_summary') {
 			const portfolioSummary =
@@ -1160,6 +1210,10 @@ export class ChatOrchestratorService {
 			intent === 'dividends_received' ||
 			intent === 'action_checklist'
 		) {
+			// Composição, meta e rebalanceamento são da conta inteira: a meta de
+			// alocação não é por carteira. Com filtro, responde sobre todas e
+			// avisa (ADR-007, decisão 10), em vez de fingir que filtrou.
+			if (portfolioId) warnings.push(PORTFOLIO_FILTER_IGNORED);
 			const composition = await this.compositionService.getComposition(userId);
 			const { rebalancing } = composition;
 
@@ -1522,6 +1576,9 @@ export class ChatOrchestratorService {
 		) {
 			return false;
 		}
+		// A resposta é feita das operações da própria pessoa, e a chave do cache
+		// é pelo hash da carteira, não pelo usuário: nunca entra no cache.
+		if (intent === 'trade_history') return false;
 		return intent !== 'unknown';
 	}
 
@@ -1539,6 +1596,7 @@ export class ChatOrchestratorService {
 		if (intent === 'investment_committee') return 300;
 		// Proventos mudam no máximo uma vez por dia (enriquecimento de mercado).
 		if (intent === 'dividends_received') return 300;
+		if (intent === 'trade_history') return 0;
 		if (
 			intent === 'allocation_gap' ||
 			intent === 'contribution_simulation' ||
@@ -1570,6 +1628,12 @@ export class ChatOrchestratorService {
 		/** So nas chamadas do roteador (TRA-241); no regex, como sempre foi. */
 		plannedIntent?: ChatOrchestratorIntent;
 		plannedSymbols?: string[];
+		/**
+		 * Carteira filtrada (ADR-007). O hash das posições já muda com o
+		 * filtro, mas o histórico de operações não entra nele: sem a carteira
+		 * na chave, duas carteiras com as mesmas posições dividiriam resposta.
+		 */
+		portfolioId?: string | null;
 	}): string {
 		const normalizedQuestion = String(input.question || '')
 			.trim()
@@ -1590,6 +1654,7 @@ export class ChatOrchestratorService {
 				`tool:${input.plannedIntent}:${(input.plannedSymbols ?? []).join(',')}`
 			);
 		}
+		if (input.portfolioId) parts.push(`wallet:${input.portfolioId}`);
 		return parts.join('|');
 	}
 
@@ -1809,6 +1874,16 @@ export class ChatOrchestratorService {
 			/\b(provento\w*|dividendo\w*|rendimento\w*|jcp)\b/.test(text)
 		) {
 			return 'dividends_received';
+		}
+		// Histórico das próprias operações (ADR-002, TRA-16): exige um verbo
+		// no passado ou o nome da coisa registrada, para "se eu vender" seguir
+		// para a simulação de venda.
+		if (
+			/\b(comprei|vendi|paguei de corretagem|minhas (compras|vendas|opera[cç][oõ]es|negocia[cç][oõ]es)|hist[oó]rico de (compras|vendas|opera[cç][oõ]es|negocia[cç][oõ]es)|quantas (compras|vendas|opera[cç][oõ]es) (eu )?fiz)\b/.test(
+				text
+			)
+		) {
+			return 'trade_history';
 		}
 		if (
 			/\b(preciso fazer algo|fazer algo hoje|algo urgente|o que (eu )?(devo|preciso) fazer)\b/.test(

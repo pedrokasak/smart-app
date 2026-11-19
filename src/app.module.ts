@@ -24,11 +24,13 @@ import { PixModule } from './payments/pix/pix.module';
 import { StockModule } from './stocks/stocks.module';
 import { MacroIndicatorsModule } from 'src/macro-indicators/macro-indicators.module';
 import { FixedIncomeModule } from 'src/fixed-income/fixed-income.module';
+import { FixedIncomePositionsModule } from 'src/fixed-income/positions/fixed-income-positions.module';
 import { InvestmentFundsModule } from 'src/investment-funds/investment-funds.module';
 import { AssetsModule } from './assets/assets.module';
 import { AiModule } from './ai/ai.module';
 import { AiEvaluationModule } from './ai/evaluation/ai-evaluation.module';
 import { RagIngestionModule } from './ai/rag-ingestion/rag-ingestion.module';
+import { BenchmarkModule } from './benchmark/benchmark.module';
 import { TwoFactorModule } from './two-factor/two-factor.module';
 import { BrokerSyncModule } from './broker-sync/broker-sync.module';
 import { FiscalModule } from './fiscal/fiscal.module';
@@ -43,12 +45,18 @@ import { NotificationsModule } from './notifications/events/notifications.module
 import { PushModule } from './notifications/push/push.module';
 import { PortfolioEvaluationModule } from './portfolio/evaluation/portfolio-evaluation.module';
 import { PrivacyModule } from './privacy/privacy.module';
+import { MobileModule } from './mobile/mobile.module';
 import { InvestmentPolicyModule } from './investment-policy/investment-policy.module';
 import { ReportsModule } from './reports/reports.module';
 import { FinancialPlanModule } from './financial-plan/financial-plan.module';
+import { DividendIncomeModule } from './dividend-income/dividend-income.module';
 import { EventsModule } from './events/events.module';
 import { QuoteStalenessModule } from './market-data/quote-staleness/quote-staleness.module';
 import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
+import { AgentControlModule } from './agent-control/agent-control.module';
+import { AuditModule } from './audit/audit.module';
+import { MarketIntelModule } from './market-intel/market-intel.module';
+import { AdvisorModule } from './advisor/advisor.module';
 
 @Module({
 	imports: [
@@ -64,11 +72,18 @@ import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 		}),
 		DatabaseModule,
 		SchedulerModule,
+		// Liga, desliga e configura agentes pelo painel admin (ADR-005). Global:
+		// os agendadores consultam a porta sem importar este módulo.
+		AgentControlModule,
+		// Trilha de auditoria encadeada (ADR-004, 9.3; ADR-005, fase A4). Global.
+		AuditModule,
 		SubscriptionModule,
 		StockModule,
 		MacroIndicatorsModule,
 		// Comparador de renda fixa com Tesouro Direto e taxas do BACEN (TRA-269).
 		FixedIncomeModule,
+		// Renda fixa como posição da carteira (TRA-230).
+		FixedIncomePositionsModule,
 		// Fundos de investimento com cota diária da CVM (TRA-276).
 		InvestmentFundsModule,
 		AssetsModule,
@@ -76,6 +91,8 @@ import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 		// Avaliação semanal das respostas de IA (TRA-242).
 		AiEvaluationModule,
 		RagIngestionModule,
+		// Benchmark do Score por coorte (ADR-003, TRA-60).
+		BenchmarkModule,
 		TwoFactorModule,
 		BrokerSyncModule,
 		PortfolioModule,
@@ -90,10 +107,16 @@ import { RiWatchModule } from './ri-intelligence/watch/ri-watch.module';
 		NotificationsModule,
 		PushModule,
 		PrivacyModule,
+		MobileModule,
 		InvestmentPolicyModule,
 		ReportsModule,
 		FinancialPlanModule,
+		DividendIncomeModule,
 		PixModule,
+		// Inteligência de mercado — ingestão de RSS e clusterização (ADR-004, F1).
+		MarketIntelModule,
+		// Fundacao do Trackerr Advisor: orgs, vinculos e autorizacao (P1).
+		AdvisorModule,
 	],
 	controllers: [AppController],
 	providers: [

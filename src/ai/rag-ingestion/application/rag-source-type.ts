@@ -16,6 +16,9 @@ export const RAG_SOURCE_TYPES = [
 	'portfolio_risk',
 	'portfolio_performance',
 	'portfolio_dividend',
+	// ADR-002 (TRA-16): fatos derivados das operações e da renda fixa.
+	'portfolio_trade_summary',
+	'portfolio_fixed_income',
 ] as const;
 
 export type RagSourceType = (typeof RAG_SOURCE_TYPES)[number];

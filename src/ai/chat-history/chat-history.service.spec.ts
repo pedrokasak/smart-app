@@ -31,6 +31,38 @@ describe('ChatHistoryService', () => {
 		expect(service).toBeDefined();
 	});
 
+	describe('recentUserQuestions', () => {
+		it('busca só perguntas da conversa, poucas, e devolve da mais antiga para a mais nova', async () => {
+			const exec = jest
+				.fn()
+				.mockResolvedValue([
+					{ text: 'e a ITUB4?' },
+					{ text: 'e a VALE3?' },
+					{ text: 'Quanto a PETR4 pagou?' },
+				]);
+			const lean = jest.fn().mockReturnValue({ exec });
+			const select = jest.fn().mockReturnValue({ lean });
+			const limit = jest.fn().mockReturnValue({ select });
+			const sort = jest.fn().mockReturnValue({ limit });
+			mockChatMessageModel.find.mockReturnValue({ sort });
+
+			const result = await service.recentUserQuestions('u1', 'conv-1');
+
+			expect(mockChatMessageModel.find).toHaveBeenCalledWith({
+				userId: 'u1',
+				conversationId: 'conv-1',
+				role: 'user',
+			});
+			expect(sort).toHaveBeenCalledWith({ createdAt: -1 });
+			expect(limit).toHaveBeenCalledWith(5);
+			expect(result).toEqual([
+				'Quanto a PETR4 pagou?',
+				'e a VALE3?',
+				'e a ITUB4?',
+			]);
+		});
+	});
+
 	describe('listByUser', () => {
 		it('busca as mensagens mais recentes e devolve em ordem cronologica', async () => {
 			const descOrder = [

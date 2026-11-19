@@ -64,3 +64,9 @@ pids
 
 # Diagnostic reports (https://nodejs.org/api/report.html)
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+
+# Pacote de acesso da B3 (certificado, chave, client secret) - TRA-185
+secrets/
+
+# Pacote de acesso da B3 (certificado, chave, client secret) - TRA-185
+secrets/

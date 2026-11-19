@@ -5,7 +5,9 @@ import {
 	Optional,
 } from '@nestjs/common';
 import { todayInSaoPaulo } from 'src/macro-indicators/application/macro-series.service';
+import { expectedAnnualIpcaPct } from 'src/macro-indicators/domain/inflation-expectations';
 import { buildAnalysis } from '../domain/comparison-analysis';
+import { explainComparison } from './comparison-didactic';
 import { addDays, toBrDate, toBrMonth } from '../domain/dates';
 import { regressiveTaxRatePct } from '../domain/fixed-income-tax';
 import type { Indexer, Instrument } from '../domain/instrument';
@@ -28,6 +30,7 @@ import {
 } from './comparison.types';
 import { FIXED_INCOME_CLOCK } from './fixed-income-clock';
 import {
+	type FixedIncomeRates,
 	FixedIncomeRatesService,
 	type MarketRate,
 } from './fixed-income-rates.service';
@@ -78,6 +81,47 @@ function resolveAssumption(
 	return { valuePct: market.valuePct, source: 'market', asOf: market.asOf };
 }
 
+const round2 = (value: number) => Math.round(value * 100) / 100;
+
+/**
+ * IPCA da simulação: o digitado; senão a projeção do Focus para o prazo, que
+ * é o que o mercado espera para o período simulado; senão o realizado de 12
+ * meses, avisando que ele olha para trás.
+ */
+function resolveIpca(
+	typed: number | undefined,
+	market: FixedIncomeRates,
+	today: string,
+	days: number,
+	warnings: string[]
+): AssumptionValue {
+	if (typed !== undefined) return { valuePct: typed, source: 'user' };
+	const focus = market.ipcaFocus;
+	if (focus) {
+		if (focus.stale) {
+			warnings.push(
+				`A projeção Focus é de ${toBrDate(focus.surveyDate)} e pode estar desatualizada.`
+			);
+		}
+		return {
+			valuePct: round2(expectedAnnualIpcaPct(focus, today, days)),
+			source: 'market',
+			asOf: focus.surveyDate,
+			basis: 'focus',
+		};
+	}
+	const realized = resolveAssumption(
+		'ipca',
+		undefined,
+		market.ipca12m,
+		warnings
+	);
+	warnings.push(
+		'Projeção Focus indisponível agora: a simulação usa o IPCA dos últimos 12 meses.'
+	);
+	return { ...realized, basis: 'ipca_12m' };
+}
+
 /**
  * Comparação de renda fixa lado a lado (TRA-269). Todo número de mercado vem
  * de fonte oficial (BACEN, Tesouro Transparente) ou de quem simula; o que não
@@ -102,15 +146,9 @@ export class FixedIncomeComparisonService {
 		const market = await this.ratesService.getRates();
 		const warnings: string[] = [];
 		const cdi = resolveAssumption('cdi', request.cdiPct, market.cdi, warnings);
-		const ipca = resolveAssumption(
-			'ipca',
-			request.ipcaPct,
-			market.ipca12m,
-			warnings
-		);
-
 		const today = todayInSaoPaulo(this.clock ? this.clock() : new Date());
 		const days = daysFromYears(request.years);
+		const ipca = resolveIpca(request.ipcaPct, market, today, days, warnings);
 		const scenario: Scenario = {
 			principal: request.principal,
 			years: request.years,
@@ -139,18 +177,28 @@ export class FixedIncomeComparisonService {
 			row.realAnnualPct > top.realAnnualPct ? row : top
 		);
 
+		const resultScenario: ComparisonResult['scenario'] = {
+			principal: scenario.principal,
+			years: scenario.years,
+			days,
+			horizonEnd: scenario.horizonEnd,
+			irRatePct: regressiveTaxRatePct(days),
+			cdi,
+			ipca,
+		};
+		const rows = simulated.map((row) => ({
+			...row,
+			isBest: row.id === best.id,
+		}));
+
 		return {
-			scenario: {
-				principal: scenario.principal,
-				years: scenario.years,
-				days,
-				horizonEnd: scenario.horizonEnd,
-				irRatePct: regressiveTaxRatePct(days),
-				cdi,
-				ipca,
-			},
-			rows: simulated.map((row) => ({ ...row, isBest: row.id === best.id })),
+			scenario: resultScenario,
+			rows,
 			analysis: buildAnalysis(simulated, scenario),
+			didactic: explainComparison(
+				{ scenario: resultScenario, rows },
+				request.level ?? 'intermediario'
+			),
 			warnings,
 			selicMeta: market.selicMeta,
 			tesouro: market.tesouro && {

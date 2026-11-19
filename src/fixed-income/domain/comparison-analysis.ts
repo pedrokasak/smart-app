@@ -24,7 +24,7 @@ export function formatPct(value: number): string {
 	});
 }
 
-function horizonLabel(years: number): string {
+export function horizonLabel(years: number): string {
 	const text = Number.isInteger(years)
 		? String(years)
 		: years.toLocaleString('pt-BR', { maximumFractionDigits: 2 });

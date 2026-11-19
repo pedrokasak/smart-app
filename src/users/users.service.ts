@@ -152,7 +152,11 @@ export class UsersService {
 
 		const updated = await UserModel.findByIdAndUpdate(
 			id,
-			emailChanged ? { ...updateUserDto, email: nextEmail } : updateUserDto,
+			// Ninguém provou a posse do endereço novo. Login social e o bootstrap de
+			// admin confiam nesta marca.
+			emailChanged
+				? { ...updateUserDto, email: nextEmail, isEmailVerified: false }
+				: updateUserDto,
 			{ new: true }
 		);
 

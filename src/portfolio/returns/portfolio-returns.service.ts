@@ -9,6 +9,7 @@ import {
 	computeDailyReturns,
 	computeTwr,
 	computeXirr,
+	costOfPositionsWithoutTrades,
 	cumulativeReturns,
 	decomposeContribution,
 	type DailyValuePoint,
@@ -25,10 +26,12 @@ import {
 import {
 	computeDrawdown,
 	computeHistoricalVar,
+	computeAnnualVolatility,
 	computeSharpe,
 	type DrawdownResult,
 	type HistoricalVarResult,
 	type SharpeResult,
+	type VolatilityResult,
 } from 'src/portfolio/history/risk-metrics';
 import {
 	RISK_FREE_RATE_PROVIDER,
@@ -66,6 +69,17 @@ import {
  * `FiscalModule` inteiro só para ler negociações (CLAUDE.md §11).
  */
 
+/** Recorte de `PortfolioReturnsOutput` para telas que só mostram o resumo. */
+export interface PortfolioReturnsSummary {
+	/** Valor a mercado no último snapshot. */
+	currentValue: number;
+	/** Retorno time-weighted do período, em fração. */
+	twr: number | null;
+	/** Data do último snapshot. */
+	asOf: string | null;
+	staleDays: number;
+}
+
 export interface PortfolioReturnsOutput {
 	from: string | null;
 	to: string | null;
@@ -76,6 +90,11 @@ export interface PortfolioReturnsOutput {
 		value: number | null;
 		annualized: number | null;
 		periods: number;
+		/**
+		 * Primeiro dia com valor de mercado comparável (TRA-279). Antes dele a
+		 * série só tinha custo, e não há rentabilidade para medir.
+		 */
+		measuredFrom: string | null;
 	};
 	/**
 	 * TWR acumulado por pregão, em fração, começando em 0 no pregão-base.
@@ -114,6 +133,8 @@ export interface PortfolioReturnsOutput {
 	 */
 	risk: {
 		sharpe: SharpeResult;
+		/** Volatilidade anualizada sobre os retornos ajustados por fluxo. */
+		volatility: VolatilityResult;
 		valueAtRisk: HistoricalVarResult;
 		drawdown: DrawdownResult & {
 			/** Pregões do fundo à volta ao topo; `null` se não recuperou. */
@@ -163,6 +184,8 @@ const FII_DOMINANCE_PCT = 50;
 /** Janela pedida ao provedor. Um ano cobre os 252 pregões da anualização. */
 const BENCHMARK_RANGE = '1y';
 
+const round2 = (value: number): number => Math.round(value * 100) / 100;
+
 @Injectable()
 export class PortfolioReturnsService {
 	private readonly logger = new Logger(PortfolioReturnsService.name);
@@ -181,30 +204,34 @@ export class PortfolioReturnsService {
 		private readonly portfolioService: PortfolioService
 	) {}
 
-	/** Peso de FII na carteira, a valor de mercado. 0 quando não dá pra saber. */
-	private async fiiSharePct(userId: string): Promise<number> {
+	/** Ativos de todas as carteiras do usuário. Falha vira lista vazia. */
+	private async userAssets(userId: string): Promise<any[]> {
 		try {
 			const portfolios = await this.portfolioService.getUserPortfolios(userId);
-			const assets = (portfolios || []).flatMap((portfolio: any) =>
+			return (portfolios || []).flatMap((portfolio: any) =>
 				Array.isArray(portfolio?.assets) ? portfolio.assets : []
 			);
-			let total = 0;
-			let fii = 0;
-			for (const asset of assets) {
-				const quantity = Number(asset?.quantity) || 0;
-				const price = Number(asset?.currentPrice) || Number(asset?.price) || 0;
-				const value = quantity * price;
-				if (!(value > 0)) continue;
-				total += value;
-				if (String(asset?.type) === 'fii') fii += value;
-			}
-			return total > 0 ? (fii / total) * 100 : 0;
 		} catch (error) {
 			this.logger.warn(
-				`Não foi possível medir a fatia de FII: ${(error as Error)?.message || error}`
+				`Ativos do usuário indisponíveis: ${(error as Error)?.message || error}`
 			);
-			return 0;
+			return [];
 		}
+	}
+
+	/** Peso de FII na carteira, a valor de mercado. 0 quando não dá pra saber. */
+	private fiiSharePct(assets: any[]): number {
+		let total = 0;
+		let fii = 0;
+		for (const asset of assets) {
+			const quantity = Number(asset?.quantity) || 0;
+			const price = Number(asset?.currentPrice) || Number(asset?.price) || 0;
+			const value = quantity * price;
+			if (!(value > 0)) continue;
+			total += value;
+			if (String(asset?.type) === 'fii') fii += value;
+		}
+		return total > 0 ? (fii / total) * 100 : 0;
 	}
 
 	/**
@@ -212,13 +239,13 @@ export class PortfolioReturnsService {
 	 * provedor pode não ter o IFIX), cai para o IBOV e avisa — nunca devolve
 	 * beta contra um índice que não foi o usado.
 	 */
-	private async resolveBenchmark(userId: string): Promise<{
+	private async resolveBenchmark(assets: any[]): Promise<{
 		symbol: string;
 		label: string;
 		closes: { date: string; close: number }[];
 		fallback: boolean;
 	}> {
-		const fiiShare = await this.fiiSharePct(userId);
+		const fiiShare = this.fiiSharePct(assets);
 		const preferred = fiiShare > FII_DOMINANCE_PCT ? IFIX : IBOV;
 
 		const closes = await this.marketData.getDailyCloses(
@@ -278,10 +305,41 @@ export class PortfolioReturnsService {
 		}
 	}
 
-	async getReturns(
+	/**
+	 * Só o valor atual e o TWR, sem benchmark, risco, CDI nem IPCA: nenhuma chamada
+	 * externa. Usa o mesmo cálculo de `getReturns`, então os números são os mesmos.
+	 */
+	async getReturnsSummary(
 		userId: string,
 		range?: { from?: string; to?: string }
-	): Promise<PortfolioReturnsOutput> {
+	): Promise<PortfolioReturnsSummary> {
+		const { series, trades, staleDays } = await this.loadDailySeries(
+			userId,
+			range
+		);
+		const flows = computeDailyCashFlows(
+			trades.map((trade) => ({
+				side: trade.side,
+				quantity: trade.quantity,
+				price: trade.price,
+				fees: trade.fees,
+				date: trade.date,
+			}))
+		);
+		const last = series[series.length - 1];
+
+		return {
+			currentValue: round2(last?.totalValue ?? 0),
+			twr: computeTwr({ series, flows: flows.byDay }).twr,
+			asOf: last?.date ?? null,
+			staleDays,
+		};
+	}
+
+	private async loadDailySeries(
+		userId: string,
+		range?: { from?: string; to?: string }
+	) {
 		const dateFilter: Record<string, string> = {};
 		if (range?.from) dateFilter.$gte = range.from;
 		if (range?.to) dateFilter.$lte = range.to;
@@ -298,8 +356,6 @@ export class PortfolioReturnsService {
 			this.tradeModel.find({ userId }).sort({ date: 1 }).lean().exec(),
 		]);
 
-		const unavailable: string[] = [];
-
 		// Usuário com mais de um portfólio tem os valores do mesmo dia somados,
 		// como já faz getUserPortfolioHistory.
 		const byDate = new Map<string, DailyValuePoint>();
@@ -310,6 +366,12 @@ export class PortfolioReturnsService {
 				existing.totalValue += row.totalValue || 0;
 				existing.investedValue =
 					(existing.investedValue || 0) + (row.investedValue || 0);
+				existing.staleSymbols = Array.from(
+					new Set([
+						...(existing.staleSymbols ?? []),
+						...(row.staleSymbols ?? []),
+					])
+				);
 				continue;
 			}
 			if (row.stale) staleDays += 1;
@@ -317,6 +379,7 @@ export class PortfolioReturnsService {
 				date: row.date,
 				totalValue: row.totalValue || 0,
 				investedValue: row.investedValue,
+				staleSymbols: row.stale ? [...(row.staleSymbols ?? [])] : [],
 				// Snapshot anterior a TRA-143 não tem a marcação. Tratar como
 				// pregão preserva o comportamento antigo em vez de descartar o
 				// ponto silenciosamente.
@@ -327,6 +390,19 @@ export class PortfolioReturnsService {
 		const series = Array.from(byDate.values()).sort((a, b) =>
 			a.date.localeCompare(b.date)
 		);
+
+		return { series, trades, staleDays };
+	}
+
+	async getReturns(
+		userId: string,
+		range?: { from?: string; to?: string }
+	): Promise<PortfolioReturnsOutput> {
+		const { series, trades, staleDays } = await this.loadDailySeries(
+			userId,
+			range
+		);
+		const unavailable: string[] = [];
 
 		const from = series.length ? series[0].date : null;
 		const to = series.length ? series[series.length - 1].date : null;
@@ -351,9 +427,19 @@ export class PortfolioReturnsService {
 			unavailable.push('cash_flows_missing');
 		}
 
+		const assets = await this.userAssets(userId);
+		const untradedCost = costOfPositionsWithoutTrades(
+			assets.map((asset: any) => ({
+				symbol: asset?.symbol,
+				quantity: asset?.quantity,
+				price: asset?.price,
+			})),
+			new Set(trades.map((trade) => String(trade.symbol || '').toUpperCase()))
+		);
+
 		const contribution = decomposeContribution({
 			currentValue,
-			netContribution: flows.netContribution,
+			netContribution: flows.netContribution + untradedCost,
 		});
 
 		const twrResult = computeTwr({ series, flows: flows.byDay });
@@ -361,17 +447,24 @@ export class PortfolioReturnsService {
 			unavailable.push('twr_insufficient_series');
 		}
 
+		// Anualiza pela janela de fato medida, não pela série inteira: dias
+		// gravados a custo não entram no TWR (TRA-279) e não podem esticar o
+		// denominador.
+		const { measuredFrom, measuredTo } = twrResult;
 		let annualized: number | null = null;
-		if (twrResult.twr !== null && from && to) {
+		if (twrResult.twr !== null && measuredFrom && measuredTo) {
 			const days =
-				(new Date(`${to}T00:00:00.000Z`).getTime() -
-					new Date(`${from}T00:00:00.000Z`).getTime()) /
+				(new Date(`${measuredTo}T00:00:00.000Z`).getTime() -
+					new Date(`${measuredFrom}T00:00:00.000Z`).getTime()) /
 				(24 * 60 * 60 * 1000);
 			annualized = annualize(twrResult.twr, days);
 		}
 
 		let irr: number | null = null;
-		if (flows.covered && to && currentValue > 0) {
+		// Posição sem nota não tem data de entrada do dinheiro: a TIR ignoraria
+		// esse aporte e sairia inflada. Melhor declarar a lacuna (TRA-279).
+		if (untradedCost > 0) unavailable.push('irr_positions_without_trades');
+		if (flows.covered && untradedCost === 0 && to && currentValue > 0) {
 			const irrFlows: IrrCashFlow[] = flows.byDay.map((point) => ({
 				date: point.date,
 				amount: point.flow,
@@ -385,33 +478,27 @@ export class PortfolioReturnsService {
 		// Beta e tracking error contra o IBOV (TRA-141). Os retornos da carteira
 		// vêm ajustados por fluxo: sem isso o beta mediria o calendário de
 		// aportes do usuário em vez da sensibilidade ao índice.
-		const { returns: portfolioReturns } = computeDailyReturns({
+		const { returns: portfolioReturns, baseDate } = computeDailyReturns({
 			series,
 			flows: flows.byDay,
 		});
-		const firstReturnDate = portfolioReturns[0]?.date;
-		const baseDate =
-			series
-				.filter(
-					(point) =>
-						point.tradingDay !== false &&
-						firstReturnDate !== undefined &&
-						point.date < firstReturnDate
-				)
-				.pop()?.date ?? null;
 		const twrSeries = cumulativeReturns(portfolioReturns, baseDate);
 		const [benchmark, riskFreeDaily, ipca] = await Promise.all([
-			this.resolveBenchmark(userId),
+			this.resolveBenchmark(assets),
 			this.fetchRiskFreeDaily(
 				portfolioReturns[0]?.date,
 				portfolioReturns[portfolioReturns.length - 1]?.date
 			),
-			twrResult.twr !== null ? this.fetchInflation(from, to) : null,
+			twrResult.twr !== null
+				? this.fetchInflation(measuredFrom, measuredTo)
+				: null,
 		]);
+		// IPCA da mesma janela do TWR: descontar inflação de um período que o
+		// retorno não cobre mistura bases.
 		const realReturnResult = buildRealReturn({
 			twr: twrResult.twr,
-			from,
-			to,
+			from: measuredFrom,
+			to: measuredTo,
 			ipca,
 		});
 		if (twrResult.twr !== null && realReturnResult.value === null) {
@@ -429,6 +516,7 @@ export class PortfolioReturnsService {
 		}
 
 		const sharpe = computeSharpe(portfolioReturns, riskFreeDaily);
+		const volatility = computeAnnualVolatility(portfolioReturns);
 		if (sharpe.sharpe === null) unavailable.push('sharpe_insufficient_data');
 		const valueAtRisk = computeHistoricalVar(portfolioReturns, {
 			portfolioValue: currentValue,
@@ -466,6 +554,7 @@ export class PortfolioReturnsService {
 				value: twrResult.twr,
 				annualized,
 				periods: twrResult.periods,
+				measuredFrom,
 			},
 			twrSeries,
 			realReturn: realReturnResult,
@@ -485,6 +574,7 @@ export class PortfolioReturnsService {
 			},
 			risk: {
 				sharpe,
+				volatility,
 				valueAtRisk,
 				drawdown: {
 					...drawdown,

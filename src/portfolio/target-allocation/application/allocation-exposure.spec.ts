@@ -15,10 +15,21 @@ describe('allocation-exposure', () => {
 		expect(toAllocationBucket(undefined)).toBe('other');
 	});
 
-	it('prefere total, depois cotacao atual, depois preco de entrada', () => {
+	it('carteira valorizada pesa pelo valor de mercado, nao pelo custo', () => {
+		const exposure = computeBucketExposure([
+			{ type: 'crypto', quantity: 1, total: 1000, currentPrice: 10000 },
+			{ type: 'stock', quantity: 100, total: 10000, currentPrice: 100 },
+		]);
+
+		expect(exposure.crypto).toBeCloseTo(50, 5);
+		expect(exposure.stocks).toBeCloseTo(50, 5);
+	});
+
+	it('prefere cotacao atual, depois total, depois preco de entrada', () => {
 		expect(positionValue({ total: 500, quantity: 2, currentPrice: 10 })).toBe(
-			500
+			20
 		);
+		expect(positionValue({ total: 500, quantity: 2, price: 4 })).toBe(500);
 		expect(positionValue({ quantity: 2, currentPrice: 10, price: 4 })).toBe(20);
 		expect(positionValue({ quantity: 2, price: 4 })).toBe(8);
 	});

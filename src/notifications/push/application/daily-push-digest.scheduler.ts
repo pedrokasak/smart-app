@@ -1,4 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+} from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
@@ -69,13 +74,15 @@ export class DailyPushDigestScheduler {
 		private readonly userModel: Model<User>,
 		private readonly subscriptions: PushSubscriptionRepository,
 		private readonly notifications: NotificationsService,
-		@Inject(WEB_PUSH_SENDER) private readonly sender: WebPushSender
+		@Inject(WEB_PUSH_SENDER) private readonly sender: WebPushSender,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
 	) {}
 
 	@Cron('0 9 * * *', {
 		name: 'notifications-daily-push-digest',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('daily-push-digest')
 	async runDaily(): Promise<void> {
 		try {
 			const summary = await this.dispatch(new Date());

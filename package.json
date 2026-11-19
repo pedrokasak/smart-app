@@ -22,8 +22,10 @@
 		"type-check": "tsc --noEmit",
 		"load:seed": "node test/load/seed/seed-load-users.mjs",
 		"load:queue-burst": "node test/load/queue/burst.mjs",
+		"export:openapi": "node -r ts-node/register/transpile-only -r tsconfig-paths/register src/scripts/export-openapi.ts",
 		"sync:plans": "tsx src/scripts/sync-plans.ts",
-		"sync:plans:dry": "tsx src/scripts/sync-plans.ts --dry-run"
+		"sync:plans:dry": "tsx src/scripts/sync-plans.ts --dry-run",
+		"b3:check": "tsx src/scripts/b3-investor-check.ts"
 	},
 	"dependencies": {
 		"@bull-board/api": "^6.21.3",
@@ -59,6 +61,7 @@
 		"class-transformer": "^0.5.1",
 		"class-validator": "^0.15.1",
 		"dotenv": "^16.6.1",
+		"fast-xml-parser": "^5.11.2",
 		"helmet": "^8.3.0",
 		"ioredis": "^5.11.1",
 		"mongoose": "^8.24.4",

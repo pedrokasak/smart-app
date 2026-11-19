@@ -31,7 +31,13 @@ describe('InvestorProfileInsightsService', () => {
 				},
 			},
 			portfolioRisk: {
-				risk: { score: 45, level: 'low', flags: [] },
+				risk: {
+					score: 45,
+					level: 'low',
+					flags: [],
+					weightedVolatility: 0,
+					weightedBeta: 0,
+				},
 				concentrationByAsset: [],
 				concentrationBySector: [],
 				rebalanceSuggestionInputs: {

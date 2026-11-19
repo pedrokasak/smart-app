@@ -2,6 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { PortfolioIntelligencePosition } from 'src/portfolio/intelligence/domain/portfolio-intelligence.types';
 import { RagIngestItem } from 'src/ai/rag-ingestion/application/rag-ingestion.port';
+import type { Trade } from 'src/fiscal/domain/trade';
+import { containsPersonalData } from 'src/ai/rag-ingestion/domain/rag-pii-guard';
+import { buildTradeSummaryItems } from 'src/ai/rag-ingestion/domain/trade-summary';
+import {
+	buildFixedIncomeItems,
+	type FixedIncomeFactAsset,
+} from 'src/ai/rag-ingestion/domain/fixed-income-facts';
 
 /**
  * Transforma os fatos determinísticos da carteira em chunks de texto pro RAG
@@ -107,6 +114,22 @@ export class RagFactBuilderService {
 		}
 
 		return items.filter((item) => item.content && item.content.trim());
+	}
+
+	/**
+	 * Fatos derivados das operações e da renda fixa (ADR-002, TRA-16). Texto
+	 * montado só com ticker, datas, quantidades e valores; a trava de dado
+	 * pessoal descarta qualquer chunk que, por descuido, carregue CPF, CNPJ,
+	 * e-mail ou conta.
+	 */
+	buildDerived(
+		input: { trades: Trade[]; assets: FixedIncomeFactAsset[] },
+		asOf: string
+	): RagIngestItem[] {
+		return [
+			...buildTradeSummaryItems(input.trades, asOf),
+			...buildFixedIncomeItems(input.assets, asOf),
+		].filter((item) => !containsPersonalData(item.content));
 	}
 
 	// Percentual pode vir como fração (0.22) ou como já-percentual (22).

@@ -97,6 +97,12 @@ export interface PortfolioRiskAnalysis {
 		severity: 'low' | 'medium' | 'high';
 		message: string;
 	}>;
+	/**
+	 * Médias ponderadas por valor que disparam VOLATILITY_* e BETA_HIGH. Saem
+	 * daqui para a evidência dos alertas mostrar o número, sem recalcular.
+	 */
+	weightedVolatility: number;
+	weightedBeta: number;
 }
 
 export interface DividendFlowProjection {

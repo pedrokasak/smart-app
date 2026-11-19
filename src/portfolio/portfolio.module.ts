@@ -15,6 +15,8 @@ import { PortfolioEnrichService } from 'src/portfolio/portfolio-enrich.service';
 import { PortfolioController } from 'src/portfolio/portfolio.controller';
 import { PortfolioIntelligenceService } from 'src/portfolio/intelligence/application/portfolio-intelligence.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
+import { PortfolioPolicyService } from 'src/portfolio/policy/application/portfolio-policy.service';
+import { PortfolioPolicyController } from 'src/portfolio/policy/portfolio-policy.controller';
 import { portfolioSchema } from 'src/portfolio/schema/portfolio.model';
 import { portfolioHistorySchema } from 'src/portfolio/schema/portfolio-history.model';
 
@@ -34,9 +36,9 @@ import {
 } from 'src/portfolio/returns/macro-series.adapters';
 import { PortfolioRiskContributionService } from 'src/portfolio/risk/portfolio-risk-contribution.service';
 import { PortfolioHistoryBackfillService } from 'src/portfolio/history/portfolio-history-backfill.service';
-import { PortfolioHistoryRepairScheduler } from 'src/portfolio/history/portfolio-history-repair.scheduler';
 import { upcomingDividendSchema } from 'src/portfolio/upcoming-dividends/upcoming-dividend.model';
 import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcoming-dividends.service';
+import { PortfolioMarkToMarketService } from 'src/portfolio/valuation/portfolio-mark-to-market.service';
 
 @Module({
 	imports: [
@@ -77,6 +79,7 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		MacroIndicatorsModule,
 	],
 	providers: [
+		PortfolioMarkToMarketService,
 		// Adapters
 		BrapiStockAdapter,
 		FiisApiAdapter,
@@ -88,6 +91,7 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 
 		// Services
 		PortfolioService,
+		PortfolioPolicyService,
 		PortfolioEnrichService,
 		PortfolioIntelligenceService,
 		PortfolioReturnsService,
@@ -111,11 +115,8 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		// Backfill diário do setor dos ativos existentes (TRA-144): o
 		// enriquecimento só roda ao adicionar ativo, então não alcança a base.
 		SectorBackfillScheduler,
-		// Corrige o histórico reconstruído a custo quando os fechamentos
-		// passam a existir (TRA-279).
-		PortfolioHistoryRepairScheduler,
 	],
-	controllers: [PortfolioController],
+	controllers: [PortfolioController, PortfolioPolicyController],
 	exports: [
 		PortfolioService,
 		PortfolioIntelligenceService,
@@ -123,6 +124,8 @@ import { UpcomingDividendsService } from 'src/portfolio/upcoming-dividends/upcom
 		PortfolioCompositionService,
 		PortfolioHistoryBackfillService,
 		PortfolioRiskContributionService,
+		UpcomingDividendsService,
+		PortfolioMarkToMarketService,
 	],
 })
 export class PortfolioModule {}

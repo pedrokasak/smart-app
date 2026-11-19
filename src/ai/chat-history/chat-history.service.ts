@@ -1,6 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
-import { Model } from 'mongoose';
+import { Model, Types } from 'mongoose';
 import { ChatMessage, ChatMessageDocument } from './schema/chat-message.schema';
 import { AppendChatMessageRequestDto } from './dto/append-chat-message-request.dto';
 
@@ -11,6 +11,8 @@ import { AppendChatMessageRequestDto } from './dto/append-chat-message-request.d
  * IntelligentChatRequestDto.
  */
 const MAX_HISTORY_MESSAGES = 200;
+/** Perguntas anteriores usadas para resolver seguimentos em cadeia. */
+const RECENT_QUESTIONS_FOR_CONTEXT = 5;
 
 @Injectable()
 export class ChatHistoryService {
@@ -19,12 +21,15 @@ export class ChatHistoryService {
 		private readonly chatMessageModel: Model<ChatMessageDocument>
 	) {}
 
-	async listByUser(userId: string): Promise<ChatMessage[]> {
+	async listByUser(
+		userId: string,
+		conversationId?: string
+	): Promise<ChatMessage[]> {
 		// Busca as MAX_HISTORY_MESSAGES mais recentes (desc) e reordena para asc
 		// antes de devolver — sem isso, o limit cortaria as mensagens mais
 		// novas de uma conversa longa em vez das mais antigas.
 		const messages = await this.chatMessageModel
-			.find({ userId })
+			.find(conversationId ? { userId, conversationId } : { userId })
 			.sort({ createdAt: -1 })
 			.limit(MAX_HISTORY_MESSAGES)
 			.lean()
@@ -45,7 +50,46 @@ export class ChatHistoryService {
 			retryQuestion: dto.retryQuestion,
 			payload: dto.payload,
 			aiGenerated: dto.aiGenerated,
+			channel: dto.channel,
+			conversationId: dto.conversationId,
 		});
 		return created.toObject();
+	}
+
+	/**
+	 * Últimas perguntas do usuário na conversa, da mais antiga para a mais
+	 * nova: o contexto do seguimento, resolvido em cadeia
+	 * (`conversationContext`). Poucas bastam, porque só seguimentos curtos
+	 * ("e a VALE3?") dependem das anteriores.
+	 */
+	async recentUserQuestions(
+		userId: string,
+		conversationId: string,
+		limit = RECENT_QUESTIONS_FOR_CONTEXT
+	): Promise<string[]> {
+		const recent = await this.chatMessageModel
+			.find({ userId, conversationId, role: 'user' })
+			.sort({ createdAt: -1 })
+			.limit(limit)
+			.select({ text: 1 })
+			.lean()
+			.exec();
+		return recent.map((message) => String(message.text ?? '')).reverse();
+	}
+
+	/**
+	 * Resposta do assistente do próprio usuário, para a voz gerar o áudio a
+	 * partir dela (ADR-007, decisão 8). Filtra por `userId`: um id de outra
+	 * pessoa responde como inexistente.
+	 */
+	async findOwnAssistantMessage(
+		userId: string,
+		messageId: string
+	): Promise<ChatMessage | null> {
+		if (!Types.ObjectId.isValid(messageId)) return null;
+		return this.chatMessageModel
+			.findOne({ _id: messageId, userId, role: 'assistant' })
+			.lean()
+			.exec();
 	}
 }

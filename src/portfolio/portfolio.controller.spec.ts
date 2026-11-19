@@ -1,3 +1,4 @@
+import { PortfolioPolicyService } from 'src/portfolio/policy/application/portfolio-policy.service';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
 import { PortfolioController } from './portfolio.controller';
@@ -16,6 +17,7 @@ import * as xlsx from 'xlsx';
 import { BrokerageNoteUploadModel } from 'src/broker-sync/schema/brokerage-note-upload.model';
 import { extractPdfText } from 'src/common/pdf/extract-pdf-text';
 import { InvestmentFundsService } from 'src/investment-funds/application/investment-funds.service';
+import { PortfolioMarkToMarketService } from 'src/portfolio/valuation/portfolio-mark-to-market.service';
 
 jest.mock('src/authentication/jwt-auth.guard', () => ({
 	JwtAuthGuard: jest.fn().mockImplementation(() => true),
@@ -135,6 +137,15 @@ describe('PortfolioController', () => {
 					useValue: mockQuoteFreshness,
 				},
 				{ provide: InvestmentFundsService, useValue: mockInvestmentFunds },
+				PortfolioMarkToMarketService,
+				{
+					provide: PortfolioPolicyService,
+					useValue: {
+						resolveForCreate: jest
+							.fn()
+							.mockResolvedValue({ purpose: null, policy: null }),
+					},
+				},
 			],
 		}).compile();
 
@@ -201,7 +212,8 @@ describe('PortfolioController', () => {
 			expect(mockPortfolioService.createPortfolio).toHaveBeenCalledWith(
 				'user1',
 				dto,
-				'premium'
+				'premium',
+				{ purpose: null, policy: null }
 			);
 		});
 	});

@@ -12,6 +12,7 @@ import { RolesGuard } from 'src/auth/guards/roles.guard';
 import { Role } from 'src/auth/enums/role.enum';
 import { PlanQuotaService } from 'src/subscription/quotas/plan-quota.service';
 import { CheckoutConfirmationService } from './application/checkout-confirmation.service';
+import { SubscriptionRefundService } from './application/subscription-refund.service';
 import {
 	FREE_ACCESS_LEVEL,
 	PREMIUM_ACCESS_LEVEL,
@@ -46,6 +47,11 @@ const mockCheckoutConfirmation = {
 
 const mockWebhooksService = {
 	handleWebhook: jest.fn(),
+};
+
+const mockRefunds = {
+	checkEligibility: jest.fn(),
+	refund: jest.fn(),
 };
 
 jest.mock('../env.ts', () => ({
@@ -102,6 +108,7 @@ describe('SubscriptionController', () => {
 					provide: CheckoutConfirmationService,
 					useValue: mockCheckoutConfirmation,
 				},
+				{ provide: SubscriptionRefundService, useValue: mockRefunds },
 			],
 		}).compile();
 
@@ -313,6 +320,22 @@ describe('SubscriptionController', () => {
 		it('cancels only the token user subscription', async () => {
 			await controller.cancelSubscription(req);
 			expect(service.cancelUserSubscription).toHaveBeenCalledWith('token-user');
+		});
+
+		it('refunds only the token user, ignoring any body', async () => {
+			mockRefunds.refund.mockResolvedValue({ refunded: true });
+			await controller.requestRefund(req);
+			expect(mockRefunds.refund).toHaveBeenCalledWith('token-user');
+		});
+
+		it('checks refund eligibility for the token user', async () => {
+			mockRefunds.checkEligibility.mockResolvedValue({ eligible: false });
+			await controller.refundEligibility(req);
+			expect(mockRefunds.checkEligibility).toHaveBeenCalledWith('token-user');
+		});
+
+		it('rejects refund without an authenticated user', () => {
+			expect(() => controller.requestRefund({})).toThrow(ForbiddenException);
 		});
 
 		it('ignores a different userId in the checkout body', async () => {

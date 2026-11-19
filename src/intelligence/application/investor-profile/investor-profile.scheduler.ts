@@ -1,4 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+} from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -23,10 +28,12 @@ export class InvestorProfileScheduler {
 
 	constructor(
 		@InjectModel('User') private readonly userModel: Model<User>,
-		private readonly investorProfileService: InvestorProfileService
+		private readonly investorProfileService: InvestorProfileService,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
 	) {}
 
 	@Cron('0 4 * * *', { timeZone: 'America/Sao_Paulo' })
+	@AgentRun('investor-profile')
 	async recalculateDaily(): Promise<void> {
 		const users = await this.userModel.find({}, { _id: 1 });
 		this.logger.log(

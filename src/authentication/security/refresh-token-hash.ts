@@ -27,8 +27,8 @@ const SHA256_HEX_LENGTH = 64;
 const SHA256_HEX_PATTERN = /^[0-9a-f]{64}$/;
 
 /**
- * Digest SHA-256 (hex) do refresh token, no formato gravado em
- * `user.refreshToken`.
+ * Digest SHA-256 (hex) do refresh token, no formato gravado na sessão e, nos
+ * tokens anteriores às sessões por dispositivo, em `user.refreshToken`.
  */
 export function hashRefreshToken(refreshToken: string): string {
 	return crypto.createHash('sha256').update(refreshToken, 'utf8').digest('hex');

@@ -9,13 +9,19 @@ import { TrackerrScoreService } from 'src/intelligence/application/trackerr-scor
 import { UnifiedIntelligenceFacade } from 'src/intelligence/application/unified-intelligence.facade';
 import { PortfolioScoreService } from 'src/intelligence/application/portfolio-score.service';
 import { AssetOpinionService } from 'src/intelligence/application/asset-opinion.service';
-import { PortfolioErrorRadarService } from 'src/intelligence/application/portfolio-error-radar.service';
+import { UserErrorRadarService } from 'src/intelligence/application/user-error-radar.service';
 import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { InvestorProfileService } from 'src/intelligence/application/investor-profile/investor-profile.service';
 import { ChatHistoryService } from 'src/ai/chat-history/chat-history.service';
+import { ChatConversationService } from 'src/ai/chat-history/chat-conversation.service';
+import { InvestmentPolicyService } from 'src/investment-policy/investment-policy.service';
+import { DEFAULT_INVESTMENT_POLICY } from 'src/investment-policy/domain/investment-policy';
+import { CopilotDidacticService } from './didactic/copilot-didactic.service';
+import { IntelligentChatAnswerService } from './intelligence/intelligent-chat-answer.service';
 import { UnauthorizedException } from '@nestjs/common';
 import {
 	PREMIUM_ACCESS_LEVEL,
+	PRO_ACCESS_LEVEL,
 	USER_PLAN_RESOLVER,
 } from 'src/subscription/application/user-plan.types';
 
@@ -31,6 +37,7 @@ const mockAiService = {
 	analyzePortfolio: jest.fn(),
 	simulate: jest.fn(),
 	chat: jest.fn(),
+	getInsights: jest.fn(),
 };
 
 const mockChatOrchestratorService = {
@@ -59,7 +66,7 @@ const mockAssetOpinionService = {
 	getOpinion: jest.fn(),
 };
 
-const mockPortfolioErrorRadarService = {
+const mockUserErrorRadarService = {
 	detect: jest.fn(),
 };
 
@@ -75,6 +82,10 @@ const mockInvestorProfileService = {
 const mockChatHistoryService = {
 	listByUser: jest.fn(),
 	append: jest.fn(),
+};
+
+const mockInvestmentPolicyService = {
+	get: jest.fn(),
 };
 
 const mockChatToolPlanner = { plan: jest.fn() };
@@ -122,8 +133,8 @@ describe('AiController', () => {
 					useValue: mockAssetOpinionService,
 				},
 				{
-					provide: PortfolioErrorRadarService,
-					useValue: mockPortfolioErrorRadarService,
+					provide: UserErrorRadarService,
+					useValue: mockUserErrorRadarService,
 				},
 				{
 					provide: PortfolioService,
@@ -142,19 +153,74 @@ describe('AiController', () => {
 					useValue: mockChatHistoryService,
 				},
 				{
+					provide: ChatConversationService,
+					useValue: { ensureOwned: jest.fn(), touch: jest.fn() },
+				},
+				{
 					provide: USER_PLAN_RESOLVER,
 					useValue: mockUserPlanResolver,
 				},
+				{
+					provide: InvestmentPolicyService,
+					useValue: mockInvestmentPolicyService,
+				},
+				// Camada didática de verdade, com perfil e política mockados.
+				CopilotDidacticService,
+				IntelligentChatAnswerService,
 			],
 		}).compile();
 
 		controller = module.get<AiController>(AiController);
+		mockInvestorProfileService.getEffectiveProfile.mockResolvedValue({
+			sophistication: 'intermediate',
+		});
+		mockInvestmentPolicyService.get.mockResolvedValue({
+			policy: DEFAULT_INVESTMENT_POLICY,
+			isDefault: true,
+			savedAt: null,
+		});
+		// Plano com o Copiloto completo; o teto tem testes próprios abaixo.
+		mockUserPlanResolver.resolveWithCapabilities.mockResolvedValue({
+			tier: PREMIUM_ACCESS_LEVEL,
+			capabilities: [],
+			capabilitiesKnown: null,
+		});
 	});
 
 	afterEach(() => jest.clearAllMocks());
 
 	it('should be defined', () => {
 		expect(controller).toBeDefined();
+	});
+
+	it('insights: sends the investor level for the didactic rationale', async () => {
+		mockInvestorProfileService.getEffectiveProfile.mockResolvedValueOnce({
+			sophistication: 'beginner',
+		});
+
+		await controller.insights({ user: { userId: 'user-123' } }, {
+			user_profile: { user_id: 'someone-else' },
+		} as any);
+
+		expect(mockAiService.getInsights).toHaveBeenCalledWith(
+			{ user_id: 'user-123' },
+			undefined,
+			{ level: 'iniciante' }
+		);
+	});
+
+	it('insights: without a profile, no level (trackerr-ia uses intermediário)', async () => {
+		mockInvestorProfileService.getEffectiveProfile.mockRejectedValueOnce(
+			new Error('down')
+		);
+
+		await controller.insights({ user: { userId: 'user-123' } }, {} as any);
+
+		expect(mockAiService.getInsights).toHaveBeenCalledWith(
+			{ user_id: 'user-123' },
+			undefined,
+			undefined
+		);
 	});
 
 	it('should call analyzePortfolio with userId from JWT', async () => {
@@ -591,10 +657,150 @@ describe('AiController', () => {
 		);
 
 		expect(response.intent).toBe('portfolio_risk');
-		expect(response.message).toContain('72/100');
-		expect(response.message).toContain('ITUB4 (62.4%)');
-		expect(response.message).toContain('reduzir risco em 20%');
-		expect(response.message).toContain('57.6');
+		// Resposta didática no nível intermediário (perfil mockado), contra o
+		// limite padrão de 8% (a pessoa não salvou política).
+		expect(response.message).toContain('score 72 de 100');
+		expect(response.message).toContain('ITUB4: 62,4% do patrimônio');
+		expect(response.message).toContain(
+			'54,4 p.p. acima do limite padrão do Trackerr (8%)'
+		);
+		expect(response.message).toContain('O que dá para fazer:');
+		expect(response.message).toContain('A decisão é sua');
+		expect(response.didactic).toHaveLength(1);
+		expect(response.didactic[0]).toMatchObject({
+			level: 'intermediario',
+			terms: expect.arrayContaining([
+				expect.objectContaining({ term: 'Score de risco' }),
+			]),
+		});
+		expect(response.didactic[0].followUps).toContain(
+			'Qual a correlação entre os meus ativos?'
+		);
+	});
+
+	describe('Copilot depth by plan (TRA-198)', () => {
+		const riskPart = {
+			intent: 'portfolio_risk',
+			deterministic: true,
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			context: { positionsCount: 2 },
+			data: {
+				portfolioRisk: {
+					risk: { score: 72 },
+					concentrationByAsset: [{ key: 'ITUB4', percentage: 62.4 }],
+				},
+			},
+			unavailable: [],
+			warnings: [],
+			assumptions: [],
+		};
+
+		it('a plan without ai.copilot_advanced caps an advanced investor at iniciante', async () => {
+			mockInvestorProfileService.getEffectiveProfile.mockResolvedValue({
+				sophistication: 'experienced',
+			});
+			mockUserPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: 5,
+				capabilities: [],
+				capabilitiesKnown: null,
+			});
+			mockChatOrchestratorService.orchestrate.mockResolvedValueOnce(riskPart);
+
+			const response = await controller.intelligentChat(
+				{ user: { userId: 'user-123' } },
+				{ question: 'mostre risco da minha carteira' }
+			);
+
+			expect(response.didactic[0]).toMatchObject({
+				level: 'iniciante',
+				limitedByPlan: true,
+				profileLevel: 'avancado',
+			});
+			expect(response.message).toContain('cesta');
+		});
+
+		it('a Pro plan keeps the profile level and does not flag a limit', async () => {
+			mockInvestorProfileService.getEffectiveProfile.mockResolvedValue({
+				sophistication: 'experienced',
+			});
+			mockUserPlanResolver.resolveWithCapabilities.mockResolvedValue({
+				tier: PRO_ACCESS_LEVEL,
+				capabilities: [],
+				capabilitiesKnown: null,
+			});
+			mockChatOrchestratorService.orchestrate.mockResolvedValueOnce(riskPart);
+
+			const response = await controller.intelligentChat(
+				{ user: { userId: 'user-123' } },
+				{ question: 'mostre risco da minha carteira' }
+			);
+
+			expect(response.didactic[0].level).toBe('avancado');
+			expect(response.didactic[0]).not.toHaveProperty('limitedByPlan');
+		});
+
+		it('an unreadable plan fails closed (iniciante)', async () => {
+			mockInvestorProfileService.getEffectiveProfile.mockResolvedValue({
+				sophistication: 'intermediate',
+			});
+			mockUserPlanResolver.resolveWithCapabilities.mockRejectedValue(
+				new Error('stripe down')
+			);
+			mockChatOrchestratorService.orchestrate.mockResolvedValueOnce(riskPart);
+
+			const response = await controller.intelligentChat(
+				{ user: { userId: 'user-123' } },
+				{ question: 'mostre risco da minha carteira' }
+			);
+
+			expect(response.didactic[0]).toMatchObject({
+				level: 'iniciante',
+				limitedByPlan: true,
+			});
+		});
+	});
+
+	it('falls back to the classic message when the didactic context fails', async () => {
+		mockInvestorProfileService.getEffectiveProfile.mockRejectedValueOnce(
+			new Error('profile down')
+		);
+		mockInvestmentPolicyService.get.mockRejectedValueOnce(
+			new Error('policy down')
+		);
+		mockChatOrchestratorService.orchestrate.mockResolvedValueOnce({
+			intent: 'portfolio_risk',
+			deterministic: true,
+			route: {
+				type: 'deterministic_no_llm',
+				llmEligible: false,
+				reason: 'rules_resolved',
+			},
+			context: { positionsCount: 2 },
+			data: {
+				portfolioRisk: {
+					risk: { score: 72 },
+					concentrationByAsset: [{ key: 'ITUB4', percentage: 62.4 }],
+				},
+			},
+			unavailable: [],
+			warnings: [],
+			assumptions: [],
+		});
+
+		const response = await controller.intelligentChat(
+			{ user: { userId: 'user-123' } },
+			{ question: 'mostre risco da minha carteira' }
+		);
+
+		// Sem perfil: nível intermediário; sem política: nenhuma comparação
+		// com limite, e o chat responde normalmente.
+		expect(response.didactic[0].level).toBe('intermediario');
+		expect(response.message).toContain('score 72 de 100');
+		expect(response.message).not.toContain('limite');
 	});
 
 	it('should return trackerr score payload', async () => {
@@ -815,7 +1021,7 @@ describe('AiController', () => {
 				],
 				positionsCount: 1,
 			};
-			mockPortfolioErrorRadarService.detect.mockReturnValue(fakeOutput);
+			mockUserErrorRadarService.detect.mockResolvedValue(fakeOutput);
 
 			const response = await controller.errorRadar({
 				user: { userId: 'user-123' },
@@ -824,9 +1030,11 @@ describe('AiController', () => {
 			expect(mockPortfolioService.getUserPortfolios).toHaveBeenCalledWith(
 				'user-123'
 			);
-			expect(mockPortfolioErrorRadarService.detect).toHaveBeenCalledWith([
-				expect.objectContaining({ symbol: 'PETR4', quantity: 100 }),
-			]);
+			expect(mockUserErrorRadarService.detect).toHaveBeenCalledWith(
+				'user-123',
+				expect.arrayContaining([expect.objectContaining({ symbol: 'PETR4' })]),
+				[expect.objectContaining({ symbol: 'PETR4', quantity: 100 })]
+			);
 			expect(response).toBe(fakeOutput);
 		});
 

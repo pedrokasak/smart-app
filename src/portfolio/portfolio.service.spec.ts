@@ -222,6 +222,45 @@ describe('PortfolioService', () => {
 
 			expect(mockAssetModel.deleteOne).toHaveBeenCalledWith({ _id: 'a1' });
 		});
+
+		it('ativo já valorado (renda fixa, TRA-230) passa pela cota e não é enriquecido', async () => {
+			ownerIs('dono-1');
+			const created = { _id: 'rf1', type: 'fixed_income' };
+			mockAssetModel.create.mockResolvedValue(created);
+			mockPortfolioModel.findByIdAndUpdate.mockResolvedValue({});
+			jest
+				.spyOn(service as any, 'recordHistorySnapshot')
+				.mockResolvedValue(undefined);
+
+			const result = await service.insertValuedAsset('carteira-1', {
+				symbol: 'RF-CDB-CDI-202706-ABC123',
+				type: 'fixed_income',
+				quantity: 1,
+				price: 1000,
+				total: 1005.01,
+			});
+
+			expect(result).toBe(created);
+			expect(mockPlanQuota.createWithinQuota).toHaveBeenCalledWith(
+				'dono-1',
+				'assets',
+				expect.any(Function),
+				expect.any(Function)
+			);
+			expect(mockAssetModel.create).toHaveBeenCalledWith(
+				expect.objectContaining({
+					portfolioId: 'carteira-1',
+					type: 'fixed_income',
+					total: 1005.01,
+					source: 'manual',
+				})
+			);
+			expect(mockPortfolioEnrichService.enrichAsset).not.toHaveBeenCalled();
+			expect(mockPortfolioModel.findByIdAndUpdate).toHaveBeenCalledWith(
+				'carteira-1',
+				{ $push: { assets: 'rf1' } }
+			);
+		});
 	});
 
 	describe('updatePortfolio', () => {

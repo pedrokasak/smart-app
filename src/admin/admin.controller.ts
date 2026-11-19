@@ -1,3 +1,4 @@
+import { AdminAnalyticsService } from './admin-analytics.service';
 import {
 	Body,
 	Controller,
@@ -29,8 +30,19 @@ import { UpdateUserRoleByEmailDto } from './dto/update-user-role-by-email.dto';
 export class AdminController {
 	constructor(
 		private readonly adminService: AdminService,
+		private readonly adminAnalyticsService: AdminAnalyticsService,
 		private readonly adminRoleService: AdminRoleService
 	) {}
+
+	@Get('analytics')
+	@Roles(Role.Admin)
+	@ApiOperation({
+		summary:
+			'Receita e retenção do dashboard admin: MRR, ticket médio, churn mensal, LTV, clientes ativos (dia/semana/mês), planos e sinais recentes (TRA-158)',
+	})
+	getAnalytics() {
+		return this.adminAnalyticsService.getAnalytics();
+	}
 
 	@Get('overview')
 	@Roles(Role.Admin)

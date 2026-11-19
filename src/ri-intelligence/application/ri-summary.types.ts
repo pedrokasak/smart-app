@@ -17,6 +17,30 @@ export interface RiStructuredSignals {
 	toneShift: RiStructuredSignalItem;
 }
 
+/**
+ * Nível do investidor que define a profundidade do resumo (TRA-256): mesmo
+ * vocabulário do `InvestorProfileService`. Ausente vale `intermediate`, o
+ * resumo de antes.
+ */
+export type RiSummaryLevel = 'beginner' | 'intermediate' | 'experienced';
+
+export const DEFAULT_RI_SUMMARY_LEVEL: RiSummaryLevel = 'intermediate';
+
+/** Teto de destaques por nível; o mesmo que o trackerr-ia aplica no prompt. */
+export const RI_SUMMARY_MAX_HIGHLIGHTS: Record<RiSummaryLevel, number> = {
+	beginner: 3,
+	intermediate: 8,
+	experienced: 12,
+};
+
+export function normalizeRiSummaryLevel(value: unknown): RiSummaryLevel {
+	return value === 'beginner' ||
+		value === 'experienced' ||
+		value === 'intermediate'
+		? value
+		: DEFAULT_RI_SUMMARY_LEVEL;
+}
+
 export interface RiDocumentSummaryInput {
 	document: RiDocumentRecord;
 	content: string | null | undefined;
@@ -38,6 +62,8 @@ export interface RiDocumentSummaryInput {
 	 * o que houve (PDF escaneado, arquivo que nao e PDF, fora do ar...).
 	 */
 	contentUnavailableReason?: string | null;
+	/** Profundidade do resumo (TRA-256). Ausente: `intermediate`. */
+	level?: RiSummaryLevel;
 }
 
 /**
@@ -69,6 +95,8 @@ export interface RiDocumentSummaryOutput {
 		sourceLabel: 'ai_summary' | 'structured_fallback';
 		/** Aditivo (TRA-239): uma citacao por destaque, na mesma ordem. */
 		citations?: RiSummaryCitation[];
+		/** Aditivo (TRA-256): para qual nível o resumo foi escrito. */
+		level?: RiSummaryLevel;
 	};
 	structuredSignals: RiStructuredSignals;
 	cache: {

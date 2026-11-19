@@ -1,6 +1,9 @@
 import {
 	BadRequestException,
+	ForbiddenException,
+	Inject,
 	Injectable,
+	Optional,
 	UnauthorizedException,
 } from '@nestjs/common';
 import { authenticator } from 'otplib';
@@ -13,7 +16,13 @@ import {
 	SessionTokens,
 	SessionUser,
 } from 'src/authentication/authentication.service';
+import { SessionDevice } from 'src/authentication/session/user-session.service';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
+import {
+	SECURITY_AUDIT,
+	SecurityAudit,
+} from 'src/audit/application/security-audit.service';
+import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 import {
 	TwoFactorAttemptState,
 	clearedAttemptState,
@@ -39,12 +48,23 @@ import {
 // que continua expirando em segundos.
 authenticator.options = { window: 2 };
 
+interface TwoFactorChallengePayload {
+	userId: string;
+	type: string;
+	exp?: number;
+	keep?: boolean;
+	device?: SessionDevice;
+}
+
 @Injectable()
 export class TwoFactorService {
 	constructor(
 		private jwtService: JwtService,
 		private readonly authenticationService: AuthenticationService,
-		private readonly tokenBlacklistService: TokenBlacklistService
+		private readonly tokenBlacklistService: TokenBlacklistService,
+		@Optional()
+		@Inject(SECURITY_AUDIT)
+		private readonly securityAudit?: SecurityAudit
 	) {}
 
 	/**
@@ -99,6 +119,10 @@ export class TwoFactorService {
 		}
 
 		await UserModel.findByIdAndUpdate(userId, { twoFactorEnabled: true });
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.TwoFactorEnabled,
+			actor: { userId },
+		});
 		return { message: '2FA habilitado com sucesso!' };
 	}
 
@@ -126,6 +150,10 @@ export class TwoFactorService {
 		await UserModel.findByIdAndUpdate(userId, {
 			twoFactorEnabled: false,
 			twoFactorSecret: null,
+		});
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.TwoFactorDisabled,
+			actor: { userId },
 		});
 		return { message: '2FA desabilitado com sucesso.' };
 	}
@@ -168,7 +196,7 @@ export class TwoFactorService {
 
 		return this.authenticationService.issueSessionTokens(
 			user as unknown as SessionUser,
-			{ keepConnected: payload.keep === true }
+			{ keepConnected: payload.keep === true, device: payload.device }
 		);
 	}
 
@@ -289,7 +317,7 @@ export class TwoFactorService {
 
 		return this.authenticationService.issueSessionTokens(
 			user as unknown as SessionUser,
-			{ keepConnected: payload.keep === true }
+			{ keepConnected: payload.keep === true, device: payload.device }
 		);
 	}
 
@@ -337,12 +365,12 @@ export class TwoFactorService {
 		tempToken: string,
 		extraProjection = ''
 	): Promise<{
-		payload: { userId: string; type: string; exp?: number; keep?: boolean };
+		payload: TwoFactorChallengePayload;
 		user: any;
 		attemptState: TwoFactorAttemptState;
 		now: Date;
 	}> {
-		let payload: { userId: string; type: string; exp?: number; keep?: boolean };
+		let payload: TwoFactorChallengePayload;
 		try {
 			payload = this.jwtService.verify(tempToken, { secret: jwtSecret }) as any;
 		} catch {
@@ -404,7 +432,14 @@ export class TwoFactorService {
 		const nextState = registerFailedAttempt(attemptState, now);
 		await this.persistAttemptState(userId, nextState);
 
-		if (hasReachedLimit(nextState)) {
+		const lockedOut = hasReachedLimit(nextState);
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.TwoFactorFailed,
+			actor: { userId },
+			payload: { context: 'login', lockedOut },
+		});
+
+		if (lockedOut) {
 			await this.revokeTempToken(token.tempToken, token.exp);
 			throw new UnauthorizedException(
 				'Muitas tentativas de verificação. Faça login novamente.'
@@ -448,6 +483,55 @@ export class TwoFactorService {
 		}
 
 		await this.tokenBlacklistService.addToBlacklist(tempToken, exp);
+	}
+
+	/**
+	 * Reautenticação de ação sensível com a sessão já aberta (ADR-005): o admin
+	 * digita o TOTP de novo para ligar, desligar ou configurar um agente.
+	 *
+	 * Mesma contagem de tentativas do login (`twoFactorFailedAttempts`): um
+	 * access token roubado não vira força bruta sobre o segundo fator por esta
+	 * porta. Código errado é 403, não 401 — 401 o front lê como sessão
+	 * expirada e desloga quem só digitou errado.
+	 */
+	async verifyStepUpCode(userId: string, code: string): Promise<void> {
+		const user = await UserModel.findById(userId).select(
+			'+twoFactorSecret +twoFactorFailedAttempts +twoFactorFirstFailedAttemptAt'
+		);
+		if (!user || !user.twoFactorEnabled || !user.twoFactorSecret) {
+			throw new ForbiddenException(
+				'Ative a verificação em duas etapas na sua conta para fazer esta mudança.'
+			);
+		}
+
+		const now = new Date();
+		const attemptState = readAttemptState(user);
+		if (isTwoFactorBlocked(attemptState, now)) {
+			throw new ForbiddenException(
+				'Muitas tentativas de verificação. Tente de novo em 15 minutos.'
+			);
+		}
+
+		const isValid = authenticator.verify({
+			token: String(code ?? ''),
+			secret: user.twoFactorSecret,
+		});
+		if (!isValid) {
+			await this.persistAttemptState(
+				user.id,
+				registerFailedAttempt(attemptState, now)
+			);
+			this.securityAudit?.emit({
+				type: SECURITY_EVENT.TwoFactorFailed,
+				actor: { userId: user.id },
+				payload: { context: 'step_up' },
+			});
+			throw new ForbiddenException('Código 2FA inválido ou expirado.');
+		}
+
+		if (attemptState.failedAttempts > 0) {
+			await this.persistAttemptState(user.id, clearedAttemptState());
+		}
 	}
 
 	/**

@@ -47,6 +47,50 @@ const service = (macro: MacroSeriesService, tesouro = noTesouro) =>
 	new FixedIncomeRatesService(macro, tesouro, () => NOW);
 
 describe('FixedIncomeRatesService', () => {
+	describe('Focus', () => {
+		const expectations = {
+			surveyDate: '2026-10-02',
+			next12mPct: 4.48,
+			byYear: { 2026: 5.22, 2027: 4.3 },
+			source: 'BCB_FOCUS',
+		};
+
+		it('devolve a projeção com a marca de atraso', async () => {
+			const rates = await new FixedIncomeRatesService(
+				macroWith({}),
+				noTesouro,
+				() => NOW,
+				{ latest: async () => expectations }
+			).getRates();
+			expect(rates.ipcaFocus).toEqual({ ...expectations, stale: false });
+		});
+
+		it('pesquisa com mais de duas semanas fica marcada como antiga', async () => {
+			const rates = await new FixedIncomeRatesService(
+				macroWith({}),
+				noTesouro,
+				() => NOW,
+				{ latest: async () => ({ ...expectations, surveyDate: '2026-09-01' }) }
+			).getRates();
+			expect(rates.ipcaFocus?.stale).toBe(true);
+		});
+
+		it('fonte fora do ar ou ausente vira null, sem derrubar as outras taxas', async () => {
+			const failing = await new FixedIncomeRatesService(
+				macroWith({}),
+				noTesouro,
+				() => NOW,
+				{
+					latest: async () => {
+						throw new Error('olinda down');
+					},
+				}
+			).getRates();
+			expect(failing.ipcaFocus).toBeNull();
+			expect((await service(macroWith({})).getRates()).ipcaFocus).toBeNull();
+		});
+	});
+
 	it('CDI: anualiza o CDI diário do BACEN e informa a data e a série', async () => {
 		const rates = await service(
 			macroWith({

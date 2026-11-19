@@ -42,7 +42,7 @@ export class FixedIncomeController {
 	@ApiResponse({
 		status: 200,
 		description:
-			'CDI, Selic meta, IPCA 12 meses e títulos do Tesouro Direto, cada um com data e fonte (fonte indisponível vem como null), mais a tabela regressiva do IR e os limites de entrada.',
+			'CDI, Selic meta, IPCA 12 meses, projeção Focus do IPCA (base das simulações) e títulos do Tesouro Direto, cada um com data e fonte (fonte indisponível vem como null), mais a tabela regressiva do IR e os limites de entrada.',
 	})
 	async getRates() {
 		return {

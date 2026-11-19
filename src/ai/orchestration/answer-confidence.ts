@@ -139,7 +139,9 @@ export function buildAnswerSources(input: {
 	if (
 		input.positionsCount > 0 &&
 		input.intent !== 'unsupported_quant_analysis' &&
-		input.intent !== 'ri_question'
+		input.intent !== 'ri_question' &&
+		// A resposta vem das operações, não das posições.
+		input.intent !== 'trade_history'
 	) {
 		sources.push('Posições consolidadas');
 	}
@@ -157,6 +159,9 @@ export function buildAnswerSources(input: {
 	}
 	if (input.intent === 'dividends_received' && input.data?.dividendsReceived) {
 		sources.push('Histórico de proventos');
+	}
+	if (input.intent === 'trade_history' && input.data?.tradeHistory) {
+		sources.push('Suas operações importadas');
 	}
 	const chunks = Number(input.ragChunkCount) || 0;
 	if (chunks > 0) {

@@ -1,8 +1,18 @@
-import { PartialType } from '@nestjs/mapped-types';
+import { OmitType, PartialType } from '@nestjs/mapped-types';
 import { IsString, IsOptional, MaxLength } from 'class-validator';
 import { CreatePortfolioDto } from 'src/portfolio/dto/create-portfolio.dto';
 
-export class UpdatePortfolioDto extends PartialType(CreatePortfolioDto) {
+/**
+ * Finalidade e política ficam fora da edição genérica: `updatePortfolio`
+ * grava o corpo direto no documento, sem as regras da política (TRA-106).
+ */
+export class UpdatePortfolioDto extends PartialType(
+	OmitType(CreatePortfolioDto, [
+		'purpose',
+		'policy',
+		'inheritPrimaryPolicy',
+	] as const)
+) {
 	@IsOptional()
 	@IsString()
 	@MaxLength(100)

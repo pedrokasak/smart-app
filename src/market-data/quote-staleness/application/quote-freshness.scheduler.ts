@@ -1,4 +1,9 @@
-import { Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
+import {
+	AGENT_GATE,
+	AgentGate,
+} from 'src/agent-control/application/agent-gate.port';
+import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { Cron } from '@nestjs/schedule';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
@@ -61,13 +66,15 @@ export class QuoteFreshnessScheduler {
 		@Inject(CRYPTO_QUOTE_SOURCE)
 		private readonly cryptoQuotes: CryptoQuoteSource,
 		@Inject(QUOTE_FRESHNESS_STORE)
-		private readonly freshness: QuoteFreshnessStore
+		private readonly freshness: QuoteFreshnessStore,
+		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
 	) {}
 
 	@Cron('0 */6 * * *', {
 		name: 'market-quote-refresh',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('quote-freshness')
 	async runRefresh(): Promise<void> {
 		try {
 			const result = await this.refreshHeldSymbols();
@@ -89,6 +96,7 @@ export class QuoteFreshnessScheduler {
 		name: 'market-quote-refresh-trading-hours',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('quote-freshness')
 	async runTradingHoursRefresh(): Promise<void> {
 		await this.runRefresh();
 	}
@@ -101,6 +109,7 @@ export class QuoteFreshnessScheduler {
 		name: 'crypto-quote-refresh',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('quote-freshness')
 	async runCryptoRefresh(): Promise<void> {
 		await this.refreshCrypto();
 	}
@@ -109,6 +118,7 @@ export class QuoteFreshnessScheduler {
 		name: 'market-quote-staleness',
 		timeZone: 'America/Sao_Paulo',
 	})
+	@AgentRun('quote-freshness')
 	async runEvaluation(): Promise<void> {
 		try {
 			const published = await this.evaluate(new Date());

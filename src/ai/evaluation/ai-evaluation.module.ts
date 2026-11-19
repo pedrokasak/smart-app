@@ -10,6 +10,11 @@ import { AI_EVAL_REPORT_STORE } from './application/ai-eval-report-store.port';
 import { AI_EVAL_RUNNER } from './application/ai-eval-runner.port';
 import { AI_EVAL_SAMPLE_SOURCE } from './application/ai-eval-sample-source.port';
 import { AI_EVAL_CONFIG, loadAiEvalConfig } from './application/ai-eval.config';
+import {
+	AgentGate,
+	OPTIONAL_AGENT_GATE,
+	withPanelSwitch,
+} from 'src/agent-control/application/agent-gate.port';
 import { AiEvalScheduler } from './application/ai-eval.scheduler';
 import { AiEvalService } from './application/ai-eval.service';
 import { MongoChatEvalSampleSource } from './infrastructure/mongo-chat-eval-sample.source';
@@ -35,7 +40,13 @@ import { TrackerrIaAiEvalAdapter } from './infrastructure/trackerr-ia-ai-eval.ad
 	],
 	controllers: [AiEvalAdminController],
 	providers: [
-		{ provide: AI_EVAL_CONFIG, useFactory: () => loadAiEvalConfig() },
+		{
+			provide: AI_EVAL_CONFIG,
+			// Rodada semanal ligada pelo painel de agentes (ADR-005).
+			useFactory: (gate?: AgentGate) =>
+				withPanelSwitch(loadAiEvalConfig(), gate, 'ai-eval'),
+			inject: [OPTIONAL_AGENT_GATE],
+		},
 		MongoChatEvalSampleSource,
 		{ provide: AI_EVAL_SAMPLE_SOURCE, useExisting: MongoChatEvalSampleSource },
 		TrackerrIaAiEvalAdapter,

@@ -1,9 +1,11 @@
 import {
 	BadRequestException,
+	Inject,
 	Injectable,
 	InternalServerErrorException,
 	Logger,
 	NotFoundException,
+	Optional,
 } from '@nestjs/common';
 import { ALL_PLAN_CAPABILITIES } from 'src/subscription/application/user-plan.types';
 import {
@@ -23,6 +25,11 @@ import {
 } from 'src/subscription/stripe.service';
 import { Subscription, UserSubscription } from 'src/subscription/schema';
 import { EmailService } from 'src/notifications/email/email.service';
+import {
+	SECURITY_AUDIT,
+	SecurityAudit,
+} from 'src/audit/application/security-audit.service';
+import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 import { CreateSubscriptionDto } from 'src/subscription/dto/create-subscription.dto';
 import { UpdateSubscriptionDto } from 'src/subscription/dto/update-subscription.dto';
 import { User } from 'src/users/schema/user.model';
@@ -51,7 +58,10 @@ export class AdminService {
 		@InjectModel('ManualGrantAudit')
 		private readonly manualGrantAuditModel: Model<ManualGrantAudit>,
 		private readonly stripeService: StripeService,
-		private readonly emailService: EmailService
+		private readonly emailService: EmailService,
+		@Optional()
+		@Inject(SECURITY_AUDIT)
+		private readonly securityAudit?: SecurityAudit
 	) {}
 
 	async createPlan(dto: CreateSubscriptionDto) {
@@ -294,6 +304,9 @@ export class AdminService {
 		if (dto.isComingSoon !== undefined) {
 			plan.isComingSoon = dto.isComingSoon;
 		}
+		if (dto.trialDays !== undefined) {
+			plan.trialDays = dto.trialDays;
+		}
 		// Toda edição pelo painel tira o plano do piloto automático do seed
 		// canônico (TRA-188) — sem isso o próximo boot do plan-sync reverteria
 		// exatamente o que acabou de ser salvo aqui.
@@ -451,6 +464,20 @@ export class AdminService {
 			performedBy: adminUser._id,
 			performedByEmail: adminUser.email,
 			notes: dto.notes?.trim() || undefined,
+		});
+
+		// `notes` é texto livre e fica só na coleção de concessões: a trilha leva
+		// o que foi concedido, não o motivo.
+		this.securityAudit?.emit({
+			type: SECURITY_EVENT.ManualGrantCreated,
+			actor: { userId: String(adminUser._id) },
+			subject: { userId: String(user._id) },
+			payload: {
+				planId: String(plan._id),
+				grantType: dto.grantType,
+				trialDurationDays: isTrial ? dto.trialDurationDays : null,
+				discountPercent: dto.discountPercent ?? null,
+			},
 		});
 
 		// A concessão manual não passa pelo Stripe, então não existe recibo

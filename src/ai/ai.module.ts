@@ -1,5 +1,7 @@
 import { HttpModule } from '@nestjs/axios';
 import { Module } from '@nestjs/common';
+import { MongooseModule } from '@nestjs/mongoose';
+import { tradeSchema } from 'src/fiscal/schema/trade.model';
 import { ComparisonModule } from 'src/comparison/comparison.module';
 import { IntelligenceModule } from 'src/intelligence/intelligence.module';
 import { MarketDataModule } from 'src/market-data/market-data.module';
@@ -17,21 +19,56 @@ import { InMemoryChatResponseCacheAdapter } from './orchestration/infrastructure
 import { LoggingChatCostObserverAdapter } from './orchestration/infrastructure/logging-chat-cost-observer.adapter';
 import { TrackerrIaChatToolPlannerAdapter } from './orchestration/infrastructure/trackerr-ia-chat-tool-planner.adapter';
 import { CHAT_TOOL_PLANNER } from './orchestration/tool-routing/chat-tool-planner.port';
+import { CHAT_TRADE_HISTORY } from './orchestration/trade-history/chat-trade-history.port';
+import { MongoChatTradeHistoryAdapter } from './orchestration/infrastructure/mongo-chat-trade-history.adapter';
 import {
 	CHAT_TOOL_ROUTER_CONFIG,
 	loadChatToolRouterConfig,
 } from './orchestration/tool-routing/chat-tool-router.config';
+import {
+	AgentGate,
+	OPTIONAL_AGENT_GATE,
+	withPanelSwitch,
+} from 'src/agent-control/application/agent-gate.port';
 import { ChatToolRouterService } from './orchestration/tool-routing/chat-tool-router.service';
 import { TrackerrIaRagSynthesizerAdapter } from './orchestration/infrastructure/trackerr-ia-rag-synthesizer.adapter';
 import { CHAT_NARRATIVE_SYNTHESIZER } from './orchestration/chat-narrative-synthesizer.port';
 import { ChatNarrativeSynthesisService } from './orchestration/chat-narrative-synthesis.service';
 import { ChatOrchestratorService } from './orchestration/chat-orchestrator.service';
 import { AiService } from './ai.service';
+import { GenerationRecordsModule } from './generation-records/generation-records.module';
 import { AiInsightProducer } from './events/ai-insight.producer';
+import { InvestmentPolicyModule } from 'src/investment-policy/investment-policy.module';
+import { CopilotDidacticService } from './didactic/copilot-didactic.service';
+import { IntelligentChatAnswerService } from './intelligence/intelligent-chat-answer.service';
+import { VoiceController } from './voice/voice.controller';
+import { VoiceTurnService } from './voice/application/voice-turn.service';
+import {
+	SPEECH_GATEWAY,
+	VOICE_CLOCK,
+	VOICE_CONSENT_REPOSITORY,
+	VOICE_USAGE,
+} from './voice/application/voice.ports';
+import { TrackerrIaSpeechAdapter } from './voice/infrastructure/trackerr-ia-speech.adapter';
+import {
+	MongoVoiceConsentAdapter,
+	MongoVoiceUsageAdapter,
+} from './voice/infrastructure/mongo-voice.adapters';
+import {
+	VoiceConsent,
+	VoiceConsentSchema,
+	VoiceUsage,
+	VoiceUsageSchema,
+} from './voice/infrastructure/voice.schemas';
 
 @Module({
 	imports: [
 		HttpModule,
+		MongooseModule.forFeature([
+			{ name: 'Trade', schema: tradeSchema },
+			{ name: VoiceConsent.name, schema: VoiceConsentSchema },
+			{ name: VoiceUsage.name, schema: VoiceUsageSchema },
+		]),
 		PortfolioModule,
 		MarketDataModule,
 		ComparisonModule,
@@ -41,12 +78,20 @@ import { AiInsightProducer } from './events/ai-insight.producer';
 		SubscriptionModule,
 		RagIngestionModule,
 		ChatHistoryModule,
+		InvestmentPolicyModule,
+		GenerationRecordsModule,
 	],
-	controllers: [AiController],
+	controllers: [AiController, VoiceController],
 	providers: [
 		AiService,
 		AiInsightProducer,
 		IntelligentChatService,
+		IntelligentChatAnswerService,
+		VoiceTurnService,
+		{ provide: SPEECH_GATEWAY, useClass: TrackerrIaSpeechAdapter },
+		{ provide: VOICE_CONSENT_REPOSITORY, useClass: MongoVoiceConsentAdapter },
+		{ provide: VOICE_USAGE, useClass: MongoVoiceUsageAdapter },
+		{ provide: VOICE_CLOCK, useValue: () => new Date() },
 		ChatOrchestratorService,
 		InMemoryChatResponseCacheAdapter,
 		LoggingChatCostObserverAdapter,
@@ -64,6 +109,12 @@ import { AiInsightProducer } from './events/ai-insight.producer';
 			provide: CHAT_COST_OBSERVER,
 			useExisting: LoggingChatCostObserverAdapter,
 		},
+		// Histórico de operações do usuário no chat (ADR-002, TRA-16).
+		MongoChatTradeHistoryAdapter,
+		{
+			provide: CHAT_TRADE_HISTORY,
+			useExisting: MongoChatTradeHistoryAdapter,
+		},
 		// Roteador do chat com tool-calling (TRA-241).
 		TrackerrIaChatToolPlannerAdapter,
 		{
@@ -72,9 +123,15 @@ import { AiInsightProducer } from './events/ai-insight.producer';
 		},
 		{
 			provide: CHAT_TOOL_ROUTER_CONFIG,
-			useFactory: () => loadChatToolRouterConfig(),
+			// Liga e desliga pelo painel de agentes (ADR-005); a variável vira
+			// kill switch.
+			useFactory: (gate?: AgentGate) =>
+				withPanelSwitch(loadChatToolRouterConfig(), gate, 'chat-tool-router'),
+			inject: [OPTIONAL_AGENT_GATE],
 		},
 		ChatToolRouterService,
+		// Resposta didática por nível (docs/requisitos/ia-didatica.md).
+		CopilotDidacticService,
 	],
 	exports: [AiService, IntelligentChatService, ChatOrchestratorService],
 })

@@ -3,8 +3,13 @@ import { InjectModel } from '@nestjs/mongoose';
 import { Model, Types } from 'mongoose';
 import puppeteer from 'puppeteer';
 import { Asset } from 'src/assets/schema/assets.model';
+import { findIncompleteHistory } from 'src/fiscal/domain/history-completeness';
+import { buildIrGuideSteps } from 'src/fiscal/domain/ir-guide';
 import {
-	IrGuideStepDto,
+	jcpWithholdingRateLabel,
+	splitProventosByType,
+} from 'src/fiscal/domain/proventos';
+import {
 	IrOperationMonthlyItemDto,
 	IrPositionItemDto,
 	IrProventosItemDto,
@@ -90,10 +95,10 @@ export class IrReportService {
 		}
 
 		const positionAtYearEnd = this.normalizePositions(positionsBySymbol);
-		const dividends = this.extractProventosByAsset(assets, year);
+		const { dividends, jcp } = splitProventosByType(assets, year);
 		const dividendsTotal = this.sumProventos(dividends);
-		const jcp: IrProventosItemDto[] = [];
-		const jcpTotal = 0;
+		const jcpTotal = this.sumProventos(jcp);
+		const incompleteHistory = findIncompleteHistory(allTradesUntilYearEnd);
 		const taxableOperations = this.normalizeMonthlyResults(monthlyResults);
 		const taxableOperationsTotal = this.sumMonthlyResults(taxableOperations);
 		const compensableLosses = taxableOperations.filter(
@@ -125,12 +130,30 @@ export class IrReportService {
 				operations: cryptoOperations,
 				totalRealizedResult: this.sumMonthlyResults(cryptoOperations),
 			},
-			guide: this.buildGuideSteps(year),
-			notes: [
-				'Relatório automatizado para apoio à declaração. Revise sempre com sua documentação oficial.',
-				'JCP não é identificado de forma automática com os dados atuais; seção preenchida com zero por padrão.',
-			],
+			guide: buildIrGuideSteps(year),
+			incompleteHistory,
+			notes: this.buildNotes(year, jcp, incompleteHistory),
 		};
+	}
+
+	private buildNotes(
+		year: number,
+		jcp: IrProventosItemDto[],
+		incompleteHistory: IrReportResponseDto['incompleteHistory']
+	): string[] {
+		const notes = [
+			'Relatório automatizado para apoio à declaração. Revise sempre com sua documentação oficial.',
+			jcp.length > 0
+				? `JCP: os valores são os lançados no Trackerr e não separam o imposto retido na fonte (${jcpWithholdingRateLabel(year)} em ${year}). Use o informe de rendimentos da corretora para o valor bruto e o imposto retido.`
+				: `Nenhum JCP lançado em ${year}. Se você recebeu JCP, confira o informe de rendimentos da corretora.`,
+		];
+		if (incompleteHistory.length > 0) {
+			const symbols = incompleteHistory.map((item) => item.symbol).join(', ');
+			notes.push(
+				`Histórico incompleto em ${symbols}: há venda maior que a posição conhecida, então a quantidade e o custo em 31/12 podem estar errados. Confira com as notas de corretagem.`
+			);
+		}
+		return notes;
 	}
 
 	async generateIrReportPdfBuffer(
@@ -295,42 +318,6 @@ export class IrReportService {
 			.sort((a, b) => a.month - b.month);
 	}
 
-	private extractProventosByAsset(
-		assets: Asset[],
-		year: number
-	): IrProventosItemDto[] {
-		const totalsBySymbol = new Map<string, number>();
-
-		for (const asset of assets || []) {
-			const symbol = (asset.symbol || '').toUpperCase();
-			const events = Array.isArray(asset.dividendHistory)
-				? asset.dividendHistory
-				: [];
-
-			if (!symbol || events.length === 0) {
-				continue;
-			}
-
-			for (const event of events) {
-				const eventDate = event?.date ? new Date(event.date) : null;
-				const value = this.safeNumber(event?.value);
-
-				if (!eventDate || eventDate.getUTCFullYear() !== year || value <= 0) {
-					continue;
-				}
-
-				totalsBySymbol.set(symbol, (totalsBySymbol.get(symbol) ?? 0) + value);
-			}
-		}
-
-		return Array.from(totalsBySymbol.entries())
-			.map(([symbol, total]) => ({
-				symbol,
-				total: this.round(total),
-			}))
-			.sort((a, b) => a.symbol.localeCompare(b.symbol));
-	}
-
 	private sumProventos(items: IrProventosItemDto[]): number {
 		return this.round(
 			(items || []).reduce((acc, item) => acc + this.safeNumber(item.total), 0)
@@ -362,46 +349,6 @@ export class IrReportService {
 		}
 
 		return /^[A-Z]{2,10}$/.test(symbol) && !/\d/.test(symbol);
-	}
-
-	private buildGuideSteps(year: number): IrGuideStepDto[] {
-		return [
-			{
-				title: '1) Bens e Direitos (ações) - Grupo 03, Código 31',
-				details:
-					'Informe cada ativo com posição em 31/12/' +
-					year +
-					' pelo custo de aquisição (não pelo preço de mercado). Use os valores da seção "Posição em 31/12".',
-			},
-			{
-				title: '2) Rendimentos Isentos e Não Tributáveis (dividendos)',
-				details:
-					'Lance o total anual de dividendos recebido por ativo. Use a seção "Dividendos" como base e valide com informes da corretora.',
-			},
-			{
-				title:
-					'3) Rendimentos Sujeitos à Tributação Exclusiva/Definitiva (JCP)',
-				details:
-					'Com os dados atuais, o sistema preenche JCP com zero por padrão. Se você teve JCP, complemente manualmente com o informe oficial.',
-			},
-			{
-				title: '4) Operações Comuns/Day Trade (Renda Variável)',
-				details:
-					'Use a seção "Operações tributáveis" para apoiar a apuração mensal de lucro/prejuízo. Prejuízos podem ser compensados em meses futuros.',
-			},
-			{
-				title: '5) Criptoativos - Bens e Direitos e GCAP/IRPF',
-				details:
-					'Para cripto com saldo em 31/12/' +
-					year +
-					', preencha em Bens e Direitos conforme natureza do ativo. Use também a seção "Cripto" para apoiar ganho/perda em vendas.',
-			},
-			{
-				title: '6) Conferência final',
-				details:
-					'Valide tudo com notas de corretagem, extratos e informes de rendimento. Este relatório é de apoio e não substitui conferência contábil.',
-			},
-		];
 	}
 
 	private buildHtmlReport(report: IrReportResponseDto): string {
@@ -497,6 +444,10 @@ export class IrReportService {
 				`<li><strong>${this.escapeHtml(step.title)}:</strong> ${this.escapeHtml(step.details)}</li>`
 		);
 
+		const incompleteHistoryBlock = this.renderIncompleteHistory(
+			report.incompleteHistory
+		);
+
 		return `
 			<!doctype html>
 			<html lang="pt-BR">
@@ -550,6 +501,16 @@ export class IrReportService {
 							letter-spacing: .04em;
 						}
 						tr:nth-child(even) td { background: #f8fafc; }
+						.warning {
+							margin-bottom: 12px;
+							background: #fffbeb;
+							border: 1px solid #f59e0b;
+							border-radius: 12px;
+							padding: 12px;
+							font-size: 11px;
+							line-height: 1.45;
+						}
+						.warning h2 { color: #92400e; }
 						ul { margin: 8px 0 0 18px; padding: 0; }
 						li { margin-bottom: 6px; font-size: 11px; line-height: 1.45; }
 						.footer {
@@ -565,6 +526,7 @@ export class IrReportService {
 						<h1>Relatório Executivo de Imposto de Renda ${report.year}</h1>
 						<p class="sub">Gerado em ${this.escapeHtml(generatedAt)} • Trackerr</p>
 					</div>
+					${incompleteHistoryBlock}
 
 					<div class="summary">
 						<div class="card"><span>Dividendos</span><strong>${this.formatCurrency(report.dividendsTotal)}</strong></div>
@@ -590,7 +552,7 @@ export class IrReportService {
 					</div>
 
 					<div class="section">
-						<h2>JCP</h2>
+						<h2>JCP (tributação exclusiva na fonte)</h2>
 						<table>
 							<tr><th>Ativo</th><th>Total</th></tr>
 							${jcpRows}
@@ -635,6 +597,26 @@ export class IrReportService {
 				</body>
 			</html>
 		`;
+	}
+
+	private renderIncompleteHistory(
+		items: IrReportResponseDto['incompleteHistory']
+	): string {
+		if (!items || items.length === 0) {
+			return '';
+		}
+		const rows = items
+			.map(
+				(item) =>
+					`<li><strong>${this.escapeHtml(item.symbol)}:</strong> venda de ${this.formatNumber(item.missingQuantity)} acima da posição conhecida, a partir de ${this.escapeHtml(item.firstShortfallDate)}.</li>`
+			)
+			.join('');
+		return `
+					<div class="warning">
+						<h2>Atenção: histórico incompleto</h2>
+						<p>Há vendas maiores que as compras registradas. A posição e o custo em 31/12 destes ativos podem estar errados; confira com as notas de corretagem antes de declarar.</p>
+						<ul>${rows}</ul>
+					</div>`;
 	}
 
 	private renderRows<T>(

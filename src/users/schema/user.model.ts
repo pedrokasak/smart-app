@@ -19,6 +19,8 @@ export interface User extends Document {
 	stripeCustomerId?: string;
 	/** Cliente no Asaas (PIX, TRA-195). O CPF fica la, nao aqui. */
 	asaasCustomerId?: string;
+	/** Identificador estável do login com a Apple. */
+	appleSub?: string;
 	refreshToken?: string;
 	/** Digest do refresh token anterior à última rotação (TRA-245). */
 	previousRefreshToken?: string | null;
@@ -184,6 +186,15 @@ const userSchema = new Schema<User>(
 		// Billing
 		userSubscription: String,
 		stripeCustomerId: String,
+
+		// Sem `default`: o índice esparso só ignora quem não tem o campo, e dois
+		// `null` violariam o `unique`.
+		appleSub: {
+			type: String,
+			unique: true,
+			sparse: true,
+			select: false,
+		},
 
 		// 2FA
 		twoFactorSecret: {

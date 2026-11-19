@@ -10,7 +10,12 @@ describe('ReportBuilderService — relatório de risco', () => {
 	const returnsPayload = (overrides: Record<string, any> = {}) => ({
 		from: '2025-01-02',
 		to: '2025-12-30',
-		twr: { value: 0.171, annualized: 0.171, periods: 240 },
+		twr: {
+			value: 0.171,
+			annualized: 0.171,
+			periods: 240,
+			measuredFrom: '2025-01-02',
+		},
 		irr: 0.19,
 		benchmark: {
 			symbol: '^BVSP',
