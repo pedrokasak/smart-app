@@ -26,10 +26,10 @@
           "uid": "prometheus"
         },
         "query": {
-          "query": "label_values(http_server_duration_milliseconds_count, service_name)",
+          "query": "label_values(http_server_request_duration_seconds_count, service_name)",
           "refId": "svc"
         },
-        "definition": "label_values(http_server_duration_milliseconds_count, service_name)",
+        "definition": "label_values(http_server_request_duration_seconds_count, service_name)",
         "includeAll": true,
         "multi": true,
         "allValue": ".*",
@@ -59,7 +59,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (service_name) (rate(http_server_duration_milliseconds_count{service_name=~\"$service\"}[5m]))",
+          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{service_name=~\"$service\"}[5m]))",
           "legendFormat": "{{service_name}}",
           "datasource": {
             "type": "prometheus",
@@ -92,7 +92,7 @@
       },
       "targets": [
         {
-          "expr": "sum by (service_name) (rate(http_server_duration_milliseconds_count{service_name=~\"$service\", http_status_code=~\"5..\"}[5m])) / clamp_min(sum by (service_name) (rate(http_server_duration_milliseconds_count{service_name=~\"$service\"}[5m])), 1e-9)",
+          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{service_name=~\"$service\", http_response_status_code=~\"5..\"}[5m])) / clamp_min(sum by (service_name) (rate(http_server_request_duration_seconds_count{service_name=~\"$service\"}[5m])), 1e-9)",
           "legendFormat": "{{service_name}}",
           "datasource": {
             "type": "prometheus",
@@ -126,7 +126,7 @@
       },
       "targets": [
         {
-          "expr": "histogram_quantile(0.5, sum by (le, service_name) (rate(http_server_duration_milliseconds_bucket{service_name=~\"$service\"}[5m])))",
+          "expr": "histogram_quantile(0.5, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{service_name=~\"$service\"}[5m])))",
           "legendFormat": "p50 {{service_name}}",
           "datasource": {
             "type": "prometheus",
@@ -135,7 +135,7 @@
           "refId": "A"
         },
         {
-          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_duration_milliseconds_bucket{service_name=~\"$service\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{service_name=~\"$service\"}[5m])))",
           "legendFormat": "p95 {{service_name}}",
           "datasource": {
             "type": "prometheus",
@@ -144,7 +144,7 @@
           "refId": "B"
         },
         {
-          "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(http_server_duration_milliseconds_bucket{service_name=~\"$service\"}[5m])))",
+          "expr": "histogram_quantile(0.99, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket{service_name=~\"$service\"}[5m])))",
           "legendFormat": "p99 {{service_name}}",
           "datasource": {
             "type": "prometheus",
@@ -155,7 +155,7 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -177,8 +177,8 @@
       },
       "targets": [
         {
-          "expr": "topk(10, histogram_quantile(0.95, sum by (le, service_name, http_route, http_target) (rate(http_server_duration_milliseconds_bucket{service_name=~\"$service\"}[15m]))))",
-          "legendFormat": "{{service_name}} {{http_route}}{{http_target}}",
+          "expr": "topk(10, histogram_quantile(0.95, sum by (le, service_name, http_route) (rate(http_server_request_duration_seconds_bucket{service_name=~\"$service\"}[15m]))))",
+          "legendFormat": "{{service_name}} {{http_route}}",
           "instant": true,
           "format": "table",
           "datasource": {
@@ -190,12 +190,12 @@
       ],
       "fieldConfig": {
         "defaults": {
-          "unit": "ms"
+          "unit": "s"
         },
         "overrides": []
       },
       "options": {},
-      "description": "Node grava a rota em http_route, o trackerr-ia em http_target."
+      "description": "Rota do server em http_route (conferido na versão instalada da instrumentação HTTP)."
     },
     {
       "id": 5,
@@ -213,8 +213,8 @@
       },
       "targets": [
         {
-          "expr": "sum by (http_status_code) (rate(http_server_duration_milliseconds_count{service_name=~\"$service\"}[5m]))",
-          "legendFormat": "{{http_status_code}}",
+          "expr": "sum by (http_response_status_code) (rate(http_server_request_duration_seconds_count{service_name=~\"$service\"}[5m]))",
+          "legendFormat": "{{http_response_status_code}}",
           "datasource": {
             "type": "prometheus",
             "uid": "prometheus"

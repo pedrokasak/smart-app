@@ -13,7 +13,7 @@
           "title": "API com mais de 5% de erro 5xx",
           "condition": "C",
           "for": "5m",
-          "noDataState": "OK",
+          "noDataState": "NoData",
           "execErrState": "Error",
           "labels": {
             "severity": "critical",
@@ -32,7 +32,7 @@
               "datasourceUid": "prometheus",
               "model": {
                 "refId": "A",
-                "expr": "sum by (service_name) (rate(http_server_duration_milliseconds_count{http_status_code=~\"5..\"}[5m])) / clamp_min(sum by (service_name) (rate(http_server_duration_milliseconds_count[5m])), 1e-9)",
+                "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{http_response_status_code=~\"5..\"}[5m])) / clamp_min(sum by (service_name) (rate(http_server_request_duration_seconds_count[5m])), 1e-9)",
                 "instant": true
               }
             },
@@ -72,7 +72,7 @@
           "title": "API com p95 acima de 2s",
           "condition": "C",
           "for": "10m",
-          "noDataState": "OK",
+          "noDataState": "NoData",
           "execErrState": "Error",
           "labels": {
             "severity": "warning",
@@ -91,7 +91,7 @@
               "datasourceUid": "prometheus",
               "model": {
                 "refId": "A",
-                "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_duration_milliseconds_bucket[5m])))",
+                "expr": "histogram_quantile(0.95, sum by (le, service_name) (rate(http_server_request_duration_seconds_bucket[5m])))",
                 "instant": true
               }
             },
@@ -117,7 +117,7 @@
                     "evaluator": {
                       "type": "gt",
                       "params": [
-                        2000
+                        2
                       ]
                     }
                   }
@@ -131,7 +131,7 @@
           "title": "VPS com menos de 10% de memória livre",
           "condition": "C",
           "for": "5m",
-          "noDataState": "OK",
+          "noDataState": "Alerting",
           "execErrState": "Error",
           "labels": {
             "severity": "critical",
@@ -190,7 +190,7 @@
           "title": "Disco da VPS acima de 85%",
           "condition": "C",
           "for": "15m",
-          "noDataState": "OK",
+          "noDataState": "Alerting",
           "execErrState": "Error",
           "labels": {
             "severity": "warning",
@@ -249,7 +249,7 @@
           "title": "Container acima de 90% da memória",
           "condition": "C",
           "for": "10m",
-          "noDataState": "OK",
+          "noDataState": "Alerting",
           "execErrState": "Error",
           "labels": {
             "severity": "warning",
