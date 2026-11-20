@@ -127,6 +127,19 @@ export class UsersService {
 		return await UserModel.findById(id);
 	}
 
+	/**
+	 * Marks the e-mail as verified only while the account still holds `email`,
+	 * so an e-mail change made meanwhile never confirms the new address.
+	 * Returns whether anything changed.
+	 */
+	async markEmailVerified(userId: string, email: string): Promise<boolean> {
+		const changed = await UserModel.findOneAndUpdate(
+			{ _id: userId, email, isEmailVerified: { $ne: true } },
+			{ $set: { isEmailVerified: true } }
+		);
+		return changed !== null && changed !== undefined;
+	}
+
 	async findByEmail(email: string) {
 		return await UserModel.findOne({ email });
 	}

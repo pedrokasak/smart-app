@@ -197,7 +197,27 @@ export class ConsentService {
 			await this.undoAccept(accepted, userId, consent, audited);
 			throw error;
 		}
+		await this.proveInviteeEmail(userId, accepted.email);
 		return toGrant(consent, org);
+	}
+
+	/**
+	 * The invite token went to this address, so accepting it proves the
+	 * invitee reads it. Best effort: the accept is already complete, so a
+	 * failure here is logged (ids and error name only) and never undone.
+	 */
+	private async proveInviteeEmail(
+		userId: string,
+		inviteEmail: string
+	): Promise<void> {
+		try {
+			await this.identity.markEmailVerified(
+				userId,
+				normalizeEmail(inviteEmail)
+			);
+		} catch (error) {
+			this.logFailure('mark e-mail verified of user', userId, error);
+		}
 	}
 
 	async declineInvite(userId: string, token: string): Promise<void> {
@@ -405,7 +425,6 @@ export class ConsentService {
 		if (
 			!account ||
 			typeof account.email !== 'string' ||
-			account.emailVerified !== true ||
 			!emailMatches(invite, account.email)
 		) {
 			throw new InviteNotFoundError();

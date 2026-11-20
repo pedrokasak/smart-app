@@ -8,4 +8,10 @@ export interface InviteeAccount {
 export interface InviteeIdentityPort {
 	/** Conta do investidor. Null se não existe. */
 	find(userId: string): Promise<InviteeAccount | null>;
+
+	/**
+	 * Marks the account e-mail as verified, but only while the account still
+	 * holds `email` (a change of e-mail meanwhile confirms nothing).
+	 */
+	markEmailVerified(userId: string, email: string): Promise<void>;
 }

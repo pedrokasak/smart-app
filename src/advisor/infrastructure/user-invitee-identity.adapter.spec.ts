@@ -5,7 +5,10 @@ describe('UserInviteeIdentityAdapter', () => {
 	const userId = '65f1c2a4e1b2c3d4e5f60718';
 
 	function build(user: unknown) {
-		const users = { findOne: jest.fn().mockResolvedValue(user) };
+		const users = {
+			findOne: jest.fn().mockResolvedValue(user),
+			markEmailVerified: jest.fn().mockResolvedValue(true),
+		};
 		const adapter = new UserInviteeIdentityAdapter(
 			users as unknown as UsersService
 		);
@@ -47,6 +50,17 @@ describe('UserInviteeIdentityAdapter', () => {
 		const { adapter } = build(null);
 
 		expect(await adapter.find(userId)).toBeNull();
+	});
+
+	it('hands the verification to UsersService.markEmailVerified', async () => {
+		const { adapter, users } = build(null);
+
+		await adapter.markEmailVerified(userId, 'a@example.com');
+
+		expect(users.markEmailVerified).toHaveBeenCalledWith(
+			userId,
+			'a@example.com'
+		);
 	});
 
 	it('gives null for a malformed id without querying', async () => {
