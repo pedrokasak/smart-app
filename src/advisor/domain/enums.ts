@@ -67,3 +67,17 @@ export enum LiquidityBucket {
 	D31Plus = 'D31_PLUS',
 	Unknown = 'UNKNOWN',
 }
+
+export enum InviteStatus {
+	Pending = 'PENDING',
+	Accepted = 'ACCEPTED',
+	Declined = 'DECLINED',
+	Expired = 'EXPIRED',
+	Cancelled = 'CANCELLED',
+}
+
+export enum ConsentStatus {
+	Active = 'ACTIVE',
+	Superseded = 'SUPERSEDED',
+	Revoked = 'REVOKED',
+}
