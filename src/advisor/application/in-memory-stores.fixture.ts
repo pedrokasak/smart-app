@@ -31,10 +31,19 @@ import {
 	SendInviteInput,
 } from './ports/invite-notifier.port';
 import { InviteStorePort } from './ports/invite.store.port';
+import {
+	InviteeAccount,
+	InviteeIdentityPort,
+} from './ports/invitee-identity.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
 import { DailyCloseMinor, PriceHistoryPort } from './ports/price-history.port';
 import { RelationshipStorePort } from './ports/relationship.store.port';
+import {
+	OwnedPortfolio,
+	SharedPortfolioData,
+	SharedPortfolioSourcePort,
+} from './ports/shared-portfolio-source.port';
 import {
 	DuplicateImportError,
 	STALE_IMPORT_MS,
@@ -189,6 +198,23 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 		};
 		this.items.set(id, claimed);
 		return claimed;
+	}
+
+	async setOwnerIfUnowned(
+		id: string,
+		userId: string
+	): Promise<ClientProfile | null> {
+		const profile = this.items.get(id);
+		if (
+			!profile ||
+			profile.origin !== ProfileOrigin.ClientCreated ||
+			profile.ownerUserId
+		) {
+			return null;
+		}
+		const owned: ClientProfile = { ...profile, ownerUserId: userId };
+		this.items.set(id, owned);
+		return owned;
 	}
 }
 
@@ -600,5 +626,58 @@ export class InMemoryInviteNotifier implements InviteNotifierPort {
 		this.attempts.push(input);
 		if (this.failWith) throw this.failWith;
 		this.sent.push(input);
+	}
+}
+
+/** Contas de investidor em memória, por userId. */
+export class InMemoryInviteeIdentity implements InviteeIdentityPort {
+	private readonly accounts = new Map<string, InviteeAccount>();
+
+	set(userId: string, account: InviteeAccount): void {
+		this.accounts.set(userId, account);
+	}
+
+	async find(userId: string): Promise<InviteeAccount | null> {
+		const account = this.accounts.get(userId);
+		return account ? { ...account } : null;
+	}
+}
+
+/** Carteiras B2C em memória, cada uma com o seu dono. */
+export class InMemorySharedPortfolioSource implements SharedPortfolioSourcePort {
+	private readonly portfolios = new Map<
+		string,
+		{ ownerId: string; data: SharedPortfolioData }
+	>();
+
+	add(
+		ownerId: string,
+		portfolio: OwnedPortfolio & Partial<SharedPortfolioData>
+	): void {
+		this.portfolios.set(portfolio.id, {
+			ownerId,
+			data: {
+				portfolioId: portfolio.id,
+				name: portfolio.name,
+				holdings: portfolio.holdings ?? [],
+				trades: portfolio.trades ?? [],
+			},
+		});
+	}
+
+	async listOwned(userId: string): Promise<OwnedPortfolio[]> {
+		return [...this.portfolios.values()]
+			.filter((p) => p.ownerId === userId)
+			.map((p) => ({ id: p.data.portfolioId, name: p.data.name }));
+	}
+
+	async read(
+		userId: string,
+		portfolioIds: string[]
+	): Promise<SharedPortfolioData[]> {
+		return portfolioIds
+			.map((id) => this.portfolios.get(id))
+			.filter((p) => p && p.ownerId === userId)
+			.map((p) => structuredClone(p.data));
 	}
 }

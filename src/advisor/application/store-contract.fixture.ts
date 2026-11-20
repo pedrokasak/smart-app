@@ -272,6 +272,62 @@ export function describeAdvisorStoreContract(
 			expect(results.filter((r) => r !== null)).toHaveLength(1);
 		});
 
+		it('client profile: setOwnerIfUnowned gives an unowned client-created profile its owner', async () => {
+			const created = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Convidado',
+				origin: ProfileOrigin.ClientCreated,
+			});
+			const owned = await s.profiles.setOwnerIfUnowned(created.id, 'u1');
+			expect(owned).toEqual({ ...created, ownerUserId: 'u1' });
+			const reloaded = await s.profiles.findById(created.id);
+			expect(reloaded?.ownerUserId).toBe('u1');
+			expect(reloaded?.origin).toBe(ProfileOrigin.ClientCreated);
+		});
+
+		it('client profile: setOwnerIfUnowned gives null when already owned, unknown or advisor-created', async () => {
+			const owned = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Self',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: 'u7',
+			});
+			expect(await s.profiles.setOwnerIfUnowned(owned.id, 'u8')).toBeNull();
+			expect((await s.profiles.findById(owned.id))?.ownerUserId).toBe('u7');
+
+			expect(await s.profiles.setOwnerIfUnowned(randomUUID(), 'u1')).toBeNull();
+
+			const advisorCreated = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Manual',
+				origin: ProfileOrigin.AdvisorCreated,
+			});
+			expect(
+				await s.profiles.setOwnerIfUnowned(advisorCreated.id, 'u1')
+			).toBeNull();
+			const reloaded = await s.profiles.findById(advisorCreated.id);
+			expect(reloaded?.ownerUserId).toBeUndefined();
+			expect(reloaded?.origin).toBe(ProfileOrigin.AdvisorCreated);
+		});
+
+		it('client profile: concurrent setOwnerIfUnowned has exactly one winner', async () => {
+			const created = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Race',
+				origin: ProfileOrigin.ClientCreated,
+			});
+			const results = await Promise.all([
+				s.profiles.setOwnerIfUnowned(created.id, 'a'),
+				s.profiles.setOwnerIfUnowned(created.id, 'b'),
+				s.profiles.setOwnerIfUnowned(created.id, 'c'),
+			]);
+			const winners = results.filter((r) => r !== null);
+			expect(winners).toHaveLength(1);
+			expect((await s.profiles.findById(created.id))?.ownerUserId).toBe(
+				winners[0]?.ownerUserId
+			);
+		});
+
 		it('relationship: activate moves PENDING to ACTIVE recording consentId', async () => {
 			const created = await s.relationships.create({
 				orgId: randomUUID(),

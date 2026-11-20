@@ -50,4 +50,20 @@ export class MongoClientProfileStore implements ClientProfileStorePort {
 			.exec();
 		return doc ? toClientProfile(doc) : null;
 	}
+
+	/** Mesmo padrão de `claimIfUnowned`, para o perfil nascido de convite. */
+	async setOwnerIfUnowned(
+		id: string,
+		userId: string
+	): Promise<ClientProfile | null> {
+		const doc = await this.profiles
+			.findOneAndUpdate(
+				{ _id: id, origin: ProfileOrigin.ClientCreated, ownerUserId: null },
+				{ $set: { ownerUserId: userId } },
+				{ new: true }
+			)
+			.lean<AdvisorClientProfileDoc>()
+			.exec();
+		return doc ? toClientProfile(doc) : null;
+	}
 }
