@@ -90,6 +90,16 @@ export class InMemoryMembershipStore implements MembershipStorePort {
 export class InMemoryRelationshipStore implements RelationshipStorePort {
 	private readonly items = new Map<string, AdvisoryRelationship>();
 
+	/** Só para testes: todas as relações gravadas. */
+	get all(): AdvisoryRelationship[] {
+		return [...this.items.values()];
+	}
+
+	/** Só para testes: quantidade de itens gravados. */
+	get size(): number {
+		return this.items.size;
+	}
+
 	async create(
 		relationship: Omit<AdvisoryRelationship, 'id'>
 	): Promise<AdvisoryRelationship> {
@@ -144,6 +154,11 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 
 export class InMemoryClientProfileStore implements ClientProfileStorePort {
 	private readonly items = new Map<string, ClientProfile>();
+
+	/** Só para testes: quantidade de itens gravados. */
+	get size(): number {
+		return this.items.size;
+	}
 
 	async create(profile: Omit<ClientProfile, 'id'>): Promise<ClientProfile> {
 		const created: ClientProfile = { ...profile, id: randomUUID() };
@@ -391,6 +406,11 @@ export class InMemoryBenchmarkSeries implements BenchmarkSeriesPort {
 
 export class InMemoryInviteStore implements InviteStorePort {
 	private readonly items = new Map<string, ClientInvite>();
+
+	/** Só para testes: quantidade de itens gravados. */
+	get size(): number {
+		return this.items.size;
+	}
 
 	async create(
 		invite: Omit<ClientInvite, 'id' | 'createdAt'>

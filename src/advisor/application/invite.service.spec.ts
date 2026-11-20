@@ -45,6 +45,7 @@ class FakeAuditTrail implements AuditTrail {
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 describe('InviteService', () => {
+	let memberships: InMemoryMembershipStore;
 	let relationships: InMemoryRelationshipStore;
 	let profiles: InMemoryClientProfileStore;
 	let invites: InMemoryInviteStore;
@@ -56,7 +57,7 @@ describe('InviteService', () => {
 	let ctxB: { userId: string; orgId: string };
 
 	beforeEach(async () => {
-		const memberships = new InMemoryMembershipStore();
+		memberships = new InMemoryMembershipStore();
 		relationships = new InMemoryRelationshipStore();
 		profiles = new InMemoryClientProfileStore();
 		invites = new InMemoryInviteStore();
@@ -193,7 +194,9 @@ describe('InviteService', () => {
 			expect(await reasonOf(promise)).toEqual({ reason });
 			expect(notifier.attempts).toHaveLength(0);
 			expect(audit.recorded).toHaveLength(0);
-			expect(await relationships.findByOrgAndClient(orgAId, 'any')).toBeNull();
+			expect(profiles.size).toBe(0);
+			expect(relationships.size).toBe(0);
+			expect(invites.size).toBe(0);
 		});
 
 		it('accepts a name of exactly 120 chars', async () => {
@@ -272,10 +275,35 @@ describe('InviteService', () => {
 			expect(json).not.toContain('Silva');
 		});
 
-		it('sends nothing when the audit fails', async () => {
+		it('cleans up when the audit fails and lets a retry succeed', async () => {
 			audit.failWith = new Error('audit down');
 			await expect(create()).rejects.toThrow('audit down');
 			expect(notifier.attempts).toHaveLength(0);
+			expect(
+				await invites.findPendingByOrgAndEmail(orgAId, 'joao@exemplo.com')
+			).toEqual([]);
+			expect(relationships.size).toBe(1);
+			const [only] = relationships.all;
+			expect(only.status).toBe(RelationshipStatus.Revoked);
+
+			audit.failWith = undefined;
+			await expect(create()).resolves.toBeTruthy();
+			expect(notifier.sent).toHaveLength(1);
+		});
+
+		it('throws and sends nothing when the organization does not exist', async () => {
+			await memberships.create({
+				userId: 'ghost-user',
+				orgId: 'ghost-org',
+				role: OrgRole.Advisor,
+			});
+			await expect(
+				create({}, { userId: 'ghost-user', orgId: 'ghost-org' })
+			).rejects.toThrow();
+			expect(notifier.attempts).toHaveLength(0);
+			expect(profiles.size).toBe(0);
+			expect(relationships.size).toBe(0);
+			expect(invites.size).toBe(0);
 		});
 	});
 
@@ -347,6 +375,23 @@ describe('InviteService', () => {
 				clientProfileId
 			);
 			expect(relationship.status).toBe(RelationshipStatus.Revoked);
+		});
+
+		it('leaves the relationship ACTIVE when it was activated meanwhile', async () => {
+			const { inviteId, clientProfileId } = await create();
+			const invite = await invites.findById(orgAId, inviteId);
+			await relationships.activate(invite.relationshipId, 'consent-1');
+
+			await service.cancelInvite(ctxA, inviteId);
+
+			expect((await invites.findById(orgAId, inviteId)).status).toBe(
+				InviteStatus.Cancelled
+			);
+			const relationship = await relationships.findByOrgAndClient(
+				orgAId,
+				clientProfileId
+			);
+			expect(relationship.status).toBe(RelationshipStatus.Active);
 		});
 
 		it('answers NOT_PENDING the second time', async () => {

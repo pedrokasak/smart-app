@@ -34,27 +34,29 @@ export class RelationshipService {
 	}
 
 	/**
-	 * Cria a relação PENDING (aguardando o aceite do investidor). Idempotente:
-	 * se já existe uma PENDING ou ACTIVE, devolve ela.
+	 * Cria sempre uma nova relação PENDING (aguardando o aceite do investidor).
+	 * Nunca devolve uma relação existente.
 	 */
 	async createPending(
 		orgId: string,
 		clientProfileId: string
 	): Promise<AdvisoryRelationship> {
-		const existing = await this.relationships.findByOrgAndClient(
-			orgId,
-			clientProfileId
-		);
-		if (
-			existing?.status === RelationshipStatus.Active ||
-			existing?.status === RelationshipStatus.Pending
-		) {
-			return existing;
-		}
 		return this.relationships.create({
 			orgId,
 			clientProfileId,
 			status: RelationshipStatus.Pending,
+		});
+	}
+
+	/** Revoga só se estiver PENDING; ACTIVE, REVOKED ou inexistente: no-op. */
+	async revokePending(id: string): Promise<void> {
+		const relationship = await this.relationships.findById(id);
+		if (relationship?.status !== RelationshipStatus.Pending) {
+			return;
+		}
+		await this.relationships.save({
+			...relationship,
+			status: RelationshipStatus.Revoked,
 		});
 	}
 

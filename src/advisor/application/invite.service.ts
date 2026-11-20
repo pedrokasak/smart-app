@@ -78,6 +78,7 @@ export class InviteService {
 		}
 
 		await this.assertNoLivePendingInvite(ctx.orgId, email);
+		const orgName = await this.orgNameOf(ctx.orgId);
 
 		const profile = await this.profiles.create({
 			orgId: ctx.orgId,
@@ -102,22 +103,21 @@ export class InviteService {
 			invitedByUserId: ctx.userId,
 		});
 
-		// Fail closed: a failed audit blocks the grant path, nothing is sent.
-		await this.audit.record({
-			eventId: randomUUID(),
-			type: INVITE_CREATED_EVENT,
-			version: 1,
-			subject: profile.id,
-			actorRef: actorRefOf(ctx.userId),
-			occurredAt: new Date(),
-			payload: { orgId: ctx.orgId },
-		});
-
 		try {
+			// Fail closed: a failed audit blocks the grant path, nothing is sent.
+			await this.audit.record({
+				eventId: randomUUID(),
+				type: INVITE_CREATED_EVENT,
+				version: 1,
+				subject: profile.id,
+				actorRef: actorRefOf(ctx.userId),
+				occurredAt: new Date(),
+				payload: { orgId: ctx.orgId },
+			});
 			await this.notifier.sendInvite({
 				to: email,
 				token,
-				orgName: await this.orgNameOf(ctx.orgId),
+				orgName,
 				expiresAt,
 			});
 		} catch (error) {
@@ -177,7 +177,7 @@ export class InviteService {
 			new Date()
 		);
 		if (!cancelled) throw new InviteConflictError('NOT_PENDING');
-		await this.relationships.revoke(cancelled.relationshipId);
+		await this.relationships.revokePending(cancelled.relationshipId);
 	}
 
 	/** A live PENDING invite blocks; expired ones are closed and ignored. */
@@ -200,10 +200,15 @@ export class InviteService {
 
 	private async orgNameOf(orgId: string): Promise<string> {
 		const org = await this.orgs.findById(orgId);
-		return org?.name ?? '';
+		if (!org) throw new Error('Organization of the invite not found');
+		return org.name;
 	}
 
-	/** Best effort: the original send error is what the caller must see. */
+	/**
+	 * Compensation for a failed audit or send: each step is independent and
+	 * best effort, so one failing never skips the other. The caller rethrows
+	 * the original error. Logs carry ids only (no e-mail, name or token).
+	 */
 	private async discard(
 		inviteId: string,
 		relationshipId: string
@@ -214,13 +219,21 @@ export class InviteService {
 				InviteStatus.Cancelled,
 				new Date()
 			);
-			await this.relationships.revoke(relationshipId);
 		} catch (error) {
-			this.logger.error(
-				`Failed to discard invite ${inviteId} after send failure: ${
-					error instanceof Error ? error.message : 'unknown'
-				}`
-			);
+			this.logFailure('cancel invite', inviteId, error);
 		}
+		try {
+			await this.relationships.revokePending(relationshipId);
+		} catch (error) {
+			this.logFailure('revoke pending relationship of invite', inviteId, error);
+		}
+	}
+
+	private logFailure(step: string, inviteId: string, error: unknown): void {
+		this.logger.error(
+			`Failed to ${step} ${inviteId} during compensation: ${
+				error instanceof Error ? error.name : 'unknown'
+			}`
+		);
 	}
 }
