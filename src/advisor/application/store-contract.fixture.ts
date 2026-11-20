@@ -13,6 +13,7 @@ import {
 	TransactionSide,
 	TransactionSource,
 } from '../domain/enums';
+import { ERASED_CLIENT_NAME } from '../domain/entities';
 import { NewTransaction } from '../domain/portfolio.entities';
 import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
@@ -327,6 +328,47 @@ export function describeAdvisorStoreContract(
 			expect((await s.profiles.findById(created.id))?.ownerUserId).toBe(
 				winners[0]?.ownerUserId
 			);
+		});
+
+		it('client profile: anonymizeByOwner clears owner and name of that owner profiles only', async () => {
+			const owner = randomUUID();
+			const first = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Joao Silva',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: owner,
+			});
+			const second = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Joao S.',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: owner,
+			});
+			const other = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Maria',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: randomUUID(),
+			});
+			const unowned = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Manual',
+				origin: ProfileOrigin.AdvisorCreated,
+			});
+
+			expect(await s.profiles.anonymizeByOwner(owner)).toBe(2);
+
+			for (const id of [first.id, second.id]) {
+				expect(await s.profiles.findById(id)).toEqual({
+					id,
+					orgId: id === first.id ? first.orgId : second.orgId,
+					name: ERASED_CLIENT_NAME,
+					origin: ProfileOrigin.ClientCreated,
+				});
+			}
+			expect(await s.profiles.findById(other.id)).toEqual(other);
+			expect(await s.profiles.findById(unowned.id)).toEqual(unowned);
+			expect(await s.profiles.anonymizeByOwner(owner)).toBe(0);
 		});
 
 		it('relationship: activate moves PENDING to ACTIVE recording consentId', async () => {
@@ -787,6 +829,41 @@ export function describeAdvisorConsentStoreContract(
 			const active = await s.consents.listActiveByUser(userId);
 
 			expect(active.map((c) => c.id)).toEqual([mine.id]);
+		});
+
+		it('consent: listByUser returns every version of the user consents only', async () => {
+			const userId = randomUUID();
+			const relationshipId = randomUUID();
+			const first = await s.consents.grant(
+				newConsent({ userId, relationshipId })
+			);
+			const second = await s.consents.grant(
+				newConsent({
+					userId,
+					relationshipId,
+					grantedAt: new Date('2030-02-01T00:00:00Z'),
+				})
+			);
+			const ended = await s.consents.grant(newConsent({ userId }));
+			await s.consents.revokeActive(
+				ended.relationshipId,
+				userId,
+				new Date('2030-03-01T00:00:00Z')
+			);
+			await s.consents.grant(newConsent());
+
+			const mine = await s.consents.listByUser(userId);
+
+			expect(mine.map((c) => c.id).sort()).toEqual(
+				[first.id, second.id, ended.id].sort()
+			);
+			expect(mine.find((c) => c.id === first.id)?.status).toBe(
+				ConsentStatus.Superseded
+			);
+			expect(mine.find((c) => c.id === ended.id)?.status).toBe(
+				ConsentStatus.Revoked
+			);
+			expect(await s.consents.listByUser(randomUUID())).toEqual([]);
 		});
 
 		it('consent: deleteByUser removes only that user and returns the count', async () => {

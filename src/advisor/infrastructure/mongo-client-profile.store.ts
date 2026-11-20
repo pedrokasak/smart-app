@@ -2,7 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
 import { ClientProfileStorePort } from '../application/ports/client-profile.store.port';
-import { ClientProfile } from '../domain/entities';
+import { ClientProfile, ERASED_CLIENT_NAME } from '../domain/entities';
 import { ProfileOrigin } from '../domain/enums';
 import { toClientProfile } from './advisor.mappers';
 import {
@@ -65,5 +65,15 @@ export class MongoClientProfileStore implements ClientProfileStorePort {
 			.lean<AdvisorClientProfileDoc>()
 			.exec();
 		return doc ? toClientProfile(doc) : null;
+	}
+
+	async anonymizeByOwner(userId: string): Promise<number> {
+		const result = await this.profiles
+			.updateMany(
+				{ ownerUserId: userId },
+				{ $set: { name: ERASED_CLIENT_NAME }, $unset: { ownerUserId: '' } }
+			)
+			.exec();
+		return result.modifiedCount ?? 0;
 	}
 }

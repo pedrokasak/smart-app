@@ -2,7 +2,13 @@ import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import mongoose from 'mongoose';
 import {
+	ADVISOR_CLIENT_INVITE_MODEL,
+	ADVISOR_CONSENT_MODEL,
+} from 'src/advisor/infrastructure/advisor-consent.models';
+import { ADVISOR_CLIENT_PROFILE_MODEL } from 'src/advisor/infrastructure/advisor.models';
+import {
 	ERASABLE_COLLECTIONS,
+	MODULE_ERASED_COLLECTIONS,
 	PORTFOLIO_OWNED_COLLECTION,
 	RETAINED_COLLECTIONS,
 } from './account-erasure.policy';
@@ -30,6 +36,7 @@ describe('Política de exclusão de conta (TRA-127)', () => {
 	const classified = new Set([
 		...ERASABLE_COLLECTIONS.map((c) => c.model),
 		...RETAINED_COLLECTIONS.map((c) => c.model),
+		...MODULE_ERASED_COLLECTIONS.map((c) => c.model),
 		'User',
 	]);
 
@@ -37,6 +44,7 @@ describe('Política de exclusão de conta (TRA-127)', () => {
 		const names = [
 			...ERASABLE_COLLECTIONS.map((c) => c.model),
 			...RETAINED_COLLECTIONS.map((c) => c.model),
+			...MODULE_ERASED_COLLECTIONS.map((c) => c.model),
 			PORTFOLIO_OWNED_COLLECTION.model,
 		];
 		expect(new Set(names).size).toBe(names.length);
@@ -62,5 +70,27 @@ describe('Política de exclusão de conta (TRA-127)', () => {
 		for (const name of ['Trade', 'Asset', 'RoleChangeAudit']) {
 			expect(known).toContain(name);
 		}
+	});
+
+	// Os schemas do advisor não têm `ref: 'User'` (o módulo não conhece o
+	// model de outro): a varredura acima não os vê, então ficam travados aqui.
+	it('as coleções do advisor com dado do titular estão classificadas', () => {
+		for (const model of [
+			ADVISOR_CONSENT_MODEL,
+			ADVISOR_CLIENT_INVITE_MODEL,
+			ADVISOR_CLIENT_PROFILE_MODEL,
+		]) {
+			expect(classified.has(model)).toBe(true);
+		}
+		expect(
+			MODULE_ERASED_COLLECTIONS.map(({ model, ownerField }) => [
+				model,
+				ownerField,
+			])
+		).toEqual([
+			[ADVISOR_CONSENT_MODEL, 'userId'],
+			[ADVISOR_CLIENT_INVITE_MODEL, 'email'],
+			[ADVISOR_CLIENT_PROFILE_MODEL, 'ownerUserId'],
+		]);
 	});
 });

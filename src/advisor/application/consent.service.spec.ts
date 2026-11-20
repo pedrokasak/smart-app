@@ -13,6 +13,7 @@ import {
 	OrgRole,
 	RelationshipStatus,
 } from '../domain/enums';
+import { ERASED_CLIENT_NAME } from '../domain/entities';
 import { CONSENT_TEXT_VERSION } from '../domain/invite-rules';
 import { AuthorizationService } from './authorization.service';
 import {
@@ -767,6 +768,135 @@ describe('ConsentService', () => {
 
 		it('returns zero when there is nothing to revoke', async () => {
 			expect(await service.revokeAllForUser(INVESTOR)).toEqual({ revoked: 0 });
+		});
+	});
+
+	describe('eraseUser', () => {
+		it('revokes before removing anything, then deletes consents and invites and anonymizes the profile', async () => {
+			const { inv } = await accept(['p1']);
+			const pendingOfB = await invited('joao@exemplo.com', ctxB);
+			const maria = await invited('maria@exemplo.com', ctxB);
+			await service.acceptInvite(OTHER_INVESTOR, maria.token, ['p9']);
+			const order: string[] = [];
+			const track = (name: string, target: object, method: string) => {
+				const original = (target as any)[method].bind(target);
+				jest
+					.spyOn(target as any, method)
+					.mockImplementation(async (...args: unknown[]) => {
+						order.push(name);
+						return original(...args);
+					});
+			};
+			track('revokeAll', service, 'revokeAllForUser');
+			track('deleteConsents', consents, 'deleteByUser');
+			track('deleteInvites', invites, 'deleteByEmail');
+			track('anonymize', profiles, 'anonymizeByOwner');
+
+			const result = await service.eraseUser(INVESTOR, ' Joao@Exemplo.com ');
+
+			expect(order).toEqual([
+				'revokeAll',
+				'deleteConsents',
+				'deleteInvites',
+				'anonymize',
+			]);
+			expect(result).toEqual({
+				revoked: 1,
+				consents: 1,
+				invites: 2,
+				profiles: 1,
+			});
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Revoked);
+			expect(await consents.listByUser(INVESTOR)).toEqual([]);
+			expect(
+				await invites.findById(pendingOfB.orgId, pendingOfB.inviteId)
+			).toBeNull();
+			expect(await invites.findById(inv.orgId, inv.inviteId)).toBeNull();
+			const profile = await profiles.findById(inv.clientProfileId);
+			expect(profile.ownerUserId).toBeUndefined();
+			expect(profile.name).toBe(ERASED_CLIENT_NAME);
+			// Nobody else is touched.
+			expect(await service.listMyGrants(OTHER_INVESTOR)).toHaveLength(1);
+			expect(
+				await invites.findById(maria.orgId, maria.inviteId)
+			).not.toBeNull();
+		});
+
+		it('still runs the user-keyed steps when the e-mail is unknown, keeping the invites', async () => {
+			const { inv } = await accept(['p1']);
+			const warned = jest
+				.spyOn(Logger.prototype, 'warn')
+				.mockImplementation(() => undefined);
+
+			const result = await service.eraseUser(INVESTOR, undefined);
+
+			expect(result).toEqual({
+				revoked: 1,
+				consents: 1,
+				invites: null,
+				profiles: 1,
+			});
+			expect(await invites.findById(inv.orgId, inv.inviteId)).not.toBeNull();
+			expect(warned).toHaveBeenCalledTimes(1);
+			expect(String(warned.mock.calls[0][0])).not.toContain('@');
+		});
+
+		it('removes nothing when a revocation fails, so a retry starts clean', async () => {
+			const { inv } = await accept(['p1']);
+			jest
+				.spyOn(consents, 'revokeActive')
+				.mockRejectedValueOnce(new Error('store down'));
+			jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+
+			await expect(
+				service.eraseUser(INVESTOR, 'joao@exemplo.com')
+			).rejects.toThrow('store down');
+
+			expect(await consents.listByUser(INVESTOR)).toHaveLength(1);
+			expect(await invites.findById(inv.orgId, inv.inviteId)).not.toBeNull();
+			expect((await profiles.findById(inv.clientProfileId)).ownerUserId).toBe(
+				INVESTOR
+			);
+		});
+	});
+
+	describe('exportForUser', () => {
+		it('lists every consent of the user with the org name only', async () => {
+			const { inv } = await accept(['p1']);
+			await service.changeSharedPortfolios(INVESTOR, inv.relationshipId, [
+				'p1',
+				'p2',
+			]);
+			const maria = await invited('maria@exemplo.com', ctxB);
+			await service.acceptInvite(OTHER_INVESTOR, maria.token, ['p9']);
+
+			const exported = await service.exportForUser(INVESTOR);
+
+			expect(exported).toEqual([
+				{
+					organizationName: 'Org A',
+					portfolioIds: ['p1'],
+					status: ConsentStatus.Superseded,
+					version: 1,
+					textVersion: CONSENT_TEXT_VERSION,
+					grantedAt: expect.any(Date),
+					endedAt: expect.any(Date),
+				},
+				{
+					organizationName: 'Org A',
+					portfolioIds: ['p1', 'p2'],
+					status: ConsentStatus.Active,
+					version: 2,
+					textVersion: CONSENT_TEXT_VERSION,
+					grantedAt: expect.any(Date),
+					endedAt: null,
+				},
+			]);
+			expect(JSON.stringify(exported)).not.toContain(ctxA.orgId);
+		});
+
+		it('is empty for a user without consents', async () => {
+			expect(await service.exportForUser(INVESTOR)).toEqual([]);
 		});
 	});
 });

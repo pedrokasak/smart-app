@@ -11,6 +11,7 @@ import { SubscriptionService } from 'src/subscription/subscription.service';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { AccountErasureService } from './account-erasure.service';
 import { UserSessionService } from 'src/authentication/session/user-session.service';
+import { ConsentService } from 'src/advisor/application/consent.service';
 
 describe('PrivacyService', () => {
 	let service: PrivacyService;
@@ -25,6 +26,7 @@ describe('PrivacyService', () => {
 	const subscriptionService = { findUserSubscription: jest.fn() };
 	const tokenBlacklistService = { addToBlacklist: jest.fn() };
 	const accountErasure = { eraseDependents: jest.fn() };
+	const advisorConsents = { exportForUser: jest.fn().mockResolvedValue([]) };
 
 	const tradeModel = {
 		find: jest.fn(),
@@ -43,6 +45,7 @@ describe('PrivacyService', () => {
 				{ provide: SubscriptionService, useValue: subscriptionService },
 				{ provide: TokenBlacklistService, useValue: tokenBlacklistService },
 				{ provide: AccountErasureService, useValue: accountErasure },
+				{ provide: ConsentService, useValue: advisorConsents },
 				{
 					provide: UserSessionService,
 					useValue: { listForUser: jest.fn().mockResolvedValue([]) },
@@ -77,6 +80,9 @@ describe('PrivacyService', () => {
 			subscriptionService.findUserSubscription.mockResolvedValue({
 				status: 'active',
 			});
+			advisorConsents.exportForUser.mockResolvedValueOnce([
+				{ organizationName: 'Org A', portfolioIds: ['p1'], version: 1 },
+			]);
 			tradeModel.find.mockReturnValue({
 				lean: () => ({ exec: () => Promise.resolve([{ symbol: 'PETR4' }]) }),
 			});
@@ -94,6 +100,10 @@ describe('PrivacyService', () => {
 			expect(result.portfolios).toEqual([{ name: 'Carteira' }]);
 			expect(result.transactions).toEqual([{ symbol: 'PETR4' }]);
 			expect(result.subscription).toEqual({ status: 'active' });
+			expect(advisorConsents.exportForUser).toHaveBeenCalledWith('user-1');
+			expect(result.advisorConsents).toEqual([
+				{ organizationName: 'Org A', portfolioIds: ['p1'], version: 1 },
+			]);
 		});
 
 		it('throws when the user does not exist', async () => {
@@ -136,7 +146,10 @@ describe('PrivacyService', () => {
 
 	describe('deleteOwnAccount', () => {
 		beforeEach(() => {
-			usersService.findOne.mockResolvedValue({ _id: 'user-1' });
+			usersService.findOne.mockResolvedValue({
+				_id: 'user-1',
+				email: 'joao@exemplo.com',
+			});
 			accountErasure.eraseDependents.mockReset().mockResolvedValue({});
 		});
 
@@ -153,7 +166,11 @@ describe('PrivacyService', () => {
 
 			await service.deleteOwnAccount('user-1');
 
-			expect(accountErasure.eraseDependents).toHaveBeenCalledWith('user-1');
+			// O e-mail é lido antes de qualquer remoção: depois o User some.
+			expect(accountErasure.eraseDependents).toHaveBeenCalledWith(
+				'user-1',
+				'joao@exemplo.com'
+			);
 			expect(order).toEqual(['dependents', 'user']);
 		});
 
@@ -182,6 +199,7 @@ describe('PrivacyService', () => {
 					{ provide: SubscriptionService, useValue: subscriptionService },
 					{ provide: TokenBlacklistService, useValue: tokenBlacklistService },
 					{ provide: AccountErasureService, useValue: accountErasure },
+					{ provide: ConsentService, useValue: advisorConsents },
 					{
 						provide: UserSessionService,
 						useValue: { listForUser: jest.fn().mockResolvedValue([]) },

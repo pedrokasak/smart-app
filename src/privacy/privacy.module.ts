@@ -11,6 +11,7 @@ import { SubscriptionModule } from 'src/subscription/subscription.module';
 import { TokenBlacklistModule } from 'src/token-blacklist/token-blacklist.module';
 import { tradeSchema } from 'src/fiscal/schema/trade.model';
 import { AuthenticationModule } from 'src/authentication/authentication.module';
+import { AdvisorModule } from 'src/advisor/advisor.module';
 
 /**
  * Módulo isolado para os direitos LGPD básicos (TRA-122): exportação dos
@@ -34,6 +35,7 @@ import { AuthenticationModule } from 'src/authentication/authentication.module';
 		SubscriptionModule,
 		TokenBlacklistModule.forRoot(),
 		AuthenticationModule,
+		AdvisorModule,
 	],
 	controllers: [PrivacyController],
 	providers: [PrivacyService, AccountErasureService],

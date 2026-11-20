@@ -12,13 +12,20 @@ import type { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
 import { ClientInvite, Consent } from '../domain/consent.entities';
 import { AdvisoryRelationship, Organization } from '../domain/entities';
-import { AdvisorType, InviteStatus, RelationshipStatus } from '../domain/enums';
+import {
+	AdvisorType,
+	ConsentStatus,
+	InviteStatus,
+	RelationshipStatus,
+} from '../domain/enums';
 import {
 	CONSENT_TEXT_VERSION,
 	emailMatches,
 	hashInviteToken,
 	inviteUsability,
+	isValidEmail,
 	maskEmail,
+	normalizeEmail,
 	PortfolioSelectionResult,
 	validatePortfolioSelection,
 } from '../domain/invite-rules';
@@ -77,6 +84,25 @@ export interface AccessGrant {
 	portfolioIds: string[];
 	grantedAt: Date;
 	consentVersion: number;
+}
+
+/** What account erasure removed. `invites` is null when no e-mail was known. */
+export interface UserErasure {
+	revoked: number;
+	consents: number;
+	invites: number | null;
+	profiles: number;
+}
+
+/** LGPD export: the consent and the org name, nothing internal of the org. */
+export interface ConsentRecord {
+	organizationName: string | null;
+	portfolioIds: string[];
+	status: ConsentStatus;
+	version: number;
+	textVersion: string;
+	grantedAt: Date;
+	endedAt: Date | null;
 }
 
 /**
@@ -296,6 +322,46 @@ export class ConsentService {
 	}
 
 	/**
+	 * LGPD: the one method account erasure calls. Order: end every
+	 * link first (a failure aborts before anything is removed, so a retry
+	 * starts clean), then delete consents, then the invites sent to the
+	 * account e-mail, then detach the client profiles from the user. The
+	 * e-mail must be read by the caller before the account is deleted.
+	 */
+	async eraseUser(
+		userId: string,
+		email: string | undefined
+	): Promise<UserErasure> {
+		const { revoked } = await this.revokeAllForUser(userId);
+		const consents = await this.consents.deleteByUser(userId);
+		const invites = await this.deleteInvitesOf(userId, email);
+		const profiles = await this.profiles.anonymizeByOwner(userId);
+		return { revoked, consents, invites, profiles };
+	}
+
+	/** LGPD export: every consent version of the user, any status. */
+	async exportForUser(userId: string): Promise<ConsentRecord[]> {
+		const consents = await this.consents.listByUser(userId);
+		const orgIds = [...new Set(consents.map((c) => c.orgId))];
+		const orgs = await Promise.all(orgIds.map((id) => this.orgs.findById(id)));
+		const names = new Map(orgIds.map((id, i) => [id, orgs[i]?.name ?? null]));
+		return [...consents]
+			.sort(
+				(a, b) =>
+					a.grantedAt.getTime() - b.grantedAt.getTime() || a.version - b.version
+			)
+			.map((consent) => ({
+				organizationName: names.get(consent.orgId) ?? null,
+				portfolioIds: [...consent.portfolioIds],
+				status: consent.status,
+				version: consent.version,
+				textVersion: consent.textVersion,
+				grantedAt: consent.grantedAt,
+				endedAt: consent.endedAt ?? null,
+			}));
+	}
+
+	/**
 	 * Common gate: token -> invite -> usable -> verified account with the
 	 * invited e-mail. Every failure is the same InviteNotFoundError. An expired
 	 * PENDING invite found here is closed as EXPIRED.
@@ -486,6 +552,21 @@ export class ConsentService {
 				error
 			);
 		}
+	}
+
+	/** No usable e-mail: the invites cannot be found, keep them (ids-only log). */
+	private async deleteInvitesOf(
+		userId: string,
+		email: string | undefined
+	): Promise<number | null> {
+		const normalized = typeof email === 'string' ? normalizeEmail(email) : '';
+		if (!isValidEmail(normalized)) {
+			this.logger.warn(
+				`Erasure of user ${userId} without a known e-mail: invites kept`
+			);
+			return null;
+		}
+		return this.invites.deleteByEmail(normalized);
 	}
 
 	private logFailure(step: string, id: string, error: unknown): void {

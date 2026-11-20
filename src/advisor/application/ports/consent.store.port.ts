@@ -13,6 +13,8 @@ export interface ConsentStorePort {
 	listByRelationship(relationshipId: string): Promise<Consent[]>;
 	findActiveByRelationship(relationshipId: string): Promise<Consent | null>;
 	listActiveByUser(userId: string): Promise<Consent[]>;
+	/** LGPD (exportação): todas as versões do usuário, qualquer status. */
+	listByUser(userId: string): Promise<Consent[]>;
 	/**
 	 * ACTIVE -> REVOKED. Devolve o consentimento encerrado, ou null se não
 	 * havia ACTIVE (ou o userId não é o titular).

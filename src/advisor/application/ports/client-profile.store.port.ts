@@ -16,4 +16,9 @@ export interface ClientProfileStorePort {
 	 * atualizado, ou null se não existir, for ADVISOR_CREATED ou já tiver dono.
 	 */
 	setOwnerIfUnowned(id: string, userId: string): Promise<ClientProfile | null>;
+	/**
+	 * LGPD: nos perfis daquele dono, troca `name` por `ERASED_CLIENT_NAME` e
+	 * remove `ownerUserId`. Devolve quantos mudaram.
+	 */
+	anonymizeByOwner(userId: string): Promise<number>;
 }

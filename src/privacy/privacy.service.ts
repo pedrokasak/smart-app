@@ -11,6 +11,7 @@ import { PortfolioService } from 'src/portfolio/portfolio.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { UserSessionService } from 'src/authentication/session/user-session.service';
+import { ConsentService } from 'src/advisor/application/consent.service';
 
 @Injectable()
 export class PrivacyService {
@@ -26,7 +27,8 @@ export class PrivacyService {
 		private readonly tokenBlacklistService: TokenBlacklistService,
 		private readonly jwtService: JwtService,
 		private readonly accountErasure: AccountErasureService,
-		private readonly userSessions: UserSessionService
+		private readonly userSessions: UserSessionService,
+		private readonly advisorConsents: ConsentService
 	) {}
 
 	/**
@@ -45,6 +47,7 @@ export class PrivacyService {
 			trades,
 			subscription,
 			sessions,
+			advisorConsents,
 		] = await Promise.all([
 			this.usersService.findOne(userId),
 			this.profileService.findOne(userId).catch(() => null),
@@ -53,6 +56,7 @@ export class PrivacyService {
 			this.tradeModel.find({ userId }).lean().exec(),
 			this.subscriptionService.findUserSubscription(userId).catch(() => null),
 			this.userSessions.listForUser(userId).catch(() => []),
+			this.advisorConsents.exportForUser(userId).catch(() => []),
 		]);
 
 		if (!user) {
@@ -80,6 +84,7 @@ export class PrivacyService {
 			transactions: trades ?? [],
 			subscription: subscription ?? null,
 			sessions: sessions ?? [],
+			advisorConsents: advisorConsents ?? [],
 		};
 	}
 
@@ -98,7 +103,10 @@ export class PrivacyService {
 		if (!exists) {
 			throw new NotFoundException('Usuário não encontrado');
 		}
-		await this.accountErasure.eraseDependents(userId);
+		// Lido antes de qualquer remoção: os convites de assessor só se acham
+		// pelo e-mail, e o `User` não existe mais no fim.
+		const email = typeof exists.email === 'string' ? exists.email : undefined;
+		await this.accountErasure.eraseDependents(userId, email);
 
 		const deleted = await this.usersService.delete(userId);
 		if (!deleted) {

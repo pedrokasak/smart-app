@@ -4,6 +4,7 @@ import { ClientInvite, Consent } from '../domain/consent.entities';
 import {
 	AdvisoryRelationship,
 	ClientProfile,
+	ERASED_CLIENT_NAME,
 	Membership,
 	Organization,
 } from '../domain/entities';
@@ -229,6 +230,21 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 		const owned: ClientProfile = { ...profile, ownerUserId: userId };
 		this.items.set(id, owned);
 		return owned;
+	}
+
+	async anonymizeByOwner(userId: string): Promise<number> {
+		let changed = 0;
+		for (const [id, profile] of this.items) {
+			if (profile.ownerUserId !== userId) continue;
+			this.items.set(id, {
+				id: profile.id,
+				orgId: profile.orgId,
+				origin: profile.origin,
+				name: ERASED_CLIENT_NAME,
+			});
+			changed += 1;
+		}
+		return changed;
 	}
 }
 
@@ -604,6 +620,12 @@ export class InMemoryConsentStore implements ConsentStorePort {
 		return [...this.items.values()].filter(
 			(c) => c.userId === userId && c.status === ConsentStatus.Active
 		);
+	}
+
+	async listByUser(userId: string): Promise<Consent[]> {
+		return [...this.items.values()]
+			.filter((c) => c.userId === userId)
+			.map((c) => ({ ...c, portfolioIds: [...c.portfolioIds] }));
 	}
 
 	async revokeActive(

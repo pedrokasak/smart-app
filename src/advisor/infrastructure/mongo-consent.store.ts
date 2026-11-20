@@ -123,6 +123,15 @@ export class MongoConsentStore implements ConsentStorePort {
 		return docs.map(toConsent);
 	}
 
+	async listByUser(userId: string): Promise<Consent[]> {
+		const docs = await this.consents
+			.find({ userId })
+			.sort({ grantedAt: 1, version: 1, _id: 1 })
+			.lean<AdvisorConsentDoc[]>()
+			.exec();
+		return docs.map(toConsent);
+	}
+
 	/** Um único `findOneAndUpdate` com ACTIVE e o titular no filtro. */
 	async revokeActive(
 		relationshipId: string,
