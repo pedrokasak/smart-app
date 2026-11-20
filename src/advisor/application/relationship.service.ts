@@ -33,17 +33,46 @@ export class RelationshipService {
 		});
 	}
 
-	async revoke(id: string): Promise<void> {
+	/**
+	 * Cria sempre uma nova relação PENDING (aguardando o aceite do investidor).
+	 * Nunca devolve uma relação existente.
+	 */
+	async createPending(
+		orgId: string,
+		clientProfileId: string
+	): Promise<AdvisoryRelationship> {
+		return this.relationships.create({
+			orgId,
+			clientProfileId,
+			status: RelationshipStatus.Pending,
+		});
+	}
+
+	/** Revoga só se estiver PENDING; ACTIVE, REVOKED ou inexistente: no-op. */
+	async revokePending(id: string): Promise<void> {
 		const relationship = await this.relationships.findById(id);
-		if (!relationship) {
-			throw new NotFoundException('Advisory relationship not found');
-		}
-		if (relationship.status === RelationshipStatus.Revoked) {
+		if (relationship?.status !== RelationshipStatus.Pending) {
 			return;
 		}
 		await this.relationships.save({
 			...relationship,
 			status: RelationshipStatus.Revoked,
 		});
+	}
+
+	/** Devolve true se esta chamada mudou o status para REVOKED. */
+	async revoke(id: string): Promise<boolean> {
+		const relationship = await this.relationships.findById(id);
+		if (!relationship) {
+			throw new NotFoundException('Advisory relationship not found');
+		}
+		if (relationship.status === RelationshipStatus.Revoked) {
+			return false;
+		}
+		await this.relationships.save({
+			...relationship,
+			status: RelationshipStatus.Revoked,
+		});
+		return true;
 	}
 }

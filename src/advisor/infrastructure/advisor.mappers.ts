@@ -1,3 +1,4 @@
+import { ClientInvite, Consent } from '../domain/consent.entities';
 import {
 	AdvisoryRelationship,
 	ClientProfile,
@@ -15,6 +16,10 @@ import {
 	AdvisorOrganizationDoc,
 	AdvisorRelationshipDoc,
 } from './advisor.models';
+import {
+	AdvisorClientInviteDoc,
+	AdvisorConsentDoc,
+} from './advisor-consent.models';
 
 /**
  * Doc para entidade: `_id` vira `id` e só os campos do domínio saem; campos
@@ -93,5 +98,38 @@ export function toAllocationTarget(
 		targets: { ...doc.targets },
 		updatedByUserId: doc.updatedByUserId,
 		updatedAt: doc.updatedAt,
+	};
+}
+
+export function toClientInvite(doc: AdvisorClientInviteDoc): ClientInvite {
+	return {
+		id: doc._id,
+		orgId: doc.orgId,
+		clientProfileId: doc.clientProfileId,
+		relationshipId: doc.relationshipId,
+		email: doc.email,
+		tokenHash: doc.tokenHash,
+		status: doc.status,
+		expiresAt: doc.expiresAt,
+		resendCount: doc.resendCount,
+		invitedByUserId: doc.invitedByUserId,
+		createdAt: doc.createdAt,
+		...(doc.respondedAt != null && { respondedAt: doc.respondedAt }),
+	};
+}
+
+export function toConsent(doc: AdvisorConsentDoc): Consent {
+	return {
+		id: doc._id,
+		orgId: doc.orgId,
+		clientProfileId: doc.clientProfileId,
+		relationshipId: doc.relationshipId,
+		userId: doc.userId,
+		portfolioIds: [...doc.portfolioIds],
+		version: doc.version,
+		textVersion: doc.textVersion,
+		status: doc.status,
+		grantedAt: doc.grantedAt,
+		...(doc.endedAt != null && { endedAt: doc.endedAt }),
 	};
 }

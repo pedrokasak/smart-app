@@ -35,3 +35,6 @@ export interface ClientProfile {
 	origin: ProfileOrigin;
 	ownerUserId?: string;
 }
+
+/** Nome que fica no perfil de um cliente cuja conta foi excluída (LGPD). */
+export const ERASED_CLIENT_NAME = 'Cliente excluído';

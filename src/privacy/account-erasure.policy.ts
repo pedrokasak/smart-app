@@ -12,6 +12,7 @@ export { ERASED_USER_ID };
  *  - ANONIMIZAR: registro de cobrança e trilha de auditoria. O Trackerr
  *    precisa guardá-los (obrigação fiscal sobre a receita e auditoria de
  *    ações administrativas — art. 16, I), mas sem ligação com a pessoa.
+ *  - pelo módulo dono: coleções com regra própria (MODULE_ERASED_COLLECTIONS).
  *  - nada mais: o próprio `User` e o RAG são removidos pelo `UsersService`.
  *
  * Coleção nova com campo de dono precisa entrar aqui; o teste da política
@@ -68,6 +69,28 @@ export interface RetainedCollection extends ErasableCollection {
 	/** Campos que só servem para ligar o registro à pessoa. */
 	unset?: ReadonlyArray<string>;
 }
+
+/**
+ * Coleções cuja exclusão o módulo dono executa, pelo próprio serviço, porque
+ * a regra não cabe num `deleteMany` por dono: o Trackerr Advisor encerra os
+ * acessos (e audita) antes de apagar, acha os convites pelas relações dos
+ * consentimentos do usuário e pelo e-mail da conta e só desliga o perfil do cliente, que é registro da organização. Tudo isso é
+ * `ConsentService.eraseUser`, chamado antes de qualquer outra remoção.
+ */
+export interface ModuleErasedCollection extends ErasableCollection {
+	effect: 'delete' | 'anonymize';
+}
+
+export const MODULE_ERASED_COLLECTIONS: ReadonlyArray<ModuleErasedCollection> =
+	[
+		{ model: 'AdvisorConsent', ownerField: 'userId', effect: 'delete' },
+		{ model: 'AdvisorClientInvite', ownerField: 'email', effect: 'delete' },
+		{
+			model: 'AdvisorClientProfile',
+			ownerField: 'ownerUserId',
+			effect: 'anonymize',
+		},
+	];
 
 export const RETAINED_COLLECTIONS: ReadonlyArray<RetainedCollection> = [
 	{

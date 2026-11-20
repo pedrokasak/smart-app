@@ -5,7 +5,7 @@ import {
 	TransactionSide,
 	TransactionSource,
 } from '../../domain/enums';
-import { Transaction } from '../../domain/portfolio.entities';
+import { Position, Transaction } from '../../domain/portfolio.entities';
 import type { DailyCloseMinor } from '../ports/price-history.port';
 import {
 	buildPortfolioMetrics,
@@ -568,6 +568,152 @@ describe('buildPortfolioMetrics', () => {
 		expect(JSON.stringify(m)).not.toMatch(
 			/recomend|sugest|deveria|comprar|vender|aportar/i
 		);
+	});
+});
+
+describe('buildPortfolioMetrics with holdings without history', () => {
+	const days = tradingDays('2025-05-05', 60);
+	const asOf = days[59];
+	let level = 10000;
+	const petrCloses = days.map((date, i) => {
+		if (i > 0) {
+			const up = i % 2 === 1;
+			level *= i <= 30 ? (up ? 1.03 : 0.99) : up ? 1.005 : 0.98;
+		}
+		return { date, closeMinor: Math.round(level) };
+	});
+	const valeCloses = rising(days, 6000, 0.001);
+	const ledger = [tx({ tradeDate: days[0] })];
+	const vale: Position = {
+		symbol: 'VALE3',
+		assetClass: AssetClass.Stock,
+		quantity: 20,
+		costMinor: 100000,
+		provenance: Provenance.Manual,
+	};
+	const closes = new Map([
+		['PETR4', petrCloses],
+		['VALE3', valeCloses],
+	]);
+	const input = {
+		asOf,
+		ledger,
+		closes,
+		target: null,
+		benchmarkReturns: { CDI: 0.01 },
+	};
+
+	it('values them in the snapshot but keeps them out of the series', () => {
+		const alone = buildPortfolioMetrics(input);
+		const m = buildPortfolioMetrics({
+			...input,
+			holdingsWithoutHistory: [vale],
+		});
+
+		const petrValue = 10 * petrCloses[59].closeMinor;
+		const valeValue = 20 * valeCloses[59].closeMinor;
+		const valued = m.positions.find((p) => p.symbol === 'VALE3');
+		expect(valued.priced).toBe(true);
+		expect(valued.marketValueMinor).toBe(valeValue);
+		expect(m.totalValueMinor).toBe(petrValue + valeValue);
+		expect(m.provenance).toBe(PortfolioProvenance.Partial);
+		expect(m.concentration.top.map((t) => t.symbol).sort()).toEqual([
+			'PETR4',
+			'VALE3',
+		]);
+
+		expect(alone.performance.unavailable).toBeNull();
+		expect(m.performance.twr).toBeCloseTo(alone.performance.twr, 6);
+		expect(m.performance.mwr).toEqual(alone.performance.mwr);
+		expect(m.performance.observations).toBe(alone.performance.observations);
+		expect(m.risk.volatilityAnnualized).toBeCloseTo(
+			alone.risk.volatilityAnnualized,
+			6
+		);
+		expect(m.risk.var95).toEqual(alone.risk.var95);
+		expect(m.performance.coveragePct).toBeCloseTo(
+			(petrValue / (petrValue + valeValue)) * 100,
+			4
+		);
+		expect(m.warnings.noHistorySymbols).toEqual(['VALE3']);
+		expect(m.warnings.unpricedSymbols).toEqual([]);
+		expectNoNaN(m);
+	});
+
+	it('keeps an unpriced holding at cost and lists it as unpriced', () => {
+		const m = buildPortfolioMetrics({
+			...input,
+			holdingsWithoutHistory: [
+				{ ...vale, symbol: 'CDB-X', assetClass: AssetClass.FixedIncome },
+			],
+		});
+
+		const cdb = m.positions.find((p) => p.symbol === 'CDB-X');
+		expect(cdb.priced).toBe(false);
+		expect(cdb.marketValueMinor).toBe(100000);
+		expect(m.warnings.unpricedSymbols).toEqual(['CDB-X']);
+		expect(m.warnings.noHistorySymbols).toEqual(['CDB-X']);
+	});
+
+	it('fills the snapshot from holdings alone, with no performance', () => {
+		const m = buildPortfolioMetrics({
+			...input,
+			ledger: [],
+			holdingsWithoutHistory: [vale],
+		});
+
+		expect(m.positions.map((p) => p.symbol)).toEqual(['VALE3']);
+		expect(m.totalValueMinor).toBe(20 * valeCloses[59].closeMinor);
+		expect(m.provenance).toBe(PortfolioProvenance.Manual);
+		expect(m.concentration.hhi).toBe(1);
+		expect(m.liquidity.D1_2).toBe(100);
+		expect(m.allocation.current.STOCK).toBe(100);
+		expect(m.performance.unavailable).toBe('NO_TRANSACTIONS');
+		expect(m.performance.coveragePct).toBe(0);
+		expect(m.performance.twr).toBeNull();
+		expect(m.performance.mwr).toBeNull();
+		expect(m.risk.var95).toBeNull();
+		expect(m.benchmarks.every((b) => b.excess === null)).toBe(true);
+		expect(m.warnings.noHistorySymbols).toEqual(['VALE3']);
+		expectNoNaN(m);
+	});
+
+	it('lets the ledger win when a symbol is in both', () => {
+		const m = buildPortfolioMetrics({
+			...input,
+			holdingsWithoutHistory: [
+				{ ...vale, symbol: 'PETR4', quantity: 999 },
+				vale,
+			],
+		});
+
+		const petr = m.positions.filter((p) => p.symbol === 'PETR4');
+		expect(petr).toHaveLength(1);
+		expect(petr[0].quantity).toBe(10);
+		expect(m.warnings.noHistorySymbols).toEqual(['VALE3']);
+	});
+
+	it('lists the no-history symbols in alphabetical order', () => {
+		const m = buildPortfolioMetrics({
+			...input,
+			holdingsWithoutHistory: [
+				{ ...vale, symbol: 'WEGE3' },
+				{ ...vale, symbol: 'ITUB4' },
+			],
+		});
+
+		expect(m.warnings.noHistorySymbols).toEqual(['ITUB4', 'WEGE3']);
+	});
+
+	it('gives the same result without the parameter and with []', () => {
+		const without = buildPortfolioMetrics(input);
+		const empty = buildPortfolioMetrics({
+			...input,
+			holdingsWithoutHistory: [],
+		});
+
+		expect(empty).toEqual(without);
+		expect(without.warnings.noHistorySymbols).toEqual([]);
 	});
 });
 

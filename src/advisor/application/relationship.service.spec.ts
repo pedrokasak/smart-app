@@ -42,9 +42,9 @@ describe('RelationshipService', () => {
 		expect((await store.findByOrgAndClient('orgA', 'cp1'))?.id).toBe(second.id);
 	});
 
-	it('revoke sets status to REVOKED', async () => {
+	it('revoke sets status to REVOKED and reports the change', async () => {
 		const r = await svc.create('orgA', 'cp1');
-		await svc.revoke(r.id);
+		await expect(svc.revoke(r.id)).resolves.toBe(true);
 		expect((await store.findById(r.id))?.status).toBe(
 			RelationshipStatus.Revoked
 		);
@@ -54,7 +54,7 @@ describe('RelationshipService', () => {
 		const r = await svc.create('orgA', 'cp1');
 		await svc.revoke(r.id);
 		const saveSpy = jest.spyOn(store, 'save');
-		await expect(svc.revoke(r.id)).resolves.toBeUndefined();
+		await expect(svc.revoke(r.id)).resolves.toBe(false);
 		expect(saveSpy).not.toHaveBeenCalled();
 		expect((await store.findById(r.id))?.status).toBe(
 			RelationshipStatus.Revoked
@@ -63,5 +63,51 @@ describe('RelationshipService', () => {
 
 	it('revoke throws NotFoundException for unknown id', async () => {
 		await expect(svc.revoke('missing')).rejects.toThrow(NotFoundException);
+	});
+
+	describe('createPending', () => {
+		it('always creates a new PENDING relationship', async () => {
+			const first = await svc.createPending('orgA', 'cp1');
+			const second = await svc.createPending('orgA', 'cp1');
+			expect(first.status).toBe(RelationshipStatus.Pending);
+			expect(second.status).toBe(RelationshipStatus.Pending);
+			expect(second.id).not.toBe(first.id);
+			expect(store.size).toBe(2);
+		});
+
+		it('does not return an ACTIVE relationship', async () => {
+			const active = await svc.create('orgA', 'cp1');
+			const pending = await svc.createPending('orgA', 'cp1');
+			expect(pending.id).not.toBe(active.id);
+			expect(pending.status).toBe(RelationshipStatus.Pending);
+		});
+	});
+
+	describe('revokePending', () => {
+		it('revokes a PENDING relationship', async () => {
+			const pending = await svc.createPending('orgA', 'cp1');
+			await svc.revokePending(pending.id);
+			expect((await store.findById(pending.id))?.status).toBe(
+				RelationshipStatus.Revoked
+			);
+		});
+
+		it('leaves an ACTIVE relationship untouched', async () => {
+			const active = await svc.create('orgA', 'cp1');
+			await svc.revokePending(active.id);
+			expect((await store.findById(active.id))?.status).toBe(
+				RelationshipStatus.Active
+			);
+		});
+
+		it('leaves a REVOKED relationship untouched and ignores unknown ids', async () => {
+			const rel = await svc.create('orgA', 'cp1');
+			await svc.revoke(rel.id);
+			await svc.revokePending(rel.id);
+			await expect(svc.revokePending('missing')).resolves.toBeUndefined();
+			expect((await store.findById(rel.id))?.status).toBe(
+				RelationshipStatus.Revoked
+			);
+		});
 	});
 });

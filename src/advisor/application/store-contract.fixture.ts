@@ -1,7 +1,11 @@
+import { ConflictException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import { ClientInvite, Consent } from '../domain/consent.entities';
 import {
 	AdvisorType,
 	AssetClass,
+	ConsentStatus,
+	InviteStatus,
 	OrgRole,
 	ProfileOrigin,
 	Provenance,
@@ -9,9 +13,12 @@ import {
 	TransactionSide,
 	TransactionSource,
 } from '../domain/enums';
+import { ERASED_CLIENT_NAME } from '../domain/entities';
 import { NewTransaction } from '../domain/portfolio.entities';
 import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
+import { ConsentStorePort } from './ports/consent.store.port';
+import { InviteStorePort } from './ports/invite.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
 import { RelationshipStorePort } from './ports/relationship.store.port';
@@ -265,6 +272,693 @@ export function describeAdvisorStoreContract(
 				s.profiles.claimIfUnowned(created.id, 'c'),
 			]);
 			expect(results.filter((r) => r !== null)).toHaveLength(1);
+		});
+
+		it('client profile: setOwnerIfUnowned gives an unowned client-created profile its owner', async () => {
+			const created = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Convidado',
+				origin: ProfileOrigin.ClientCreated,
+			});
+			const owned = await s.profiles.setOwnerIfUnowned(created.id, 'u1');
+			expect(owned).toEqual({ ...created, ownerUserId: 'u1' });
+			const reloaded = await s.profiles.findById(created.id);
+			expect(reloaded?.ownerUserId).toBe('u1');
+			expect(reloaded?.origin).toBe(ProfileOrigin.ClientCreated);
+		});
+
+		it('client profile: setOwnerIfUnowned gives null when already owned, unknown or advisor-created', async () => {
+			const owned = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Self',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: 'u7',
+			});
+			expect(await s.profiles.setOwnerIfUnowned(owned.id, 'u8')).toBeNull();
+			expect((await s.profiles.findById(owned.id))?.ownerUserId).toBe('u7');
+
+			expect(await s.profiles.setOwnerIfUnowned(randomUUID(), 'u1')).toBeNull();
+
+			const advisorCreated = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Manual',
+				origin: ProfileOrigin.AdvisorCreated,
+			});
+			expect(
+				await s.profiles.setOwnerIfUnowned(advisorCreated.id, 'u1')
+			).toBeNull();
+			const reloaded = await s.profiles.findById(advisorCreated.id);
+			expect(reloaded?.ownerUserId).toBeUndefined();
+			expect(reloaded?.origin).toBe(ProfileOrigin.AdvisorCreated);
+		});
+
+		it('client profile: concurrent setOwnerIfUnowned has exactly one winner', async () => {
+			const created = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Race',
+				origin: ProfileOrigin.ClientCreated,
+			});
+			const results = await Promise.all([
+				s.profiles.setOwnerIfUnowned(created.id, 'a'),
+				s.profiles.setOwnerIfUnowned(created.id, 'b'),
+				s.profiles.setOwnerIfUnowned(created.id, 'c'),
+			]);
+			const winners = results.filter((r) => r !== null);
+			expect(winners).toHaveLength(1);
+			expect((await s.profiles.findById(created.id))?.ownerUserId).toBe(
+				winners[0]?.ownerUserId
+			);
+		});
+
+		it('client profile: anonymizeByOwner clears owner and name of that owner profiles only', async () => {
+			const owner = randomUUID();
+			const first = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Joao Silva',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: owner,
+			});
+			const second = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Joao S.',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: owner,
+			});
+			const other = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Maria',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: randomUUID(),
+			});
+			const unowned = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Manual',
+				origin: ProfileOrigin.AdvisorCreated,
+			});
+
+			expect(await s.profiles.anonymizeByOwner(owner)).toBe(2);
+
+			for (const id of [first.id, second.id]) {
+				expect(await s.profiles.findById(id)).toEqual({
+					id,
+					orgId: id === first.id ? first.orgId : second.orgId,
+					name: ERASED_CLIENT_NAME,
+					origin: ProfileOrigin.ClientCreated,
+				});
+			}
+			expect(await s.profiles.findById(other.id)).toEqual(other);
+			expect(await s.profiles.findById(unowned.id)).toEqual(unowned);
+			expect(await s.profiles.anonymizeByOwner(owner)).toBe(0);
+		});
+
+		it('client profile: listIdsByOwner returns the ids of that owner profiles only', async () => {
+			const owner = randomUUID();
+			const first = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Joao Silva',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: owner,
+			});
+			const second = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Joao S.',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: owner,
+			});
+			await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Maria',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: randomUUID(),
+			});
+
+			expect([...(await s.profiles.listIdsByOwner(owner))].sort()).toEqual(
+				[first.id, second.id].sort()
+			);
+			expect(await s.profiles.listIdsByOwner(randomUUID())).toEqual([]);
+		});
+
+		it('relationship: listActiveByClientProfiles returns only the ACTIVE ones of those profiles', async () => {
+			const profileA = randomUUID();
+			const profileB = randomUUID();
+			const activeA = await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: profileA,
+				status: RelationshipStatus.Active,
+			});
+			const activeB = await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: profileB,
+				status: RelationshipStatus.Active,
+			});
+			for (const status of [
+				RelationshipStatus.Pending,
+				RelationshipStatus.Revoked,
+			]) {
+				await s.relationships.create({
+					orgId: randomUUID(),
+					clientProfileId: profileA,
+					status,
+				});
+			}
+			await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Active,
+			});
+
+			const found = await s.relationships.listActiveByClientProfiles([
+				profileA,
+				profileB,
+			]);
+
+			expect(found.map((r) => r.id).sort()).toEqual(
+				[activeA.id, activeB.id].sort()
+			);
+			expect(await s.relationships.listActiveByClientProfiles([])).toEqual([]);
+		});
+
+		it('relationship: activate moves PENDING to ACTIVE recording consentId', async () => {
+			const created = await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Pending,
+			});
+			const consentId = randomUUID();
+
+			const activated = await s.relationships.activate(created.id, consentId);
+
+			expect(activated).toEqual({
+				...created,
+				status: RelationshipStatus.Active,
+				consentId,
+			});
+			expect(await s.relationships.findById(created.id)).toEqual(activated);
+		});
+
+		it('relationship: activate returns null for ACTIVE, REVOKED and unknown relationships', async () => {
+			const active = await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Active,
+				consentId: 'keep',
+			});
+			const revoked = await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Revoked,
+			});
+
+			expect(await s.relationships.activate(active.id, 'x')).toBeNull();
+			expect(await s.relationships.activate(revoked.id, 'x')).toBeNull();
+			expect(await s.relationships.activate(randomUUID(), 'x')).toBeNull();
+			expect((await s.relationships.findById(active.id))?.consentId).toBe(
+				'keep'
+			);
+			expect((await s.relationships.findById(revoked.id))?.status).toBe(
+				RelationshipStatus.Revoked
+			);
+		});
+
+		it('relationship: setConsentIfActive updates consentId of an ACTIVE relationship', async () => {
+			const created = await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Active,
+				consentId: 'c1',
+			});
+			const updated = await s.relationships.setConsentIfActive(
+				created.id,
+				'c2'
+			);
+			expect(updated).toEqual({ ...created, consentId: 'c2' });
+			expect(await s.relationships.findById(created.id)).toEqual(updated);
+		});
+
+		it('relationship: setConsentIfActive gives null and changes nothing for REVOKED, PENDING and unknown', async () => {
+			for (const status of [
+				RelationshipStatus.Revoked,
+				RelationshipStatus.Pending,
+			]) {
+				const created = await s.relationships.create({
+					orgId: randomUUID(),
+					clientProfileId: randomUUID(),
+					status,
+					consentId: 'c1',
+				});
+				expect(
+					await s.relationships.setConsentIfActive(created.id, 'c2')
+				).toBeNull();
+				expect(await s.relationships.findById(created.id)).toEqual(created);
+			}
+			expect(
+				await s.relationships.setConsentIfActive(randomUUID(), 'c2')
+			).toBeNull();
+		});
+
+		it('relationship: concurrent activate has exactly one winner', async () => {
+			const created = await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Pending,
+			});
+			const results = await Promise.all([
+				s.relationships.activate(created.id, 'a'),
+				s.relationships.activate(created.id, 'b'),
+				s.relationships.activate(created.id, 'c'),
+			]);
+
+			const winners = results.filter((r) => r !== null);
+			expect(winners).toHaveLength(1);
+			expect((await s.relationships.findById(created.id))?.consentId).toBe(
+				winners[0].consentId
+			);
+		});
+	});
+}
+
+export interface AdvisorConsentStores {
+	invites: InviteStorePort;
+	consents: ConsentStorePort;
+}
+
+/**
+ * Suíte de contrato dos ports de convite e consentimento. Ids aleatórios por
+ * teste; não assume coleção vazia.
+ */
+export function describeAdvisorConsentStoreContract(
+	name: string,
+	makeStores: () => AdvisorConsentStores
+): void {
+	describe(`${name} - advisor consent store contract`, () => {
+		let s: AdvisorConsentStores;
+		beforeEach(() => {
+			s = makeStores();
+		});
+
+		const newInvite = (
+			overrides: Partial<Omit<ClientInvite, 'id' | 'createdAt'>> = {}
+		): Omit<ClientInvite, 'id' | 'createdAt'> => ({
+			orgId: randomUUID(),
+			clientProfileId: randomUUID(),
+			relationshipId: randomUUID(),
+			email: `${randomUUID()}@example.com`,
+			tokenHash: randomUUID(),
+			status: InviteStatus.Pending,
+			expiresAt: new Date('2030-01-01T00:00:00Z'),
+			resendCount: 0,
+			invitedByUserId: randomUUID(),
+			...overrides,
+		});
+
+		const newConsent = (
+			overrides: Partial<
+				Omit<Consent, 'id' | 'version' | 'status' | 'endedAt'>
+			> = {}
+		): Omit<Consent, 'id' | 'version' | 'status' | 'endedAt'> => ({
+			orgId: randomUUID(),
+			clientProfileId: randomUUID(),
+			relationshipId: randomUUID(),
+			userId: randomUUID(),
+			portfolioIds: [randomUUID()],
+			textVersion: 'v1',
+			grantedAt: new Date('2030-01-01T00:00:00Z'),
+			...overrides,
+		});
+
+		it('invite: create round trips by token hash; unknown hash gives null', async () => {
+			const created = await s.invites.create(newInvite());
+
+			expect(created.id).toBeTruthy();
+			expect(created.createdAt).toBeInstanceOf(Date);
+			expect(await s.invites.findByTokenHash(created.tokenHash)).toEqual(
+				created
+			);
+			expect(await s.invites.findByTokenHash(randomUUID())).toBeNull();
+		});
+
+		it('invite: findById is scoped to the organization', async () => {
+			const created = await s.invites.create(newInvite());
+
+			expect(await s.invites.findById(created.orgId, created.id)).toEqual(
+				created
+			);
+			expect(await s.invites.findById(randomUUID(), created.id)).toBeNull();
+			expect(await s.invites.findById(created.orgId, randomUUID())).toBeNull();
+		});
+
+		it('invite: transition PENDING to ACCEPTED sets respondedAt, then returns null', async () => {
+			const created = await s.invites.create(newInvite());
+			const at = new Date('2030-02-01T00:00:00Z');
+
+			const accepted = await s.invites.transition(
+				created.id,
+				InviteStatus.Accepted,
+				at
+			);
+
+			expect(accepted?.status).toBe(InviteStatus.Accepted);
+			expect(accepted?.respondedAt).toEqual(at);
+			expect(
+				await s.invites.transition(created.id, InviteStatus.Declined, at)
+			).toBeNull();
+			expect(
+				(await s.invites.findById(created.orgId, created.id))?.status
+			).toBe(InviteStatus.Accepted);
+		});
+
+		it('invite: transition of an unknown invite gives null', async () => {
+			expect(
+				await s.invites.transition(
+					randomUUID(),
+					InviteStatus.Accepted,
+					new Date()
+				)
+			).toBeNull();
+		});
+
+		it('invite: concurrent transitions have exactly one winner', async () => {
+			const created = await s.invites.create(newInvite());
+			const at = new Date();
+
+			const results = await Promise.all([
+				s.invites.transition(created.id, InviteStatus.Accepted, at),
+				s.invites.transition(created.id, InviteStatus.Declined, at),
+				s.invites.transition(created.id, InviteStatus.Cancelled, at),
+			]);
+
+			expect(results.filter((r) => r !== null)).toHaveLength(1);
+		});
+
+		it('invite: rotateToken swaps hash and expiry, counts the resend and retires the old hash', async () => {
+			const created = await s.invites.create(newInvite());
+			const newHash = randomUUID();
+			const expiresAt = new Date('2031-01-01T00:00:00Z');
+
+			const rotated = await s.invites.rotateToken(
+				created.id,
+				newHash,
+				expiresAt,
+				3
+			);
+
+			expect(rotated?.tokenHash).toBe(newHash);
+			expect(rotated?.expiresAt).toEqual(expiresAt);
+			expect(rotated?.resendCount).toBe(1);
+			expect(await s.invites.findByTokenHash(created.tokenHash)).toBeNull();
+			expect((await s.invites.findByTokenHash(newHash))?.id).toBe(created.id);
+		});
+
+		it('invite: rotateToken stops at max resends', async () => {
+			const created = await s.invites.create(newInvite());
+			const expiresAt = new Date('2031-01-01T00:00:00Z');
+
+			for (let i = 1; i <= 3; i += 1) {
+				const rotated = await s.invites.rotateToken(
+					created.id,
+					randomUUID(),
+					expiresAt,
+					3
+				);
+				expect(rotated?.resendCount).toBe(i);
+			}
+			const refused = await s.invites.rotateToken(
+				created.id,
+				randomUUID(),
+				expiresAt,
+				3
+			);
+
+			expect(refused).toBeNull();
+			expect(
+				(await s.invites.findById(created.orgId, created.id))?.resendCount
+			).toBe(3);
+		});
+
+		it('invite: rotateToken on a non-PENDING invite gives null', async () => {
+			const created = await s.invites.create(newInvite());
+			await s.invites.transition(
+				created.id,
+				InviteStatus.Cancelled,
+				new Date()
+			);
+
+			expect(
+				await s.invites.rotateToken(created.id, randomUUID(), new Date(), 3)
+			).toBeNull();
+			expect(await s.invites.findByTokenHash(created.tokenHash)).not.toBeNull();
+		});
+
+		it('invite: findPendingByOrgAndEmail ignores other orgs, other emails and non-PENDING', async () => {
+			const orgId = randomUUID();
+			const email = `${randomUUID()}@example.com`;
+			const pending = await s.invites.create(newInvite({ orgId, email }));
+			await s.invites.create(newInvite({ email }));
+			await s.invites.create(newInvite({ orgId }));
+			const accepted = await s.invites.create(newInvite({ orgId, email }));
+			await s.invites.transition(
+				accepted.id,
+				InviteStatus.Accepted,
+				new Date()
+			);
+
+			const found = await s.invites.findPendingByOrgAndEmail(orgId, email);
+
+			expect(found.map((i) => i.id)).toEqual([pending.id]);
+		});
+
+		it('invite: deleteByEmail removes only that e-mail and returns the count', async () => {
+			const email = `${randomUUID()}@example.com`;
+			await s.invites.create(newInvite({ email }));
+			await s.invites.create(newInvite({ email }));
+			const other = await s.invites.create(newInvite());
+
+			expect(await s.invites.deleteByEmail(email)).toBe(2);
+			expect(await s.invites.deleteByEmail(email)).toBe(0);
+			expect(await s.invites.findByTokenHash(other.tokenHash)).not.toBeNull();
+		});
+
+		it('invite: deleteByRelationshipIds removes only those relationships and returns the count', async () => {
+			const relationshipA = randomUUID();
+			const relationshipB = randomUUID();
+			await s.invites.create(newInvite({ relationshipId: relationshipA }));
+			await s.invites.create(newInvite({ relationshipId: relationshipB }));
+			const other = await s.invites.create(newInvite());
+
+			expect(
+				await s.invites.deleteByRelationshipIds([relationshipA, relationshipB])
+			).toBe(2);
+			expect(await s.invites.deleteByRelationshipIds([relationshipA])).toBe(0);
+			expect(await s.invites.deleteByRelationshipIds([])).toBe(0);
+			expect(await s.invites.findByTokenHash(other.tokenHash)).not.toBeNull();
+		});
+
+		it('consent: the second grant supersedes the first, which keeps its history', async () => {
+			const userId = randomUUID();
+			const relationshipId = randomUUID();
+			const first = await s.consents.grant(
+				newConsent({ relationshipId, userId })
+			);
+			await tick();
+			const secondGrantedAt = new Date('2030-03-01T00:00:00Z');
+			const second = await s.consents.grant(
+				newConsent({ relationshipId, userId, grantedAt: secondGrantedAt })
+			);
+
+			expect(first.version).toBe(1);
+			expect(first.status).toBe(ConsentStatus.Active);
+			expect(second.version).toBe(2);
+			expect(second.status).toBe(ConsentStatus.Active);
+			expect(
+				(await s.consents.findActiveByRelationship(relationshipId))?.id
+			).toBe(second.id);
+			expect(
+				(await s.consents.listActiveByUser(userId)).map((c) => c.id)
+			).toEqual([second.id]);
+
+			const rows = await s.consents.listByRelationship(relationshipId);
+			expect(rows.map((c) => c.version)).toEqual([1, 2]);
+			expect(rows[0].id).toBe(first.id);
+			expect(rows[0].status).toBe(ConsentStatus.Superseded);
+			expect(rows[0].endedAt?.getTime()).toBe(secondGrantedAt.getTime());
+			expect(rows[1].id).toBe(second.id);
+			expect(rows[1].status).toBe(ConsentStatus.Active);
+			expect(rows[1].endedAt).toBeUndefined();
+		});
+
+		it('consent: revoking ends only the active row and keeps the superseded one', async () => {
+			const userId = randomUUID();
+			const relationshipId = randomUUID();
+			await s.consents.grant(newConsent({ relationshipId, userId }));
+			const second = await s.consents.grant(
+				newConsent({ relationshipId, userId })
+			);
+			const at = new Date('2030-05-01T00:00:00Z');
+
+			const revoked = await s.consents.revokeActive(relationshipId, userId, at);
+
+			expect(revoked?.id).toBe(second.id);
+			expect(revoked?.version).toBe(2);
+			const rows = await s.consents.listByRelationship(relationshipId);
+			expect(rows.map((c) => c.status)).toEqual([
+				ConsentStatus.Superseded,
+				ConsentStatus.Revoked,
+			]);
+			expect(rows[0].endedAt).toBeInstanceOf(Date);
+			expect(rows[1].endedAt?.getTime()).toBe(at.getTime());
+		});
+
+		it('consent: listByRelationship of an unknown relationship is empty', async () => {
+			expect(await s.consents.listByRelationship(randomUUID())).toEqual([]);
+		});
+
+		it('consent: concurrent grants leave exactly one ACTIVE consent with distinct versions', async () => {
+			const userId = randomUUID();
+			const relationshipId = randomUUID();
+
+			const granted = await Promise.all([
+				s.consents.grant(newConsent({ relationshipId, userId })),
+				s.consents.grant(newConsent({ relationshipId, userId })),
+				s.consents.grant(newConsent({ relationshipId, userId })),
+			]);
+
+			expect(await s.consents.listActiveByUser(userId)).toHaveLength(1);
+			expect(new Set(granted.map((c) => c.version)).size).toBe(3);
+		});
+
+		it('consent: a second ACTIVE link of the same user to the same org (other relationship) is refused', async () => {
+			const userId = randomUUID();
+			const orgId = randomUUID();
+			const first = await s.consents.grant(newConsent({ userId, orgId }));
+
+			await expect(
+				s.consents.grant(newConsent({ userId, orgId }))
+			).rejects.toBeInstanceOf(ConflictException);
+
+			expect(
+				(await s.consents.listActiveByUser(userId)).map((c) => c.id)
+			).toEqual([first.id]);
+		});
+
+		it('consent: the same user may link to the same org again after revoking', async () => {
+			const userId = randomUUID();
+			const orgId = randomUUID();
+			const first = await s.consents.grant(newConsent({ userId, orgId }));
+			await s.consents.revokeActive(first.relationshipId, userId, new Date());
+
+			const again = await s.consents.grant(newConsent({ userId, orgId }));
+
+			expect(again.status).toBe(ConsentStatus.Active);
+		});
+
+		it('consent: a changed scope on the same relationship is not a second link', async () => {
+			const userId = randomUUID();
+			const orgId = randomUUID();
+			const relationshipId = randomUUID();
+			await s.consents.grant(newConsent({ userId, orgId, relationshipId }));
+
+			const second = await s.consents.grant(
+				newConsent({ userId, orgId, relationshipId })
+			);
+
+			expect(second.version).toBe(2);
+		});
+
+		it('consent: findActiveByRelationship gives null when nothing was granted', async () => {
+			expect(
+				await s.consents.findActiveByRelationship(randomUUID())
+			).toBeNull();
+		});
+
+		it('consent: revokeActive with the wrong user gives null and keeps it ACTIVE', async () => {
+			const userId = randomUUID();
+			const relationshipId = randomUUID();
+			const granted = await s.consents.grant(
+				newConsent({ relationshipId, userId })
+			);
+
+			expect(
+				await s.consents.revokeActive(relationshipId, randomUUID(), new Date())
+			).toBeNull();
+			expect(
+				(await s.consents.findActiveByRelationship(relationshipId))?.id
+			).toBe(granted.id);
+		});
+
+		it('consent: revokeActive ends the consent as REVOKED once', async () => {
+			const userId = randomUUID();
+			const relationshipId = randomUUID();
+			await s.consents.grant(newConsent({ relationshipId, userId }));
+			const at = new Date('2030-04-01T00:00:00Z');
+
+			const revoked = await s.consents.revokeActive(relationshipId, userId, at);
+
+			expect(revoked?.status).toBe(ConsentStatus.Revoked);
+			expect(revoked?.endedAt).toEqual(at);
+			expect(
+				await s.consents.findActiveByRelationship(relationshipId)
+			).toBeNull();
+			expect(
+				await s.consents.revokeActive(relationshipId, userId, at)
+			).toBeNull();
+		});
+
+		it('consent: listActiveByUser only returns the user consents', async () => {
+			const userId = randomUUID();
+			const mine = await s.consents.grant(newConsent({ userId }));
+			await s.consents.grant(newConsent());
+
+			const active = await s.consents.listActiveByUser(userId);
+
+			expect(active.map((c) => c.id)).toEqual([mine.id]);
+		});
+
+		it('consent: listByUser returns every version of the user consents only', async () => {
+			const userId = randomUUID();
+			const relationshipId = randomUUID();
+			const first = await s.consents.grant(
+				newConsent({ userId, relationshipId })
+			);
+			const second = await s.consents.grant(
+				newConsent({
+					userId,
+					relationshipId,
+					grantedAt: new Date('2030-02-01T00:00:00Z'),
+				})
+			);
+			const ended = await s.consents.grant(newConsent({ userId }));
+			await s.consents.revokeActive(
+				ended.relationshipId,
+				userId,
+				new Date('2030-03-01T00:00:00Z')
+			);
+			await s.consents.grant(newConsent());
+
+			const mine = await s.consents.listByUser(userId);
+
+			expect(mine.map((c) => c.id).sort()).toEqual(
+				[first.id, second.id, ended.id].sort()
+			);
+			expect(mine.find((c) => c.id === first.id)?.status).toBe(
+				ConsentStatus.Superseded
+			);
+			expect(mine.find((c) => c.id === ended.id)?.status).toBe(
+				ConsentStatus.Revoked
+			);
+			expect(await s.consents.listByUser(randomUUID())).toEqual([]);
+		});
+
+		it('consent: deleteByUser removes only that user and returns the count', async () => {
+			const userId = randomUUID();
+			await s.consents.grant(newConsent({ userId }));
+			await s.consents.grant(newConsent({ userId }));
+			const other = await s.consents.grant(newConsent());
+
+			expect(await s.consents.deleteByUser(userId)).toBe(2);
+			expect(await s.consents.deleteByUser(userId)).toBe(0);
+			expect(
+				(await s.consents.findActiveByRelationship(other.relationshipId))?.id
+			).toBe(other.id);
 		});
 	});
 }

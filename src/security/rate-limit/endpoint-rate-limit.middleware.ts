@@ -107,6 +107,27 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 			pattern: /^\/reports\/[^/]+\/download\/?$/,
 			rule: { limit: 20, windowMs: 10 * 60_000 },
 		},
+		// Convite de assessor: o token vai no link do e-mail. Mesmo teto do
+		// 2FA (5/min) contra tentativa de token e automacao do aceite. Padrão
+		// com barra final opcional: `/accept/` nao abre um balde novo.
+		{
+			key: 'GET:/me/advisor-access/invites/preview',
+			method: 'GET',
+			pattern: /^\/me\/advisor-access\/invites\/preview\/?$/,
+			rule: { limit: 5, windowMs: 60_000 },
+		},
+		{
+			key: 'POST:/me/advisor-access/invites/accept',
+			method: 'POST',
+			pattern: /^\/me\/advisor-access\/invites\/accept\/?$/,
+			rule: { limit: 5, windowMs: 60_000 },
+		},
+		{
+			key: 'POST:/me/advisor-access/invites/decline',
+			method: 'POST',
+			pattern: /^\/me\/advisor-access\/invites\/decline\/?$/,
+			rule: { limit: 5, windowMs: 60_000 },
+		},
 	];
 
 	private readonly store: RateLimitStore;

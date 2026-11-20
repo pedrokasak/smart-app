@@ -3,7 +3,8 @@ import { randomUUID } from 'crypto';
 import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import type { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
-import { canAccessClient } from '../domain/access-policy';
+import { canAccessClient, isAllowedRole } from '../domain/access-policy';
+import { Membership } from '../domain/entities';
 import { ClientAction } from '../domain/enums';
 import {
 	ADVISOR_MEMBERSHIP_STORE,
@@ -63,5 +64,20 @@ export class AuthorizationService {
 			occurredAt: new Date(),
 			payload: { action, orgId: ctx.orgId },
 		});
+	}
+
+	/**
+	 * Membro da org de ctx (ORG_ADMIN ou ADVISOR), resolvido estritamente em
+	 * ctx.orgId. Não audita: serve de porta para operações da própria org.
+	 */
+	async ensureOrgMember(ctx: AccessContext): Promise<Membership> {
+		const membership = await this.memberships.findByUserAndOrg(
+			ctx.userId,
+			ctx.orgId
+		);
+		if (!membership || !isAllowedRole(membership.role)) {
+			throw new ForbiddenException('Not a member of this organization');
+		}
+		return membership;
 	}
 }

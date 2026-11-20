@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { EmailService } from './email.service';
 import { EmailSender } from './ports/email-sender.port';
 import { PortfolioDigestFacts } from 'src/notifications/portfolio-digest/domain/portfolio-digest.types';
@@ -316,5 +317,124 @@ describe('EmailService', () => {
 				expect(call.html).toContain('&lt;script&gt;');
 			});
 		});
+	});
+});
+
+describe('EmailService.sendAdvisorInviteEmail', () => {
+	const expiresAt = new Date('2030-06-15T12:00:00Z');
+
+	function buildService() {
+		const sender: EmailSender = {
+			send: jest.fn().mockResolvedValue(undefined),
+		};
+		return { service: new EmailService(sender), sender };
+	}
+
+	const sent = (sender: EmailSender) =>
+		(sender.send as jest.Mock).mock.calls[0][0];
+
+	afterEach(() => {
+		jest.restoreAllMocks();
+	});
+
+	it('envia uma vez para o destinatário com o link do convite e o token codificado', async () => {
+		const { service, sender } = buildService();
+
+		await service.sendAdvisorInviteEmail({
+			to: 'cliente@example.com',
+			token: 'ab-_/+=c',
+			orgName: 'Acme',
+			expiresAt,
+		});
+
+		expect(sender.send).toHaveBeenCalledTimes(1);
+		const payload = sent(sender);
+		expect(payload.to).toBe('cliente@example.com');
+		expect(payload.html).toContain('/convite-assessor?token=ab-_%2F%2B%3Dc');
+		expect(payload.text).toContain('/convite-assessor?token=ab-_%2F%2B%3Dc');
+	});
+
+	it('escapa o nome da organização no HTML', async () => {
+		const { service, sender } = buildService();
+
+		await service.sendAdvisorInviteEmail({
+			to: 'cliente@example.com',
+			token: 't',
+			orgName: '<b>Acme</b>',
+			expiresAt,
+		});
+
+		const payload = sent(sender);
+		expect(payload.html).toContain('&lt;b&gt;Acme&lt;/b&gt;');
+		expect(payload.html).not.toContain('<b>Acme</b>');
+	});
+
+	it('mostra a data de validade em pt-BR e não leva dado de carteira', async () => {
+		const { service, sender } = buildService();
+
+		await service.sendAdvisorInviteEmail({
+			to: 'cliente@example.com',
+			token: 't',
+			orgName: 'Acme',
+			expiresAt,
+		});
+
+		const payload = sent(sender);
+		expect(payload.html).toContain('15/06/2030');
+		expect(payload.text).toContain('15/06/2030');
+		expect(payload.subject).toContain('Acme');
+	});
+
+	it('remove CR/LF e outros caracteres de controle do nome da organização', async () => {
+		const { service, sender } = buildService();
+
+		await service.sendAdvisorInviteEmail({
+			to: 'cliente@example.com',
+			token: 't',
+			orgName: 'Acme\r\nBcc: x@evil.test\u0000\u0007\u2028Ltda\u202e',
+			expiresAt,
+		});
+
+		const payload = sent(sender);
+		expect(payload.subject).toBe(
+			'Acme Bcc: x@evil.test Ltda convidou você para compartilhar sua carteira — Trackerr'
+		);
+		for (const field of [payload.subject, payload.text, payload.html]) {
+			expect(field).not.toMatch(/Acme[\r\n]/);
+			expect(field).not.toMatch(/[\u0000\u0007\u2028\u202e]/);
+		}
+		expect(payload.text).toContain('Acme Bcc: x@evil.test Ltda convidou você');
+	});
+
+	it('propaga a falha do envio', async () => {
+		const { service, sender } = buildService();
+		(sender.send as jest.Mock).mockRejectedValue(new Error('provider down'));
+
+		await expect(
+			service.sendAdvisorInviteEmail({
+				to: 'cliente@example.com',
+				token: 't',
+				orgName: 'Acme',
+				expiresAt,
+			})
+		).rejects.toThrow('provider down');
+	});
+
+	it('nunca registra token nem e-mail em log', async () => {
+		const spies = (['log', 'warn', 'error', 'debug', 'verbose'] as const).map(
+			(level) => jest.spyOn(Logger.prototype, level).mockImplementation()
+		);
+		const { service } = buildService();
+
+		await service.sendAdvisorInviteEmail({
+			to: 'cliente@example.com',
+			token: 'secret-token',
+			orgName: 'Acme',
+			expiresAt,
+		});
+
+		const logged = JSON.stringify(spies.flatMap((s) => s.mock.calls));
+		expect(logged).not.toContain('secret-token');
+		expect(logged).not.toContain('cliente@example.com');
 	});
 });

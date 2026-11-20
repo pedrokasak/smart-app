@@ -6,6 +6,10 @@ import {
 } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/mongoose';
 import mongoose, { Connection, Model } from 'mongoose';
+import {
+	ConsentService,
+	UserErasure,
+} from 'src/advisor/application/consent.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import {
 	ERASABLE_COLLECTIONS,
@@ -17,6 +21,7 @@ import {
 
 export interface ErasureReport {
 	subscription: 'cancel_scheduled' | 'none';
+	advisor: UserErasure;
 	deleted: Record<string, number>;
 	anonymized: Record<string, number>;
 	skipped: string[];
@@ -34,14 +39,28 @@ export class AccountErasureService {
 
 	constructor(
 		@InjectConnection() private readonly connection: Connection,
-		private readonly subscriptionService: SubscriptionService
+		private readonly subscriptionService: SubscriptionService,
+		private readonly advisorConsents: ConsentService
 	) {}
 
-	/** Tudo o que depende do usuário, exceto o próprio documento `User`. */
-	async eraseDependents(userId: string): Promise<ErasureReport> {
+	/**
+	 * Tudo o que depende do usuário, exceto o próprio documento `User`. O
+	 * `email` é lido pelo chamador antes de qualquer remoção e é sempre
+	 * passado (explícito, mesmo `undefined`); sem ele, só os convites de
+	 * assessor achados apenas pelo e-mail ficam (o resto segue pelo id).
+	 *
+	 * Depois da cobrança, o primeiro passo encerra os acessos de assessores:
+	 * se falhar, nada foi apagado e a repetição recomeça do zero.
+	 */
+	async eraseDependents(
+		userId: string,
+		email: string | undefined
+	): Promise<ErasureReport> {
 		const subscription = await this.stopBilling(userId);
+		const advisor = await this.advisorConsents.eraseUser(userId, email);
 		const report: ErasureReport = {
 			subscription,
+			advisor,
 			deleted: {},
 			anonymized: {},
 			skipped: [],
