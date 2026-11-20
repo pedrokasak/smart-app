@@ -1,12 +1,15 @@
 import {
 	InMemoryAllocationTargetStore,
 	InMemoryClientProfileStore,
+	InMemoryConsentStore,
+	InMemoryInviteStore,
 	InMemoryMembershipStore,
 	InMemoryOrganizationStore,
 	InMemoryRelationshipStore,
 	InMemoryTransactionStore,
 } from './in-memory-stores.fixture';
 import {
+	describeAdvisorConsentStoreContract,
 	describeAdvisorPortfolioStoreContract,
 	describeAdvisorStoreContract,
 } from './store-contract.fixture';
@@ -21,4 +24,9 @@ describeAdvisorStoreContract('in-memory', () => ({
 describeAdvisorPortfolioStoreContract('in-memory', () => ({
 	transactions: new InMemoryTransactionStore(),
 	targets: new InMemoryAllocationTargetStore(),
+}));
+
+describeAdvisorConsentStoreContract('in-memory', () => ({
+	invites: new InMemoryInviteStore(),
+	consents: new InMemoryConsentStore(),
 }));

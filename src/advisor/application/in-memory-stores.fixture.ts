@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import { ClientInvite, Consent } from '../domain/consent.entities';
 import {
 	AdvisoryRelationship,
 	ClientProfile,
@@ -7,7 +8,9 @@ import {
 } from '../domain/entities';
 import {
 	AssetClass,
+	ConsentStatus,
 	ImportBatchStatus,
+	InviteStatus,
 	ProfileOrigin,
 	RelationshipStatus,
 } from '../domain/enums';
@@ -22,6 +25,8 @@ import {
 	BenchmarkSeriesPort,
 } from './ports/benchmark-series.port';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
+import { ConsentStorePort } from './ports/consent.store.port';
+import { InviteStorePort } from './ports/invite.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
 import { DailyCloseMinor, PriceHistoryPort } from './ports/price-history.port';
@@ -113,6 +118,23 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 	): Promise<AdvisoryRelationship> {
 		this.items.set(relationship.id, relationship);
 		return relationship;
+	}
+
+	async activate(
+		id: string,
+		consentId: string
+	): Promise<AdvisoryRelationship | null> {
+		const current = this.items.get(id);
+		if (!current || current.status !== RelationshipStatus.Pending) {
+			return null;
+		}
+		const updated: AdvisoryRelationship = {
+			...current,
+			status: RelationshipStatus.Active,
+			consentId,
+		};
+		this.items.set(id, updated);
+		return updated;
 	}
 }
 
@@ -360,5 +382,176 @@ export class InMemoryBenchmarkSeries implements BenchmarkSeriesPort {
 		this.calls.push({ key, from, to });
 		if (this.failing.has(key)) throw new Error('benchmark unavailable');
 		return this.values.get(key) ?? null;
+	}
+}
+
+export class InMemoryInviteStore implements InviteStorePort {
+	private readonly items = new Map<string, ClientInvite>();
+
+	async create(
+		invite: Omit<ClientInvite, 'id' | 'createdAt'>
+	): Promise<ClientInvite> {
+		const created: ClientInvite = {
+			...invite,
+			id: randomUUID(),
+			createdAt: new Date(),
+		};
+		this.items.set(created.id, created);
+		return created;
+	}
+
+	async findByTokenHash(tokenHash: string): Promise<ClientInvite | null> {
+		return (
+			[...this.items.values()].find((i) => i.tokenHash === tokenHash) ?? null
+		);
+	}
+
+	async findById(orgId: string, id: string): Promise<ClientInvite | null> {
+		const found = this.items.get(id);
+		return found && found.orgId === orgId ? found : null;
+	}
+
+	async findPendingByOrgAndEmail(
+		orgId: string,
+		email: string
+	): Promise<ClientInvite[]> {
+		return [...this.items.values()].filter(
+			(i) =>
+				i.orgId === orgId &&
+				i.email === email &&
+				i.status === InviteStatus.Pending
+		);
+	}
+
+	async transition(
+		id: string,
+		to: InviteStatus,
+		at: Date
+	): Promise<ClientInvite | null> {
+		const current = this.items.get(id);
+		if (!current || current.status !== InviteStatus.Pending) {
+			return null;
+		}
+		const updated: ClientInvite = { ...current, status: to, respondedAt: at };
+		this.items.set(id, updated);
+		return updated;
+	}
+
+	async rotateToken(
+		id: string,
+		tokenHash: string,
+		expiresAt: Date,
+		max: number
+	): Promise<ClientInvite | null> {
+		const current = this.items.get(id);
+		if (
+			!current ||
+			current.status !== InviteStatus.Pending ||
+			current.resendCount >= max
+		) {
+			return null;
+		}
+		const updated: ClientInvite = {
+			...current,
+			tokenHash,
+			expiresAt,
+			resendCount: current.resendCount + 1,
+		};
+		this.items.set(id, updated);
+		return updated;
+	}
+
+	async deleteByEmail(email: string): Promise<number> {
+		let removed = 0;
+		for (const [id, invite] of this.items) {
+			if (invite.email === email) {
+				this.items.delete(id);
+				removed += 1;
+			}
+		}
+		return removed;
+	}
+}
+
+export class InMemoryConsentStore implements ConsentStorePort {
+	private readonly items = new Map<string, Consent>();
+
+	/** Tudo síncrono antes de qualquer await: dois grants não se intercalam. */
+	async grant(
+		consent: Omit<Consent, 'id' | 'version' | 'status' | 'endedAt'>
+	): Promise<Consent> {
+		const ofRelationship = [...this.items.values()].filter(
+			(c) => c.relationshipId === consent.relationshipId
+		);
+		const version = Math.max(0, ...ofRelationship.map((c) => c.version)) + 1;
+		for (const previous of ofRelationship) {
+			if (previous.status === ConsentStatus.Active) {
+				this.items.set(previous.id, {
+					...previous,
+					status: ConsentStatus.Superseded,
+					endedAt: consent.grantedAt,
+				});
+			}
+		}
+		const created: Consent = {
+			...consent,
+			id: randomUUID(),
+			version,
+			status: ConsentStatus.Active,
+		};
+		this.items.set(created.id, created);
+		return created;
+	}
+
+	async findActiveByRelationship(
+		relationshipId: string
+	): Promise<Consent | null> {
+		return (
+			[...this.items.values()].find(
+				(c) =>
+					c.relationshipId === relationshipId &&
+					c.status === ConsentStatus.Active
+			) ?? null
+		);
+	}
+
+	async listActiveByUser(userId: string): Promise<Consent[]> {
+		return [...this.items.values()].filter(
+			(c) => c.userId === userId && c.status === ConsentStatus.Active
+		);
+	}
+
+	async revokeActive(
+		relationshipId: string,
+		userId: string,
+		at: Date
+	): Promise<Consent | null> {
+		const active = [...this.items.values()].find(
+			(c) =>
+				c.relationshipId === relationshipId &&
+				c.userId === userId &&
+				c.status === ConsentStatus.Active
+		);
+		if (!active) {
+			return null;
+		}
+		const revoked: Consent = {
+			...active,
+			status: ConsentStatus.Revoked,
+			endedAt: at,
+		};
+		this.items.set(revoked.id, revoked);
+		return revoked;
+	}
+
+	async deleteByUser(userId: string): Promise<number> {
+		let removed = 0;
+		for (const [id, consent] of this.items) {
+			if (consent.userId === userId) {
+				this.items.delete(id);
+				removed += 1;
+			}
+		}
+		return removed;
 	}
 }

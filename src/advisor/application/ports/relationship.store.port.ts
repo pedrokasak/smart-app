@@ -17,4 +17,6 @@ export interface RelationshipStorePort {
 		clientProfileId: string
 	): Promise<AdvisoryRelationship | null>;
 	save(relationship: AdvisoryRelationship): Promise<AdvisoryRelationship>;
+	/** Atômico: PENDING -> ACTIVE gravando consentId. Null se não estava PENDING. */
+	activate(id: string, consentId: string): Promise<AdvisoryRelationship | null>;
 }

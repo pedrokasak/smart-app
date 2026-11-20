@@ -99,6 +99,21 @@ export class MongoRelationshipStore implements RelationshipStorePort {
 		return toRelationship(doc);
 	}
 
+	async activate(
+		id: string,
+		consentId: string
+	): Promise<AdvisoryRelationship | null> {
+		const doc = await this.relationships
+			.findOneAndUpdate(
+				{ _id: id, status: RelationshipStatus.Pending },
+				{ $set: { status: RelationshipStatus.Active, consentId } },
+				{ new: true }
+			)
+			.lean<AdvisorRelationshipDoc>()
+			.exec();
+		return doc ? toRelationship(doc) : null;
+	}
+
 	private async findActive(
 		orgId: string,
 		clientProfileId: string
