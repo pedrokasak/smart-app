@@ -400,9 +400,11 @@ export class ConsentService {
 	}
 
 	/**
-	 * Common gate: token -> invite -> usable -> verified account with the
-	 * invited e-mail. Every failure is the same InviteNotFoundError. An expired
-	 * PENDING invite found here is closed as EXPIRED.
+	 * Common gate: token -> invite -> usable -> account with the invited
+	 * e-mail. No verified flag is required: the token itself proves the e-mail,
+	 * since it was only sent there. Every failure is the same
+	 * InviteNotFoundError. An expired PENDING invite found here is closed as
+	 * EXPIRED.
 	 */
 	private async openInvite(
 		userId: string,

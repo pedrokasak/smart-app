@@ -273,11 +273,16 @@ describe('ConsentService', () => {
 			expect(identity.verifiedCalls).toEqual([[INVESTOR, 'joao@exemplo.com']]);
 		});
 
-		it('does not prove anything when the accept fails', async () => {
+		it('does not prove anything when the accept fails after the grant', async () => {
 			const inv = await invited();
+			// Fails at the last step (activate), after the grant and its audit.
+			jest.spyOn(relationships, 'activate').mockResolvedValueOnce(null);
 
-			await errorOf(service.acceptInvite(INVESTOR, inv.token, ['nope']));
+			await expect(
+				service.acceptInvite(INVESTOR, inv.token, ['p1'])
+			).rejects.toBeInstanceOf(ConflictException);
 
+			expect(audit.ofType(CONSENT_GRANTED_EVENT)).toHaveLength(1);
 			expect(identity.verifiedCalls).toEqual([]);
 		});
 
