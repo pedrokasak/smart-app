@@ -1,10 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { isValidObjectId } from 'mongoose';
+import { UsersService } from 'src/users/users.service';
 import {
 	InviteeAccount,
 	InviteeIdentityPort,
 } from '../application/ports/invitee-identity.port';
-import { UsersService } from 'src/users/users.service';
 
 /** Lê a conta pelo serviço do módulo `users`, nunca pelo model. */
 @Injectable()

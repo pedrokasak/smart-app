@@ -180,15 +180,53 @@ describe('AdvisorAccessController', () => {
 			expect(consent.revoke).toHaveBeenCalledWith(USER, RELATIONSHIP);
 		});
 
-		it('maps InviteNotFoundError to 404', async () => {
+		it('maps InviteNotFoundError to the same 404 on preview, accept and decline', async () => {
+			consent.previewInvite.mockRejectedValue(new InviteNotFoundError());
 			consent.acceptInvite.mockRejectedValue(new InviteNotFoundError());
+			consent.declineInvite.mockRejectedValue(new InviteNotFoundError());
 
-			await http()
-				.post('/me/advisor-access/invites/accept')
-				.set('Authorization', bearer())
-				.send({ token: TOKEN, portfolioIds: ['p1'] })
-				.expect(404);
+			const responses = [
+				await http()
+					.get('/me/advisor-access/invites/preview')
+					.query({ token: TOKEN })
+					.set('Authorization', bearer())
+					.expect(404),
+				await http()
+					.post('/me/advisor-access/invites/accept')
+					.set('Authorization', bearer())
+					.send({ token: TOKEN, portfolioIds: ['p1'] })
+					.expect(404),
+				await http()
+					.post('/me/advisor-access/invites/decline')
+					.set('Authorization', bearer())
+					.send({ token: TOKEN })
+					.expect(404),
+			];
+
+			for (const res of responses) {
+				expect(res.body).toEqual(responses[0].body);
+				expect(res.body.message).toBe('Invite not found');
+			}
 		});
+
+		it.each([
+			['400 (malformed token)', 'short', 400],
+			['404 (unknown invite)', TOKEN, 404],
+		])(
+			'GET invites/preview: no-store and no-referrer on a %s',
+			async (_label, token, status) => {
+				consent.previewInvite.mockRejectedValue(new InviteNotFoundError());
+
+				const res = await http()
+					.get('/me/advisor-access/invites/preview')
+					.query({ token })
+					.set('Authorization', bearer())
+					.expect(status);
+
+				expect(res.headers['cache-control']).toBe('no-store');
+				expect(res.headers['referrer-policy']).toBe('no-referrer');
+			}
+		);
 	});
 
 	describe('identity', () => {

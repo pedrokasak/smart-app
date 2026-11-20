@@ -11,8 +11,8 @@ import {
 	Put,
 	Query,
 	Req,
-	Res,
 	UseGuards,
+	UseInterceptors,
 } from '@nestjs/common';
 import {
 	ApiBearerAuth,
@@ -20,7 +20,6 @@ import {
 	ApiResponse,
 	ApiTags,
 } from '@nestjs/swagger';
-import type { Response } from 'express';
 import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 import { requesterIdOf } from 'src/auth/ownership';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
@@ -31,6 +30,7 @@ import {
 	InvitePreviewResponseDto,
 } from './dto/advisor-access-response.dto';
 import { ChangeSharedPortfoliosDto } from './dto/change-shared-portfolios.dto';
+import { NoStoreInterceptor } from './no-store.interceptor';
 
 /**
  * Investor side of the advisor link. Only translates HTTP: the user comes
@@ -46,16 +46,14 @@ export class AdvisorAccessController {
 
 	/** The e-mail link opens this: the token must not be cached nor leak. */
 	@Get('invites/preview')
+	@UseInterceptors(NoStoreInterceptor)
 	@ApiOperation({ summary: 'Shows an advisor invite before accepting it' })
 	@ApiResponse({ status: 200, type: InvitePreviewResponseDto })
 	@ApiResponse({ status: 404, description: 'Invite not found' })
 	async preview(
 		@Req() req: any,
-		@Query() query: InviteTokenDto,
-		@Res({ passthrough: true }) res: Response
+		@Query() query: InviteTokenDto
 	): Promise<InvitePreviewResponseDto> {
-		res.setHeader('Cache-Control', 'no-store');
-		res.setHeader('Referrer-Policy', 'no-referrer');
 		const preview = await this.consents.previewInvite(
 			requesterIdOf(req),
 			query.token

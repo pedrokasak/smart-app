@@ -385,6 +385,27 @@ describe('EmailService.sendAdvisorInviteEmail', () => {
 		expect(payload.subject).toContain('Acme');
 	});
 
+	it('remove CR/LF e outros caracteres de controle do nome da organização', async () => {
+		const { service, sender } = buildService();
+
+		await service.sendAdvisorInviteEmail({
+			to: 'cliente@example.com',
+			token: 't',
+			orgName: 'Acme\r\nBcc: x@evil.test\u0000\u0007\u2028Ltda\u202e',
+			expiresAt,
+		});
+
+		const payload = sent(sender);
+		expect(payload.subject).toBe(
+			'Acme Bcc: x@evil.test Ltda convidou você para compartilhar sua carteira — Trackerr'
+		);
+		for (const field of [payload.subject, payload.text, payload.html]) {
+			expect(field).not.toMatch(/Acme[\r\n]/);
+			expect(field).not.toMatch(/[\u0000\u0007\u2028\u202e]/);
+		}
+		expect(payload.text).toContain('Acme Bcc: x@evil.test Ltda convidou você');
+	});
+
 	it('propaga a falha do envio', async () => {
 		const { service, sender } = buildService();
 		(sender.send as jest.Mock).mockRejectedValue(new Error('provider down'));

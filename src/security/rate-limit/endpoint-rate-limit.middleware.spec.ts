@@ -212,11 +212,25 @@ describe('EndpointRateLimitMiddleware', () => {
 			['GET', '/me/advisor-access/invites/preview'],
 			['POST', '/me/advisor-access/invites/accept'],
 			['POST', '/me/advisor-access/invites/decline'],
+			['GET', '/me/advisor-access/invites/preview/'],
+			['POST', '/me/advisor-access/invites/accept/'],
+			['POST', '/me/advisor-access/invites/decline/'],
 		])('%s %s allows 5 per minute', async (method, path) => {
 			const middleware = new EndpointRateLimitMiddleware();
 			expect(
 				await allowedBeforeBlock(middleware, requestTo(method, path))
 			).toBe(5);
+		});
+
+		it('counts the path with and without a trailing slash in one bucket', async () => {
+			const middleware = new EndpointRateLimitMiddleware();
+			const path = '/me/advisor-access/invites/accept';
+			for (let i = 0; i < 3; i += 1) {
+				await middleware.use(requestTo('POST', path), {} as any, jest.fn());
+			}
+			expect(
+				await allowedBeforeBlock(middleware, requestTo('POST', `${path}/`))
+			).toBe(2);
 		});
 
 		it('keeps the existing limits of other routes', async () => {

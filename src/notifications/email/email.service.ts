@@ -23,6 +23,18 @@ export function maskEmail(email: string): string {
 	return `${visible}***@${domain}`;
 }
 
+/**
+ * Uma linha só: caracteres de controle (CR/LF incluídos), separadores de
+ * linha Unicode e controles bidi viram espaço. Para texto livre que vai no
+ * assunto (cabeçalho) e no corpo do e-mail.
+ */
+function singleLine(value: string): string {
+	return String(value ?? '')
+		.replace(/[\p{Cc}\u2028\u2029\u202A-\u202E\u2066-\u2069]+/gu, ' ')
+		.replace(/\s+/g, ' ')
+		.trim();
+}
+
 function escapeHtml(value: string): string {
 	return String(value ?? '')
 		.replace(/&/g, '&amp;')
@@ -221,13 +233,14 @@ Se não foi você, fale com suporte@trackerr.com.br.`;
 		orgName: string;
 		expiresAt: Date;
 	}): Promise<void> {
-		const safeOrg = escapeHtml(params.orgName);
+		const orgName = singleLine(params.orgName);
+		const safeOrg = escapeHtml(orgName);
 		const inviteLink = `${this.getAppBaseUrl()}/convite-assessor?token=${encodeURIComponent(params.token)}`;
 		const expiry = params.expiresAt.toLocaleDateString('pt-BR', {
 			timeZone: 'America/Sao_Paulo',
 		});
 
-		const subject = `${params.orgName} convidou você para compartilhar sua carteira — Trackerr`;
+		const subject = `${orgName} convidou você para compartilhar sua carteira — Trackerr`;
 		const html = this.getBaseTemplate({
 			title: `${safeOrg} convidou você`,
 			hero: 'Você recebeu um convite de assessoria',
@@ -240,7 +253,7 @@ Se não foi você, fale com suporte@trackerr.com.br.`;
 			footerNote:
 				'Entre com a conta que usa este e-mail para aceitar ou recusar. Se você não esperava este convite, ignore este e-mail com segurança.',
 		});
-		const text = `Convite de assessoria - Trackerr\n\n${params.orgName} convidou você para compartilhar suas carteiras no Trackerr.\nVocê escolhe quais carteiras mostrar e pode encerrar o compartilhamento quando quiser.\nO convite vale até ${expiry}.\nVer o convite: ${inviteLink}\n\nSe você não esperava este convite, ignore este e-mail.`;
+		const text = `Convite de assessoria - Trackerr\n\n${orgName} convidou você para compartilhar suas carteiras no Trackerr.\nVocê escolhe quais carteiras mostrar e pode encerrar o compartilhamento quando quiser.\nO convite vale até ${expiry}.\nVer o convite: ${inviteLink}\n\nSe você não esperava este convite, ignore este e-mail.`;
 
 		await this.sender.send({ to: params.to, subject, html, text });
 	}
