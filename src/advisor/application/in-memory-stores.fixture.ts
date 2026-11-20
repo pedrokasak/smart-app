@@ -26,6 +26,10 @@ import {
 } from './ports/benchmark-series.port';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
 import { ConsentStorePort } from './ports/consent.store.port';
+import {
+	InviteNotifierPort,
+	SendInviteInput,
+} from './ports/invite-notifier.port';
 import { InviteStorePort } from './ports/invite.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
@@ -560,5 +564,21 @@ export class InMemoryConsentStore implements ConsentStorePort {
 			}
 		}
 		return removed;
+	}
+}
+
+/**
+ * Notifier em memória: `attempts` guarda toda tentativa, `sent` só as que
+ * deram certo; `failWith` faz o envio rejeitar.
+ */
+export class InMemoryInviteNotifier implements InviteNotifierPort {
+	readonly attempts: SendInviteInput[] = [];
+	readonly sent: SendInviteInput[] = [];
+	failWith?: Error;
+
+	async sendInvite(input: SendInviteInput): Promise<void> {
+		this.attempts.push(input);
+		if (this.failWith) throw this.failWith;
+		this.sent.push(input);
 	}
 }

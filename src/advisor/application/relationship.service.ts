@@ -33,6 +33,31 @@ export class RelationshipService {
 		});
 	}
 
+	/**
+	 * Cria a relação PENDING (aguardando o aceite do investidor). Idempotente:
+	 * se já existe uma PENDING ou ACTIVE, devolve ela.
+	 */
+	async createPending(
+		orgId: string,
+		clientProfileId: string
+	): Promise<AdvisoryRelationship> {
+		const existing = await this.relationships.findByOrgAndClient(
+			orgId,
+			clientProfileId
+		);
+		if (
+			existing?.status === RelationshipStatus.Active ||
+			existing?.status === RelationshipStatus.Pending
+		) {
+			return existing;
+		}
+		return this.relationships.create({
+			orgId,
+			clientProfileId,
+			status: RelationshipStatus.Pending,
+		});
+	}
+
 	async revoke(id: string): Promise<void> {
 		const relationship = await this.relationships.findById(id);
 		if (!relationship) {

@@ -156,4 +156,44 @@ describe('AuthorizationService', () => {
 			)
 		).rejects.toThrow('audit store down');
 	});
+
+	describe('ensureOrgMember', () => {
+		it('returns the membership of a member of the org', async () => {
+			const membership = await authz.ensureOrgMember({
+				userId,
+				orgId: 'orgA',
+			});
+			expect(membership).toMatchObject({
+				userId,
+				orgId: 'orgA',
+				role: OrgRole.Advisor,
+			});
+		});
+
+		it('accepts an ORG_ADMIN', async () => {
+			await memberships.create({
+				userId: 'admin-1',
+				orgId: 'orgA',
+				role: OrgRole.OrgAdmin,
+			});
+			await expect(
+				authz.ensureOrgMember({ userId: 'admin-1', orgId: 'orgA' })
+			).resolves.toMatchObject({ role: OrgRole.OrgAdmin });
+		});
+
+		it('denies a member of another org only, without auditing', async () => {
+			await expect(
+				authz.ensureOrgMember({ userId, orgId: 'orgB' })
+			).rejects.toThrow(ForbiddenException);
+			await expect(
+				authz.ensureOrgMember({ userId: 'stranger', orgId: 'orgA' })
+			).rejects.toThrow(ForbiddenException);
+			expect(audit.recorded).toHaveLength(0);
+		});
+
+		it('does not call the audit trail on success', async () => {
+			await authz.ensureOrgMember({ userId, orgId: 'orgA' });
+			expect(audit.recorded).toHaveLength(0);
+		});
+	});
 });
