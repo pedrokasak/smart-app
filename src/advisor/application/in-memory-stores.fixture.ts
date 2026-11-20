@@ -397,7 +397,7 @@ export class InMemoryInviteStore implements InviteStorePort {
 			createdAt: new Date(),
 		};
 		this.items.set(created.id, created);
-		return created;
+		return { ...created };
 	}
 
 	async findByTokenHash(tokenHash: string): Promise<ClientInvite | null> {
@@ -434,7 +434,7 @@ export class InMemoryInviteStore implements InviteStorePort {
 		}
 		const updated: ClientInvite = { ...current, status: to, respondedAt: at };
 		this.items.set(id, updated);
-		return updated;
+		return { ...updated };
 	}
 
 	async rotateToken(
@@ -458,7 +458,7 @@ export class InMemoryInviteStore implements InviteStorePort {
 			resendCount: current.resendCount + 1,
 		};
 		this.items.set(id, updated);
-		return updated;
+		return { ...updated };
 	}
 
 	async deleteByEmail(email: string): Promise<number> {
@@ -500,7 +500,14 @@ export class InMemoryConsentStore implements ConsentStorePort {
 			status: ConsentStatus.Active,
 		};
 		this.items.set(created.id, created);
-		return created;
+		return { ...created, portfolioIds: [...created.portfolioIds] };
+	}
+
+	async listByRelationship(relationshipId: string): Promise<Consent[]> {
+		return [...this.items.values()]
+			.filter((c) => c.relationshipId === relationshipId)
+			.sort((a, b) => a.version - b.version)
+			.map((c) => ({ ...c, portfolioIds: [...c.portfolioIds] }));
 	}
 
 	async findActiveByRelationship(

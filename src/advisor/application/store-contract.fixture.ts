@@ -536,43 +536,63 @@ export function describeAdvisorConsentStoreContract(
 			expect(await s.invites.findByTokenHash(other.tokenHash)).not.toBeNull();
 		});
 
-		it('consent: first grant is version 1 ACTIVE; the second supersedes it', async () => {
+		it('consent: the second grant supersedes the first, which keeps its history', async () => {
+			const userId = randomUUID();
 			const relationshipId = randomUUID();
-			const first = await s.consents.grant(newConsent({ relationshipId }));
+			const first = await s.consents.grant(
+				newConsent({ relationshipId, userId })
+			);
 			await tick();
 			const secondGrantedAt = new Date('2030-03-01T00:00:00Z');
 			const second = await s.consents.grant(
-				newConsent({ relationshipId, grantedAt: secondGrantedAt })
+				newConsent({ relationshipId, userId, grantedAt: secondGrantedAt })
 			);
 
 			expect(first.version).toBe(1);
 			expect(first.status).toBe(ConsentStatus.Active);
-			expect(first.endedAt).toBeUndefined();
 			expect(second.version).toBe(2);
 			expect(second.status).toBe(ConsentStatus.Active);
 			expect(
 				(await s.consents.findActiveByRelationship(relationshipId))?.id
 			).toBe(second.id);
+			expect(
+				(await s.consents.listActiveByUser(userId)).map((c) => c.id)
+			).toEqual([second.id]);
+
+			const rows = await s.consents.listByRelationship(relationshipId);
+			expect(rows.map((c) => c.version)).toEqual([1, 2]);
+			expect(rows[0].id).toBe(first.id);
+			expect(rows[0].status).toBe(ConsentStatus.Superseded);
+			expect(rows[0].endedAt?.getTime()).toBe(secondGrantedAt.getTime());
+			expect(rows[1].id).toBe(second.id);
+			expect(rows[1].status).toBe(ConsentStatus.Active);
+			expect(rows[1].endedAt).toBeUndefined();
 		});
 
-		it('consent: the superseded consent is no longer listed as active and has endedAt', async () => {
+		it('consent: revoking ends only the active row and keeps the superseded one', async () => {
 			const userId = randomUUID();
 			const relationshipId = randomUUID();
 			await s.consents.grant(newConsent({ relationshipId, userId }));
 			const second = await s.consents.grant(
 				newConsent({ relationshipId, userId })
 			);
+			const at = new Date('2030-05-01T00:00:00Z');
 
-			const active = await s.consents.listActiveByUser(userId);
+			const revoked = await s.consents.revokeActive(relationshipId, userId, at);
 
-			expect(active.map((c) => c.id)).toEqual([second.id]);
-			const revoked = await s.consents.revokeActive(
-				relationshipId,
-				userId,
-				new Date()
-			);
 			expect(revoked?.id).toBe(second.id);
 			expect(revoked?.version).toBe(2);
+			const rows = await s.consents.listByRelationship(relationshipId);
+			expect(rows.map((c) => c.status)).toEqual([
+				ConsentStatus.Superseded,
+				ConsentStatus.Revoked,
+			]);
+			expect(rows[0].endedAt).toBeInstanceOf(Date);
+			expect(rows[1].endedAt?.getTime()).toBe(at.getTime());
+		});
+
+		it('consent: listByRelationship of an unknown relationship is empty', async () => {
+			expect(await s.consents.listByRelationship(randomUUID())).toEqual([]);
 		});
 
 		it('consent: concurrent grants leave exactly one ACTIVE consent with distinct versions', async () => {

@@ -3,11 +3,14 @@ import { Consent } from '../../domain/consent.entities';
 export interface ConsentStorePort {
 	/**
 	 * Cria ACTIVE com version = (maior da relação) + 1 e marca o ACTIVE
-	 * anterior como SUPERSEDED (com `endedAt`).
+	 * anterior como SUPERSEDED, com `endedAt` igual ao `grantedAt` do novo
+	 * consentimento.
 	 */
 	grant(
 		consent: Omit<Consent, 'id' | 'version' | 'status' | 'endedAt'>
 	): Promise<Consent>;
+	/** Todas as versões da relação (qualquer status), por `version` crescente. */
+	listByRelationship(relationshipId: string): Promise<Consent[]>;
 	findActiveByRelationship(relationshipId: string): Promise<Consent | null>;
 	listActiveByUser(userId: string): Promise<Consent[]>;
 	/**
