@@ -179,4 +179,57 @@ describe('EndpointRateLimitMiddleware', () => {
 			status: HttpStatus.TOO_MANY_REQUESTS,
 		});
 	});
+
+	describe('advisor invite routes', () => {
+		const requestTo = (method: string, path: string): any => ({
+			method,
+			path,
+			ip: '127.0.0.9',
+			headers: { 'user-agent': 'jest', 'accept-language': 'pt-BR' },
+			socket: { remoteAddress: '127.0.0.9' },
+		});
+
+		const allowedBeforeBlock = async (
+			middleware: EndpointRateLimitMiddleware,
+			req: any
+		): Promise<number> => {
+			const res: any = { setHeader: jest.fn() };
+			const next = jest.fn();
+			for (let i = 0; i < 400; i += 1) {
+				try {
+					await middleware.use(req, res, next);
+				} catch (error) {
+					expect((error as HttpException).getStatus()).toBe(
+						HttpStatus.TOO_MANY_REQUESTS
+					);
+					return next.mock.calls.length;
+				}
+			}
+			return next.mock.calls.length;
+		};
+
+		it.each([
+			['GET', '/me/advisor-access/invites/preview'],
+			['POST', '/me/advisor-access/invites/accept'],
+			['POST', '/me/advisor-access/invites/decline'],
+		])('%s %s allows 5 per minute', async (method, path) => {
+			const middleware = new EndpointRateLimitMiddleware();
+			expect(
+				await allowedBeforeBlock(middleware, requestTo(method, path))
+			).toBe(5);
+		});
+
+		it('keeps the existing limits of other routes', async () => {
+			const middleware = new EndpointRateLimitMiddleware();
+			expect(
+				await allowedBeforeBlock(middleware, requestTo('POST', '/auth/signin'))
+			).toBe(12);
+			expect(
+				await allowedBeforeBlock(
+					middleware,
+					requestTo('GET', '/me/advisor-access')
+				)
+			).toBe(300);
+		});
+	});
 });

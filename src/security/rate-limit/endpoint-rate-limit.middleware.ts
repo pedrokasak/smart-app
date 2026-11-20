@@ -79,6 +79,11 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 		// documento novo. O web guarda o resumo por documento no cliente, entao
 		// uso normal fica bem abaixo disto.
 		'POST:/ri-intelligence/summary': { limit: 20, windowMs: 10 * 60_000 },
+		// Convite de assessor: o token vai no link do e-mail. Mesmo teto do
+		// 2FA (5/min) contra tentativa de token e automacao do aceite.
+		'GET:/me/advisor-access/invites/preview': { limit: 5, windowMs: 60_000 },
+		'POST:/me/advisor-access/invites/accept': { limit: 5, windowMs: 60_000 },
+		'POST:/me/advisor-access/invites/decline': { limit: 5, windowMs: 60_000 },
 	};
 
 	/**
