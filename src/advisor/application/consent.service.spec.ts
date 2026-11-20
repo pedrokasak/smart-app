@@ -144,6 +144,7 @@ describe('ConsentService', () => {
 
 	afterEach(() => {
 		jest.useRealTimers();
+		jest.restoreAllMocks();
 	});
 
 	/** Real invite via InviteService; returns the plain token it e-mailed. */
@@ -433,6 +434,36 @@ describe('ConsentService', () => {
 			expect(relationshipOf(fromB).status).toBe(RelationshipStatus.Active);
 		});
 
+		it('records the matching revoke when activation fails after the grant was audited', async () => {
+			const inv = await invited();
+			jest.spyOn(relationships, 'activate').mockResolvedValueOnce(null);
+
+			await expect(
+				service.acceptInvite(INVESTOR, inv.token, ['p1'])
+			).rejects.toBeInstanceOf(ConflictException);
+
+			expect(audit.ofType(CONSENT_GRANTED_EVENT)).toHaveLength(1);
+			const [revokedEvent] = audit.ofType(CONSENT_REVOKED_EVENT);
+			expect(revokedEvent.subject).toBe(inv.clientProfileId);
+			expect(revokedEvent.payload).toEqual({ orgId: inv.orgId });
+			expect(
+				await consents.findActiveByRelationship(inv.relationshipId)
+			).toBeNull();
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Revoked);
+		});
+
+		it('records no revoke event when the grant audit itself failed', async () => {
+			const inv = await invited();
+			audit.failWith = new Error('audit down');
+
+			await expect(
+				service.acceptInvite(INVESTOR, inv.token, ['p1'])
+			).rejects.toThrow('audit down');
+
+			audit.failWith = undefined;
+			expect(audit.ofType(CONSENT_REVOKED_EVENT)).toEqual([]);
+		});
+
 		it('rolls back when the audit fails: error propagates, nothing stays active', async () => {
 			const inv = await invited();
 			const failure = new Error('audit down');
@@ -474,6 +505,30 @@ describe('ConsentService', () => {
 			await expect(
 				authz.ensureCanAccessClient(ctxA, inv.clientProfileId, 'VIEW_PORTFOLIO')
 			).rejects.toBeInstanceOf(ForbiddenException);
+		});
+
+		it('declines even when the audit fails, logging no e-mail', async () => {
+			const inv = await invited();
+			audit.failWith = new Error('audit down');
+			const logged = jest
+				.spyOn(Logger.prototype, 'error')
+				.mockImplementation(() => undefined);
+
+			await expect(
+				service.declineInvite(INVESTOR, inv.token)
+			).resolves.toBeUndefined();
+
+			expect((await invites.findById(inv.orgId, inv.inviteId)).status).toBe(
+				InviteStatus.Declined
+			);
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Revoked);
+			expect(logged).toHaveBeenCalledTimes(1);
+			for (const call of logged.mock.calls) {
+				const text = call.map(String).join(' ').toLowerCase();
+				expect(text).not.toContain('joao');
+				expect(text).not.toContain('exemplo');
+			}
+			logged.mockRestore();
 		});
 	});
 
@@ -540,8 +595,9 @@ describe('ConsentService', () => {
 			expect(await snapshot(inv)).toBe(before);
 		});
 
-		it('restores the previous scope when the audit fails', async () => {
+		it('grants nothing when the scope-change audit fails', async () => {
 			const { inv } = await accept(['p1']);
+			const [v1] = await consents.listByRelationship(inv.relationshipId);
 			const failure = new Error('audit down');
 			audit.failWith = failure;
 
@@ -549,11 +605,48 @@ describe('ConsentService', () => {
 				service.changeSharedPortfolios(INVESTOR, inv.relationshipId, ['p2'])
 			).rejects.toBe(failure);
 
-			const active = await consents.findActiveByRelationship(
-				inv.relationshipId
-			);
-			expect(active.portfolioIds).toEqual(['p1']);
-			expect(relationshipOf(inv).consentId).toBe(active.id);
+			const all = await consents.listByRelationship(inv.relationshipId);
+			expect(all).toHaveLength(1);
+			expect(all[0]).toMatchObject({
+				id: v1.id,
+				status: ConsentStatus.Active,
+				portfolioIds: ['p1'],
+			});
+			expect(relationshipOf(inv)).toMatchObject({
+				status: RelationshipStatus.Active,
+				consentId: v1.id,
+			});
+		});
+
+		it('cannot resurrect a link revoked while the change was in flight', async () => {
+			const { inv } = await accept(['p1']);
+			const listOwned = source.listOwned.bind(source);
+			jest
+				.spyOn(source, 'listOwned')
+				.mockImplementationOnce(async (userId: string) => {
+					// Interleaving: the investor revokes after the relationship read.
+					await service.revoke(INVESTOR, inv.relationshipId);
+					return listOwned(userId);
+				});
+			const logged = jest
+				.spyOn(Logger.prototype, 'error')
+				.mockImplementation(() => undefined);
+
+			await expect(
+				service.changeSharedPortfolios(INVESTOR, inv.relationshipId, ['p2'])
+			).rejects.toBeInstanceOf(NotFoundException);
+
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Revoked);
+			expect(
+				await consents.findActiveByRelationship(inv.relationshipId)
+			).toBeNull();
+			await expect(
+				authz.ensureCanAccessClient(ctxA, inv.clientProfileId, 'VIEW_PORTFOLIO')
+			).rejects.toBeInstanceOf(ForbiddenException);
+			for (const call of logged.mock.calls) {
+				expect(String(call[0])).not.toContain('joao');
+			}
+			logged.mockRestore();
 		});
 	});
 
@@ -647,6 +740,29 @@ describe('ConsentService', () => {
 			expect(relationshipOf(maria).status).toBe(RelationshipStatus.Active);
 			expect(await service.listMyGrants(INVESTOR)).toEqual([]);
 			expect(await service.listMyGrants(OTHER_INVESTOR)).toHaveLength(1);
+		});
+
+		it('keeps going when one link fails and rethrows the first error at the end', async () => {
+			const { inv } = await accept(['p1']);
+			const fromB = await invited('joao@exemplo.com', ctxB);
+			await service.acceptInvite(INVESTOR, fromB.token, ['p2']);
+			const failure = new Error('store down');
+			jest.spyOn(consents, 'revokeActive').mockRejectedValueOnce(failure);
+			const logged = jest
+				.spyOn(Logger.prototype, 'error')
+				.mockImplementation(() => undefined);
+
+			await expect(service.revokeAllForUser(INVESTOR)).rejects.toBe(failure);
+
+			// Both relationships (the access gate) are ended; the second consent too.
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Revoked);
+			expect(relationshipOf(fromB).status).toBe(RelationshipStatus.Revoked);
+			expect(await consents.listActiveByUser(INVESTOR)).toHaveLength(1);
+			logged.mockRestore();
+
+			// A retry finishes the job.
+			expect(await service.revokeAllForUser(INVESTOR)).toEqual({ revoked: 1 });
+			expect(await consents.listActiveByUser(INVESTOR)).toEqual([]);
 		});
 
 		it('returns zero when there is nothing to revoke', async () => {

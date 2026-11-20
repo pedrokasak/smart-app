@@ -159,6 +159,19 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 		this.items.set(id, updated);
 		return updated;
 	}
+
+	async setConsentIfActive(
+		id: string,
+		consentId: string
+	): Promise<AdvisoryRelationship | null> {
+		const current = this.items.get(id);
+		if (!current || current.status !== RelationshipStatus.Active) {
+			return null;
+		}
+		const updated: AdvisoryRelationship = { ...current, consentId };
+		this.items.set(id, updated);
+		return updated;
+	}
 }
 
 export class InMemoryClientProfileStore implements ClientProfileStorePort {

@@ -114,6 +114,21 @@ export class MongoRelationshipStore implements RelationshipStorePort {
 		return doc ? toRelationship(doc) : null;
 	}
 
+	async setConsentIfActive(
+		id: string,
+		consentId: string
+	): Promise<AdvisoryRelationship | null> {
+		const doc = await this.relationships
+			.findOneAndUpdate(
+				{ _id: id, status: RelationshipStatus.Active },
+				{ $set: { consentId } },
+				{ new: true }
+			)
+			.lean<AdvisorRelationshipDoc>()
+			.exec();
+		return doc ? toRelationship(doc) : null;
+	}
+
 	private async findActive(
 		orgId: string,
 		clientProfileId: string

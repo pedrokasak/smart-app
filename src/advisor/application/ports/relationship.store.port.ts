@@ -19,4 +19,12 @@ export interface RelationshipStorePort {
 	save(relationship: AdvisoryRelationship): Promise<AdvisoryRelationship>;
 	/** Atômico: PENDING -> ACTIVE gravando consentId. Null se não estava PENDING. */
 	activate(id: string, consentId: string): Promise<AdvisoryRelationship | null>;
+	/**
+	 * Atômico: troca `consentId` só se a relação estiver ACTIVE. Null se não
+	 * existe ou não está ACTIVE (nada muda).
+	 */
+	setConsentIfActive(
+		id: string,
+		consentId: string
+	): Promise<AdvisoryRelationship | null>;
 }

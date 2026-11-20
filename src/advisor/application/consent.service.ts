@@ -145,6 +145,7 @@ export class ConsentService {
 		if (!accepted) throw new InviteNotFoundError();
 
 		let consent: Consent | undefined;
+		let audited = false;
 		try {
 			await this.ensureProfileOwner(accepted.clientProfileId, userId);
 			consent = await this.consents.grant({
@@ -157,7 +158,8 @@ export class ConsentService {
 				grantedAt: now,
 			});
 			// Fail closed: without the audit record nobody gets access.
-			await this.record(CONSENT_GRANTED_EVENT, userId, consent);
+			await this.record(CONSENT_GRANTED_EVENT, userId, scopeOf(consent));
+			audited = true;
 			const active = await this.relationshipStore.activate(
 				accepted.relationshipId,
 				consent.id
@@ -166,7 +168,7 @@ export class ConsentService {
 				throw new ConflictException('Advisory relationship is not pending');
 			}
 		} catch (error) {
-			await this.undoAccept(accepted, userId, consent);
+			await this.undoAccept(accepted, userId, consent, audited);
 			throw error;
 		}
 		return toGrant(consent, org);
@@ -200,16 +202,19 @@ export class ConsentService {
 	}
 
 	/**
-	 * New consent version with the new scope. The audit comes before the
-	 * relationship points at it; if the audit fails, the previous scope is
-	 * granted again (a new version, history kept) and the error rethrown.
+	 * New consent version with the new scope. The audit comes FIRST (fail
+	 * closed: a failed audit grants nothing). The relationship is never saved
+	 * from a snapshot: `setConsentIfActive` only points an ACTIVE relationship
+	 * at the new consent, so a revoke that lands mid-flight wins and the new
+	 * consent is revoked again. An audit event may then describe a change that
+	 * did not complete; that is accepted.
 	 */
 	async changeSharedPortfolios(
 		userId: string,
 		relationshipId: string,
 		portfolioIds: string[]
 	): Promise<AccessGrant> {
-		const { consent: previous, relationship } = await this.activeLinkOf(
+		const { consent: previous } = await this.activeLinkOf(
 			userId,
 			relationshipId
 		);
@@ -217,6 +222,12 @@ export class ConsentService {
 		const org = await this.orgs.findById(previous.orgId);
 		if (!org) throw new NotFoundException('Advisory relationship not found');
 
+		await this.record(CONSENT_CHANGED_EVENT, userId, {
+			orgId: previous.orgId,
+			clientProfileId: previous.clientProfileId,
+			portfolioCount: selected.length,
+			consentVersion: previous.version + 1,
+		});
 		const consent = await this.consents.grant({
 			orgId: previous.orgId,
 			clientProfileId: previous.clientProfileId,
@@ -226,16 +237,26 @@ export class ConsentService {
 			textVersion: CONSENT_TEXT_VERSION,
 			grantedAt: new Date(),
 		});
-		try {
-			await this.record(CONSENT_CHANGED_EVENT, userId, consent);
-		} catch (error) {
-			await this.restoreScope(previous, relationship);
-			throw error;
+		const pointed = await this.relationshipStore.setConsentIfActive(
+			previous.relationshipId,
+			consent.id
+		);
+		if (!pointed) {
+			try {
+				await this.consents.revokeActive(
+					previous.relationshipId,
+					userId,
+					new Date()
+				);
+			} catch (error) {
+				this.logFailure(
+					'revoke orphan consent of relationship',
+					previous.relationshipId,
+					error
+				);
+			}
+			throw new NotFoundException('Advisory relationship not found');
 		}
-		await this.relationshipStore.save({
-			...relationship,
-			consentId: consent.id,
-		});
 		return toGrant(consent, org);
 	}
 
@@ -256,8 +277,20 @@ export class ConsentService {
 	async revokeAllForUser(userId: string): Promise<{ revoked: number }> {
 		const active = await this.consents.listActiveByUser(userId);
 		let revoked = 0;
+		let firstError: unknown;
+		// One failing link never stops the others; the first error is rethrown
+		// at the end so the caller (erasure) can retry.
 		for (const consent of active) {
-			if (await this.endLink(userId, consent)) revoked += 1;
+			try {
+				if (await this.endLink(userId, consent)) revoked += 1;
+			} catch (error) {
+				this.logFailure('revoke link', consent.relationshipId, error);
+				firstError ??= error;
+			}
+		}
+		if (firstError !== undefined) {
+			this.logger.error(`Revoked ${revoked} of ${active.length} links`);
+			throw firstError;
 		}
 		return { revoked };
 	}
@@ -378,19 +411,26 @@ export class ConsentService {
 		}
 	}
 
-	/** Compensation of acceptInvite: best effort per step, ids-only logs. */
+	/**
+	 * Compensation of acceptInvite: best effort per step, ids-only logs. A
+	 * grant that was already audited gets its matching revoke event.
+	 */
 	private async undoAccept(
 		invite: ClientInvite,
 		userId: string,
-		consent: Consent | undefined
+		consent: Consent | undefined,
+		audited: boolean
 	): Promise<void> {
 		if (consent) {
 			try {
-				await this.consents.revokeActive(
+				const revoked = await this.consents.revokeActive(
 					invite.relationshipId,
 					userId,
 					new Date()
 				);
+				if (revoked && audited) {
+					await this.recordEnding(CONSENT_REVOKED_EVENT, userId, revoked);
+				}
 			} catch (error) {
 				this.logFailure('revoke consent of invite', invite.id, error);
 			}
@@ -402,51 +442,23 @@ export class ConsentService {
 		}
 	}
 
-	/** Compensation of changeSharedPortfolios: grants the previous scope again. */
-	private async restoreScope(
-		previous: Consent,
-		relationship: AdvisoryRelationship
-	): Promise<void> {
-		try {
-			const restored = await this.consents.grant({
-				orgId: previous.orgId,
-				clientProfileId: previous.clientProfileId,
-				relationshipId: previous.relationshipId,
-				userId: previous.userId,
-				portfolioIds: previous.portfolioIds,
-				textVersion: previous.textVersion,
-				grantedAt: new Date(),
-			});
-			await this.relationshipStore.save({
-				...relationship,
-				consentId: restored.id,
-			});
-		} catch (error) {
-			this.logFailure(
-				'restore consent scope of relationship',
-				previous.relationshipId,
-				error
-			);
-		}
-	}
-
 	/** Payload carries counts only: no e-mail, name or portfolio id. */
 	private async record(
 		type: string,
 		userId: string,
-		consent: Consent
+		scope: ConsentScope
 	): Promise<void> {
 		await this.audit.record({
 			eventId: randomUUID(),
 			type,
 			version: 1,
-			subject: consent.clientProfileId,
+			subject: scope.clientProfileId,
 			actorRef: actorRefOf(userId),
 			occurredAt: new Date(),
 			payload: {
-				orgId: consent.orgId,
-				portfolioCount: consent.portfolioIds.length,
-				consentVersion: consent.version,
+				orgId: scope.orgId,
+				portfolioCount: scope.portfolioCount,
+				consentVersion: scope.consentVersion,
 			},
 		});
 	}
@@ -483,6 +495,23 @@ export class ConsentService {
 			}`
 		);
 	}
+}
+
+/** What a consent audit event may carry: ids of the link and counts only. */
+interface ConsentScope {
+	orgId: string;
+	clientProfileId: string;
+	portfolioCount: number;
+	consentVersion: number;
+}
+
+function scopeOf(consent: Consent): ConsentScope {
+	return {
+		orgId: consent.orgId,
+		clientProfileId: consent.clientProfileId,
+		portfolioCount: consent.portfolioIds.length,
+		consentVersion: consent.version,
+	};
 }
 
 function toGrant(consent: Consent, org: Organization): AccessGrant {

@@ -370,6 +370,42 @@ export function describeAdvisorStoreContract(
 			);
 		});
 
+		it('relationship: setConsentIfActive updates consentId of an ACTIVE relationship', async () => {
+			const created = await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Active,
+				consentId: 'c1',
+			});
+			const updated = await s.relationships.setConsentIfActive(
+				created.id,
+				'c2'
+			);
+			expect(updated).toEqual({ ...created, consentId: 'c2' });
+			expect(await s.relationships.findById(created.id)).toEqual(updated);
+		});
+
+		it('relationship: setConsentIfActive gives null and changes nothing for REVOKED, PENDING and unknown', async () => {
+			for (const status of [
+				RelationshipStatus.Revoked,
+				RelationshipStatus.Pending,
+			]) {
+				const created = await s.relationships.create({
+					orgId: randomUUID(),
+					clientProfileId: randomUUID(),
+					status,
+					consentId: 'c1',
+				});
+				expect(
+					await s.relationships.setConsentIfActive(created.id, 'c2')
+				).toBeNull();
+				expect(await s.relationships.findById(created.id)).toEqual(created);
+			}
+			expect(
+				await s.relationships.setConsentIfActive(randomUUID(), 'c2')
+			).toBeNull();
+		});
+
 		it('relationship: concurrent activate has exactly one winner', async () => {
 			const created = await s.relationships.create({
 				orgId: randomUUID(),
