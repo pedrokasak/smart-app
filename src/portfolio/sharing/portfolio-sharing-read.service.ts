@@ -11,6 +11,28 @@ import {
 	SharedTradeDto,
 } from './shared-portfolio.dto';
 
+// Só os campos que os DTOs usam: o resto do documento (indicadores,
+// histórico de dividendos, dados pessoais) nunca sai do banco.
+const PORTFOLIO_FIELDS = { _id: 1, name: 1 };
+const ASSET_FIELDS = {
+	symbol: 1,
+	type: 1,
+	quantity: 1,
+	price: 1,
+	avgPrice: 1,
+	source: 1,
+};
+const TRADE_FIELDS = {
+	symbol: 1,
+	side: 1,
+	quantity: 1,
+	price: 1,
+	fees: 1,
+	date: 1,
+	uploadId: 1,
+	createdAt: 1,
+};
+
 /**
  * Leitura somente-leitura das carteiras B2C de um investidor, para o módulo
  * advisor. É o único ponto que toca `Portfolio`, `Asset` e `Trade` para
@@ -28,6 +50,7 @@ export class PortfolioSharingReadService {
 		if (!Types.ObjectId.isValid(userId)) return [];
 		const rows = await this.portfolioModel
 			.find({ userId: new Types.ObjectId(userId) })
+			.select(PORTFOLIO_FIELDS)
 			.sort({ createdAt: 1 })
 			.lean()
 			.exec();
@@ -47,6 +70,7 @@ export class PortfolioSharingReadService {
 		const owner = new Types.ObjectId(userId);
 		const portfolios = await this.portfolioModel
 			.find({ _id: { $in: ids }, userId: owner })
+			.select(PORTFOLIO_FIELDS)
 			.sort({ createdAt: 1 })
 			.lean()
 			.exec();
@@ -67,6 +91,7 @@ export class PortfolioSharingReadService {
 	): Promise<SharedHoldingDto[]> {
 		const rows = await this.assetModel
 			.find({ portfolioId, quantity: { $gt: 0 } })
+			.select(ASSET_FIELDS)
 			.sort({ symbol: 1 })
 			.lean()
 			.exec();
@@ -85,18 +110,27 @@ export class PortfolioSharingReadService {
 	): Promise<SharedTradeDto[]> {
 		const rows = await this.tradeModel
 			.find({ userId, portfolioId })
+			.select(TRADE_FIELDS)
 			.sort({ date: 1, createdAt: 1 })
 			.lean()
 			.exec();
-		return rows.map((t: any) => ({
-			symbol: t.symbol,
-			side: t.side,
-			quantity: t.quantity,
-			price: t.price,
-			fees: t.fees ?? 0,
-			date: new Date(t.date).toISOString().slice(0, 10),
-			imported: !!t.uploadId,
-			createdAt: t.createdAt,
-		}));
+		// Linha com data inválida é ignorada: uma linha ruim nunca derruba a
+		// leitura inteira (toISOString lançaria RangeError).
+		return rows.flatMap((t: any): SharedTradeDto[] => {
+			const date = t.date == null ? null : new Date(t.date);
+			if (!date || Number.isNaN(date.getTime())) return [];
+			return [
+				{
+					symbol: t.symbol,
+					side: t.side,
+					quantity: t.quantity,
+					price: t.price,
+					fees: t.fees ?? 0,
+					date: date.toISOString().slice(0, 10),
+					imported: !!t.uploadId,
+					createdAt: t.createdAt,
+				},
+			];
+		});
 	}
 }

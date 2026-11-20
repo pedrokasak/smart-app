@@ -12,7 +12,11 @@ export interface ReconciledPortfolio {
 	ledger: Transaction[];
 	/** Ativos cadastrados que as negociações não explicam. */
 	holdingsWithoutHistory: Position[];
-	/** Posição aberta nas negociações sem ativo cadastrado: fora de tudo. */
+	/**
+	 * Símbolos fora de tudo (nem ledger, nem posição): negociações sem ativo
+	 * cadastrado que não fecham em zero (posição aberta ou histórico
+	 * inconsistente) e ativos com quantidade ou custo não finitos.
+	 */
 	unreconciledSymbols: string[];
 }
 
@@ -57,6 +61,9 @@ function toTransaction(
 	};
 }
 
+const isValidHolding = (h: SharedHolding): boolean =>
+	Number.isFinite(h.quantity) && Number.isFinite(h.costMinor);
+
 /** Um ativo por símbolo; duplicados somam quantidade e custo. */
 function holdingsBySymbol(holdings: SharedHolding[]): Map<string, Position> {
 	const bySymbol = new Map<string, Position>();
@@ -87,6 +94,10 @@ export function reconcileSharedPortfolio(
 	ids: { orgId: string; clientProfileId: string }
 ): ReconciledPortfolio {
 	const holdings = holdingsBySymbol(data.holdings);
+	// Falha fechado: um ativo com número inválido tira o símbolo inteiro.
+	const invalidHoldingSymbols = new Set(
+		data.holdings.filter((h) => !isValidHolding(h)).map((h) => h.symbol)
+	);
 	const all = data.trades.map((t, index) =>
 		toTransaction(t, index, data.portfolioId, ids)
 	);
@@ -103,6 +114,10 @@ export function reconcileSharedPortfolio(
 	const unreconciledSymbols: string[] = [];
 	const symbols = new Set([...holdings.keys(), ...tradesBySymbol.keys()]);
 	for (const symbol of symbols) {
+		if (invalidHoldingSymbols.has(symbol)) {
+			unreconciledSymbols.push(symbol);
+			continue;
+		}
 		const held = holdings.get(symbol);
 		const trades = tradesBySymbol.get(symbol) ?? [];
 		const derived = derivePositions(trades);

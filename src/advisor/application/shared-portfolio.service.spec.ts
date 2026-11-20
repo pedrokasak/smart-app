@@ -7,6 +7,7 @@ import {
 	OrgRole,
 	ProfileOrigin,
 	Provenance,
+	RelationshipStatus,
 	TransactionSide,
 } from '../domain/enums';
 import {
@@ -378,6 +379,61 @@ describe('SharedPortfolioService', () => {
 			service.listSharedPortfolios(ctxA, profile.id)
 		).rejects.toBeInstanceOf(NoActiveConsentError);
 		expect(read).not.toHaveBeenCalled();
+	});
+
+	describe('consent gate', () => {
+		const expectRefusedWithoutSource = async () => {
+			const read = jest.spyOn(source, 'read');
+			const listOwned = jest.spyOn(source, 'listOwned');
+			await expect(
+				service.getSharedMetrics(ctxA, clientProfileId)
+			).rejects.toBeInstanceOf(NoActiveConsentError);
+			await expect(
+				service.listSharedPortfolios(ctxA, clientProfileId)
+			).rejects.toBeInstanceOf(NoActiveConsentError);
+			expect(read).not.toHaveBeenCalled();
+			expect(listOwned).not.toHaveBeenCalled();
+			expect(prices.calls).toHaveLength(0);
+		};
+
+		it('refuses when the profile owner is not the consent holder', async () => {
+			const profile = await profiles.findById(clientProfileId);
+			jest
+				.spyOn(profiles, 'findById')
+				.mockResolvedValue({ ...profile, ownerUserId: 'someone-else' });
+
+			await expectRefusedWithoutSource();
+		});
+
+		it('refuses a consent of another org or another client profile', async () => {
+			const consent = await consents.findActiveByRelationship(relationshipId);
+			for (const mismatch of [
+				{ orgId: ctxB.orgId },
+				{ clientProfileId: 'other-profile' },
+			]) {
+				jest
+					.spyOn(consents, 'findActiveByRelationship')
+					.mockResolvedValue({ ...consent, ...mismatch });
+
+				await expectRefusedWithoutSource();
+				jest.restoreAllMocks();
+			}
+		});
+
+		it('refuses a relationship that is not ACTIVE even past the access check', async () => {
+			jest
+				.spyOn(AuthorizationService.prototype, 'ensureCanAccessClient')
+				.mockResolvedValue(undefined);
+			const relationship = await relationships.findById(relationshipId);
+			for (const status of [
+				RelationshipStatus.Pending,
+				RelationshipStatus.Revoked,
+			]) {
+				await relationships.save({ ...relationship, status });
+
+				await expectRefusedWithoutSource();
+			}
+		});
 	});
 
 	it('lets a source failure surface instead of an empty list', async () => {

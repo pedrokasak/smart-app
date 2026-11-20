@@ -14,13 +14,20 @@ const WRITE_METHODS = [
 type Filter = Record<string, any>;
 
 function fakeModel(rows: any[]) {
+	const query: Record<string, jest.Mock> = {};
 	const exec = jest.fn().mockResolvedValue(rows);
-	const lean = jest.fn().mockReturnValue({ exec });
-	const sort = jest.fn().mockReturnValue({ lean });
-	const find = jest.fn().mockReturnValue({ sort });
+	const sort = jest.fn().mockReturnValue(query);
+	const select = jest.fn().mockReturnValue(query);
+	Object.assign(query, {
+		sort,
+		select,
+		lean: jest.fn().mockReturnValue(query),
+		exec,
+	});
+	const find = jest.fn().mockReturnValue(query);
 	const model: Record<string, jest.Mock> = { find };
 	for (const m of WRITE_METHODS) model[m] = jest.fn();
-	return { model, find, sort };
+	return { model, find, sort, select };
 }
 
 const oid = () => new Types.ObjectId();
@@ -209,6 +216,70 @@ describe('PortfolioSharingReadService', () => {
 				createdAt,
 			},
 		]);
+	});
+
+	it('skips a trade with an invalid date instead of failing the whole read', async () => {
+		const createdAt = new Date('2026-02-01T10:00:00Z');
+		const { service } = build(
+			[{ _id: portfolioId, name: 'Mine' }],
+			[],
+			[
+				{
+					symbol: 'BAD',
+					side: 'buy',
+					quantity: 1,
+					price: 10,
+					date: 'not-a-date',
+					createdAt,
+				},
+				{ symbol: 'NODATE', side: 'buy', quantity: 1, price: 10, createdAt },
+				{
+					symbol: 'AAA',
+					side: 'buy',
+					quantity: 1,
+					price: 10,
+					date: new Date('2026-01-02T00:00:00Z'),
+					createdAt,
+				},
+			]
+		);
+
+		const [dto] = await service.readOwned(userId.toString(), [
+			portfolioId.toString(),
+		]);
+
+		expect(dto.trades.map((t) => t.symbol)).toEqual(['AAA']);
+	});
+
+	it('projects only the fields the DTOs need from every model', async () => {
+		const { service, p, a, t } = build([{ _id: portfolioId, name: 'Mine' }]);
+
+		await service.listOwned(userId.toString());
+		await service.readOwned(userId.toString(), [portfolioId.toString()]);
+
+		const portfolioProjection = { _id: 1, name: 1 };
+		expect(p.select.mock.calls).toEqual([
+			[portfolioProjection],
+			[portfolioProjection],
+		]);
+		expect(a.select).toHaveBeenCalledWith({
+			symbol: 1,
+			type: 1,
+			quantity: 1,
+			price: 1,
+			avgPrice: 1,
+			source: 1,
+		});
+		expect(t.select).toHaveBeenCalledWith({
+			symbol: 1,
+			side: 1,
+			quantity: 1,
+			price: 1,
+			fees: 1,
+			date: 1,
+			uploadId: 1,
+			createdAt: 1,
+		});
 	});
 
 	it('exposes only the DTO keys', async () => {

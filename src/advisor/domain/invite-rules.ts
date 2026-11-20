@@ -56,7 +56,8 @@ export function inviteUsability(
 	now: Date
 ): InviteUsability {
 	if (invite.status !== InviteStatus.Pending) return 'NOT_PENDING';
-	return now.getTime() >= invite.expiresAt.getTime() ? 'EXPIRED' : 'OK';
+	// Fail closed: an invalid date (NaN) never compares as "still valid".
+	return now.getTime() < invite.expiresAt.getTime() ? 'OK' : 'EXPIRED';
 }
 
 export function emailMatches(

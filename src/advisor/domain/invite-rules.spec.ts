@@ -40,6 +40,31 @@ describe('invite-rules', () => {
 		expect(a.token).not.toBe(b.token);
 	});
 
+	it('hash fixado em SHA-256 hex (vetor conhecido do FIPS 180-2)', () => {
+		expect(hashInviteToken('abc')).toBe(
+			'ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad'
+		);
+	});
+
+	it('expiresAt inválido conta como expirado (falha fechado)', () => {
+		const now = new Date('2026-11-20T12:00:00.000Z');
+		expect(
+			inviteUsability(
+				{ status: InviteStatus.Pending, expiresAt: new Date('nope') },
+				now
+			)
+		).toBe('EXPIRED');
+		expect(
+			inviteUsability(
+				{
+					status: InviteStatus.Pending,
+					expiresAt: new Date('2026-11-23T12:00:00.000Z'),
+				},
+				new Date(Number.NaN)
+			)
+		).toBe('EXPIRED');
+	});
+
 	it('validade de 7 dias exatos', () => {
 		const from = new Date('2026-11-16T12:00:00.000Z');
 		expect(inviteExpiry(from).toISOString()).toBe('2026-11-23T12:00:00.000Z');

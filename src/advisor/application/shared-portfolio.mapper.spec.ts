@@ -271,6 +271,38 @@ describe('reconcileSharedPortfolio', () => {
 		]);
 	});
 
+	it('fails closed on a holding with a non-finite cost or quantity', () => {
+		for (const bad of [
+			holding({ costMinor: NaN }),
+			holding({ quantity: Infinity }),
+		]) {
+			const r = reconcileSharedPortfolio(
+				portfolio(
+					[bad, holding({ symbol: 'VALE3' })],
+					[trade({ quantity: 10 })]
+				),
+				IDS
+			);
+
+			// The bad symbol is out of everything, trades included.
+			expect(r.ledger).toEqual([]);
+			expect(r.unreconciledSymbols).toEqual(['PETR4']);
+			expect(r.holdingsWithoutHistory).toEqual([
+				expect.objectContaining({ symbol: 'VALE3' }),
+			]);
+		}
+	});
+
+	it('fails closed for the whole symbol when one of its duplicate holdings is invalid', () => {
+		const r = reconcileSharedPortfolio(
+			portfolio([holding({ quantity: 4 }), holding({ costMinor: NaN })], []),
+			IDS
+		);
+
+		expect(r.holdingsWithoutHistory).toEqual([]);
+		expect(r.unreconciledSymbols).toEqual(['PETR4']);
+	});
+
 	it('adds up two holdings of the same symbol', () => {
 		const r = reconcileSharedPortfolio(
 			portfolio(
