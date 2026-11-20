@@ -4,7 +4,7 @@ import {
 	PortfolioProvenance,
 	TransactionSide,
 } from '../../domain/enums';
-import { Transaction } from '../../domain/portfolio.entities';
+import { Position, Transaction } from '../../domain/portfolio.entities';
 import { derivePositions, sortLedger } from '../../domain/positions';
 import {
 	allocationByClass,
@@ -68,7 +68,7 @@ export interface ClientPortfolioMetrics {
 		measuredFrom: string | null;
 		measuredTo: string | null;
 		observations: number;
-		/** Parte do valor a mercado com cotação, 0-100. */
+		/** Parte do valor a mercado com cotação e histórico, 0-100. */
 		coveragePct: number;
 		unavailable: Unavailable | null;
 	};
@@ -85,7 +85,12 @@ export interface ClientPortfolioMetrics {
 		periodReturn: number | null;
 		excess: number | null;
 	}>;
-	warnings: { unpricedSymbols: string[]; ledgerInconsistencies: string[] };
+	warnings: {
+		unpricedSymbols: string[];
+		ledgerInconsistencies: string[];
+		/** Posições sem histórico de negociações: só na foto, fora da série. */
+		noHistorySymbols: string[];
+	};
 }
 
 export interface PortfolioMetricsInput {
@@ -96,6 +101,12 @@ export interface PortfolioMetricsInput {
 	target: Partial<Record<AssetClass, number>> | null;
 	/** Já na janela medida. */
 	benchmarkReturns: Partial<Record<BenchmarkKey, number | null>>;
+	/**
+	 * Posições sem histórico: entram na valorização e na foto, nunca em
+	 * negociações, fluxos, série, VaR ou MWR. Símbolo com posição aberta no
+	 * livro vale o livro.
+	 */
+	holdingsWithoutHistory?: Position[];
 }
 
 export const BENCHMARK_KEYS: BenchmarkKey[] = ['CDI', 'IBOV', 'IPCA'];
@@ -258,7 +269,7 @@ function moneyWeightedReturn(
 	};
 }
 
-/** Parte do valor a mercado com cotação, 0-100 com 4 casas; 0 sem valor. */
+/** Parte do valor a mercado dentro da série, 0-100 com 4 casas; 0 sem valor. */
 function coveragePct(
 	pricedValueMinor: number,
 	totalValueMinor: number
@@ -270,7 +281,14 @@ function coveragePct(
 export function buildPortfolioMetrics(
 	input: PortfolioMetricsInput
 ): ClientPortfolioMetrics {
-	const { positions, inconsistencies } = derivePositions(input.ledger);
+	const derived = derivePositions(input.ledger);
+	const inconsistencies = derived.inconsistencies;
+	const inLedger = new Set(derived.positions.map((p) => p.symbol));
+	const withoutHistory = (input.holdingsWithoutHistory ?? []).filter(
+		(p) => !inLedger.has(p.symbol)
+	);
+	const noHistory = new Set(withoutHistory.map((p) => p.symbol));
+	const positions = [...derived.positions, ...withoutHistory];
 	const valued = valuePositions(
 		positions,
 		lastCloses(input.closes, input.asOf)
@@ -279,8 +297,10 @@ export function buildPortfolioMetrics(
 		(sum, p) => sum + p.marketValueMinor,
 		0
 	);
+	// Só o que está na série: cotado e com histórico. Base de VaR, MWR e
+	// coveragePct.
 	const pricedValueMinor = valued
-		.filter((p) => p.priced)
+		.filter((p) => p.priced && !noHistory.has(p.symbol))
 		.reduce((sum, p) => sum + p.marketValueMinor, 0);
 	const concentration = computeConcentration(
 		valued.map((p) => p.marketValueMinor)
@@ -375,6 +395,7 @@ export function buildPortfolioMetrics(
 				.map((p) => p.symbol)
 				.sort(),
 			ledgerInconsistencies: inconsistencies,
+			noHistorySymbols: [...noHistory].sort(),
 		},
 	};
 }
