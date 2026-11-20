@@ -717,9 +717,17 @@ export class InMemoryInviteeIdentity implements InviteeIdentityPort {
 		this.accounts.set(userId, account);
 	}
 
+	readonly verifiedCalls: Array<[string, string]> = [];
+	failVerifyWith?: Error;
+
 	async find(userId: string): Promise<InviteeAccount | null> {
 		const account = this.accounts.get(userId);
 		return account ? { ...account } : null;
+	}
+
+	async markEmailVerified(userId: string, email: string): Promise<void> {
+		if (this.failVerifyWith) throw this.failVerifyWith;
+		this.verifiedCalls.push([userId, email]);
 	}
 }
 

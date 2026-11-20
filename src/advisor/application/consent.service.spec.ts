@@ -250,13 +250,55 @@ describe('ConsentService', () => {
 			await expectUniformNotFound(inv, OTHER_INVESTOR, inv.token);
 		});
 
-		it('rejects the right e-mail when it is not verified', async () => {
+		it('opens, previews and accepts with an unverified account', async () => {
 			const inv = await invited();
 			identity.set(INVESTOR, {
 				email: 'joao@exemplo.com',
 				emailVerified: false,
 			});
-			await expectUniformNotFound(inv, INVESTOR, inv.token);
+
+			const preview = await service.previewInvite(INVESTOR, inv.token);
+			expect(preview.organizationName).toBe('Org A');
+			expect(identity.verifiedCalls).toEqual([]);
+
+			await service.acceptInvite(INVESTOR, inv.token, ['p1']);
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Active);
+		});
+
+		it('proves the invite e-mail once the accept finished', async () => {
+			const inv = await invited();
+
+			await service.acceptInvite(INVESTOR, inv.token, ['p1']);
+
+			expect(identity.verifiedCalls).toEqual([[INVESTOR, 'joao@exemplo.com']]);
+		});
+
+		it('does not prove anything when the accept fails after the grant', async () => {
+			const inv = await invited();
+			// Fails at the last step (activate), after the grant and its audit.
+			jest.spyOn(relationships, 'activate').mockResolvedValueOnce(null);
+
+			await expect(
+				service.acceptInvite(INVESTOR, inv.token, ['p1'])
+			).rejects.toBeInstanceOf(ConflictException);
+
+			expect(audit.ofType(CONSENT_GRANTED_EVENT)).toHaveLength(1);
+			expect(identity.verifiedCalls).toEqual([]);
+		});
+
+		it('keeps the accept when proving the e-mail fails, without logging it', async () => {
+			const inv = await invited();
+			identity.failVerifyWith = new Error('boom joao@exemplo.com');
+			const logged = jest
+				.spyOn(Logger.prototype, 'error')
+				.mockImplementation(() => undefined);
+
+			const grant = await service.acceptInvite(INVESTOR, inv.token, ['p1']);
+
+			expect(grant.relationshipId).toBe(inv.relationshipId);
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Active);
+			expect(logged).toHaveBeenCalledTimes(1);
+			expect(String(logged.mock.calls[0][0])).not.toContain('@');
 		});
 
 		it('rejects an unknown account and an account without e-mail', async () => {

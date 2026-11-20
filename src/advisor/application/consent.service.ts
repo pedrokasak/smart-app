@@ -197,7 +197,27 @@ export class ConsentService {
 			await this.undoAccept(accepted, userId, consent, audited);
 			throw error;
 		}
+		await this.proveInviteeEmail(userId, accepted.email);
 		return toGrant(consent, org);
+	}
+
+	/**
+	 * The invite token went to this address, so accepting it proves the
+	 * invitee reads it. Best effort: the accept is already complete, so a
+	 * failure here is logged (ids and error name only) and never undone.
+	 */
+	private async proveInviteeEmail(
+		userId: string,
+		inviteEmail: string
+	): Promise<void> {
+		try {
+			await this.identity.markEmailVerified(
+				userId,
+				normalizeEmail(inviteEmail)
+			);
+		} catch (error) {
+			this.logFailure('mark e-mail verified of user', userId, error);
+		}
 	}
 
 	async declineInvite(userId: string, token: string): Promise<void> {
@@ -380,9 +400,11 @@ export class ConsentService {
 	}
 
 	/**
-	 * Common gate: token -> invite -> usable -> verified account with the
-	 * invited e-mail. Every failure is the same InviteNotFoundError. An expired
-	 * PENDING invite found here is closed as EXPIRED.
+	 * Common gate: token -> invite -> usable -> account with the invited
+	 * e-mail. No verified flag is required: the token itself proves the e-mail,
+	 * since it was only sent there. Every failure is the same
+	 * InviteNotFoundError. An expired PENDING invite found here is closed as
+	 * EXPIRED.
 	 */
 	private async openInvite(
 		userId: string,
@@ -405,7 +427,6 @@ export class ConsentService {
 		if (
 			!account ||
 			typeof account.email !== 'string' ||
-			account.emailVerified !== true ||
 			!emailMatches(invite, account.email)
 		) {
 			throw new InviteNotFoundError();

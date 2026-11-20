@@ -20,4 +20,8 @@ export class UserInviteeIdentityAdapter implements InviteeIdentityPort {
 			emailVerified: user.isEmailVerified === true,
 		};
 	}
+
+	async markEmailVerified(userId: string, email: string): Promise<void> {
+		await this.users.markEmailVerified(userId, email);
+	}
 }
