@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { ClientInvite, Consent } from '../domain/consent.entities';
 import {
@@ -539,10 +540,24 @@ export class InMemoryInviteStore implements InviteStorePort {
 export class InMemoryConsentStore implements ConsentStorePort {
 	private readonly items = new Map<string, Consent>();
 
-	/** Tudo síncrono antes de qualquer await: dois grants não se intercalam. */
+	/**
+	 * Tudo síncrono antes de qualquer await: dois grants não se intercalam. Como
+	 * o índice único parcial do Mongo, recusa um segundo vínculo ACTIVE do mesmo
+	 * usuário com a mesma organização por outra relação.
+	 */
 	async grant(
 		consent: Omit<Consent, 'id' | 'version' | 'status' | 'endedAt'>
 	): Promise<Consent> {
+		const linkedElsewhere = [...this.items.values()].some(
+			(c) =>
+				c.userId === consent.userId &&
+				c.orgId === consent.orgId &&
+				c.status === ConsentStatus.Active &&
+				c.relationshipId !== consent.relationshipId
+		);
+		if (linkedElsewhere) {
+			throw new ConflictException('Already linked to this organization');
+		}
 		const ofRelationship = [...this.items.values()].filter(
 			(c) => c.relationshipId === consent.relationshipId
 		);

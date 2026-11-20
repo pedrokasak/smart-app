@@ -1,4 +1,5 @@
 import mongoose, { Model } from 'mongoose';
+import { advisorConsentSchemas } from './advisor-consent.models';
 import { advisorSchemas } from './advisor.models';
 import {
 	AdvisorImportBatchDoc,
@@ -177,5 +178,57 @@ describe('advisor portfolio schemas', () => {
 				new M({ ...valid, status: 'DONE' }).validateSync()?.errors.status
 			).toBeDefined();
 		});
+	});
+});
+
+describe('advisor consent schemas', () => {
+	const invites = (): IndexEntry[] =>
+		advisorConsentSchemas.clientInvite.indexes() as IndexEntry[];
+	const consents = (): IndexEntry[] =>
+		advisorConsentSchemas.consent.indexes() as IndexEntry[];
+
+	it('uses the expected collection names', () => {
+		expect(advisorConsentSchemas.clientInvite.get('collection')).toBe(
+			'advisor_client_invites'
+		);
+		expect(advisorConsentSchemas.consent.get('collection')).toBe(
+			'advisor_consents'
+		);
+	});
+
+	it('invite has a unique tokenHash index', () => {
+		const index = findIndex(invites(), { tokenHash: 1 });
+		expect(index?.[1].unique).toBe(true);
+	});
+
+	it('invite has the org + email + status and the email lookups', () => {
+		expect(
+			findIndex(invites(), { orgId: 1, email: 1, status: 1 })
+		).toBeDefined();
+		expect(findIndex(invites(), { email: 1 })).toBeDefined();
+	});
+
+	it('consent has a unique partial index (ACTIVE only) on relationshipId', () => {
+		const index = findIndex(consents(), { relationshipId: 1 });
+		expect(index?.[1].unique).toBe(true);
+		expect(index?.[1].partialFilterExpression).toEqual({ status: 'ACTIVE' });
+	});
+
+	it('consent has a unique index on relationshipId + version', () => {
+		const index = findIndex(consents(), { relationshipId: 1, version: 1 });
+		expect(index?.[1].unique).toBe(true);
+		expect(index?.[1].partialFilterExpression).toBeUndefined();
+	});
+
+	it('consent has a unique partial index (ACTIVE only) on userId + orgId', () => {
+		const index = findIndex(consents(), { userId: 1, orgId: 1 });
+		expect(index?.[1].unique).toBe(true);
+		expect(index?.[1].partialFilterExpression).toEqual({ status: 'ACTIVE' });
+	});
+
+	it('consent has a non-unique userId + status index', () => {
+		const index = findIndex(consents(), { userId: 1, status: 1 });
+		expect(index).toBeDefined();
+		expect(index?.[1].unique).toBeUndefined();
 	});
 });

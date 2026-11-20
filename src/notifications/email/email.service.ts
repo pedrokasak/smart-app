@@ -210,6 +210,40 @@ Se não foi você, fale com suporte@trackerr.com.br.`;
 		await this.sender.send({ to: params.email, subject, html, text });
 	}
 
+	/**
+	 * Convite de assessor para o investidor aceitar o vínculo. O corpo leva
+	 * só o nome da organização e a validade: nenhum dado de carteira. O token
+	 * vai apenas no link e nunca é registrado em log.
+	 */
+	async sendAdvisorInviteEmail(params: {
+		to: string;
+		token: string;
+		orgName: string;
+		expiresAt: Date;
+	}): Promise<void> {
+		const safeOrg = escapeHtml(params.orgName);
+		const inviteLink = `${this.getAppBaseUrl()}/convite-assessor?token=${encodeURIComponent(params.token)}`;
+		const expiry = params.expiresAt.toLocaleDateString('pt-BR', {
+			timeZone: 'America/Sao_Paulo',
+		});
+
+		const subject = `${params.orgName} convidou você para compartilhar sua carteira — Trackerr`;
+		const html = this.getBaseTemplate({
+			title: `${safeOrg} convidou você`,
+			hero: 'Você recebeu um convite de assessoria',
+			description:
+				`<strong>${safeOrg}</strong> convidou você para compartilhar suas carteiras no Trackerr. ` +
+				'Você escolhe quais carteiras mostrar e pode encerrar o compartilhamento quando quiser. ' +
+				`O convite vale até ${expiry}.`,
+			ctaLabel: 'Ver o convite',
+			ctaUrl: inviteLink,
+			footerNote:
+				'Entre com a conta que usa este e-mail para aceitar ou recusar. Se você não esperava este convite, ignore este e-mail com segurança.',
+		});
+		const text = `Convite de assessoria - Trackerr\n\n${params.orgName} convidou você para compartilhar suas carteiras no Trackerr.\nVocê escolhe quais carteiras mostrar e pode encerrar o compartilhamento quando quiser.\nO convite vale até ${expiry}.\nVer o convite: ${inviteLink}\n\nSe você não esperava este convite, ignore este e-mail.`;
+
+		await this.sender.send({ to: params.to, subject, html, text });
+	}
 	async sendWelcomeEmail(email: string, firstName?: string): Promise<void> {
 		const dashboardLink = `${this.getAppBaseUrl()}/dashboard`;
 		const safeName = String(firstName || 'Investidor').trim();

@@ -1,3 +1,4 @@
+import { ConflictException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { ClientInvite, Consent } from '../domain/consent.entities';
 import {
@@ -699,6 +700,44 @@ export function describeAdvisorConsentStoreContract(
 
 			expect(await s.consents.listActiveByUser(userId)).toHaveLength(1);
 			expect(new Set(granted.map((c) => c.version)).size).toBe(3);
+		});
+
+		it('consent: a second ACTIVE link of the same user to the same org (other relationship) is refused', async () => {
+			const userId = randomUUID();
+			const orgId = randomUUID();
+			const first = await s.consents.grant(newConsent({ userId, orgId }));
+
+			await expect(
+				s.consents.grant(newConsent({ userId, orgId }))
+			).rejects.toBeInstanceOf(ConflictException);
+
+			expect(
+				(await s.consents.listActiveByUser(userId)).map((c) => c.id)
+			).toEqual([first.id]);
+		});
+
+		it('consent: the same user may link to the same org again after revoking', async () => {
+			const userId = randomUUID();
+			const orgId = randomUUID();
+			const first = await s.consents.grant(newConsent({ userId, orgId }));
+			await s.consents.revokeActive(first.relationshipId, userId, new Date());
+
+			const again = await s.consents.grant(newConsent({ userId, orgId }));
+
+			expect(again.status).toBe(ConsentStatus.Active);
+		});
+
+		it('consent: a changed scope on the same relationship is not a second link', async () => {
+			const userId = randomUUID();
+			const orgId = randomUUID();
+			const relationshipId = randomUUID();
+			await s.consents.grant(newConsent({ userId, orgId, relationshipId }));
+
+			const second = await s.consents.grant(
+				newConsent({ userId, orgId, relationshipId })
+			);
+
+			expect(second.version).toBe(2);
 		});
 
 		it('consent: findActiveByRelationship gives null when nothing was granted', async () => {

@@ -1,10 +1,24 @@
 import { randomUUID } from 'crypto';
 import { Connection, createConnection } from 'mongoose';
 import {
+	describeAdvisorConsentStoreContract,
 	describeAdvisorPortfolioStoreContract,
 	describeAdvisorStoreContract,
 } from '../application/store-contract.fixture';
-import { OrgRole, ProfileOrigin, RelationshipStatus } from '../domain/enums';
+import {
+	ConsentStatus,
+	InviteStatus,
+	OrgRole,
+	ProfileOrigin,
+	RelationshipStatus,
+} from '../domain/enums';
+import {
+	ADVISOR_CLIENT_INVITE_MODEL,
+	ADVISOR_CONSENT_MODEL,
+	AdvisorClientInviteDoc,
+	AdvisorConsentDoc,
+	advisorConsentSchemas,
+} from './advisor-consent.models';
 import {
 	ADVISOR_CLIENT_PROFILE_MODEL,
 	ADVISOR_MEMBERSHIP_MODEL,
@@ -29,6 +43,8 @@ import { MongoAllocationTargetStore } from './mongo-allocation-target.store';
 import { MongoTransactionStore } from './mongo-transaction.store';
 import { assertDisposableDb, buildTestDbName } from './mongo-test-database';
 import { MongoClientProfileStore } from './mongo-client-profile.store';
+import { MongoConsentStore } from './mongo-consent.store';
+import { MongoInviteStore } from './mongo-invite.store';
 import { MongoMembershipStore } from './mongo-membership.store';
 import { MongoOrganizationStore } from './mongo-organization.store';
 import { MongoRelationshipStore } from './mongo-relationship.store';
@@ -49,6 +65,10 @@ describeMongo('advisor mongo stores', () => {
 		memberships: MongoMembershipStore;
 		relationships: MongoRelationshipStore;
 		profiles: MongoClientProfileStore;
+	};
+	let consentStores: {
+		invites: MongoInviteStore;
+		consents: MongoConsentStore;
 	};
 	let portfolioStores: {
 		transactions: MongoTransactionStore;
@@ -88,6 +108,14 @@ describeMongo('advisor mongo stores', () => {
 			ADVISOR_ALLOCATION_TARGET_MODEL,
 			advisorPortfolioSchemas.allocationTarget
 		);
+		const inviteModel = conn.model<AdvisorClientInviteDoc>(
+			ADVISOR_CLIENT_INVITE_MODEL,
+			advisorConsentSchemas.clientInvite
+		);
+		const consentModel = conn.model<AdvisorConsentDoc>(
+			ADVISOR_CONSENT_MODEL,
+			advisorConsentSchemas.consent
+		);
 		// `syncIndexes` garante que os índices únicos existem antes dos testes.
 		await Promise.all(
 			[
@@ -98,8 +126,14 @@ describeMongo('advisor mongo stores', () => {
 				transactionModel,
 				importBatchModel,
 				targetModel,
+				inviteModel,
+				consentModel,
 			].map((m) => m.syncIndexes())
 		);
+		consentStores = {
+			invites: new MongoInviteStore(inviteModel),
+			consents: new MongoConsentStore(consentModel),
+		};
 		portfolioStores = {
 			transactions: new MongoTransactionStore(
 				transactionModel,
@@ -125,6 +159,7 @@ describeMongo('advisor mongo stores', () => {
 
 	describeAdvisorStoreContract('mongo', () => stores);
 	describeAdvisorPortfolioStoreContract('mongo', () => portfolioStores);
+	describeAdvisorConsentStoreContract('mongo', () => consentStores);
 
 	describe('indexes', () => {
 		it('rejects a duplicate membership for the same user and org', async () => {
@@ -199,6 +234,96 @@ describeMongo('advisor mongo stores', () => {
 			});
 			const claimed = await stores.profiles.claimIfUnowned(created.id, 'u1');
 			expect(claimed?.origin).toBe(ProfileOrigin.ClientCreated);
+		});
+
+		const newInvite = (tokenHash: string) => ({
+			orgId: randomUUID(),
+			clientProfileId: randomUUID(),
+			relationshipId: randomUUID(),
+			email: `${randomUUID()}@example.com`,
+			tokenHash,
+			status: InviteStatus.Pending,
+			expiresAt: new Date('2030-01-01T00:00:00Z'),
+			resendCount: 0,
+			invitedByUserId: randomUUID(),
+		});
+
+		it('rejects two invites with the same token hash', async () => {
+			const tokenHash = randomUUID();
+			await consentStores.invites.create(newInvite(tokenHash));
+			await expect(
+				consentStores.invites.create(newInvite(tokenHash))
+			).rejects.toMatchObject({ code: 11000 });
+		});
+
+		it('rejects rotating an invite to a token hash that already exists', async () => {
+			const taken = randomUUID();
+			await consentStores.invites.create(newInvite(taken));
+			const other = await consentStores.invites.create(newInvite(randomUUID()));
+
+			await expect(
+				consentStores.invites.rotateToken(
+					other.id,
+					taken,
+					new Date('2031-01-01T00:00:00Z'),
+					3
+				)
+			).rejects.toMatchObject({ code: 11000 });
+			expect(
+				(await consentStores.invites.findById(other.orgId, other.id))
+					?.resendCount
+			).toBe(0);
+		});
+
+		it('keeps one ACTIVE consent when the same user and org are granted in parallel for one relationship', async () => {
+			const userId = randomUUID();
+			const orgId = randomUUID();
+			const relationshipId = randomUUID();
+			const grant = () =>
+				consentStores.consents.grant({
+					orgId,
+					clientProfileId: randomUUID(),
+					relationshipId,
+					userId,
+					portfolioIds: [randomUUID()],
+					textVersion: 'v1',
+					grantedAt: new Date(),
+				});
+
+			const granted = await Promise.all([grant(), grant(), grant()]);
+
+			expect(
+				await consentStores.consents.listActiveByUser(userId)
+			).toHaveLength(1);
+			expect(new Set(granted.map((c) => c.version)).size).toBe(3);
+			const rows =
+				await consentStores.consents.listByRelationship(relationshipId);
+			expect(
+				rows.filter((c) => c.status === ConsentStatus.Active)
+			).toHaveLength(1);
+		});
+
+		it('lets only one of two parallel invites of the same org become ACTIVE', async () => {
+			const userId = randomUUID();
+			const orgId = randomUUID();
+			const grant = () =>
+				consentStores.consents.grant({
+					orgId,
+					clientProfileId: randomUUID(),
+					relationshipId: randomUUID(),
+					userId,
+					portfolioIds: [randomUUID()],
+					textVersion: 'v1',
+					grantedAt: new Date(),
+				});
+
+			const results = await Promise.allSettled([grant(), grant()]);
+
+			expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+			expect(results.filter((r) => r.status === 'rejected')).toHaveLength(1);
+			expect(
+				await consentStores.consents.listActiveByUser(userId)
+			).toHaveLength(1);
 		});
 	});
 });
