@@ -174,6 +174,18 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 		this.items.set(id, updated);
 		return updated;
 	}
+
+	async listActiveByClientProfiles(
+		clientProfileIds: string[]
+	): Promise<AdvisoryRelationship[]> {
+		const ids = new Set(clientProfileIds);
+		return [...this.items.values()]
+			.filter(
+				(r) =>
+					ids.has(r.clientProfileId) && r.status === RelationshipStatus.Active
+			)
+			.map((r) => ({ ...r }));
+	}
 }
 
 export class InMemoryClientProfileStore implements ClientProfileStorePort {
@@ -245,6 +257,12 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 			changed += 1;
 		}
 		return changed;
+	}
+
+	async listIdsByOwner(userId: string): Promise<string[]> {
+		return [...this.items.values()]
+			.filter((p) => p.ownerUserId === userId)
+			.map((p) => p.id);
 	}
 }
 
@@ -545,6 +563,18 @@ export class InMemoryInviteStore implements InviteStorePort {
 		let removed = 0;
 		for (const [id, invite] of this.items) {
 			if (invite.email === email) {
+				this.items.delete(id);
+				removed += 1;
+			}
+		}
+		return removed;
+	}
+
+	async deleteByRelationshipIds(relationshipIds: string[]): Promise<number> {
+		const ids = new Set(relationshipIds);
+		let removed = 0;
+		for (const [id, invite] of this.items) {
+			if (ids.has(invite.relationshipId)) {
 				this.items.delete(id);
 				removed += 1;
 			}

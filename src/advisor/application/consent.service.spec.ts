@@ -425,6 +425,44 @@ describe('ConsentService', () => {
 			expect(relationshipOf(second).status).toBe(RelationshipStatus.Pending);
 		});
 
+		it('ends an orphan ACTIVE consent of a revoked same-org relationship, then links again', async () => {
+			const { inv: first } = await accept(['p1']);
+			// Orphan: the relationship ended but its consent stayed ACTIVE.
+			await relationships.save({
+				...relationshipOf(first),
+				status: RelationshipStatus.Revoked,
+			});
+			const second = await invited();
+
+			const grant = await service.acceptInvite(INVESTOR, second.token, ['p2']);
+
+			expect(grant.relationshipId).toBe(second.relationshipId);
+			expect(relationshipOf(second).status).toBe(RelationshipStatus.Active);
+			expect(
+				await consents.findActiveByRelationship(first.relationshipId)
+			).toBeNull();
+			const [ended] = audit.ofType(CONSENT_REVOKED_EVENT);
+			expect(ended.subject).toBe(first.clientProfileId);
+			expect(ended.payload).toEqual({ orgId: first.orgId });
+		});
+
+		it('does not heal a same-org consent whose relationship is still PENDING', async () => {
+			const { inv: first } = await accept(['p1']);
+			await relationships.save({
+				...relationshipOf(first),
+				status: RelationshipStatus.Pending,
+			});
+			const second = await invited();
+
+			await expect(
+				service.acceptInvite(INVESTOR, second.token, ['p2'])
+			).rejects.toBeInstanceOf(ConflictException);
+
+			expect(
+				await consents.findActiveByRelationship(first.relationshipId)
+			).not.toBeNull();
+		});
+
 		it('still accepts an invite from another org', async () => {
 			await accept();
 			const fromB = await invited('joao@exemplo.com', ctxB);
@@ -619,6 +657,53 @@ describe('ConsentService', () => {
 			});
 		});
 
+		it('revokes the relationship when the grant fails after the old consent was superseded', async () => {
+			const { inv } = await accept(['p1']);
+			const failure = new Error('insert failed');
+			jest.spyOn(consents, 'grant').mockImplementationOnce(async (input) => {
+				// The store superseded v1, then the insert of v2 failed.
+				await consents.revokeActive(
+					input.relationshipId,
+					input.userId,
+					input.grantedAt
+				);
+				throw failure;
+			});
+			const logged = jest
+				.spyOn(Logger.prototype, 'error')
+				.mockImplementation(() => undefined);
+
+			await expect(
+				service.changeSharedPortfolios(INVESTOR, inv.relationshipId, ['p2'])
+			).rejects.toBe(failure);
+
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Revoked);
+			const [ended] = audit.ofType(CONSENT_REVOKED_EVENT);
+			expect(ended.subject).toBe(inv.clientProfileId);
+			expect(ended.payload).toEqual({ orgId: inv.orgId });
+			await expect(
+				authz.ensureCanAccessClient(ctxA, inv.clientProfileId, 'VIEW_PORTFOLIO')
+			).rejects.toBeInstanceOf(ForbiddenException);
+			logged.mockRestore();
+		});
+
+		it('leaves the relationship alone when the grant fails but an ACTIVE consent remains', async () => {
+			const { inv } = await accept(['p1']);
+			const [v1] = await consents.listByRelationship(inv.relationshipId);
+			const failure = new Error('store down');
+			jest.spyOn(consents, 'grant').mockRejectedValueOnce(failure);
+
+			await expect(
+				service.changeSharedPortfolios(INVESTOR, inv.relationshipId, ['p2'])
+			).rejects.toBe(failure);
+
+			expect(relationshipOf(inv)).toMatchObject({
+				status: RelationshipStatus.Active,
+				consentId: v1.id,
+			});
+			expect(audit.ofType(CONSENT_REVOKED_EVENT)).toEqual([]);
+		});
+
 		it('cannot resurrect a link revoked while the change was in flight', async () => {
 			const { inv } = await accept(['p1']);
 			const listOwned = source.listOwned.bind(source);
@@ -680,6 +765,18 @@ describe('ConsentService', () => {
 			).rejects.toBeInstanceOf(NotFoundException);
 
 			expect(await snapshot(inv)).toBe(before);
+		});
+
+		it('audits the revocation when the relationship ended even if the consent was already gone', async () => {
+			const { inv } = await accept();
+			jest.spyOn(consents, 'revokeActive').mockResolvedValueOnce(null);
+
+			await service.revoke(INVESTOR, inv.relationshipId);
+
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Revoked);
+			const [event] = audit.ofType(CONSENT_REVOKED_EVENT);
+			expect(event.subject).toBe(inv.clientProfileId);
+			expect(event.payload).toEqual({ orgId: inv.orgId });
 		});
 
 		it('stands even when the audit fails', async () => {
@@ -822,23 +919,57 @@ describe('ConsentService', () => {
 			).not.toBeNull();
 		});
 
-		it('still runs the user-keyed steps when the e-mail is unknown, keeping the invites', async () => {
+		it('still runs the user-keyed steps when the e-mail is unknown, keeping the e-mail-only invites', async () => {
 			const { inv } = await accept(['p1']);
 			const warned = jest
 				.spyOn(Logger.prototype, 'warn')
 				.mockImplementation(() => undefined);
 
+			const pendingOfB = await invited('joao@exemplo.com', ctxB);
+
 			const result = await service.eraseUser(INVESTOR, undefined);
 
+			// The accepted invite goes by its relationship; the pending one,
+			// reachable only by e-mail, stays.
 			expect(result).toEqual({
 				revoked: 1,
 				consents: 1,
-				invites: null,
+				invites: 1,
 				profiles: 1,
 			});
-			expect(await invites.findById(inv.orgId, inv.inviteId)).not.toBeNull();
+			expect(await invites.findById(inv.orgId, inv.inviteId)).toBeNull();
+			expect(
+				await invites.findById(pendingOfB.orgId, pendingOfB.inviteId)
+			).not.toBeNull();
 			expect(warned).toHaveBeenCalledTimes(1);
 			expect(String(warned.mock.calls[0][0])).not.toContain('@');
+		});
+
+		it('revokes an ACTIVE relationship of an owned profile that has no ACTIVE consent', async () => {
+			const { inv } = await accept(['p1']);
+			// Orphan relationship: ACTIVE, but no ACTIVE consent reaches it.
+			await consents.revokeActive(inv.relationshipId, INVESTOR, new Date());
+
+			const result = await service.eraseUser(INVESTOR, 'joao@exemplo.com');
+
+			expect(result.revoked).toBe(1);
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Revoked);
+			const [ended] = audit.ofType(CONSENT_REVOKED_EVENT);
+			expect(ended.subject).toBe(inv.clientProfileId);
+			expect(ended.payload).toEqual({ orgId: inv.orgId });
+		});
+
+		it('deletes the invites of the user consents even when the account e-mail changed', async () => {
+			const { inv } = await accept(['p1']);
+			const unrelated = await invited('maria@exemplo.com', ctxB);
+
+			const result = await service.eraseUser(INVESTOR, 'novo@exemplo.com');
+
+			expect(result.invites).toBe(1);
+			expect(await invites.findById(inv.orgId, inv.inviteId)).toBeNull();
+			expect(
+				await invites.findById(unrelated.orgId, unrelated.inviteId)
+			).not.toBeNull();
 		});
 
 		it('removes nothing when a revocation fails, so a retry starts clean', async () => {

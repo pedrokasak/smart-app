@@ -31,4 +31,9 @@ export interface InviteStorePort {
 	): Promise<ClientInvite | null>;
 	/** LGPD: apaga os convites do e-mail e devolve a contagem. */
 	deleteByEmail(email: string): Promise<number>;
+	/**
+	 * LGPD: apaga os convites dessas relações (mesmo os aceitos com um e-mail
+	 * antigo da conta) e devolve a contagem. Lista vazia => 0.
+	 */
+	deleteByRelationshipIds(relationshipIds: string[]): Promise<number>;
 }

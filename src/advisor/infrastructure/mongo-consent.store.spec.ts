@@ -147,13 +147,19 @@ describe('MongoConsentStore.grant', () => {
 		await expect(store.grant(input)).rejects.toBeInstanceOf(ConflictException);
 	});
 
-	it('gives up with the duplicate-key error after the bounded attempts', async () => {
+	it('gives up with a retryable conflict (never the raw E11000) after the bounded attempts', async () => {
 		const { store, model } = build();
 		model.findOne.mockReturnValue(query({ version: 1 }));
-		const error = duplicate({ relationshipId: 1, version: 1 });
-		model.create.mockRejectedValue(error);
+		model.create.mockRejectedValue(
+			duplicate({ relationshipId: 1, version: 1 })
+		);
 
-		await expect(store.grant(input)).rejects.toBe(error);
+		const error = await store.grant(input).catch((e: unknown) => e);
+
+		expect(error).toBeInstanceOf(ConflictException);
+		expect((error as ConflictException).message).toBe(
+			'Consent is being changed concurrently, try again'
+		);
 		expect(model.create).toHaveBeenCalledTimes(5);
 	});
 

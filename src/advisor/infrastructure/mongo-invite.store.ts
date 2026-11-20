@@ -91,4 +91,12 @@ export class MongoInviteStore implements InviteStorePort {
 		const result = await this.invites.deleteMany({ email }).exec();
 		return result.deletedCount ?? 0;
 	}
+
+	async deleteByRelationshipIds(relationshipIds: string[]): Promise<number> {
+		if (relationshipIds.length === 0) return 0;
+		const result = await this.invites
+			.deleteMany({ relationshipId: { $in: relationshipIds } })
+			.exec();
+		return result.deletedCount ?? 0;
+	}
 }

@@ -21,4 +21,6 @@ export interface ClientProfileStorePort {
 	 * remove `ownerUserId`. Devolve quantos mudaram.
 	 */
 	anonymizeByOwner(userId: string): Promise<number>;
+	/** LGPD: ids dos perfis daquele dono (lido antes de `anonymizeByOwner`). */
+	listIdsByOwner(userId: string): Promise<string[]>;
 }

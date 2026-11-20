@@ -42,9 +42,9 @@ describe('RelationshipService', () => {
 		expect((await store.findByOrgAndClient('orgA', 'cp1'))?.id).toBe(second.id);
 	});
 
-	it('revoke sets status to REVOKED', async () => {
+	it('revoke sets status to REVOKED and reports the change', async () => {
 		const r = await svc.create('orgA', 'cp1');
-		await svc.revoke(r.id);
+		await expect(svc.revoke(r.id)).resolves.toBe(true);
 		expect((await store.findById(r.id))?.status).toBe(
 			RelationshipStatus.Revoked
 		);
@@ -54,7 +54,7 @@ describe('RelationshipService', () => {
 		const r = await svc.create('orgA', 'cp1');
 		await svc.revoke(r.id);
 		const saveSpy = jest.spyOn(store, 'save');
-		await expect(svc.revoke(r.id)).resolves.toBeUndefined();
+		await expect(svc.revoke(r.id)).resolves.toBe(false);
 		expect(saveSpy).not.toHaveBeenCalled();
 		expect((await store.findById(r.id))?.status).toBe(
 			RelationshipStatus.Revoked

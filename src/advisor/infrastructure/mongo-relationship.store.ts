@@ -129,6 +129,20 @@ export class MongoRelationshipStore implements RelationshipStorePort {
 		return doc ? toRelationship(doc) : null;
 	}
 
+	async listActiveByClientProfiles(
+		clientProfileIds: string[]
+	): Promise<AdvisoryRelationship[]> {
+		if (clientProfileIds.length === 0) return [];
+		const docs = await this.relationships
+			.find({
+				clientProfileId: { $in: clientProfileIds },
+				status: RelationshipStatus.Active,
+			})
+			.lean<AdvisorRelationshipDoc[]>()
+			.exec();
+		return docs.map(toRelationship);
+	}
+
 	private async findActive(
 		orgId: string,
 		clientProfileId: string

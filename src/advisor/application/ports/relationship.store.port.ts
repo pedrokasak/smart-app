@@ -27,4 +27,8 @@ export interface RelationshipStorePort {
 		id: string,
 		consentId: string
 	): Promise<AdvisoryRelationship | null>;
+	/** LGPD: as relações ACTIVE desses perfis (lista vazia => vazio). */
+	listActiveByClientProfiles(
+		clientProfileIds: string[]
+	): Promise<AdvisoryRelationship[]>;
 }

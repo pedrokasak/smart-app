@@ -86,11 +86,14 @@ export interface AccessGrant {
 	consentVersion: number;
 }
 
-/** What account erasure removed. `invites` is null when no e-mail was known. */
+/**
+ * What account erasure removed. `invites` counts the invites of the user's
+ * relationships plus, when the e-mail is known, the ones sent to it.
+ */
 export interface UserErasure {
 	revoked: number;
 	consents: number;
-	invites: number | null;
+	invites: number;
 	profiles: number;
 }
 
@@ -156,10 +159,7 @@ export class ConsentService {
 	): Promise<AccessGrant> {
 		const invite = await this.openInvite(userId, token);
 		const selected = await this.validSelection(userId, portfolioIds);
-		const linked = await this.consents.listActiveByUser(userId);
-		if (linked.some((c) => c.orgId === invite.orgId)) {
-			throw new ConflictException('Already linked to this organization');
-		}
+		await this.ensureNotLinked(userId, invite.orgId);
 		const org = await this.orgOfInvite(invite);
 
 		const now = new Date();
@@ -233,7 +233,9 @@ export class ConsentService {
 	 * from a snapshot: `setConsentIfActive` only points an ACTIVE relationship
 	 * at the new consent, so a revoke that lands mid-flight wins and the new
 	 * consent is revoked again. An audit event may then describe a change that
-	 * did not complete; that is accepted.
+	 * did not complete; that is accepted. A grant that fails after the store
+	 * superseded the old consent leaves no ACTIVE consent: the relationship is
+	 * then revoked too, so it never stays ACTIVE with nothing behind it.
 	 */
 	async changeSharedPortfolios(
 		userId: string,
@@ -254,15 +256,21 @@ export class ConsentService {
 			portfolioCount: selected.length,
 			consentVersion: previous.version + 1,
 		});
-		const consent = await this.consents.grant({
-			orgId: previous.orgId,
-			clientProfileId: previous.clientProfileId,
-			relationshipId: previous.relationshipId,
-			userId,
-			portfolioIds: selected,
-			textVersion: CONSENT_TEXT_VERSION,
-			grantedAt: new Date(),
-		});
+		let consent: Consent;
+		try {
+			consent = await this.consents.grant({
+				orgId: previous.orgId,
+				clientProfileId: previous.clientProfileId,
+				relationshipId: previous.relationshipId,
+				userId,
+				portfolioIds: selected,
+				textVersion: CONSENT_TEXT_VERSION,
+				grantedAt: new Date(),
+			});
+		} catch (error) {
+			await this.closeIfUnconsented(userId, previous);
+			throw error;
+		}
 		const pointed = await this.relationshipStore.setConsentIfActive(
 			previous.relationshipId,
 			consent.id
@@ -323,20 +331,30 @@ export class ConsentService {
 
 	/**
 	 * LGPD: the one method account erasure calls. Order: end every
-	 * link first (a failure aborts before anything is removed, so a retry
-	 * starts clean), then delete consents, then the invites sent to the
-	 * account e-mail, then detach the client profiles from the user. The
-	 * e-mail must be read by the caller before the account is deleted.
+	 * link first, including ACTIVE relationships of the user's profiles that
+	 * no ACTIVE consent reaches (a failure aborts before anything is removed,
+	 * so a retry starts clean), then delete consents, then the invites of
+	 * those consents' relationships and the ones sent to the account e-mail,
+	 * then detach the client profiles from the user. The e-mail must be read
+	 * by the caller before the account is deleted.
 	 */
 	async eraseUser(
 		userId: string,
 		email: string | undefined
 	): Promise<UserErasure> {
-		const { revoked } = await this.revokeAllForUser(userId);
+		const { revoked: byConsent } = await this.revokeAllForUser(userId);
+		const orphans = await this.revokeOwnedRelationships(userId);
+		const relationshipIds = [
+			...new Set(
+				(await this.consents.listByUser(userId)).map((c) => c.relationshipId)
+			),
+		];
 		const consents = await this.consents.deleteByUser(userId);
-		const invites = await this.deleteInvitesOf(userId, email);
+		const invites =
+			(await this.invites.deleteByRelationshipIds(relationshipIds)) +
+			(await this.deleteInvitesOf(userId, email));
 		const profiles = await this.profiles.anonymizeByOwner(userId);
-		return { revoked, consents, invites, profiles };
+		return { revoked: byConsent + orphans, consents, invites, profiles };
 	}
 
 	/** LGPD export: every consent version of the user, any status. */
@@ -454,27 +472,106 @@ export class ConsentService {
 
 	/**
 	 * Revokes the relationship, then the consent; audits without failing.
+	 * The revocation is audited whenever this call ended either of them.
 	 * Returns false when a concurrent call had already ended the consent.
 	 */
 	private async endLink(userId: string, consent: Consent): Promise<boolean> {
-		await this.revokeRelationship(consent.relationshipId);
+		const ended = await this.revokeRelationship(consent.relationshipId);
 		const revoked = await this.consents.revokeActive(
 			consent.relationshipId,
 			userId,
 			new Date()
 		);
-		if (!revoked) return false;
-		await this.recordEnding(CONSENT_REVOKED_EVENT, userId, revoked);
-		return true;
+		if (revoked || ended) {
+			await this.recordEnding(
+				CONSENT_REVOKED_EVENT,
+				userId,
+				revoked ?? consent
+			);
+		}
+		return revoked !== null;
 	}
 
-	/** A missing relationship grants nothing: treat it as already revoked. */
-	private async revokeRelationship(relationshipId: string): Promise<void> {
+	/**
+	 * A missing relationship grants nothing: treat it as already revoked.
+	 * Returns true when this call moved it to REVOKED.
+	 */
+	private async revokeRelationship(relationshipId: string): Promise<boolean> {
 		try {
-			await this.relationships.revoke(relationshipId);
+			return await this.relationships.revoke(relationshipId);
 		} catch (error) {
 			if (!(error instanceof NotFoundException)) throw error;
+			return false;
 		}
+	}
+
+	/**
+	 * Self-heal before the conflict check: a same-org ACTIVE consent whose
+	 * relationship is REVOKED (or gone) grants nothing and is ended here.
+	 * A PENDING relationship is an accept in flight and still conflicts.
+	 */
+	private async ensureNotLinked(userId: string, orgId: string): Promise<void> {
+		const linked = await this.consents.listActiveByUser(userId);
+		for (const consent of linked.filter((c) => c.orgId === orgId)) {
+			const relationship = await this.relationshipStore.findById(
+				consent.relationshipId
+			);
+			if (relationship && relationship.status !== RelationshipStatus.Revoked) {
+				throw new ConflictException('Already linked to this organization');
+			}
+			const revoked = await this.consents.revokeActive(
+				consent.relationshipId,
+				userId,
+				new Date()
+			);
+			if (revoked) {
+				await this.recordEnding(CONSENT_REVOKED_EVENT, userId, revoked);
+			}
+		}
+	}
+
+	/**
+	 * Compensation of a failed grant in changeSharedPortfolios: if no ACTIVE
+	 * consent is left, the relationship is revoked and the end audited. Best
+	 * effort (ids-only log); the caller rethrows the grant error.
+	 */
+	private async closeIfUnconsented(
+		userId: string,
+		previous: Consent
+	): Promise<void> {
+		try {
+			const active = await this.consents.findActiveByRelationship(
+				previous.relationshipId
+			);
+			if (active) return;
+			if (await this.revokeRelationship(previous.relationshipId)) {
+				await this.recordEnding(CONSENT_REVOKED_EVENT, userId, previous);
+			}
+		} catch (error) {
+			this.logFailure(
+				'revoke unconsented relationship',
+				previous.relationshipId,
+				error
+			);
+		}
+	}
+
+	/** LGPD: ACTIVE relationships of the user's profiles, consent or not. */
+	private async revokeOwnedRelationships(userId: string): Promise<number> {
+		const profileIds = await this.profiles.listIdsByOwner(userId);
+		const active =
+			await this.relationshipStore.listActiveByClientProfiles(profileIds);
+		let revoked = 0;
+		for (const relationship of active) {
+			if (!(await this.revokeRelationship(relationship.id))) continue;
+			revoked += 1;
+			await this.recordEnding(CONSENT_REVOKED_EVENT, userId, {
+				orgId: relationship.orgId,
+				clientProfileId: relationship.clientProfileId,
+				relationshipId: relationship.id,
+			});
+		}
+		return revoked;
 	}
 
 	/**
@@ -554,17 +651,17 @@ export class ConsentService {
 		}
 	}
 
-	/** No usable e-mail: the invites cannot be found, keep them (ids-only log). */
+	/** No usable e-mail: those invites cannot be found, keep them (ids-only log). */
 	private async deleteInvitesOf(
 		userId: string,
 		email: string | undefined
-	): Promise<number | null> {
+	): Promise<number> {
 		const normalized = typeof email === 'string' ? normalizeEmail(email) : '';
 		if (!isValidEmail(normalized)) {
 			this.logger.warn(
-				`Erasure of user ${userId} without a known e-mail: invites kept`
+				`Erasure of user ${userId} without a known e-mail: e-mail invites kept`
 			);
-			return null;
+			return 0;
 		}
 		return this.invites.deleteByEmail(normalized);
 	}

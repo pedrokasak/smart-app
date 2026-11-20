@@ -371,6 +371,73 @@ export function describeAdvisorStoreContract(
 			expect(await s.profiles.anonymizeByOwner(owner)).toBe(0);
 		});
 
+		it('client profile: listIdsByOwner returns the ids of that owner profiles only', async () => {
+			const owner = randomUUID();
+			const first = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Joao Silva',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: owner,
+			});
+			const second = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Joao S.',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: owner,
+			});
+			await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Maria',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: randomUUID(),
+			});
+
+			expect([...(await s.profiles.listIdsByOwner(owner))].sort()).toEqual(
+				[first.id, second.id].sort()
+			);
+			expect(await s.profiles.listIdsByOwner(randomUUID())).toEqual([]);
+		});
+
+		it('relationship: listActiveByClientProfiles returns only the ACTIVE ones of those profiles', async () => {
+			const profileA = randomUUID();
+			const profileB = randomUUID();
+			const activeA = await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: profileA,
+				status: RelationshipStatus.Active,
+			});
+			const activeB = await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: profileB,
+				status: RelationshipStatus.Active,
+			});
+			for (const status of [
+				RelationshipStatus.Pending,
+				RelationshipStatus.Revoked,
+			]) {
+				await s.relationships.create({
+					orgId: randomUUID(),
+					clientProfileId: profileA,
+					status,
+				});
+			}
+			await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Active,
+			});
+
+			const found = await s.relationships.listActiveByClientProfiles([
+				profileA,
+				profileB,
+			]);
+
+			expect(found.map((r) => r.id).sort()).toEqual(
+				[activeA.id, activeB.id].sort()
+			);
+			expect(await s.relationships.listActiveByClientProfiles([])).toEqual([]);
+		});
+
 		it('relationship: activate moves PENDING to ACTIVE recording consentId', async () => {
 			const created = await s.relationships.create({
 				orgId: randomUUID(),
@@ -668,6 +735,21 @@ export function describeAdvisorConsentStoreContract(
 
 			expect(await s.invites.deleteByEmail(email)).toBe(2);
 			expect(await s.invites.deleteByEmail(email)).toBe(0);
+			expect(await s.invites.findByTokenHash(other.tokenHash)).not.toBeNull();
+		});
+
+		it('invite: deleteByRelationshipIds removes only those relationships and returns the count', async () => {
+			const relationshipA = randomUUID();
+			const relationshipB = randomUUID();
+			await s.invites.create(newInvite({ relationshipId: relationshipA }));
+			await s.invites.create(newInvite({ relationshipId: relationshipB }));
+			const other = await s.invites.create(newInvite());
+
+			expect(
+				await s.invites.deleteByRelationshipIds([relationshipA, relationshipB])
+			).toBe(2);
+			expect(await s.invites.deleteByRelationshipIds([relationshipA])).toBe(0);
+			expect(await s.invites.deleteByRelationshipIds([])).toBe(0);
 			expect(await s.invites.findByTokenHash(other.tokenHash)).not.toBeNull();
 		});
 

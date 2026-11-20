@@ -52,12 +52,12 @@ export class MongoConsentStore implements ConsentStorePort {
 	 * e tenta de novo, até `MAX_GRANT_ATTEMPTS`. Quem bate no índice
 	 * `{ userId, orgId }` por causa de OUTRA relação da mesma organização
 	 * recebe o mesmo conflito que o ConsentService já usa; se a duplicata é
-	 * da própria relação, é só a corrida acima.
+	 * da própria relação, é só a corrida acima. Esgotadas as tentativas, um
+	 * conflito que o cliente pode repetir (nunca o E11000 cru, que vira 500).
 	 */
 	async grant(
 		consent: Omit<Consent, 'id' | 'version' | 'status' | 'endedAt'>
 	): Promise<Consent> {
-		let lastError: unknown;
 		for (let attempt = 1; attempt <= MAX_GRANT_ATTEMPTS; attempt += 1) {
 			const version = await this.nextVersion(consent.relationshipId);
 			await this.consents
@@ -89,10 +89,11 @@ export class MongoConsentStore implements ConsentStorePort {
 				) {
 					throw new ConflictException('Already linked to this organization');
 				}
-				lastError = error;
 			}
 		}
-		throw lastError;
+		throw new ConflictException(
+			'Consent is being changed concurrently, try again'
+		);
 	}
 
 	async listByRelationship(relationshipId: string): Promise<Consent[]> {

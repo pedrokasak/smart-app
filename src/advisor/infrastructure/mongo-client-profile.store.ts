@@ -76,4 +76,13 @@ export class MongoClientProfileStore implements ClientProfileStorePort {
 			.exec();
 		return result.modifiedCount ?? 0;
 	}
+
+	async listIdsByOwner(userId: string): Promise<string[]> {
+		const docs = await this.profiles
+			.find({ ownerUserId: userId })
+			.select({ _id: 1 })
+			.lean<Pick<AdvisorClientProfileDoc, '_id'>[]>()
+			.exec();
+		return docs.map((d) => String(d._id));
+	}
 }

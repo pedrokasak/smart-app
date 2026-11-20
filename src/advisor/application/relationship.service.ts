@@ -60,17 +60,19 @@ export class RelationshipService {
 		});
 	}
 
-	async revoke(id: string): Promise<void> {
+	/** Devolve true se esta chamada mudou o status para REVOKED. */
+	async revoke(id: string): Promise<boolean> {
 		const relationship = await this.relationships.findById(id);
 		if (!relationship) {
 			throw new NotFoundException('Advisory relationship not found');
 		}
 		if (relationship.status === RelationshipStatus.Revoked) {
-			return;
+			return false;
 		}
 		await this.relationships.save({
 			...relationship,
 			status: RelationshipStatus.Revoked,
 		});
+		return true;
 	}
 }
