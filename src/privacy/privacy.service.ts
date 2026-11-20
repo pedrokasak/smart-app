@@ -56,7 +56,15 @@ export class PrivacyService {
 			this.tradeModel.find({ userId }).lean().exec(),
 			this.subscriptionService.findUserSubscription(userId).catch(() => null),
 			this.userSessions.listForUser(userId).catch(() => []),
-			this.advisorConsents.exportForUser(userId).catch(() => []),
+			this.advisorConsents.exportForUser(userId).catch((error: unknown) => {
+				// Só ids no log: nada de e-mail nem a mensagem do erro.
+				this.logger.warn(
+					`Exportação do usuário ${userId} sem consentimentos de assessor: ${
+						error instanceof Error ? error.name : 'erro desconhecido'
+					}`
+				);
+				return [];
+			}),
 		]);
 
 		if (!user) {

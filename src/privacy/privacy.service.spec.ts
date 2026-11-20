@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { getModelToken } from '@nestjs/mongoose';
 import { JwtModule, JwtService } from '@nestjs/jwt';
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import { PrivacyService } from './privacy.service';
 import { UsersService } from 'src/users/users.service';
 import { ProfileService } from 'src/profile/profile.service';
@@ -141,6 +141,34 @@ describe('PrivacyService', () => {
 			expect(result.addresses).toEqual([]);
 			expect(result.portfolios).toEqual([]);
 			expect(result.subscription).toBeNull();
+		});
+
+		it('falls back to no advisor consents with an ids-only warning when that store fails', async () => {
+			usersService.findOne.mockResolvedValue({
+				toObject: () => ({ _id: 'user-1', email: 'a@b.com' }),
+			});
+			profileService.findOne.mockResolvedValue(null);
+			addressService.findByUserId.mockResolvedValue([]);
+			portfolioService.getUserPortfolios.mockResolvedValue([]);
+			subscriptionService.findUserSubscription.mockResolvedValue(null);
+			tradeModel.find.mockReturnValue({
+				lean: () => ({ exec: () => Promise.resolve([]) }),
+			});
+			advisorConsents.exportForUser.mockRejectedValueOnce(
+				new Error('consent store down for a@b.com')
+			);
+			const warned = jest
+				.spyOn(Logger.prototype, 'warn')
+				.mockImplementation(() => undefined);
+
+			const result = await service.exportUserData('user-1');
+
+			expect(result.advisorConsents).toEqual([]);
+			expect(warned).toHaveBeenCalledTimes(1);
+			const message = String(warned.mock.calls[0][0]);
+			expect(message).toContain('user-1');
+			expect(message).not.toContain('@');
+			warned.mockRestore();
 		});
 	});
 

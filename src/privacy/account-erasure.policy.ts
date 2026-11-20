@@ -73,8 +73,8 @@ export interface RetainedCollection extends ErasableCollection {
 /**
  * Coleções cuja exclusão o módulo dono executa, pelo próprio serviço, porque
  * a regra não cabe num `deleteMany` por dono: o Trackerr Advisor encerra os
- * acessos (e audita) antes de apagar, acha os convites pelo e-mail da conta e
- * só desliga o perfil do cliente, que é registro da organização. Tudo isso é
+ * acessos (e audita) antes de apagar, acha os convites pelas relações dos
+ * consentimentos do usuário e pelo e-mail da conta e só desliga o perfil do cliente, que é registro da organização. Tudo isso é
  * `ConsentService.eraseUser`, chamado antes de qualquer outra remoção.
  */
 export interface ModuleErasedCollection extends ErasableCollection {
