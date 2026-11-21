@@ -3,6 +3,7 @@ import { randomUUID } from 'crypto';
 import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import type { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
+import { normalizeDisplayName } from '../domain/display-name';
 import { maskEmail } from '../domain/invite-rules';
 import { AdvisoryRelationship, ClientProfile } from '../domain/entities';
 import { ProfileOrigin, RelationshipStatus } from '../domain/enums';
@@ -12,6 +13,7 @@ import {
 	ADVISOR_RELATIONSHIP_STORE,
 } from './advisor.tokens';
 import { ClientNotAccessibleError } from './access-errors';
+import { OrganizationRuleError } from './organization.service';
 import { AuthorizationService } from './authorization.service';
 import type { AccessContext } from './authorization.service';
 import { ClientProfileService } from './client-profile.service';
@@ -41,6 +43,7 @@ export interface PendingInviteSummary {
 
 export const CLIENT_CREATED_EVENT = 'advisor.client.created';
 
+const CLIENT_NAME_MAX = 120;
 const OPEN_STATUSES = [RelationshipStatus.Active, RelationshipStatus.Pending];
 const REVOKED_STATUSES = [RelationshipStatus.Revoked];
 
@@ -91,8 +94,13 @@ export class ClientDirectoryService {
 		input: { name: string }
 	): Promise<ClientSummary> {
 		await this.authz.ensureOrgMember(ctx);
+		const name = normalizeDisplayName(input.name, {
+			min: 1,
+			max: CLIENT_NAME_MAX,
+		});
+		if (name === null) throw new OrganizationRuleError('INVALID_NAME');
 		const profile = await this.clientProfiles.createByAdvisor(ctx.orgId, {
-			name: input.name,
+			name,
 		});
 		const relationship = await this.relationshipService.create(
 			ctx.orgId,

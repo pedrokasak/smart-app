@@ -11,6 +11,7 @@ import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import type { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
 import { Organization } from '../domain/entities';
+import { normalizeDisplayName } from '../domain/display-name';
 import { AdvisorType, OrgRole } from '../domain/enums';
 import { ADVISOR_ORG_STORE } from './advisor.tokens';
 import { MembershipService } from './membership.service';
@@ -67,7 +68,6 @@ export const ORGANIZATION_CREATED_EVENT = 'advisor.organization.created';
 
 const NAME_MIN = 2;
 const NAME_MAX = 120;
-const CONTROL_CHARS = /\p{Cc}/u;
 
 @Injectable()
 export class OrganizationService {
@@ -163,14 +163,8 @@ export class OrganizationService {
 	}
 
 	private validName(raw: unknown): string {
-		const name = typeof raw === 'string' ? raw.trim() : '';
-		if (
-			name.length < NAME_MIN ||
-			name.length > NAME_MAX ||
-			CONTROL_CHARS.test(name)
-		) {
-			throw new OrganizationRuleError('INVALID_NAME');
-		}
+		const name = normalizeDisplayName(raw, { min: NAME_MIN, max: NAME_MAX });
+		if (name === null) throw new OrganizationRuleError('INVALID_NAME');
 		return name;
 	}
 

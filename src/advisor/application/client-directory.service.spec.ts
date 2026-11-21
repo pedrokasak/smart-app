@@ -178,6 +178,28 @@ describe('ClientDirectoryService', () => {
 			expect(JSON.stringify(audit.recorded[0])).not.toContain('Maria');
 		});
 
+		it('trims the name and stores the trimmed value', async () => {
+			const created = await svc.createClient(ctx, { name: '  Maria  ' });
+			expect(created.name).toBe('Maria');
+		});
+
+		it.each([
+			['empty', ''],
+			['blank', '   '],
+			['121 characters', 'a'.repeat(121)],
+			['a control character', 'Ma\u0007ria'],
+			['a right-to-left override', 'Ma\u202Eria'],
+			['a zero-width space', 'Ma\u200Bria'],
+		])('rejects a name that is %s with 400 INVALID_NAME', async (_l, name) => {
+			const error = await svc.createClient(ctx, { name }).catch((e) => e);
+			expect(error).toMatchObject({ reason: 'INVALID_NAME' });
+			expect(error.getStatus()).toBe(400);
+			expect(audit.recorded).toEqual([]);
+			expect(
+				(await svc.listClients(ctx, { status: 'OPEN', limit: 10 })).items
+			).toEqual([]);
+		});
+
 		it('keeps the client and relationship and throws when the audit fails', async () => {
 			audit.failWith = new Error('audit down');
 

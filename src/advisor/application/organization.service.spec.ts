@@ -105,6 +105,8 @@ describe('OrganizationService', () => {
 			['121 characters', 'a'.repeat(121)],
 			['a control character', 'Acme\u0007Corp'],
 			['only blanks', '    '],
+			['a right-to-left override', 'Acme\u202ECorp'],
+			['a zero-width space', 'Acme\u200BCorp'],
 		])('rejects a name with %s with 400 INVALID_NAME', async (_label, name) => {
 			const error = await svc
 				.createForOwner('u1', { ...input, name })
@@ -135,8 +137,12 @@ describe('OrganizationService', () => {
 
 		it('rejects a blank userId without touching any store', async () => {
 			const spy = jest.spyOn(orgs, 'create');
-			await expect(svc.createForOwner('', input)).rejects.toThrow();
-			await expect(svc.createForOwner('   ', input)).rejects.toThrow();
+			await expect(svc.createForOwner('', input)).rejects.toThrow(
+				'userId is required'
+			);
+			await expect(svc.createForOwner('   ', input)).rejects.toThrow(
+				'userId is required'
+			);
 			expect(spy).not.toHaveBeenCalled();
 		});
 
