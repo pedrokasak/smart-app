@@ -38,7 +38,6 @@ import { RelationshipService } from 'src/advisor/application/relationship.servic
 import { SharedPortfolioService } from 'src/advisor/application/shared-portfolio.service';
 import { TransactionService } from 'src/advisor/application/transaction.service';
 import {
-	ConsentStatus,
 	OrgRole,
 	ProfileOrigin,
 	RelationshipStatus,
@@ -406,11 +405,11 @@ describe('ClientsController', () => {
 				.expect(200);
 			expect(page2.body.items).toHaveLength(1);
 			expect(page2.body.nextCursor).toBeNull();
-			const stale = await http()
-				.get(url(`/transactions?cursor=${MISSING}`))
+			const malformed = await http()
+				.get(url(`/transactions?cursor=not-a-cursor`))
 				.set(A())
 				.expect(400);
-			expect(stale.body.reason).toBe('INVALID_CURSOR');
+			expect(malformed.body.reason).toBe('INVALID_CURSOR');
 
 			const positions = await http()
 				.get(url('/positions'))
@@ -429,6 +428,70 @@ describe('ClientsController', () => {
 				.delete(url(`/transactions/${created.body.id}`))
 				.set(A())
 				.expect(404);
+		});
+
+		it('keeps paging after the cursor row is deleted', async () => {
+			const ids: string[] = [];
+			for (const day of ['10', '11', '12']) {
+				const r = await http()
+					.post(url('/transactions'))
+					.set(A())
+					.send({ ...buy, tradeDate: `2025-01-${day}` })
+					.expect(201);
+				ids.push(r.body.id);
+			}
+			const page1 = await http()
+				.get(url('/transactions?limit=2'))
+				.set(A())
+				.expect(200);
+			expect(page1.body.items.map((t: any) => t.id)).toEqual(ids.slice(0, 2));
+			await http()
+				.delete(url(`/transactions/${ids[1]}`))
+				.set(A())
+				.expect(204);
+			const page2 = await http()
+				.get(url(`/transactions?limit=2&cursor=${page1.body.nextCursor}`))
+				.set(A())
+				.expect(200);
+			expect(page2.body.items.map((t: any) => t.id)).toEqual([ids[2]]);
+			expect(page2.body.nextCursor).toBeNull();
+		});
+
+		it('keeps paging after a revert removes rows across the page boundary', async () => {
+			const batch = await http()
+				.post(url('/imports'))
+				.set(A())
+				.attach(
+					'file',
+					Buffer.from(
+						csvOf(
+							'15/01/2025;VALE3;ACAO;C;1;10,00;0',
+							'15/01/2025;VALE3;ACAO;C;2;10,00;0',
+							'15/01/2025;VALE3;ACAO;C;3;10,00;0'
+						)
+					),
+					{ filename: 'a.csv', contentType: 'text/csv' }
+				)
+				.expect(201);
+			const manual = await http()
+				.post(url('/transactions'))
+				.set(A())
+				.send({ ...buy, tradeDate: '2025-03-01' })
+				.expect(201);
+			const page1 = await http()
+				.get(url('/transactions?limit=2'))
+				.set(A())
+				.expect(200);
+			expect(page1.body.items).toHaveLength(2);
+			await http()
+				.delete(url(`/imports/${batch.body.importBatchId}`))
+				.set(A())
+				.expect(200);
+			const page2 = await http()
+				.get(url(`/transactions?limit=2&cursor=${page1.body.nextCursor}`))
+				.set(A())
+				.expect(200);
+			expect(page2.body.items.map((t: any) => t.id)).toEqual([manual.body.id]);
 		});
 
 		it('answers 422 INVALID_TRANSACTION with the rule errors', async () => {
@@ -495,7 +558,11 @@ describe('ClientsController', () => {
 				.delete(url(`/transactions/${list.body.items[0].id}`))
 				.set(A())
 				.expect(403);
-			expect(res.body).toEqual({ statusCode: 403, error: 'FORBIDDEN' });
+			expect(res.body).toEqual({
+				statusCode: 403,
+				error: 'FORBIDDEN',
+				reason: 'VERIFIED_IMMUTABLE',
+			});
 		});
 	});
 
@@ -565,6 +632,13 @@ describe('ClientsController', () => {
 				.set(A())
 				.expect(200);
 			expect(reverted.body).toEqual({ removed: 1 });
+		});
+
+		it('accepts a mimetype with parameters', async () => {
+			await upload(
+				Buffer.from(csvOf('15/01/2025;PETR4;ACAO;C;5;35,00;0')),
+				'text/csv; charset=utf-8'
+			).expect(201);
 		});
 
 		it('accepts text/plain', async () => {
@@ -765,7 +839,6 @@ describe('ClientsController', () => {
 					metrics: expect.objectContaining({ currency: 'BRL' }),
 				}),
 			]);
-			expect(ConsentStatus.Active).toBe('ACTIVE');
 		});
 	});
 });

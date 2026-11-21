@@ -82,7 +82,7 @@ function ApiClientErrors(options: { validation?: string } = {}) {
 			status: 403,
 			type: ErrorResponseDto,
 			description:
-				'Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento)',
+				'Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)',
 		}),
 		ApiResponse({
 			status: 404,

@@ -15,12 +15,14 @@ const ALLOWED_MIME_TYPES = ['text/csv', 'text/plain'];
 type FileFilterCallback = (error: Error | null, accept: boolean) => void;
 
 /** Recusa o tipo errado já na abertura da parte, sem ler o conteúdo. */
+/** Parâmetros do MIME (charset) são ignorados na comparação. */
 function csvFileFilter(
 	_req: unknown,
 	file: { mimetype: string },
 	callback: FileFilterCallback
 ): void {
-	if (ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+	const type = file.mimetype.split(';')[0].trim().toLowerCase();
+	if (ALLOWED_MIME_TYPES.includes(type)) {
 		callback(null, true);
 		return;
 	}
