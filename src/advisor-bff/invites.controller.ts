@@ -24,6 +24,7 @@ import { ClientDirectoryService } from 'src/advisor/application/client-directory
 import { InviteService } from 'src/advisor/application/invite.service';
 import { NoStoreInterceptor } from 'src/advisor/interface/no-store.interceptor';
 import { OrgContextGuard } from 'src/advisor/interface/org-context.guard';
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
 import { AdvisorPortalGuard } from './advisor-portal.guard';
@@ -73,6 +74,9 @@ function ApiInviteErrors(options: { validation: string; conflict?: string }) {
  * enviam e-mail têm limite por conta no middleware de rate limit.
  */
 @Controller('advisor/v1/invites')
+@OwnershipChecked(
+	'InviteService: o convite é buscado por (orgId ativa, inviteId)'
+)
 @ApiTags('advisor-bff')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, AdvisorPortalGuard, OrgContextGuard)

@@ -23,6 +23,7 @@
 		"load:seed": "node test/load/seed/seed-load-users.mjs",
 		"load:queue-burst": "node test/load/queue/burst.mjs",
 		"export:openapi": "node -r ts-node/register/transpile-only -r tsconfig-paths/register src/scripts/export-openapi.ts",
+		"export:openapi:advisor": "node -r ts-node/register/transpile-only -r tsconfig-paths/register src/scripts/export-openapi.ts --advisor openapi/advisor.json",
 		"sync:plans": "tsx src/scripts/sync-plans.ts",
 		"sync:plans:dry": "tsx src/scripts/sync-plans.ts --dry-run",
 		"b3:check": "tsx src/scripts/b3-investor-check.ts"

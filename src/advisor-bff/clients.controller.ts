@@ -32,6 +32,7 @@ import { SharedPortfolioService } from 'src/advisor/application/shared-portfolio
 import { TransactionService } from 'src/advisor/application/transaction.service';
 import { NoStoreInterceptor } from 'src/advisor/interface/no-store.interceptor';
 import { OrgContextGuard } from 'src/advisor/interface/org-context.guard';
+import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
 import { AdvisorPortalGuard } from './advisor-portal.guard';
@@ -103,6 +104,9 @@ const UNPROCESSABLE = (description: string) =>
  * `ensureCanAccessClient` e audita. O dado B2C é só leitura.
  */
 @Controller('advisor/v1/clients')
+@OwnershipChecked(
+	'Service: ensureCanAccessClient confirma que o cliente pertence à org ativa e que o assessor tem acesso'
+)
 @ApiTags('advisor-bff')
 @ApiBearerAuth('access-token')
 @UseGuards(JwtAuthGuard, AdvisorPortalGuard, OrgContextGuard)
