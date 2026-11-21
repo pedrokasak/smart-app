@@ -123,7 +123,8 @@ export class AuthenticationController {
 	) {
 		// TRA-217: cookie httpOnly é a fonte preferida; body.refreshToken é
 		// fallback só pelo cliente web antigo em cache durante a transição.
-		const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE] || body.refreshToken;
+		const refreshToken =
+			req.cookies?.[REFRESH_TOKEN_COOKIE] || body.refreshToken;
 		if (!refreshToken) {
 			throw new UnauthorizedException('Refresh Token is required');
 		}

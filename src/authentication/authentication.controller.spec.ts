@@ -134,7 +134,11 @@ describe('AuthenticationController', () => {
 			};
 			mockAuthService.refreshAccessToken.mockResolvedValue(expected);
 
-			const result = await controller.refreshToken(dto, { cookies: {} }, mockRes());
+			const result = await controller.refreshToken(
+				dto,
+				{ cookies: {} },
+				mockRes()
+			);
 
 			expect(authService.refreshAccessToken).toHaveBeenCalledWith(
 				'valid-token'
@@ -163,7 +167,11 @@ describe('AuthenticationController', () => {
 
 		it('should throw UnauthorizedException if token is missing', async () => {
 			await expect(
-				controller.refreshToken({ refreshToken: '' }, { cookies: {} }, mockRes())
+				controller.refreshToken(
+					{ refreshToken: '' },
+					{ cookies: {} },
+					mockRes()
+				)
 			).rejects.toThrow(UnauthorizedException);
 		});
 
@@ -173,7 +181,11 @@ describe('AuthenticationController', () => {
 			);
 
 			await expect(
-				controller.refreshToken({ refreshToken: 'bad' }, { cookies: {} }, mockRes())
+				controller.refreshToken(
+					{ refreshToken: 'bad' },
+					{ cookies: {} },
+					mockRes()
+				)
 			).rejects.toThrow(ServiceUnavailableException);
 		});
 	});

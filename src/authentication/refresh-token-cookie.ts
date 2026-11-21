@@ -14,7 +14,7 @@ const REFRESH_TOKEN_COOKIE_PATH = '/auth';
 export function setRefreshTokenCookie(
 	res: Response,
 	refreshToken: string,
-	expiresAtMs: number,
+	expiresAtMs: number
 ): void {
 	res.cookie(REFRESH_TOKEN_COOKIE, refreshToken, {
 		httpOnly: true,

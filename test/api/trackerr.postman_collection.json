@@ -4,6 +4,24 @@
     "description": "Rodada no CI contra a imagem de produção com Mongo e Redis efêmeros (job docker de .github/workflows/ci.yml). Cobre saúde, cadastro, login, refresh, carteira, isolamento entre usuários (IDOR) e direitos LGPD. Nunca apontar para produção: cria e apaga usuários.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
+  "event": [
+    {
+      "listen": "prerequest",
+      "script": {
+        "type": "text/javascript",
+        "exec": [
+          "// TRA-217: signin/refresh agora tambem respondem Set-Cookie refresh_token.",
+          "// Esta suite testa o fluxo explicito por variavel de colecao (refreshA,",
+          "// refreshA2...), inclusive reapresentando de proposito um token antigo",
+          "// pra cobrir a janela de graca da rotacao. O jar do Newman persiste",
+          "// cookies entre requests por padrao; sem limpar, o controller passa a",
+          "// preferir o cookie acumulado sobre o refreshToken do body e os",
+          "// cenarios de rotacao/reuso deixam de testar o que dizem testar.",
+          "pm.cookies.jar().clear(pm.variables.get('baseUrl'), function () {});"
+        ]
+      }
+    }
+  ],
   "variable": [
     {
       "key": "baseUrl",
