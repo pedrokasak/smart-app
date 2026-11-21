@@ -18,8 +18,8 @@ const ORG_HEADER = 'x-org-id';
 
 /**
  * Resolve a org ativa a partir do header `x-org-id` (nunca de claim do JWT).
- * Sem header, usa o primeiro vinculo. Com header, so vale se o usuario for
- * membro: caso contrario, 403, sem cair em outra org.
+ * O header e obrigatorio: ausente ou em branco, 403 `ORG_HEADER_REQUIRED`.
+ * So vale se o usuario for membro: caso contrario, 403, sem cair em outra org.
  */
 @Injectable()
 export class OrgContextGuard implements CanActivate {
@@ -43,12 +43,18 @@ export class OrgContextGuard implements CanActivate {
 		return true;
 	}
 
-	private requestedOrgId(req: any): string | undefined {
+	private requestedOrgId(req: any): string {
 		const raw = req?.headers?.[ORG_HEADER];
-		if (raw === undefined) return undefined;
-		if (typeof raw !== 'string') {
+		if (raw !== undefined && typeof raw !== 'string') {
 			throw new ForbiddenException('Invalid organization header');
 		}
-		return raw.trim() || undefined;
+		const orgId = raw?.trim();
+		if (!orgId) {
+			throw new ForbiddenException({
+				message: 'Organization header is required',
+				reason: 'ORG_HEADER_REQUIRED',
+			});
+		}
+		return orgId;
 	}
 }

@@ -217,7 +217,28 @@ describe('ClientsController', () => {
 		it('answers 401 without a JWT and 403 without x-org-id membership', async () => {
 			await http().get('/advisor/v1/clients').expect(401);
 			await http().get('/advisor/v1/clients').set(as('u1', ORG_B)).expect(403);
-			await http().get('/advisor/v1/clients').set(as('nobody')).expect(403);
+			await http()
+				.get('/advisor/v1/clients')
+				.set(as('nobody', ORG_A))
+				.expect(403);
+		});
+
+		it('answers 403 ORG_HEADER_REQUIRED without x-org-id, never using the first membership', async () => {
+			const res = await http()
+				.get('/advisor/v1/clients')
+				.set(as('u1'))
+				.expect(403);
+			expect(res.body).toEqual({
+				statusCode: 403,
+				error: 'FORBIDDEN',
+				reason: 'ORG_HEADER_REQUIRED',
+			});
+			const blank = await http()
+				.post('/advisor/v1/clients')
+				.set({ ...as('u1'), 'x-org-id': '  ' })
+				.send({ name: 'Maria' })
+				.expect(403);
+			expect(blank.body.reason).toBe('ORG_HEADER_REQUIRED');
 		});
 
 		it('creates a client and lists it with no-store, only for the active org', async () => {
@@ -285,7 +306,19 @@ describe('ClientsController', () => {
 				error: 'BAD_REQUEST',
 				reason: 'INVALID_NAME',
 			});
-			await http().post('/advisor/v1/clients').set(A()).send({}).expect(400);
+		});
+
+		it('answers a DTO validation failure with 400 VALIDATION_FAILED and no Nest messages', async () => {
+			const res = await http()
+				.post('/advisor/v1/clients')
+				.set(A())
+				.send({})
+				.expect(400);
+			expect(res.body).toEqual({
+				statusCode: 400,
+				error: 'BAD_REQUEST',
+				reason: 'VALIDATION_FAILED',
+			});
 		});
 	});
 
@@ -677,12 +710,25 @@ describe('ClientsController', () => {
 		});
 
 		it('answers 400 FILE_REQUIRED without a file part', async () => {
-			const res = await http()
+			const res = await http().post(url()).set(A()).send({}).expect(400);
+			expect(res.body.reason).toBe('FILE_REQUIRED');
+			expect(importCsv).not.toHaveBeenCalled();
+		});
+
+		it('refuses a text field next to the file (Multer fields: 0) with 400', async () => {
+			await http()
 				.post(url())
 				.set(A())
 				.field('other', 'x')
+				.attach(
+					'file',
+					Buffer.from(csvOf('15/01/2025;PETR4;ACAO;C;5;35,00;0')),
+					{
+						filename: 'a.csv',
+						contentType: 'text/csv',
+					}
+				)
 				.expect(400);
-			expect(res.body.reason).toBe('FILE_REQUIRED');
 			expect(importCsv).not.toHaveBeenCalled();
 		});
 

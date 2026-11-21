@@ -30,18 +30,9 @@ describe('MembershipService', () => {
 
 	describe('resolveActiveOrg', () => {
 		it('throws Forbidden when the user has no membership', async () => {
-			await expect(svc.resolveActiveOrg('u1')).rejects.toThrow(
-				ForbiddenException
-			);
 			await expect(svc.resolveActiveOrg('u1', 'orgA')).rejects.toThrow(
 				ForbiddenException
 			);
-		});
-
-		it('returns the first membership when no org is requested', async () => {
-			await svc.add('u1', 'orgA', OrgRole.Advisor);
-			await svc.add('u1', 'orgB', OrgRole.OrgAdmin);
-			expect((await svc.resolveActiveOrg('u1')).orgId).toBe('orgA');
 		});
 
 		it('returns the requested org when the user is a member', async () => {

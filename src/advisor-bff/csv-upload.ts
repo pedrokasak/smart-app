@@ -14,8 +14,10 @@ const ALLOWED_MIME_TYPES = ['text/csv', 'text/plain'];
 
 type FileFilterCallback = (error: Error | null, accept: boolean) => void;
 
-/** Recusa o tipo errado já na abertura da parte, sem ler o conteúdo. */
-/** Parâmetros do MIME (charset) são ignorados na comparação. */
+/**
+ * Recusa o tipo errado já na abertura da parte, sem ler o conteúdo.
+ * Parâmetros do MIME (charset) são ignorados na comparação.
+ */
 function csvFileFilter(
 	_req: unknown,
 	file: { mimetype: string },
@@ -43,7 +45,15 @@ export function CsvUpload(): MethodDecorator {
 		ApiConsumes('multipart/form-data'),
 		UseInterceptors(
 			FileInterceptor(CSV_UPLOAD_FIELD, {
-				limits: { fileSize: CSV_UPLOAD_MAX_BYTES, files: 1 },
+				// Só a parte do arquivo: nenhum campo de texto, no máximo 2
+				// partes no corpo e campos (se vierem) de até 1 KB.
+				limits: {
+					fileSize: CSV_UPLOAD_MAX_BYTES,
+					files: 1,
+					fields: 0,
+					parts: 2,
+					fieldSize: 1024,
+				},
 				fileFilter: csvFileFilter,
 			})
 		)

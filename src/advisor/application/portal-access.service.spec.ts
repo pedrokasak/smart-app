@@ -1,4 +1,4 @@
-import { NotFoundException } from '@nestjs/common';
+import { Logger, NotFoundException } from '@nestjs/common';
 import type { SecurityEventInput } from 'src/audit/application/security-audit.service';
 import { SECURITY_EVENT } from 'src/audit/domain/security-events';
 import {
@@ -89,6 +89,22 @@ describe('PortalAccessService', () => {
 		it('is false when reading the plan fails, never access', async () => {
 			plans.failWith = new Error('subscription lookup down');
 			await expect(service.hasAccess(USER)).resolves.toBe(false);
+		});
+
+		it('logs only the error class when reading the plan fails', async () => {
+			const warn = jest
+				.spyOn(Logger.prototype, 'warn')
+				.mockImplementation(() => undefined);
+			class PlanLookupError extends Error {}
+			plans.failWith = new PlanLookupError('lookup failed for x@example.com');
+			try {
+				await service.hasAccess(USER);
+				const logged = warn.mock.calls.flat().join(' ');
+				expect(logged).toContain('PlanLookupError');
+				expect(logged).not.toContain('x@example.com');
+			} finally {
+				warn.mockRestore();
+			}
 		});
 
 		it('still honours an active grant when reading the plan fails', async () => {

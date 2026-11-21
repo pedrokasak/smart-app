@@ -131,10 +131,12 @@ describe('AuthorizationService', () => {
 	});
 
 	it('denies when there is no relationship with the client', async () => {
+		// Perfil ADVISOR_CREATED da mesma org: só falta o vínculo.
+		seed('clientA', 'orgA');
 		await expect(
 			authz.ensureCanAccessClient(
 				{ userId, orgId: 'orgA' },
-				'unknown-client',
+				'clientA',
 				'VIEW_PORTFOLIO'
 			)
 		).rejects.toBeInstanceOf(ClientNotAccessibleError);

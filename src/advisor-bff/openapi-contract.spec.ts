@@ -30,6 +30,11 @@ function sortKeys(value: unknown): unknown {
 	return value;
 }
 
+/** O contrato gravado bate com o gerado, ignorando a ordem das chaves. */
+function sameContract(committed: unknown, generated: unknown): boolean {
+	return stableStringify(committed) === stableStringify(generated);
+}
+
 describe('contrato OpenAPI do Advisor', () => {
 	let app: INestApplication;
 	let advisorDocument: OpenAPIObject;
@@ -48,14 +53,53 @@ describe('contrato OpenAPI do Advisor', () => {
 	it('openapi/advisor.json está em dia com o código', () => {
 		const committed = JSON.parse(readFileSync(CONTRACT_PATH, 'utf8'));
 
-		const upToDate =
-			stableStringify(committed) === stableStringify(advisorDocument);
-
-		if (!upToDate) {
+		if (!sameContract(committed, advisorDocument)) {
 			throw new Error(
 				'Contrato do Advisor desatualizado: rode npm run export:openapi:advisor'
 			);
 		}
+	});
+
+	it('a comparação acusa uma mudança no contrato (o teste de drift funciona)', () => {
+		const copy = JSON.parse(JSON.stringify(advisorDocument));
+		expect(sameContract(copy, advisorDocument)).toBe(true);
+
+		const [firstPath] = Object.keys(copy.paths);
+		const [firstMethod] = Object.keys(copy.paths[firstPath]);
+		copy.paths[firstPath][firstMethod].summary = 'mudou';
+		expect(sameContract(copy, advisorDocument)).toBe(false);
+
+		const reordered = JSON.parse(JSON.stringify(advisorDocument));
+		reordered.info = Object.fromEntries(
+			Object.entries(reordered.info).reverse()
+		);
+		expect(sameContract(reordered, advisorDocument)).toBe(true);
+	});
+
+	it('toda operação documenta 401 e 429; as de org ativa exigem x-org-id', () => {
+		const missing: string[] = [];
+		for (const [path, item] of Object.entries(advisorDocument.paths)) {
+			for (const method of HTTP_METHODS) {
+				const operation = item[method];
+				if (!operation) continue;
+				const label = `${method.toUpperCase()} ${path}`;
+				for (const status of ['401', '429']) {
+					if (!operation.responses?.[status])
+						missing.push(`${label} ${status}`);
+				}
+				const orgScoped =
+					path.startsWith(`${ADVISOR_PATH_PREFIX}/clients`) ||
+					path.startsWith(`${ADVISOR_PATH_PREFIX}/invites`);
+				const header = (operation.parameters ?? []).find(
+					(p: any) => p.in === 'header' && p.name === 'x-org-id'
+				) as any;
+				if (orgScoped && header?.required !== true) {
+					missing.push(`${label} x-org-id`);
+				}
+				if (!orgScoped && header) missing.push(`${label} unexpected x-org-id`);
+			}
+		}
+		expect(missing).toEqual([]);
 	});
 
 	it('o documento principal não expõe nenhuma rota do Advisor', () => {

@@ -98,8 +98,11 @@ export class PortalAccessService {
 				access.capabilitiesKnown
 			);
 		} catch (error) {
+			// Só a classe: a mensagem do erro pode trazer dado pessoal.
+			const errorClass =
+				error instanceof Error ? error.constructor.name : typeof error;
 			this.logger.warn(
-				`Plano não lido ao conferir o portal do assessor: ${(error as Error)?.message ?? error}`
+				`Plano não lido ao conferir o portal do assessor: ${errorClass}`
 			);
 			return false;
 		}

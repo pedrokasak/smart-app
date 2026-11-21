@@ -27,7 +27,17 @@
             }
           },
           "400": {
-            "description": "INVALID_NAME ou INVALID_ADVISOR_TYPE",
+            "description": "INVALID_NAME (em branco, fora do tamanho ou com caractere de controle) ou VALIDATION_FAILED (corpo ou query fora do formato), como advisorType fora do enum",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -96,8 +106,28 @@
               }
             }
           },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
           "403": {
             "description": "PLAN_CAPABILITY_REQUIRED (sem acesso ao portal)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -122,6 +152,15 @@
       "get": {
         "operationId": "ClientsController_list",
         "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "cursor",
             "required": false,
@@ -169,7 +208,17 @@
             }
           },
           "400": {
-            "description": "status, cursor (INVALID_CURSOR) ou limit",
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): status ou limit; INVALID_CURSOR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -179,7 +228,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -190,6 +239,16 @@
           },
           "404": {
             "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -211,7 +270,17 @@
       },
       "post": {
         "operationId": "ClientsController_create",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -234,7 +303,17 @@
             }
           },
           "400": {
-            "description": "INVALID_NAME ou corpo inválido",
+            "description": "INVALID_NAME (em branco, acima de 120 caracteres ou com caractere de controle) ou VALIDATION_FAILED (corpo ou query fora do formato)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -244,7 +323,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -255,6 +334,16 @@
           },
           "404": {
             "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -280,6 +369,15 @@
         "operationId": "ClientsController_detail",
         "parameters": [
           {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "clientId",
             "required": true,
             "in": "path",
@@ -300,7 +398,17 @@
             }
           },
           "400": {
-            "description": "Parâmetro ou corpo inválido (id fora do formato)",
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -310,7 +418,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -321,6 +429,16 @@
           },
           "404": {
             "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -345,6 +463,15 @@
       "get": {
         "operationId": "ClientsController_listTransactions",
         "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "clientId",
             "required": true,
@@ -386,7 +513,17 @@
             }
           },
           "400": {
-            "description": "cursor (INVALID_CURSOR) ou limit",
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): limit; INVALID_CURSOR; id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -396,7 +533,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -407,6 +544,16 @@
           },
           "404": {
             "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -429,6 +576,15 @@
       "post": {
         "operationId": "ClientsController_addTransaction",
         "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "clientId",
             "required": true,
@@ -460,7 +616,17 @@
             }
           },
           "400": {
-            "description": "Parâmetro ou corpo inválido (id fora do formato)",
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato) ou id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -470,7 +636,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -498,6 +664,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -515,6 +691,15 @@
       "delete": {
         "operationId": "ClientsController_removeTransaction",
         "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "clientId",
             "required": true,
@@ -537,7 +722,17 @@
             "description": ""
           },
           "400": {
-            "description": "Parâmetro ou corpo inválido (id fora do formato)",
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -547,7 +742,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -575,6 +770,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -592,6 +797,15 @@
       "get": {
         "operationId": "ClientsController_positions",
         "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "clientId",
             "required": true,
@@ -613,7 +827,17 @@
             }
           },
           "400": {
-            "description": "Parâmetro ou corpo inválido (id fora do formato)",
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -623,7 +847,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -634,6 +858,16 @@
           },
           "404": {
             "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -658,6 +892,15 @@
       "post": {
         "operationId": "ClientsController_importCsv",
         "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "clientId",
             "required": true,
@@ -689,7 +932,17 @@
             }
           },
           "400": {
-            "description": "FILE_REQUIRED ou id fora do formato",
+            "description": "FILE_REQUIRED, campo ou parte além do arquivo (sem reason) ou id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -699,7 +952,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -785,6 +1038,15 @@
         "operationId": "ClientsController_revertImport",
         "parameters": [
           {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "clientId",
             "required": true,
             "in": "path",
@@ -813,7 +1075,17 @@
             }
           },
           "400": {
-            "description": "Parâmetro ou corpo inválido (id fora do formato)",
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -823,7 +1095,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -851,6 +1123,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -868,6 +1150,15 @@
       "get": {
         "operationId": "ClientsController_getTarget",
         "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "clientId",
             "required": true,
@@ -889,7 +1180,17 @@
             }
           },
           "400": {
-            "description": "Parâmetro ou corpo inválido (id fora do formato)",
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -899,7 +1200,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -910,6 +1211,16 @@
           },
           "404": {
             "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -932,6 +1243,15 @@
       "put": {
         "operationId": "ClientsController_setTarget",
         "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "clientId",
             "required": true,
@@ -963,7 +1283,17 @@
             }
           },
           "400": {
-            "description": "Parâmetro ou corpo inválido (id fora do formato)",
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato) ou id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -973,7 +1303,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1001,6 +1331,16 @@
                 }
               }
             }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -1018,6 +1358,15 @@
       "get": {
         "operationId": "ClientsController_getMetrics",
         "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
           {
             "name": "clientId",
             "required": true,
@@ -1039,7 +1388,17 @@
             }
           },
           "400": {
-            "description": "Parâmetro ou corpo inválido (id fora do formato)",
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -1049,7 +1408,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1060,6 +1419,16 @@
           },
           "404": {
             "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -1085,6 +1454,15 @@
         "operationId": "ClientsController_listShared",
         "parameters": [
           {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "clientId",
             "required": true,
             "in": "path",
@@ -1108,7 +1486,17 @@
             }
           },
           "400": {
-            "description": "Parâmetro ou corpo inválido (id fora do formato)",
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -1118,7 +1506,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1128,7 +1516,17 @@
             }
           },
           "404": {
-            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "description": "Cliente inexistente ou de outra org, cliente criado pelo assessor ou sem consentimento ativo. Use hasSharedPortfolios da listagem para saber se há carteira compartilhada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -1154,6 +1552,15 @@
         "operationId": "ClientsController_sharedMetrics",
         "parameters": [
           {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "clientId",
             "required": true,
             "in": "path",
@@ -1177,7 +1584,17 @@
             }
           },
           "400": {
-            "description": "Parâmetro ou corpo inválido (id fora do formato)",
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -1187,7 +1604,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1197,7 +1614,17 @@
             }
           },
           "404": {
-            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "description": "Cliente inexistente ou de outra org, cliente criado pelo assessor ou sem consentimento ativo. Use hasSharedPortfolios da listagem para saber se há carteira compartilhada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -1221,7 +1648,17 @@
     "/advisor/v1/invites": {
       "get": {
         "operationId": "InvitesController_list",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "",
@@ -1236,8 +1673,28 @@
               }
             }
           },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
           "403": {
-            "description": "Sem acesso ao portal ou não é membro da org",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -1259,7 +1716,17 @@
       },
       "post": {
         "operationId": "InvitesController_create",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -1282,7 +1749,17 @@
             }
           },
           "400": {
-            "description": "INVALID_EMAIL, INVALID_NAME ou corpo inválido",
+            "description": "INVALID_EMAIL, INVALID_NAME (em branco, acima de 120 caracteres ou com caractere de controle) ou VALIDATION_FAILED (corpo ou query fora do formato)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -1292,7 +1769,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal ou não é membro da org",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
             "content": {
               "application/json": {
                 "schema": {
@@ -1348,6 +1825,15 @@
         "operationId": "InvitesController_resend",
         "parameters": [
           {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "inviteId",
             "required": true,
             "in": "path",
@@ -1368,7 +1854,17 @@
             }
           },
           "400": {
-            "description": "inviteId fora do formato",
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -1378,7 +1874,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal ou não é membro da org",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
             "content": {
               "application/json": {
                 "schema": {
@@ -1434,6 +1930,15 @@
         "operationId": "InvitesController_cancel",
         "parameters": [
           {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
             "name": "inviteId",
             "required": true,
             "in": "path",
@@ -1447,7 +1952,17 @@
             "description": ""
           },
           "400": {
-            "description": "inviteId fora do formato",
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
             "content": {
               "application/json": {
                 "schema": {
@@ -1457,7 +1972,7 @@
             }
           },
           "403": {
-            "description": "Sem acesso ao portal ou não é membro da org",
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
             "content": {
               "application/json": {
                 "schema": {
@@ -1478,6 +1993,16 @@
           },
           "409": {
             "description": "NOT_PENDING: o convite já foi respondido ou cancelado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
             "content": {
               "application/json": {
                 "schema": {
@@ -1525,6 +2050,32 @@
       }
     },
     "schemas": {
+      "ErrorResponseDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 404
+          },
+          "error": {
+            "type": "string",
+            "example": "NOT_FOUND"
+          },
+          "reason": {
+            "type": "string",
+            "example": "ALREADY_OWNS_ORGANIZATION"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Detalhes tipados por `reason`: `{ errors }` para CSV_REJECTED e INVALID_TRANSACTION; `{ symbol, tradeDate }` para OVERSELL."
+          }
+        },
+        "required": [
+          "statusCode",
+          "error"
+        ]
+      },
       "CreateOrganizationDto": {
         "type": "object",
         "properties": {
@@ -1575,32 +2126,6 @@
           "name",
           "advisorType",
           "role"
-        ]
-      },
-      "ErrorResponseDto": {
-        "type": "object",
-        "properties": {
-          "statusCode": {
-            "type": "number",
-            "example": 404
-          },
-          "error": {
-            "type": "string",
-            "example": "NOT_FOUND"
-          },
-          "reason": {
-            "type": "string",
-            "example": "ALREADY_OWNS_ORGANIZATION"
-          },
-          "details": {
-            "type": "object",
-            "additionalProperties": true,
-            "description": "Detalhes tipados por `reason`: `{ errors }` para CSV_REJECTED e INVALID_TRANSACTION; `{ symbol, tradeDate }` para OVERSELL."
-          }
-        },
-        "required": [
-          "statusCode",
-          "error"
         ]
       },
       "ClientSummaryResponseDto": {

@@ -6,6 +6,7 @@ import {
 	Logger,
 	NotFoundException,
 	PayloadTooLargeException,
+	ServiceUnavailableException,
 	UnprocessableEntityException,
 } from '@nestjs/common';
 import {
@@ -162,12 +163,69 @@ describe('AdvisorBffExceptionFilter', () => {
 		});
 	});
 
-	it('normalizes validation errors without leaking the Nest body shape', () => {
+	it('maps ValidationPipe errors to VALIDATION_FAILED without the Nest messages', () => {
 		const { status, body } = run(
 			new BadRequestException(['name must be a string'])
 		);
 		expect(status).toBe(400);
-		expect(body).toEqual({ statusCode: 400, error: 'BAD_REQUEST' });
+		expect(body).toEqual({
+			statusCode: 400,
+			error: 'BAD_REQUEST',
+			reason: 'VALIDATION_FAILED',
+		});
+		expect(JSON.stringify(body)).not.toContain('must be');
+	});
+
+	it('keeps an explicit reason of a BadRequestException over VALIDATION_FAILED', () => {
+		expect(
+			run(new BadRequestException({ reason: 'FILE_REQUIRED' })).body
+		).toEqual({
+			statusCode: 400,
+			error: 'BAD_REQUEST',
+			reason: 'FILE_REQUIRED',
+		});
+		expect(run(new BadRequestException('plain message')).body).toEqual({
+			statusCode: 400,
+			error: 'BAD_REQUEST',
+		});
+	});
+
+	it('passes the ORG_HEADER_REQUIRED reason of the org guard through', () => {
+		expect(
+			run(
+				new ForbiddenException({
+					message: 'Organization header is required',
+					reason: 'ORG_HEADER_REQUIRED',
+				})
+			)
+		).toEqual({
+			status: 403,
+			body: {
+				statusCode: 403,
+				error: 'FORBIDDEN',
+				reason: 'ORG_HEADER_REQUIRED',
+			},
+		});
+	});
+
+	it('logs a 5xx HttpException with class name and frames, never its message', () => {
+		const { status, body } = run(
+			new ServiceUnavailableException('quote provider down for joao@x.com')
+		);
+		expect(status).toBe(503);
+		expect(body).toEqual({ statusCode: 503, error: 'SERVICE_UNAVAILABLE' });
+		const logged = (Logger.prototype.error as jest.Mock).mock.calls
+			.flat()
+			.join('\n');
+		expect(logged).toContain('ServiceUnavailableException');
+		expect(logged).toMatch(/\bat /);
+		expect(logged).not.toContain('joao@x.com');
+		expect(logged).not.toContain('quote provider down');
+	});
+
+	it('does not log a 4xx HttpException', () => {
+		run(new ConflictException({ reason: 'PENDING_INVITE' }));
+		expect(Logger.prototype.error).not.toHaveBeenCalled();
 	});
 
 	it('passes other HttpExceptions with their status', () => {

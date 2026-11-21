@@ -28,6 +28,12 @@ import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
 import { AdvisorPortalGuard } from './advisor-portal.guard';
+import {
+	ApiBffCommonResponses,
+	ApiOrgHeader,
+	INVALID_ID_DESCRIPTION,
+	VALIDATION_FAILED_DESCRIPTION,
+} from './api-bff-responses';
 import { ErrorResponseDto } from './dto/error-response.dto';
 import {
 	CreateInviteDto,
@@ -36,6 +42,9 @@ import {
 	ResendInviteResponseDto,
 } from './dto/invite.dto';
 import { accessContextOf } from './request-context';
+
+const INVITE_FORBIDDEN =
+	'Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org';
 
 /** Erros comuns às rotas de convite (§5.3 do spec). */
 function ApiInviteErrors(options: { validation: string; conflict?: string }) {
@@ -48,7 +57,7 @@ function ApiInviteErrors(options: { validation: string; conflict?: string }) {
 		ApiResponse({
 			status: 403,
 			type: ErrorResponseDto,
-			description: 'Sem acesso ao portal ou não é membro da org',
+			description: INVITE_FORBIDDEN,
 		}),
 		ApiResponse({
 			status: 404,
@@ -79,6 +88,8 @@ function ApiInviteErrors(options: { validation: string; conflict?: string }) {
 )
 @ApiTags('advisor-bff')
 @ApiBearerAuth('access-token')
+@ApiOrgHeader()
+@ApiBffCommonResponses()
 @UseGuards(JwtAuthGuard, AdvisorPortalGuard, OrgContextGuard)
 @UseFilters(AdvisorBffExceptionFilter)
 @UseInterceptors(NoStoreInterceptor)
@@ -94,7 +105,7 @@ export class InvitesController {
 	@ApiResponse({
 		status: 403,
 		type: ErrorResponseDto,
-		description: 'Sem acesso ao portal ou não é membro da org',
+		description: INVITE_FORBIDDEN,
 	})
 	async list(@Req() req: any): Promise<PendingInviteResponseDto[]> {
 		const pending = await this.directory.listPendingInvites(
@@ -107,7 +118,7 @@ export class InvitesController {
 	@ApiOperation({ summary: 'Cria um convite e envia o e-mail' })
 	@ApiResponse({ status: 201, type: CreateInviteResponseDto })
 	@ApiInviteErrors({
-		validation: 'INVALID_EMAIL, INVALID_NAME ou corpo inválido',
+		validation: `INVALID_EMAIL, INVALID_NAME (em branco, acima de 120 caracteres ou com caractere de controle) ou ${VALIDATION_FAILED_DESCRIPTION}`,
 		conflict: 'PENDING_INVITE: já há convite ativo para este e-mail',
 	})
 	@ApiResponse({
@@ -131,7 +142,7 @@ export class InvitesController {
 	@ApiOperation({ summary: 'Reenvia o convite com um novo link' })
 	@ApiResponse({ status: 200, type: ResendInviteResponseDto })
 	@ApiInviteErrors({
-		validation: 'inviteId fora do formato',
+		validation: INVALID_ID_DESCRIPTION,
 		conflict: 'RESEND_LIMIT ou NOT_PENDING',
 	})
 	@ApiResponse({
@@ -155,7 +166,7 @@ export class InvitesController {
 	@ApiOperation({ summary: 'Cancela um convite pendente' })
 	@ApiResponse({ status: 204 })
 	@ApiInviteErrors({
-		validation: 'inviteId fora do formato',
+		validation: INVALID_ID_DESCRIPTION,
 		conflict: 'NOT_PENDING: o convite já foi respondido ou cancelado',
 	})
 	async cancel(

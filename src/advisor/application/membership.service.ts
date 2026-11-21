@@ -35,18 +35,17 @@ export class MembershipService {
 	}
 
 	/**
-	 * Org ativa: com org pedida, o usuário precisa ser membro dela (sem queda
-	 * para outro vínculo); sem org pedida, o primeiro vínculo.
+	 * Org ativa: o usuário precisa ser membro da org pedida, sem queda para
+	 * outro vínculo. A org é sempre explícita (header `x-org-id`).
 	 */
 	async resolveActiveOrg(
 		userId: string,
-		requestedOrgId?: string
+		requestedOrgId: string
 	): Promise<Membership> {
 		const all = await this.memberships.findByUser(userId);
 		if (all.length === 0) {
 			throw new ForbiddenException('User has no organization membership');
 		}
-		if (!requestedOrgId) return all[0];
 		const requested = all.find((m) => m.orgId === requestedOrgId);
 		if (!requested) {
 			throw new ForbiddenException('User is not a member of this organization');

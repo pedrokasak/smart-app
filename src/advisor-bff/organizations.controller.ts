@@ -23,6 +23,10 @@ import { requesterIdOf } from 'src/auth/ownership';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
 import { AdvisorPortalGuard } from './advisor-portal.guard';
+import {
+	ApiBffCommonResponses,
+	VALIDATION_FAILED_DESCRIPTION,
+} from './api-bff-responses';
 import { ErrorResponseDto } from './dto/error-response.dto';
 import {
 	CreateOrganizationDto,
@@ -36,6 +40,7 @@ import {
 @Controller('advisor/v1')
 @ApiTags('advisor-bff')
 @ApiBearerAuth('access-token')
+@ApiBffCommonResponses()
 @UseGuards(JwtAuthGuard, AdvisorPortalGuard)
 @UseFilters(AdvisorBffExceptionFilter)
 @UseInterceptors(NoStoreInterceptor)
@@ -48,7 +53,7 @@ export class OrganizationsController {
 	@ApiResponse({
 		status: 400,
 		type: ErrorResponseDto,
-		description: 'INVALID_NAME ou INVALID_ADVISOR_TYPE',
+		description: `INVALID_NAME (em branco, fora do tamanho ou com caractere de controle) ou ${VALIDATION_FAILED_DESCRIPTION}, como advisorType fora do enum`,
 	})
 	@ApiResponse({
 		status: 403,

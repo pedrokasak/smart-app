@@ -1,5 +1,6 @@
 import {
 	ArgumentsHost,
+	BadRequestException,
 	Catch,
 	ExceptionFilter,
 	HttpException,
@@ -87,6 +88,12 @@ export class AdvisorBffExceptionFilter implements ExceptionFilter {
 
 	private fromHttpException(exception: HttpException): ErrorBody {
 		const statusCode = exception.getStatus();
+		if (statusCode >= HttpStatus.INTERNAL_SERVER_ERROR) {
+			this.logger.error(
+				'Server error in the advisor BFF',
+				this.safeTrace(exception)
+			);
+		}
 		const raw = exception.getResponse();
 		const payload: Record<string, unknown> =
 			typeof raw === 'object' && raw !== null
@@ -124,7 +131,16 @@ export class AdvisorBffExceptionFilter implements ExceptionFilter {
 		if (typeof onException === 'string') return onException;
 		// O Multer só recusa por tamanho na rota de upload de CSV.
 		if (exception instanceof PayloadTooLargeException) return 'FILE_TOO_LARGE';
-		return typeof payload.reason === 'string' ? payload.reason : undefined;
+		if (typeof payload.reason === 'string') return payload.reason;
+		// ValidationPipe: lista de mensagens em inglês do class-validator, que
+		// não vão para o cliente; só o motivo estável.
+		if (
+			exception instanceof BadRequestException &&
+			Array.isArray(payload.message)
+		) {
+			return 'VALIDATION_FAILED';
+		}
+		return undefined;
 	}
 
 	/**

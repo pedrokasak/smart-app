@@ -36,6 +36,12 @@ import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
 import { AdvisorPortalGuard } from './advisor-portal.guard';
+import {
+	ApiBffCommonResponses,
+	ApiOrgHeader,
+	INVALID_ID_DESCRIPTION,
+	VALIDATION_FAILED_DESCRIPTION,
+} from './api-bff-responses';
 import { CsvUpload, csvTextOf } from './csv-upload';
 import {
 	AllocationTargetResponseDto,
@@ -72,25 +78,27 @@ import { accessContextOf } from './request-context';
 import { WealthSummaryAssembler } from './wealth-summary.assembler';
 
 /** Erros comuns às rotas de cliente (§5.3 do spec). */
-function ApiClientErrors(options: { validation?: string } = {}) {
+function ApiClientErrors(
+	options: { validation?: string; notFound?: string } = {}
+) {
 	return applyDecorators(
 		ApiResponse({
 			status: 400,
 			type: ErrorResponseDto,
-			description:
-				options.validation ??
-				'Parâmetro ou corpo inválido (id fora do formato)',
+			description: options.validation ?? INVALID_ID_DESCRIPTION,
 		}),
 		ApiResponse({
 			status: 403,
 			type: ErrorResponseDto,
 			description:
-				'Sem acesso ao portal, org inválida ou ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)',
+				'Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)',
 		}),
 		ApiResponse({
 			status: 404,
 			type: ErrorResponseDto,
-			description: 'Cliente, lançamento ou lote inexistente ou de outra org',
+			description:
+				options.notFound ??
+				'Cliente, lançamento ou lote inexistente ou de outra org',
 		})
 	);
 }
@@ -109,6 +117,8 @@ const UNPROCESSABLE = (description: string) =>
 )
 @ApiTags('advisor-bff')
 @ApiBearerAuth('access-token')
+@ApiOrgHeader()
+@ApiBffCommonResponses()
 @UseGuards(JwtAuthGuard, AdvisorPortalGuard, OrgContextGuard)
 @UseFilters(AdvisorBffExceptionFilter)
 @UseInterceptors(NoStoreInterceptor)
@@ -126,7 +136,9 @@ export class ClientsController {
 	@Get()
 	@ApiOperation({ summary: 'Lista os clientes da organização' })
 	@ApiResponse({ status: 200, type: ClientPageResponseDto })
-	@ApiClientErrors({ validation: 'status, cursor (INVALID_CURSOR) ou limit' })
+	@ApiClientErrors({
+		validation: `${VALIDATION_FAILED_DESCRIPTION}: status ou limit; INVALID_CURSOR`,
+	})
 	async list(
 		@Req() req: any,
 		@Query() query: ListClientsQueryDto
@@ -142,7 +154,9 @@ export class ClientsController {
 	@Post()
 	@ApiOperation({ summary: 'Cria um cliente (ADVISOR_CREATED) na org' })
 	@ApiResponse({ status: 201, type: ClientSummaryResponseDto })
-	@ApiClientErrors({ validation: 'INVALID_NAME ou corpo inválido' })
+	@ApiClientErrors({
+		validation: `INVALID_NAME (em branco, acima de 120 caracteres ou com caractere de controle) ou ${VALIDATION_FAILED_DESCRIPTION}`,
+	})
 	async create(
 		@Req() req: any,
 		@Body() body: CreateClientDto
@@ -172,7 +186,9 @@ export class ClientsController {
 	@Get(':clientId/transactions')
 	@ApiOperation({ summary: 'Livro de transações lançado pelo assessor' })
 	@ApiResponse({ status: 200, type: TransactionPageResponseDto })
-	@ApiClientErrors({ validation: 'cursor (INVALID_CURSOR) ou limit' })
+	@ApiClientErrors({
+		validation: `${VALIDATION_FAILED_DESCRIPTION}: limit; INVALID_CURSOR; ${INVALID_ID_DESCRIPTION}`,
+	})
 	async listTransactions(
 		@Req() req: any,
 		@Param('clientId', new ParseUUIDPipe()) clientId: string,
@@ -195,7 +211,9 @@ export class ClientsController {
 	@Post(':clientId/transactions')
 	@ApiOperation({ summary: 'Lançamento manual' })
 	@ApiResponse({ status: 201, type: TransactionResponseDto })
-	@ApiClientErrors()
+	@ApiClientErrors({
+		validation: `${VALIDATION_FAILED_DESCRIPTION} ou ${INVALID_ID_DESCRIPTION}`,
+	})
 	@UNPROCESSABLE(
 		'INVALID_TRANSACTION (details.errors) ou OVERSELL (details.symbol, details.tradeDate)'
 	)
@@ -262,7 +280,9 @@ export class ClientsController {
 	@ApiOperation({ summary: 'Importa um CSV de transações' })
 	@ApiBody({ type: ImportCsvBodyDto })
 	@ApiResponse({ status: 201, type: ImportResponseDto })
-	@ApiClientErrors({ validation: 'FILE_REQUIRED ou id fora do formato' })
+	@ApiClientErrors({
+		validation: `FILE_REQUIRED, campo ou parte além do arquivo (sem reason) ou ${INVALID_ID_DESCRIPTION}`,
+	})
 	@ApiResponse({
 		status: 409,
 		type: ErrorResponseDto,
@@ -333,7 +353,9 @@ export class ClientsController {
 	@Put(':clientId/allocation-target')
 	@ApiOperation({ summary: 'Define a meta de alocação' })
 	@ApiResponse({ status: 200, type: AllocationTargetResponseDto })
-	@ApiClientErrors()
+	@ApiClientErrors({
+		validation: `${VALIDATION_FAILED_DESCRIPTION} ou ${INVALID_ID_DESCRIPTION}`,
+	})
 	@UNPROCESSABLE(
 		'reason EMPTY_TARGET, UNKNOWN_ASSET_CLASS, INVALID_VALUE, VALUE_OUT_OF_RANGE ou SUM_NOT_100'
 	)
@@ -368,7 +390,10 @@ export class ClientsController {
 	@Get(':clientId/shared-portfolios')
 	@ApiOperation({ summary: 'Carteiras que o cliente compartilhou (leitura)' })
 	@ApiResponse({ status: 200, type: [SharedPortfolioResponseDto] })
-	@ApiClientErrors()
+	@ApiClientErrors({
+		notFound:
+			'Cliente inexistente ou de outra org, cliente criado pelo assessor ou sem consentimento ativo. Use hasSharedPortfolios da listagem para saber se há carteira compartilhada',
+	})
 	async listShared(
 		@Req() req: any,
 		@Param('clientId', new ParseUUIDPipe()) clientId: string
@@ -383,7 +408,10 @@ export class ClientsController {
 	@Get(':clientId/shared-portfolios/metrics')
 	@ApiOperation({ summary: 'Métricas das carteiras compartilhadas' })
 	@ApiResponse({ status: 200, type: [SharedPortfolioMetricsResponseDto] })
-	@ApiClientErrors()
+	@ApiClientErrors({
+		notFound:
+			'Cliente inexistente ou de outra org, cliente criado pelo assessor ou sem consentimento ativo. Use hasSharedPortfolios da listagem para saber se há carteira compartilhada',
+	})
 	async sharedMetrics(
 		@Req() req: any,
 		@Param('clientId', new ParseUUIDPipe()) clientId: string
