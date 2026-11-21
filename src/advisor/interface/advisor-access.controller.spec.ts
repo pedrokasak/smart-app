@@ -11,8 +11,6 @@ import {
 	ConsentService,
 	ConsentTextChangedError,
 	InvitePreview,
-	InvitePreview,
-	InviteNotFoundError,
 } from '../application/consent.service';
 import { AdvisorType } from '../domain/enums';
 import { AdvisorAccessController } from './advisor-access.controller';
@@ -251,6 +249,15 @@ describe('AdvisorAccessController', () => {
 				['p1'],
 				'2026-11-16'
 			);
+		});
+
+		it('treats a null consentTextVersion as not sent', async () => {
+			consent.acceptInvite.mockResolvedValue(grant);
+			await http()
+				.post('/me/advisor-access/invites/accept')
+				.set('Authorization', bearer())
+				.send({ token: TOKEN, portfolioIds: ['p1'], consentTextVersion: null })
+				.expect(201);
 		});
 
 		it.each(['2026-11', 'latest', '2026-11-16T00:00', 20261116])(

@@ -438,6 +438,17 @@ describe('ConsentService', () => {
 			expect(grant.consentVersion).toBe(1);
 		});
 
+		it('treats a null consent text version as not sent', async () => {
+			const inv = await invited();
+			const grant = await service.acceptInvite(
+				INVESTOR,
+				inv.token,
+				['p1'],
+				null as unknown as string
+			);
+			expect(grant.consentVersion).toBe(1);
+		});
+
 		it('refuses an outdated consent text version before any write', async () => {
 			const inv = await invited();
 			const before = await snapshot(inv);

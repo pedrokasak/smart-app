@@ -173,6 +173,7 @@ export class ConsentService {
 		const invite = await this.openInvite(userId, token);
 		if (
 			consentTextVersion !== undefined &&
+			consentTextVersion !== null &&
 			consentTextVersion !== CONSENT_TEXT_VERSION
 		) {
 			throw new ConsentTextChangedError();
