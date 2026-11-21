@@ -1,28 +1,7 @@
-import { ForbiddenException } from '@nestjs/common';
-import { AdvisorType, OrgRole } from '../domain/enums';
-import {
-	InMemoryMembershipStore,
-	InMemoryOrganizationStore,
-} from './in-memory-stores.fixture';
+import { ConflictException, ForbiddenException } from '@nestjs/common';
+import { OrgRole } from '../domain/enums';
+import { InMemoryMembershipStore } from './in-memory-stores.fixture';
 import { MembershipService } from './membership.service';
-import { OrganizationService } from './organization.service';
-
-describe('OrganizationService', () => {
-	it('creates an organization', async () => {
-		const svc = new OrganizationService(new InMemoryOrganizationStore());
-		const org = await svc.create({
-			name: 'Acme',
-			advisorType: AdvisorType.Assessor,
-			plan: 'pro',
-		});
-		expect(org.id).toBeDefined();
-		expect(org).toMatchObject({
-			name: 'Acme',
-			advisorType: AdvisorType.Assessor,
-			plan: 'pro',
-		});
-	});
-});
 
 describe('MembershipService', () => {
 	let svc: MembershipService;
@@ -40,6 +19,13 @@ describe('MembershipService', () => {
 		});
 		expect(await svc.listForUser('u1')).toEqual([m]);
 		expect(await svc.listForUser('u2')).toEqual([]);
+	});
+
+	it('turns a duplicate membership into a conflict', async () => {
+		await svc.add('u1', 'orgA', OrgRole.Advisor);
+		await expect(svc.add('u1', 'orgA', OrgRole.OrgAdmin)).rejects.toThrow(
+			ConflictException
+		);
 	});
 
 	describe('resolveActiveOrg', () => {
@@ -64,10 +50,12 @@ describe('MembershipService', () => {
 			expect((await svc.resolveActiveOrg('u1', 'orgB')).orgId).toBe('orgB');
 		});
 
-		it('falls back to the first membership, never the requested org, when not a member', async () => {
+		it('refuses a requested org where the user is not a member, never falling back', async () => {
 			await svc.add('u1', 'orgA', OrgRole.Advisor);
 			await svc.add('u1', 'orgB', OrgRole.OrgAdmin);
-			expect((await svc.resolveActiveOrg('u1', 'orgX')).orgId).toBe('orgA');
+			await expect(svc.resolveActiveOrg('u1', 'orgX')).rejects.toThrow(
+				ForbiddenException
+			);
 		});
 	});
 });

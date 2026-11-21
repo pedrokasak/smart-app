@@ -21,6 +21,7 @@ import {
 } from './application/advisor.tokens';
 import { AllocationTargetService } from './application/allocation-target.service';
 import { AuthorizationService } from './application/authorization.service';
+import { ClientDirectoryService } from './application/client-directory.service';
 import { ClientProfileService } from './application/client-profile.service';
 import { ConsentService } from './application/consent.service';
 import { CsvImportService } from './application/csv/csv-import.service';
@@ -184,6 +185,7 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		MembershipService,
 		RelationshipService,
 		ClientProfileService,
+		ClientDirectoryService,
 		AuthorizationService,
 		TransactionService,
 		CsvImportService,
@@ -204,6 +206,7 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		OrganizationService,
 		RelationshipService,
 		ClientProfileService,
+		ClientDirectoryService,
 		InviteService,
 		ConsentService,
 		SharedPortfolioService,

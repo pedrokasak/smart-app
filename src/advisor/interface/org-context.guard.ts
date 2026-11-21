@@ -34,11 +34,6 @@ export class OrgContextGuard implements CanActivate {
 			userId,
 			requested
 		);
-		// resolveActiveOrg cai no primeiro vinculo quando a org pedida nao e do
-		// usuario; o guard compara para recusar em vez de trocar de org.
-		if (requested && membership.orgId !== requested) {
-			throw new ForbiddenException('User is not a member of this organization');
-		}
 
 		const orgContext: OrgContext = {
 			orgId: membership.orgId,
