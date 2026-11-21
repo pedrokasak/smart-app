@@ -10,6 +10,7 @@ export interface Organization {
 	name: string;
 	advisorType: AdvisorType;
 	plan?: string;
+	ownerUserId?: string;
 }
 
 export interface Membership {

@@ -80,6 +80,11 @@ clientInviteSchema.index(
 	{ orgId: 1, email: 1, status: 1 },
 	{ name: 'advisor_invite_org_email_status' }
 );
+// `listPendingByOrg`: convites pendentes e ainda válidos da organização.
+clientInviteSchema.index(
+	{ orgId: 1, status: 1, expiresAt: 1 },
+	{ name: 'advisor_invite_org_status_expires' }
+);
 // `deleteByEmail` (LGPD).
 clientInviteSchema.index({ email: 1 }, { name: 'advisor_invite_email' });
 

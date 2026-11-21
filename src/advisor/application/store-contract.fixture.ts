@@ -23,6 +23,10 @@ import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
 import { RelationshipStorePort } from './ports/relationship.store.port';
 import {
+	DuplicateMembershipError,
+	DuplicateOrganizationOwnerError,
+} from './ports/store-errors';
+import {
 	DuplicateImportError,
 	TransactionStorePort,
 } from './ports/transaction.store.port';
@@ -534,6 +538,209 @@ export function describeAdvisorStoreContract(
 				winners[0].consentId
 			);
 		});
+
+		it('organization: a second org with the same ownerUserId is rejected', async () => {
+			const ownerUserId = randomUUID();
+			const first = await s.orgs.create({
+				name: 'A',
+				advisorType: AdvisorType.Assessor,
+				ownerUserId,
+			});
+			expect(first.ownerUserId).toBe(ownerUserId);
+			expect(await s.orgs.findById(first.id)).toEqual(first);
+
+			await expect(
+				s.orgs.create({
+					name: 'B',
+					advisorType: AdvisorType.Assessor,
+					ownerUserId,
+				})
+			).rejects.toBeInstanceOf(DuplicateOrganizationOwnerError);
+		});
+
+		it('organization: parallel creates for one owner keep exactly one', async () => {
+			const ownerUserId = randomUUID();
+			const create = () =>
+				s.orgs.create({
+					name: 'Race',
+					advisorType: AdvisorType.Assessor,
+					ownerUserId,
+				});
+
+			const results = await Promise.allSettled([create(), create()]);
+
+			expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+			const rejected = results.filter(
+				(r): r is PromiseRejectedResult => r.status === 'rejected'
+			);
+			expect(rejected).toHaveLength(1);
+			expect(rejected[0].reason).toBeInstanceOf(
+				DuplicateOrganizationOwnerError
+			);
+		});
+
+		it('organization: orgs without ownerUserId never conflict', async () => {
+			const a = await s.orgs.create({
+				name: 'A',
+				advisorType: AdvisorType.Assessor,
+			});
+			const b = await s.orgs.create({
+				name: 'B',
+				advisorType: AdvisorType.Assessor,
+			});
+			expect(a.id).not.toBe(b.id);
+			expect(a.ownerUserId).toBeUndefined();
+		});
+
+		it('organization: delete removes the org and is idempotent', async () => {
+			const ownerUserId = randomUUID();
+			const created = await s.orgs.create({
+				name: 'Gone',
+				advisorType: AdvisorType.Assessor,
+				ownerUserId,
+			});
+			const other = await s.orgs.create({
+				name: 'Stays',
+				advisorType: AdvisorType.Assessor,
+			});
+
+			await s.orgs.delete(created.id);
+			await s.orgs.delete(created.id);
+
+			expect(await s.orgs.findById(created.id)).toBeNull();
+			expect(await s.orgs.findById(other.id)).toEqual(other);
+			// o dono volta a poder criar outra organização
+			await expect(
+				s.orgs.create({
+					name: 'Again',
+					advisorType: AdvisorType.Assessor,
+					ownerUserId,
+				})
+			).resolves.toBeDefined();
+		});
+
+		it('membership: a repeated (userId, orgId) pair is rejected', async () => {
+			const userId = randomUUID();
+			const orgId = randomUUID();
+			await s.memberships.create({ userId, orgId, role: OrgRole.OrgAdmin });
+
+			await expect(
+				s.memberships.create({ userId, orgId, role: OrgRole.Advisor })
+			).rejects.toBeInstanceOf(DuplicateMembershipError);
+			expect(
+				await s.memberships.create({
+					userId,
+					orgId: randomUUID(),
+					role: OrgRole.Advisor,
+				})
+			).toBeDefined();
+		});
+
+		it('relationship: listByOrg filters by status and ignores other orgs', async () => {
+			const orgId = randomUUID();
+			const pending = await s.relationships.create({
+				orgId,
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Pending,
+			});
+			await tick();
+			const active = await s.relationships.create({
+				orgId,
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Active,
+			});
+			await tick();
+			await s.relationships.create({
+				orgId,
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Revoked,
+			});
+			await s.relationships.create({
+				orgId: randomUUID(),
+				clientProfileId: randomUUID(),
+				status: RelationshipStatus.Active,
+			});
+
+			const page = await s.relationships.listByOrg(orgId, {
+				statuses: [RelationshipStatus.Active, RelationshipStatus.Pending],
+				limit: 10,
+			});
+
+			expect(page.items).toEqual([active, pending]);
+			expect(page.nextCursor).toBeNull();
+			expect(
+				(
+					await s.relationships.listByOrg(orgId, {
+						statuses: [],
+						limit: 10,
+					})
+				).items
+			).toEqual([]);
+		});
+
+		it('relationship: listByOrg pages newest first without repeating or skipping', async () => {
+			const orgId = randomUUID();
+			const created = [];
+			for (let i = 0; i < 5; i += 1) {
+				created.push(
+					await s.relationships.create({
+						orgId,
+						clientProfileId: randomUUID(),
+						status: RelationshipStatus.Active,
+					})
+				);
+				await tick();
+			}
+			const newestFirst = [...created].reverse();
+			const query = { statuses: [RelationshipStatus.Active], limit: 2 };
+
+			const page1 = await s.relationships.listByOrg(orgId, query);
+			expect(page1.items).toEqual(newestFirst.slice(0, 2));
+			expect(page1.nextCursor).toEqual(expect.any(String));
+
+			const page2 = await s.relationships.listByOrg(orgId, {
+				...query,
+				cursor: page1.nextCursor as string,
+			});
+			expect(page2.items).toEqual(newestFirst.slice(2, 4));
+			expect(page2.nextCursor).toEqual(expect.any(String));
+
+			const page3 = await s.relationships.listByOrg(orgId, {
+				...query,
+				cursor: page2.nextCursor as string,
+			});
+			expect(page3.items).toEqual(newestFirst.slice(4));
+			expect(page3.nextCursor).toBeNull();
+		});
+
+		it('client profile: findByIds returns only profiles of that org', async () => {
+			const orgId = randomUUID();
+			const mine = await s.profiles.create({
+				orgId,
+				name: 'Mine',
+				origin: ProfileOrigin.AdvisorCreated,
+			});
+			const mine2 = await s.profiles.create({
+				orgId,
+				name: 'Mine 2',
+				origin: ProfileOrigin.AdvisorCreated,
+			});
+			const foreign = await s.profiles.create({
+				orgId: randomUUID(),
+				name: 'Foreign',
+				origin: ProfileOrigin.AdvisorCreated,
+			});
+
+			const found = await s.profiles.findByIds(orgId, [
+				mine.id,
+				foreign.id,
+				randomUUID(),
+				mine2.id,
+			]);
+
+			expect(found.map((p) => p.id).sort()).toEqual([mine.id, mine2.id].sort());
+			expect(await s.profiles.findByIds(orgId, [])).toEqual([]);
+		});
 	});
 }
 
@@ -725,6 +932,28 @@ export function describeAdvisorConsentStoreContract(
 			const found = await s.invites.findPendingByOrgAndEmail(orgId, email);
 
 			expect(found.map((i) => i.id)).toEqual([pending.id]);
+		});
+
+		it('invite: listPendingByOrg returns only unexpired PENDING invites of the org, newest first', async () => {
+			const orgId = randomUUID();
+			const now = new Date('2029-06-01T00:00:00Z');
+			const older = await s.invites.create(newInvite({ orgId }));
+			await tick();
+			const newer = await s.invites.create(newInvite({ orgId }));
+			await s.invites.create(
+				newInvite({ orgId, expiresAt: new Date('2029-05-01T00:00:00Z') })
+			);
+			await s.invites.create(
+				newInvite({ orgId, expiresAt: new Date('2029-06-01T00:00:00Z') })
+			);
+			const accepted = await s.invites.create(newInvite({ orgId }));
+			await s.invites.transition(accepted.id, InviteStatus.Accepted, now);
+			await s.invites.create(newInvite());
+
+			const pending = await s.invites.listPendingByOrg(orgId, now);
+
+			expect(pending.map((i) => i.id)).toEqual([newer.id, older.id]);
+			expect(await s.invites.listPendingByOrg(randomUUID(), now)).toEqual([]);
 		});
 
 		it('invite: deleteByEmail removes only that e-mail and returns the count', async () => {

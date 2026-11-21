@@ -31,6 +31,7 @@ export function toOrganization(doc: AdvisorOrganizationDoc): Organization {
 		name: doc.name,
 		advisorType: doc.advisorType,
 		...(doc.plan != null && { plan: doc.plan }),
+		...(doc.ownerUserId != null && { ownerUserId: doc.ownerUserId }),
 	};
 }
 

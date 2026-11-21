@@ -4,6 +4,8 @@ export interface ClientProfileStorePort {
 	/** Persiste o perfil do cliente; o store gera o id. */
 	create(profile: Omit<ClientProfile, 'id'>): Promise<ClientProfile>;
 	findById(id: string): Promise<ClientProfile | null>;
+	/** Só os perfis daquela organização; ids de outra org ou inexistentes somem. */
+	findByIds(orgId: string, ids: string[]): Promise<ClientProfile[]>;
 	/**
 	 * Atômico: define `origin = CLIENT_CREATED` e `ownerUserId = userId` só se o
 	 * perfil for ADVISOR_CREATED e não tiver dono. Devolve o perfil atualizado,

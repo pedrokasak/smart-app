@@ -6,6 +6,11 @@ import {
 	describeAdvisorStoreContract,
 } from '../application/store-contract.fixture';
 import {
+	DuplicateMembershipError,
+	DuplicateOrganizationOwnerError,
+} from '../application/ports/store-errors';
+import {
+	AdvisorType,
 	ConsentStatus,
 	InviteStatus,
 	OrgRole,
@@ -168,7 +173,23 @@ describeMongo('advisor mongo stores', () => {
 			await stores.memberships.create({ userId, orgId, role: OrgRole.Advisor });
 			await expect(
 				stores.memberships.create({ userId, orgId, role: OrgRole.OrgAdmin })
-			).rejects.toMatchObject({ code: 11000 });
+			).rejects.toBeInstanceOf(DuplicateMembershipError);
+		});
+
+		it('rejects a second org for the same owner with the typed error, not E11000', async () => {
+			const ownerUserId = randomUUID();
+			await stores.orgs.create({
+				name: 'One',
+				advisorType: AdvisorType.Assessor,
+				ownerUserId,
+			});
+			await expect(
+				stores.orgs.create({
+					name: 'Two',
+					advisorType: AdvisorType.Assessor,
+					ownerUserId,
+				})
+			).rejects.toBeInstanceOf(DuplicateOrganizationOwnerError);
 		});
 
 		it('returns the existing ACTIVE relationship instead of creating a second', async () => {

@@ -40,7 +40,19 @@ import {
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
 import { DailyCloseMinor, PriceHistoryPort } from './ports/price-history.port';
-import { RelationshipStorePort } from './ports/relationship.store.port';
+import {
+	ListRelationshipsQuery,
+	RelationshipPage,
+	RelationshipStorePort,
+} from './ports/relationship.store.port';
+import {
+	DuplicateMembershipError,
+	DuplicateOrganizationOwnerError,
+} from './ports/store-errors';
+import {
+	decodeRelationshipCursor,
+	encodeRelationshipCursor,
+} from './relationship-cursor';
 import {
 	OwnedPortfolio,
 	SharedPortfolioData,
@@ -63,6 +75,12 @@ export class InMemoryOrganizationStore implements OrganizationStorePort {
 	private readonly items = new Map<string, Organization>();
 
 	async create(org: Omit<Organization, 'id'>): Promise<Organization> {
+		if (
+			org.ownerUserId &&
+			[...this.items.values()].some((o) => o.ownerUserId === org.ownerUserId)
+		) {
+			throw new DuplicateOrganizationOwnerError();
+		}
 		const created: Organization = { ...org, id: randomUUID() };
 		this.items.set(created.id, created);
 		return created;
@@ -71,12 +89,23 @@ export class InMemoryOrganizationStore implements OrganizationStorePort {
 	async findById(id: string): Promise<Organization | null> {
 		return this.items.get(id) ?? null;
 	}
+
+	async delete(id: string): Promise<void> {
+		this.items.delete(id);
+	}
 }
 
 export class InMemoryMembershipStore implements MembershipStorePort {
 	private readonly items = new Map<string, Membership>();
 
 	async create(membership: Omit<Membership, 'id'>): Promise<Membership> {
+		if (
+			[...this.items.values()].some(
+				(m) => m.userId === membership.userId && m.orgId === membership.orgId
+			)
+		) {
+			throw new DuplicateMembershipError();
+		}
 		const created: Membership = { ...membership, id: randomUUID() };
 		this.items.set(created.id, created);
 		return created;
@@ -100,6 +129,15 @@ export class InMemoryMembershipStore implements MembershipStorePort {
 
 export class InMemoryRelationshipStore implements RelationshipStorePort {
 	private readonly items = new Map<string, AdvisoryRelationship>();
+	/** Instante de criação por id, estritamente crescente (ordem de `listByOrg`). */
+	private readonly createdAt = new Map<string, Date>();
+	private lastCreatedAtMs = 0;
+
+	private stamp(id: string): void {
+		if (this.createdAt.has(id)) return;
+		this.lastCreatedAtMs = Math.max(Date.now(), this.lastCreatedAtMs + 1);
+		this.createdAt.set(id, new Date(this.lastCreatedAtMs));
+	}
 
 	/** Só para testes: todas as relações gravadas. */
 	get all(): AdvisoryRelationship[] {
@@ -116,6 +154,7 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 	): Promise<AdvisoryRelationship> {
 		const created: AdvisoryRelationship = { ...relationship, id: randomUUID() };
 		this.items.set(created.id, created);
+		this.stamp(created.id);
 		return created;
 	}
 
@@ -142,6 +181,7 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 		relationship: AdvisoryRelationship
 	): Promise<AdvisoryRelationship> {
 		this.items.set(relationship.id, relationship);
+		this.stamp(relationship.id);
 		return relationship;
 	}
 
@@ -173,6 +213,44 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 		const updated: AdvisoryRelationship = { ...current, consentId };
 		this.items.set(id, updated);
 		return updated;
+	}
+
+	async listByOrg(
+		orgId: string,
+		query: ListRelationshipsQuery
+	): Promise<RelationshipPage> {
+		const statuses = new Set(query.statuses);
+		const cursor = query.cursor ? decodeRelationshipCursor(query.cursor) : null;
+		const key = (r: AdvisoryRelationship) => ({
+			createdAt: this.createdAt.get(r.id) as Date,
+			id: r.id,
+		});
+		// createdAt decrescente, desempate por id decrescente.
+		const ordered = [...this.items.values()]
+			.filter((r) => r.orgId === orgId && statuses.has(r.status))
+			.sort((a, b) => {
+				const ka = key(a);
+				const kb = key(b);
+				return (
+					kb.createdAt.getTime() - ka.createdAt.getTime() ||
+					(ka.id < kb.id ? 1 : ka.id > kb.id ? -1 : 0)
+				);
+			})
+			.filter((r) => {
+				if (!cursor) return true;
+				const k = key(r);
+				const diff = k.createdAt.getTime() - cursor.createdAt.getTime();
+				return diff < 0 || (diff === 0 && k.id < cursor.id);
+			});
+		const items = ordered.slice(0, query.limit).map((r) => ({ ...r }));
+		const last = items[items.length - 1];
+		return {
+			items,
+			nextCursor:
+				ordered.length > query.limit && last
+					? encodeRelationshipCursor(key(last))
+					: null,
+		};
 	}
 
 	async listActiveByClientProfiles(
@@ -210,6 +288,13 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 
 	async findById(id: string): Promise<ClientProfile | null> {
 		return this.items.get(id) ?? null;
+	}
+
+	async findByIds(orgId: string, ids: string[]): Promise<ClientProfile[]> {
+		const wanted = new Set(ids);
+		return [...this.items.values()]
+			.filter((p) => p.orgId === orgId && wanted.has(p.id))
+			.map((p) => ({ ...p }));
 	}
 
 	async claimIfUnowned(
@@ -525,6 +610,20 @@ export class InMemoryInviteStore implements InviteStorePort {
 				i.email === email &&
 				i.status === InviteStatus.Pending
 		);
+	}
+
+	async listPendingByOrg(orgId: string, now: Date): Promise<ClientInvite[]> {
+		// Map preserva a ordem de criação; o mais recente primeiro.
+		return [...this.items.values()]
+			.filter(
+				(i) =>
+					i.orgId === orgId &&
+					i.status === InviteStatus.Pending &&
+					i.expiresAt.getTime() > now.getTime()
+			)
+			.reverse()
+			.slice(0, 200)
+			.map((i) => ({ ...i }));
 	}
 
 	async transition(
