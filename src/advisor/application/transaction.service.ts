@@ -117,7 +117,7 @@ export class TransactionService {
 		);
 		if (!target) throw new NotFoundException('Transaction not found');
 		if (target.provenance === Provenance.Verified) {
-			throw new ForbiddenException('Verified transactions cannot be removed');
+			throw new ForbiddenException({ reason: 'VERIFIED_IMMUTABLE' });
 		}
 
 		const ledger = await this.transactions.listByClient(

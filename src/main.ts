@@ -72,6 +72,7 @@ async function bootstrap() {
 			'Authorization',
 			'Accept',
 			'stripe-signature',
+			'x-org-id',
 		],
 		credentials: true,
 	});

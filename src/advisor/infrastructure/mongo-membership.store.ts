@@ -1,13 +1,16 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { DuplicateMembershipError } from '../application/ports/store-errors';
 import { MembershipStorePort } from '../application/ports/membership.store.port';
 import { Membership } from '../domain/entities';
 import { toMembership } from './advisor.mappers';
 import {
 	ADVISOR_MEMBERSHIP_MODEL,
 	AdvisorMembershipDoc,
+	MEMBERSHIP_USER_ORG_INDEX,
 } from './advisor.models';
+import { isDuplicateOnIndex } from './mongo-duplicate-key';
 
 @Injectable()
 export class MongoMembershipStore implements MembershipStorePort {
@@ -16,10 +19,22 @@ export class MongoMembershipStore implements MembershipStorePort {
 		private readonly memberships: Model<AdvisorMembershipDoc>
 	) {}
 
-	/** Vínculo duplicado (userId, orgId) estoura o erro de chave única do Mongo. */
+	/** Vínculo duplicado (userId, orgId) vira `DuplicateMembershipError`. */
 	async create(membership: Omit<Membership, 'id'>): Promise<Membership> {
-		const created = await this.memberships.create(membership);
-		return toMembership(created.toObject());
+		try {
+			const created = await this.memberships.create(membership);
+			return toMembership(created.toObject());
+		} catch (error) {
+			if (
+				isDuplicateOnIndex(error, MEMBERSHIP_USER_ORG_INDEX, [
+					'userId',
+					'orgId',
+				])
+			) {
+				throw new DuplicateMembershipError();
+			}
+			throw error;
+		}
 	}
 
 	async findByUser(userId: string): Promise<Membership[]> {

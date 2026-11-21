@@ -46,6 +46,38 @@ describe('advisor schemas', () => {
 		expect(index?.[1].unique).toBe(true);
 	});
 
+	it('organization has a unique partial index on ownerUserId (owned orgs only)', () => {
+		const index = findIndex(
+			advisorSchemas.organization.indexes() as IndexEntry[],
+			{ ownerUserId: 1 }
+		);
+		expect(index).toBeDefined();
+		expect(index?.[1].unique).toBe(true);
+		expect(index?.[1].partialFilterExpression).toEqual({
+			ownerUserId: { $type: 'string' },
+		});
+	});
+
+	it('relationship has the directory index on orgId + status + createdAt', () => {
+		expect(
+			findIndex(advisorSchemas.relationship.indexes() as IndexEntry[], {
+				orgId: 1,
+				status: 1,
+				createdAt: -1,
+			})
+		).toBeDefined();
+	});
+
+	it('invite has the pending-list index on orgId + status + expiresAt', () => {
+		expect(
+			findIndex(advisorConsentSchemas.clientInvite.indexes() as IndexEntry[], {
+				orgId: 1,
+				status: 1,
+				expiresAt: 1,
+			})
+		).toBeDefined();
+	});
+
 	it('relationship has a unique partial index (ACTIVE only) on orgId + clientProfileId', () => {
 		const index = findIndex(
 			advisorSchemas.relationship.indexes() as IndexEntry[],

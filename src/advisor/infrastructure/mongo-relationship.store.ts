@@ -1,7 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
-import { RelationshipStorePort } from '../application/ports/relationship.store.port';
+import {
+	ListRelationshipsQuery,
+	RelationshipPage,
+	RelationshipStorePort,
+} from '../application/ports/relationship.store.port';
+import {
+	decodeRelationshipCursor,
+	encodeRelationshipCursor,
+} from '../application/relationship-cursor';
 import { AdvisoryRelationship } from '../domain/entities';
 import { RelationshipStatus } from '../domain/enums';
 import { toRelationship } from './advisor.mappers';
@@ -127,6 +135,42 @@ export class MongoRelationshipStore implements RelationshipStorePort {
 			.lean<AdvisorRelationshipDoc>()
 			.exec();
 		return doc ? toRelationship(doc) : null;
+	}
+
+	/** Busca `limit + 1` linhas: a sobra diz se há próxima página. */
+	async listByOrg(
+		orgId: string,
+		query: ListRelationshipsQuery
+	): Promise<RelationshipPage> {
+		const filter: Record<string, unknown> = {
+			orgId,
+			status: { $in: query.statuses },
+		};
+		if (query.cursor) {
+			const { createdAt, id } = decodeRelationshipCursor(query.cursor);
+			filter.$or = [
+				{ createdAt: { $lt: createdAt } },
+				{ createdAt, _id: { $lt: id } },
+			];
+		}
+		const docs = await this.relationships
+			.find(filter)
+			.sort({ createdAt: -1, _id: -1 })
+			.limit(query.limit + 1)
+			.lean<AdvisorRelationshipDoc[]>()
+			.exec();
+		const page = docs.slice(0, query.limit);
+		const last = page[page.length - 1];
+		return {
+			items: page.map(toRelationship),
+			nextCursor:
+				docs.length > query.limit && last
+					? encodeRelationshipCursor({
+							createdAt: last.createdAt,
+							id: last._id,
+						})
+					: null,
+		};
 	}
 
 	async listActiveByClientProfiles(

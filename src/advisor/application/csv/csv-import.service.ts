@@ -87,7 +87,7 @@ export class CsvImportService {
 			);
 		} catch (error) {
 			if (error instanceof DuplicateImportError) {
-				throw new ConflictException('This file was already imported');
+				throw new ConflictException({ reason: 'DUPLICATE_IMPORT' });
 			}
 			throw error;
 		}

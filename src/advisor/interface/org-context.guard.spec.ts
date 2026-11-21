@@ -31,17 +31,23 @@ describe('OrgContextGuard', () => {
 		guard = new OrgContextGuard(new MembershipService(store));
 	});
 
-	it('uses the first membership when there is no header', async () => {
-		const req = reqFor('u1');
-		await expect(guard.canActivate(ctxOf(req))).resolves.toBe(true);
-		expect(req.orgContext).toEqual({ orgId: 'orgA', role: OrgRole.Advisor });
-	});
-
-	it('uses the first membership when the header is blank', async () => {
-		const req = reqFor('u1', { 'x-org-id': '   ' });
-		await guard.canActivate(ctxOf(req));
-		expect(req.orgContext).toEqual({ orgId: 'orgA', role: OrgRole.Advisor });
-	});
+	it.each([
+		['missing', {}],
+		['blank', { 'x-org-id': '   ' }],
+		['empty', { 'x-org-id': '' }],
+	])(
+		'refuses with ORG_HEADER_REQUIRED when the header is %s, never falling back',
+		async (_label, headers) => {
+			const req = reqFor('u1', headers);
+			const attempt = guard.canActivate(ctxOf(req));
+			await expect(attempt).rejects.toThrow(ForbiddenException);
+			const error = await attempt.catch((e: ForbiddenException) => e);
+			expect((error as ForbiddenException).getResponse()).toMatchObject({
+				reason: 'ORG_HEADER_REQUIRED',
+			});
+			expect(req.orgContext).toBeUndefined();
+		}
+	);
 
 	it('uses the requested org when the user is a member', async () => {
 		const req = reqFor('u1', { 'x-org-id': 'orgB' });
@@ -57,10 +63,7 @@ describe('OrgContextGuard', () => {
 		expect(req.orgContext).toBeUndefined();
 	});
 
-	it('refuses a user without memberships, with or without header', async () => {
-		await expect(guard.canActivate(ctxOf(reqFor('semOrg')))).rejects.toThrow(
-			ForbiddenException
-		);
+	it('refuses a user without memberships', async () => {
 		await expect(
 			guard.canActivate(ctxOf(reqFor('semOrg', { 'x-org-id': 'orgA' })))
 		).rejects.toThrow(ForbiddenException);

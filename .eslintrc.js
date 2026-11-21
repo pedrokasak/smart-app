@@ -28,4 +28,45 @@ module.exports = {
 			},
 		],
 	},
+	overrides: [
+		{
+			// O BFF só enxerga serviços e portas: nunca infraestrutura nem models.
+			files: ['src/advisor-bff/**/*.ts'],
+			rules: {
+				'no-restricted-imports': [
+					'error',
+					{
+						patterns: [
+							{
+								group: ['**/advisor/infrastructure/**'],
+								message:
+									'advisor-bff must not import advisor infrastructure; use the services exported by AdvisorModule.',
+							},
+							{
+								group: ['**/*.model', '**/*.models'],
+								message: 'advisor-bff must not import Mongoose models.',
+							},
+						],
+					},
+				],
+			},
+		},
+		{
+			// O domínio do Advisor não conhece o BFF que o consome.
+			files: ['src/advisor/**/*.ts'],
+			rules: {
+				'no-restricted-imports': [
+					'error',
+					{
+						patterns: [
+							{
+								group: ['**/advisor-bff/**'],
+								message: 'src/advisor must never import src/advisor-bff.',
+							},
+						],
+					},
+				],
+			},
+		},
+	],
 };

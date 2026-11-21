@@ -30,6 +30,15 @@ export class MongoClientProfileStore implements ClientProfileStorePort {
 		return doc ? toClientProfile(doc) : null;
 	}
 
+	async findByIds(orgId: string, ids: string[]): Promise<ClientProfile[]> {
+		if (ids.length === 0) return [];
+		const docs = await this.profiles
+			.find({ orgId, _id: { $in: ids } })
+			.lean<AdvisorClientProfileDoc[]>()
+			.exec();
+		return docs.map(toClientProfile);
+	}
+
 	/**
 	 * Um único `findOneAndUpdate` com o filtro "ADVISOR_CREATED e sem dono":
 	 * só uma chamada concorrente casa; as demais recebem null.

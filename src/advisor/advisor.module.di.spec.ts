@@ -8,6 +8,7 @@ import {
 	ADVISOR_INVITE_STORE,
 	ADVISOR_MEMBERSHIP_STORE,
 	ADVISOR_ORG_STORE,
+	ADVISOR_PORTAL_GRANT_STORE,
 	ADVISOR_PRICE_HISTORY,
 	ADVISOR_RELATIONSHIP_STORE,
 	ADVISOR_TRANSACTION_STORE,
@@ -21,6 +22,12 @@ import { ADVISOR_INVITE_NOTIFIER } from './application/ports/invite-notifier.por
 import { ADVISOR_INVITEE_IDENTITY } from './application/ports/invitee-identity.port';
 import { ADVISOR_SHARED_PORTFOLIO_SOURCE } from './application/ports/shared-portfolio-source.port';
 import { SharedPortfolioService } from './application/shared-portfolio.service';
+import { ADVISOR_PORTAL_ACCOUNT_DIRECTORY } from './application/ports/portal-account-directory.port';
+import { PortalAccessService } from './application/portal-access.service';
+import { MongoPortalGrantStore } from './infrastructure/mongo-portal-grant.store';
+import { UserPortalAccountDirectoryAdapter } from './infrastructure/user-portal-account-directory.adapter';
+import { SubscriptionModule } from 'src/subscription/subscription.module';
+import { AdminModule } from 'src/admin/admin.module';
 import { TransactionService } from './application/transaction.service';
 import { B2cSharedPortfolioSourceAdapter } from './infrastructure/b2c-shared-portfolio-source.adapter';
 import { EmailInviteNotifierAdapter } from './infrastructure/email-invite-notifier.adapter';
@@ -131,6 +138,33 @@ describe('AdvisorModule wiring', () => {
 		]) {
 			expect(imports).toContain(module);
 		}
+	});
+
+	it('provides and exports PortalAccessService with its store and account adapter', () => {
+		const providers: Array<{ provide?: unknown; useExisting?: unknown }> =
+			Reflect.getMetadata('providers', AdvisorModule);
+		const exported: unknown[] = Reflect.getMetadata('exports', AdvisorModule);
+		const byToken = new Map(providers.map((p) => [p.provide, p]));
+		expect(providers).toContain(PortalAccessService);
+		expect(exported).toContain(PortalAccessService);
+		expect(byToken.get(ADVISOR_PORTAL_GRANT_STORE)).toMatchObject({
+			useExisting: MongoPortalGrantStore,
+		});
+		expect(byToken.get(ADVISOR_PORTAL_ACCOUNT_DIRECTORY)).toMatchObject({
+			useExisting: UserPortalAccountDirectoryAdapter,
+		});
+		const imports: unknown[] = Reflect.getMetadata('imports', AdvisorModule);
+		expect(imports).toContain(SubscriptionModule);
+	});
+
+	it('is imported by AdminModule for the portal grant routes, with no cycle back', () => {
+		const adminImports: unknown[] = Reflect.getMetadata('imports', AdminModule);
+		const advisorImports: unknown[] = Reflect.getMetadata(
+			'imports',
+			AdvisorModule
+		);
+		expect(adminImports).toContain(AdvisorModule);
+		expect(advisorImports).not.toContain(AdminModule);
 	});
 
 	it('registers the investor advisor-access controller', () => {

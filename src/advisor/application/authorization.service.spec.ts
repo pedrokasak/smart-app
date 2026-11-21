@@ -2,9 +2,14 @@ import { ForbiddenException } from '@nestjs/common';
 import { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { AuditEventInput } from 'src/audit/domain/audit-event';
 import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
-import { OrgRole } from '../domain/enums';
+import { OrgRole, ProfileOrigin } from '../domain/enums';
+import {
+	ClientActionForbiddenError,
+	ClientNotAccessibleError,
+} from './access-errors';
 import { AuthorizationService } from './authorization.service';
 import {
+	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
 } from './in-memory-stores.fixture';
@@ -26,6 +31,7 @@ describe('AuthorizationService', () => {
 	const userId = 'user-raw-id-123';
 	let memberships: InMemoryMembershipStore;
 	let relationships: InMemoryRelationshipStore;
+	let profiles: InMemoryClientProfileStore;
 	let rel: RelationshipService;
 	let audit: FakeAuditTrail;
 	let authz: AuthorizationService;
@@ -33,13 +39,26 @@ describe('AuthorizationService', () => {
 	beforeEach(async () => {
 		memberships = new InMemoryMembershipStore();
 		relationships = new InMemoryRelationshipStore();
+		profiles = new InMemoryClientProfileStore();
 		rel = new RelationshipService(relationships);
 		audit = new FakeAuditTrail();
-		authz = new AuthorizationService(memberships, relationships, audit);
+		authz = new AuthorizationService(
+			memberships,
+			relationships,
+			profiles,
+			audit
+		);
 		await memberships.create({ userId, orgId: 'orgA', role: OrgRole.Advisor });
 	});
 
+	const seed = (
+		id: string,
+		orgId: string,
+		origin = ProfileOrigin.AdvisorCreated
+	) => profiles.seed({ id, orgId, name: id, origin });
+
 	it('denies a client of another org and audits nothing', async () => {
+		seed('clientB', 'orgB');
 		await rel.create('orgB', 'clientB');
 		await expect(
 			authz.ensureCanAccessClient(
@@ -47,11 +66,12 @@ describe('AuthorizationService', () => {
 				'clientB',
 				'VIEW_PORTFOLIO'
 			)
-		).rejects.toThrow(ForbiddenException);
+		).rejects.toBeInstanceOf(ClientNotAccessibleError);
 		expect(audit.recorded).toHaveLength(0);
 	});
 
 	it('allows a valid access and records one pseudonymous event', async () => {
+		seed('clientA', 'orgA');
 		await rel.create('orgA', 'clientA');
 		await authz.ensureCanAccessClient(
 			{ userId, orgId: 'orgA' },
@@ -84,6 +104,7 @@ describe('AuthorizationService', () => {
 	});
 
 	it('denies after the relationship is revoked and audits nothing', async () => {
+		seed('clientA', 'orgA');
 		const r = await rel.create('orgA', 'clientA');
 		await rel.revoke(r.id);
 		await expect(
@@ -92,11 +113,12 @@ describe('AuthorizationService', () => {
 				'clientA',
 				'VIEW_PORTFOLIO'
 			)
-		).rejects.toThrow(ForbiddenException);
+		).rejects.toBeInstanceOf(ClientNotAccessibleError);
 		expect(audit.recorded).toHaveLength(0);
 	});
 
 	it('denies a user without membership in the org', async () => {
+		seed('clientA', 'orgA');
 		await rel.create('orgA', 'clientA');
 		await expect(
 			authz.ensureCanAccessClient(
@@ -104,23 +126,26 @@ describe('AuthorizationService', () => {
 				'clientA',
 				'VIEW_PORTFOLIO'
 			)
-		).rejects.toThrow(ForbiddenException);
+		).rejects.toBeInstanceOf(ClientNotAccessibleError);
 		expect(audit.recorded).toHaveLength(0);
 	});
 
 	it('denies when there is no relationship with the client', async () => {
+		// Perfil ADVISOR_CREATED da mesma org: só falta o vínculo.
+		seed('clientA', 'orgA');
 		await expect(
 			authz.ensureCanAccessClient(
 				{ userId, orgId: 'orgA' },
-				'unknown-client',
+				'clientA',
 				'VIEW_PORTFOLIO'
 			)
-		).rejects.toThrow(ForbiddenException);
+		).rejects.toBeInstanceOf(ClientNotAccessibleError);
 		expect(audit.recorded).toHaveLength(0);
 	});
 
 	it('never falls back to another org membership', async () => {
 		// user is a member of orgA only; orgB has an ACTIVE relationship
+		seed('clientB', 'orgB');
 		await rel.create('orgB', 'clientB');
 		await expect(
 			authz.ensureCanAccessClient(
@@ -128,12 +153,13 @@ describe('AuthorizationService', () => {
 				'clientB',
 				'VIEW_PORTFOLIO'
 			)
-		).rejects.toThrow(ForbiddenException);
+		).rejects.toBeInstanceOf(ClientNotAccessibleError);
 		expect(audit.recorded).toHaveLength(0);
 	});
 
 	it('denies ctx.orgId of an org the user is not in, even if the client is active in the user org', async () => {
 		// member of orgA only, ACTIVE orgA<->clientA; a fallback would allow this
+		seed('clientA', 'orgA');
 		await rel.create('orgA', 'clientA');
 		await expect(
 			authz.ensureCanAccessClient(
@@ -141,11 +167,12 @@ describe('AuthorizationService', () => {
 				'clientA',
 				'VIEW_PORTFOLIO'
 			)
-		).rejects.toThrow(ForbiddenException);
+		).rejects.toBeInstanceOf(ClientNotAccessibleError);
 		expect(audit.recorded).toHaveLength(0);
 	});
 
 	it('fails closed when the audit trail cannot record', async () => {
+		seed('clientA', 'orgA');
 		await rel.create('orgA', 'clientA');
 		audit.failWith = new Error('audit store down');
 		await expect(
@@ -155,6 +182,75 @@ describe('AuthorizationService', () => {
 				'VIEW_PORTFOLIO'
 			)
 		).rejects.toThrow('audit store down');
+	});
+
+	it('is a ForbiddenException with reason CLIENT_NOT_ACCESSIBLE', async () => {
+		const error = await authz
+			.ensureCanAccessClient(
+				{ userId, orgId: 'orgA' },
+				'unknown-client',
+				'VIEW_PORTFOLIO'
+			)
+			.catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(ClientNotAccessibleError);
+		expect(error).toBeInstanceOf(ForbiddenException);
+		expect((error as ClientNotAccessibleError).reason).toBe(
+			'CLIENT_NOT_ACCESSIBLE'
+		);
+	});
+
+	it('denies a profile of another org even with an active relationship', async () => {
+		seed('clientA', 'orgB');
+		await rel.create('orgA', 'clientA');
+		await expect(
+			authz.ensureCanAccessClient(
+				{ userId, orgId: 'orgA' },
+				'clientA',
+				'VIEW_PORTFOLIO'
+			)
+		).rejects.toBeInstanceOf(ClientNotAccessibleError);
+		expect(audit.recorded).toHaveLength(0);
+	});
+
+	it('denies a client without a profile', async () => {
+		await rel.create('orgA', 'ghost');
+		await expect(
+			authz.ensureCanAccessClient(
+				{ userId, orgId: 'orgA' },
+				'ghost',
+				'VIEW_PORTFOLIO'
+			)
+		).rejects.toBeInstanceOf(ClientNotAccessibleError);
+		expect(audit.recorded).toHaveLength(0);
+	});
+
+	it('throws ClientActionForbiddenError for a write on a CLIENT_CREATED profile, without auditing', async () => {
+		seed('clientA', 'orgA', ProfileOrigin.ClientCreated);
+		await rel.create('orgA', 'clientA');
+		const error = await authz
+			.ensureCanAccessClient(
+				{ userId, orgId: 'orgA' },
+				'clientA',
+				'EDIT_POSITION'
+			)
+			.catch((e: unknown) => e);
+		expect(error).toBeInstanceOf(ClientActionForbiddenError);
+		expect(error).toBeInstanceOf(ForbiddenException);
+		expect((error as ClientActionForbiddenError).reason).toBe(
+			'ACTION_FORBIDDEN'
+		);
+		expect(audit.recorded).toHaveLength(0);
+	});
+
+	it('allows reading a CLIENT_CREATED profile and audits it', async () => {
+		seed('clientA', 'orgA', ProfileOrigin.ClientCreated);
+		await rel.create('orgA', 'clientA');
+		await authz.ensureCanAccessClient(
+			{ userId, orgId: 'orgA' },
+			'clientA',
+			'VIEW_PORTFOLIO'
+		);
+		expect(audit.recorded).toHaveLength(1);
 	});
 
 	describe('ensureOrgMember', () => {

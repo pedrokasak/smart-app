@@ -57,6 +57,7 @@ import { AgentControlModule } from './agent-control/agent-control.module';
 import { AuditModule } from './audit/audit.module';
 import { MarketIntelModule } from './market-intel/market-intel.module';
 import { AdvisorModule } from './advisor/advisor.module';
+import { AdvisorBffModule } from './advisor-bff/advisor-bff.module';
 
 @Module({
 	imports: [
@@ -117,6 +118,8 @@ import { AdvisorModule } from './advisor/advisor.module';
 		MarketIntelModule,
 		// Fundacao do Trackerr Advisor: orgs, vinculos e autorizacao (P1).
 		AdvisorModule,
+		// BFF do portal do assessor, `/advisor/v1` (P3a).
+		AdvisorBffModule,
 	],
 	controllers: [AppController],
 	providers: [
