@@ -71,6 +71,8 @@ export interface SessionUser {
 export interface SessionTokens {
 	accessToken: string;
 	refreshToken: string;
+	/** TRA-217: fim de validade do refresh token, para o cookie httpOnly. */
+	refreshTokenExpiresAt: Date;
 	expiresIn: string;
 	user: {
 		id: string;
@@ -102,6 +104,8 @@ export interface SocialAccount {
 export interface RefreshedSession {
 	accessToken: string;
 	refreshToken?: string;
+	/** TRA-217: fim de validade da sessão (girar não estica), para o cookie. */
+	refreshTokenExpiresAt: Date;
 	expiresIn: string;
 }
 
@@ -483,6 +487,10 @@ export class AuthenticationService {
 		user.lastSeenAt = now;
 		await user.save();
 
+		const refreshTokenExpiresAt = new Date(
+			this.jwtService.decode(refreshToken).exp * 1000
+		);
+
 		// Cada login tem a própria sessão: não toca nos campos legados do
 		// usuário, que seguem valendo para tokens emitidos antes das sessões
 		// por dispositivo até eles expirarem.
@@ -490,7 +498,7 @@ export class AuthenticationService {
 			sid,
 			userId: user.id,
 			refreshToken,
-			expiresAt: new Date(this.jwtService.decode(refreshToken).exp * 1000),
+			expiresAt: refreshTokenExpiresAt,
 			device: options.device,
 		});
 
@@ -503,6 +511,7 @@ export class AuthenticationService {
 		return {
 			accessToken,
 			refreshToken,
+			refreshTokenExpiresAt,
 			expiresIn: String(expireKeepAliveConected),
 			user: {
 				id: user.id,
@@ -619,6 +628,9 @@ export class AuthenticationService {
 			return {
 				accessToken: newAccessToken,
 				...(rotatedRefreshToken ? { refreshToken: rotatedRefreshToken } : {}),
+				// Girar não estica a sessão: o fim de validade é o do token
+				// apresentado, não um recalculado a partir de agora.
+				refreshTokenExpiresAt: new Date(payload.exp * 1000),
 				expiresIn: String(expireKeepAliveConected),
 			};
 		} catch (error) {
@@ -678,6 +690,7 @@ export class AuthenticationService {
 			...(renewal.outcome === 'rotated'
 				? { refreshToken: renewal.refreshToken }
 				: {}),
+			refreshTokenExpiresAt: new Date(payload.exp * 1000),
 			expiresIn: String(expireKeepAliveConected),
 		};
 	}

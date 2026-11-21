@@ -60,13 +60,21 @@ describe('TwoFactorController', () => {
 	});
 
 	it('authenticate() should call authenticateWithTwoFactor with tempToken and code', async () => {
-		const tokens = { accessToken: 'acc', refreshToken: 'ref', expiresIn: '1d' };
+		const tokens = {
+			accessToken: 'acc',
+			refreshToken: 'ref',
+			refreshTokenExpiresAt: new Date(Date.now() + 60_000),
+			expiresIn: '1d',
+		};
 		mockTwoFactorService.authenticateWithTwoFactor.mockResolvedValue(tokens);
 
-		const result = await controller.authenticate({
-			tempToken: 'tmp123',
-			code: '654321',
-		});
+		const result = await controller.authenticate(
+			{
+				tempToken: 'tmp123',
+				code: '654321',
+			},
+			{ cookie: jest.fn(), clearCookie: jest.fn() } as any
+		);
 		expect(mockTwoFactorService.authenticateWithTwoFactor).toHaveBeenCalledWith(
 			'tmp123',
 			'654321'

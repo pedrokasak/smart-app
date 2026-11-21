@@ -115,13 +115,21 @@ describe('TwoFactorController — códigos de recuperação', () => {
 	});
 
 	it('consume() repassa tempToken e recoveryCode', async () => {
-		const tokens = { accessToken: 'acc', refreshToken: 'ref', expiresIn: '1d' };
+		const tokens = {
+			accessToken: 'acc',
+			refreshToken: 'ref',
+			refreshTokenExpiresAt: new Date(Date.now() + 60_000),
+			expiresIn: '1d',
+		};
 		mockTwoFactorService.consumeRecoveryCode.mockResolvedValue(tokens);
 
-		const result = await controller.consumeRecoveryCode({
-			tempToken: 'tmp123',
-			recoveryCode: 'A1B2-C3D4',
-		});
+		const result = await controller.consumeRecoveryCode(
+			{
+				tempToken: 'tmp123',
+				recoveryCode: 'A1B2-C3D4',
+			},
+			{ cookie: jest.fn(), clearCookie: jest.fn() } as any
+		);
 
 		expect(mockTwoFactorService.consumeRecoveryCode).toHaveBeenCalledWith(
 			'tmp123',

@@ -5,8 +5,10 @@ import {
 	Get,
 	Post,
 	Req,
+	Res,
 	UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { TwoFactorService } from './two-factor.service';
 import {
 	TwoFactorAuthenticateDto,
@@ -15,6 +17,7 @@ import {
 } from './dto/two-factor.dto';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { Public } from 'src/utils/constants';
+import { setRefreshTokenCookie } from 'src/authentication/refresh-token-cookie';
 
 @Controller('auth/2fa')
 export class TwoFactorController {
@@ -56,11 +59,23 @@ export class TwoFactorController {
 	 */
 	@Public()
 	@Post('authenticate')
-	async authenticate(@Body() dto: TwoFactorAuthenticateDto) {
-		return this.twoFactorService.authenticateWithTwoFactor(
+	async authenticate(
+		@Body() dto: TwoFactorAuthenticateDto,
+		@Res({ passthrough: true }) res: Response
+	) {
+		const result = await this.twoFactorService.authenticateWithTwoFactor(
 			dto.tempToken,
 			dto.code
 		);
+		// TRA-217: cookie httpOnly além do body (transição).
+		if ('refreshToken' in result && result.refreshToken) {
+			setRefreshTokenCookie(
+				res,
+				result.refreshToken,
+				result.refreshTokenExpiresAt.getTime()
+			);
+		}
+		return result;
 	}
 
 	/**
@@ -97,10 +112,22 @@ export class TwoFactorController {
 	 */
 	@Public()
 	@Post('recovery-codes/consume')
-	async consumeRecoveryCode(@Body() dto: TwoFactorRecoveryConsumeDto) {
-		return this.twoFactorService.consumeRecoveryCode(
+	async consumeRecoveryCode(
+		@Body() dto: TwoFactorRecoveryConsumeDto,
+		@Res({ passthrough: true }) res: Response
+	) {
+		const result = await this.twoFactorService.consumeRecoveryCode(
 			dto.tempToken,
 			dto.recoveryCode
 		);
+		// TRA-217: cookie httpOnly além do body (transição).
+		if ('refreshToken' in result && result.refreshToken) {
+			setRefreshTokenCookie(
+				res,
+				result.refreshToken,
+				result.refreshTokenExpiresAt.getTime()
+			);
+		}
+		return result;
 	}
 }
