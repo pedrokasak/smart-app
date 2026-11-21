@@ -12,6 +12,7 @@ import {
 	ConsentTextChangedError,
 	InvitePreview,
 	InviteNotFoundError,
+} from '../application/consent.service';
 import { AdvisorType } from '../domain/enums';
 import { AdvisorAccessController } from './advisor-access.controller';
 
