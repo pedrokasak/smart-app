@@ -1,6 +1,7 @@
 import { config } from 'dotenv';
 config();
 import * as bodyParser from 'body-parser';
+import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { AppModule } from './app.module';
@@ -44,6 +45,8 @@ async function bootstrap() {
 
 	app.use('/webhooks/stripe', bodyParser.raw({ type: 'application/json' }));
 	app.use(bodyParser.json({ limit: '1mb' }));
+	// Refresh token em cookie httpOnly (TRA-217): precisa ler req.cookies.
+	app.use(cookieParser());
 
 	const corsOrigins = [
 		urlDevelopment,

@@ -30,6 +30,12 @@ describe('AuthenticationController', () => {
 		resetPassword: jest.fn(),
 	};
 
+	const mockRes = () =>
+		({
+			cookie: jest.fn(),
+			clearCookie: jest.fn(),
+		}) as any;
+
 	beforeEach(async () => {
 		const module: TestingModule = await Test.createTestingModule({
 			controllers: [AuthenticationController],
@@ -60,7 +66,7 @@ describe('AuthenticationController', () => {
 			const expected = { accessToken: 'abc', refreshToken: 'xyz' };
 			mockAuthService.signin.mockResolvedValue(expected);
 
-			const result = await controller.signin(dto);
+			const result = await controller.signin(dto, mockRes());
 
 			expect(authService.signin).toHaveBeenCalledWith(dto);
 			expect(result).toEqual(expected);
@@ -74,7 +80,7 @@ describe('AuthenticationController', () => {
 			const expected = { accessToken: 'abc', refreshToken: 'xyz' };
 			mockAuthService.googleSignin.mockResolvedValue(expected);
 
-			const result = await controller.signinWithGoogle(dto as any);
+			const result = await controller.signinWithGoogle(dto as any, mockRes());
 
 			expect(authService.googleSignin).toHaveBeenCalledWith(dto);
 			expect(result).toEqual(expected);
@@ -83,14 +89,37 @@ describe('AuthenticationController', () => {
 
 	// --- SIGNOUT ---
 	describe('signout', () => {
-		it('should call authService.signout with token', async () => {
+		it('should call authService.signout with token from body when no cookie', async () => {
 			const dto = { token: 'mocked-token' };
 			mockAuthService.signout.mockResolvedValue({ success: true });
 
-			const result = await controller.signout(dto);
+			const result = await controller.signout(dto, { cookies: {} }, mockRes());
 
 			expect(authService.signout).toHaveBeenCalledWith('mocked-token');
 			expect(result).toEqual({ success: true });
+		});
+
+		it('should prefer the refresh token cookie over the body', async () => {
+			mockAuthService.signout.mockResolvedValue({ success: true });
+
+			const result = await controller.signout(
+				{},
+				{ cookies: { refresh_token: 'cookie-token' } },
+				mockRes()
+			);
+
+			expect(authService.signout).toHaveBeenCalledWith('cookie-token');
+			expect(result).toEqual({ success: true });
+		});
+
+		it('should clear the cookie and return without calling the service when there is no token', async () => {
+			const res = mockRes();
+
+			const result = await controller.signout({}, { cookies: {} }, res);
+
+			expect(authService.signout).not.toHaveBeenCalled();
+			expect(res.clearCookie).toHaveBeenCalled();
+			expect(result).toEqual({ message: 'Signout successfully' });
 		});
 	});
 
@@ -98,10 +127,18 @@ describe('AuthenticationController', () => {
 	describe('refreshToken', () => {
 		it('should return result when refresh token is valid', async () => {
 			const dto = { refreshToken: 'valid-token' };
-			const expected = { accessToken: 'new-access', expiresIn: '30m' };
+			const expected = {
+				accessToken: 'new-access',
+				expiresIn: '30m',
+				refreshTokenExpiresAt: new Date(Date.now() + 60_000),
+			};
 			mockAuthService.refreshAccessToken.mockResolvedValue(expected);
 
-			const result = await controller.refreshToken(dto);
+			const result = await controller.refreshToken(
+				dto,
+				{ cookies: {} },
+				mockRes()
+			);
 
 			expect(authService.refreshAccessToken).toHaveBeenCalledWith(
 				'valid-token'
@@ -109,9 +146,32 @@ describe('AuthenticationController', () => {
 			expect(result).toEqual(expected);
 		});
 
+		it('should prefer the refresh token cookie over the body', async () => {
+			const expected = {
+				accessToken: 'new-access',
+				expiresIn: '30m',
+				refreshTokenExpiresAt: new Date(Date.now() + 60_000),
+			};
+			mockAuthService.refreshAccessToken.mockResolvedValue(expected);
+
+			await controller.refreshToken(
+				{ refreshToken: 'from-body' },
+				{ cookies: { refresh_token: 'from-cookie' } },
+				mockRes()
+			);
+
+			expect(authService.refreshAccessToken).toHaveBeenCalledWith(
+				'from-cookie'
+			);
+		});
+
 		it('should throw UnauthorizedException if token is missing', async () => {
 			await expect(
-				controller.refreshToken({ refreshToken: '' })
+				controller.refreshToken(
+					{ refreshToken: '' },
+					{ cookies: {} },
+					mockRes()
+				)
 			).rejects.toThrow(UnauthorizedException);
 		});
 
@@ -121,7 +181,11 @@ describe('AuthenticationController', () => {
 			);
 
 			await expect(
-				controller.refreshToken({ refreshToken: 'bad' })
+				controller.refreshToken(
+					{ refreshToken: 'bad' },
+					{ cookies: {} },
+					mockRes()
+				)
 			).rejects.toThrow(ServiceUnavailableException);
 		});
 	});

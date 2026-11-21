@@ -45,6 +45,9 @@ export class AuthenticationEntity {
 	})
 	refreshToken: string;
 
+	/** TRA-217: usado pelo controller pra escolher o fim do cookie httpOnly. */
+	refreshTokenExpiresAt?: Date;
+
 	@ApiProperty({
 		required: false,
 		description: 'Tempo de expiração do access token',
