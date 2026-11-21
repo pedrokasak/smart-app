@@ -65,6 +65,10 @@ export class AdvisorAccessController {
 	@ApiOperation({ summary: 'Accepts an invite sharing the chosen portfolios' })
 	@ApiResponse({ status: 201, type: AccessGrantResponseDto })
 	@ApiResponse({ status: 404, description: 'Invite not found' })
+	@ApiResponse({
+		status: 409,
+		description: 'Consent text changed (reason CONSENT_TEXT_CHANGED)',
+	})
 	async accept(
 		@Req() req: any,
 		@Body() body: AcceptInviteDto
@@ -72,7 +76,8 @@ export class AdvisorAccessController {
 		const grant = await this.consents.acceptInvite(
 			requesterIdOf(req),
 			body.token,
-			body.portfolioIds
+			body.portfolioIds,
+			body.consentTextVersion
 		);
 		return AccessGrantResponseDto.of(grant);
 	}

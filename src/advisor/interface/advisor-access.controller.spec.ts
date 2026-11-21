@@ -9,6 +9,8 @@ import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.servi
 import {
 	AccessGrant,
 	ConsentService,
+	ConsentTextChangedError,
+	InvitePreview,
 	InvitePreview,
 	InviteNotFoundError,
 } from '../application/consent.service';
@@ -122,10 +124,12 @@ describe('AdvisorAccessController', () => {
 				.send({ token: TOKEN, portfolioIds: ['p1', 'p2'] })
 				.expect(201);
 
-			expect(consent.acceptInvite).toHaveBeenCalledWith(USER, TOKEN, [
-				'p1',
-				'p2',
-			]);
+			expect(consent.acceptInvite).toHaveBeenCalledWith(
+				USER,
+				TOKEN,
+				['p1', 'p2'],
+				undefined
+			);
 			expect(res.body).toEqual({
 				relationshipId: RELATIONSHIP,
 				organizationName: 'Org A',
@@ -229,6 +233,56 @@ describe('AdvisorAccessController', () => {
 		);
 	});
 
+	describe('consent text version', () => {
+		it('forwards a well-formed consentTextVersion to the service', async () => {
+			await http()
+				.post('/me/advisor-access/invites/accept')
+				.set('Authorization', bearer())
+				.send({
+					token: TOKEN,
+					portfolioIds: ['p1'],
+					consentTextVersion: '2026-11-16',
+				})
+				.expect(201);
+
+			expect(consent.acceptInvite).toHaveBeenCalledWith(
+				USER,
+				TOKEN,
+				['p1'],
+				'2026-11-16'
+			);
+		});
+
+		it.each(['2026-11', 'latest', '2026-11-16T00:00', 20261116])(
+			'rejects malformed consentTextVersion %p with 400',
+			async (consentTextVersion) => {
+				await http()
+					.post('/me/advisor-access/invites/accept')
+					.set('Authorization', bearer())
+					.send({ token: TOKEN, portfolioIds: ['p1'], consentTextVersion })
+					.expect(400);
+
+				expect(consent.acceptInvite).not.toHaveBeenCalled();
+			}
+		);
+
+		it('answers 409 with reason CONSENT_TEXT_CHANGED', async () => {
+			consent.acceptInvite.mockRejectedValue(new ConsentTextChangedError());
+
+			const res = await http()
+				.post('/me/advisor-access/invites/accept')
+				.set('Authorization', bearer())
+				.send({
+					token: TOKEN,
+					portfolioIds: ['p1'],
+					consentTextVersion: '2025-01-01',
+				})
+				.expect(409);
+
+			expect(res.body.reason).toBe('CONSENT_TEXT_CHANGED');
+		});
+	});
+
 	describe('identity', () => {
 		it('rejects a userId in the body and never calls the service', async () => {
 			await http()
@@ -254,7 +308,12 @@ describe('AdvisorAccessController', () => {
 				userId: 'attacker',
 			} as never);
 
-			expect(consent.acceptInvite).toHaveBeenCalledWith(USER, TOKEN, ['p1']);
+			expect(consent.acceptInvite).toHaveBeenCalledWith(
+				USER,
+				TOKEN,
+				['p1'],
+				undefined
+			);
 			expect(consent.changeSharedPortfolios).toHaveBeenCalledWith(
 				USER,
 				RELATIONSHIP,
