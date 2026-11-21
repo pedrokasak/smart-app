@@ -266,7 +266,9 @@ describe('InvitesController', () => {
 	});
 
 	it('answers 500 without detail when the e-mail send fails, and leaves no invite', async () => {
-		jest.spyOn(Logger.prototype, 'error').mockImplementation(() => undefined);
+		const logged = jest
+			.spyOn(Logger.prototype, 'error')
+			.mockImplementation(() => undefined);
 		notifier.failWith = new Error('smtp down for joao.silva@exemplo.com');
 		const res = await invite(A()).expect(500);
 		expect(res.body).toEqual({
@@ -275,5 +277,9 @@ describe('InvitesController', () => {
 		});
 		const list = await http().get('/advisor/v1/invites').set(A()).expect(200);
 		expect(list.body).toEqual([]);
+		expect(logged).toHaveBeenCalled();
+		const text = logged.mock.calls.flat().join('\n');
+		expect(text).not.toContain('joao.silva');
+		expect(text).not.toContain('smtp down');
 	});
 });

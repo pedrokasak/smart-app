@@ -275,6 +275,11 @@ export class ClientsController {
 		description: 'UNSUPPORTED_FILE_TYPE (só text/csv e text/plain)',
 	})
 	@UNPROCESSABLE('CSV_REJECTED: details.errors com as linhas { line, code }')
+	@ApiResponse({
+		status: 429,
+		type: ErrorResponseDto,
+		description: 'Limite de 20 imports por 10 minutos por conta e por IP',
+	})
 	async importCsv(
 		@Req() req: any,
 		@Param('clientId', new ParseUUIDPipe()) clientId: string,

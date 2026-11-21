@@ -61,6 +61,11 @@ export class OrganizationsController {
 		type: ErrorResponseDto,
 		description: 'ALREADY_OWNS_ORGANIZATION',
 	})
+	@ApiResponse({
+		status: 429,
+		type: ErrorResponseDto,
+		description: 'Limite de 5 criações por minuto por conta e por IP',
+	})
 	async create(
 		@Req() req: any,
 		@Body() body: CreateOrganizationDto

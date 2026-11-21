@@ -219,6 +219,17 @@ describe('AdvisorBffExceptionFilter', () => {
 		expect(Logger.prototype.error).toHaveBeenCalled();
 	});
 
+	it('logs only the class name and frames of an unknown error, never its message', () => {
+		run(new Error('smtp down for joao.silva@exemplo.com'));
+		const logged = (Logger.prototype.error as jest.Mock).mock.calls
+			.flat()
+			.join('\n');
+		expect(logged).toContain('Error');
+		expect(logged).toMatch(/\bat /);
+		expect(logged).not.toContain('joao.silva');
+		expect(logged).not.toContain('smtp down');
+	});
+
 	it('handles a thrown non-Error value as a 500', () => {
 		expect(run('boom').status).toBe(500);
 	});

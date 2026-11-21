@@ -65,12 +65,24 @@ export class AdvisorBffExceptionFilter implements ExceptionFilter {
 		}
 		this.logger.error(
 			'Unhandled error in the advisor BFF',
-			exception instanceof Error ? exception.stack : String(exception)
+			this.safeTrace(exception)
 		);
 		return {
 			statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
 			error: 'INTERNAL_SERVER_ERROR',
 		};
+	}
+
+	/**
+	 * A mensagem do erro pode carregar dado pessoal (e-mail de um provedor,
+	 * por exemplo): o log leva só a classe e os frames, sem a primeira linha.
+	 */
+	private safeTrace(exception: unknown): string {
+		if (!(exception instanceof Error)) return 'non-Error exception';
+		const frames = (exception.stack ?? '')
+			.split('\n')
+			.filter((line) => /^\s+at /.test(line));
+		return [exception.constructor.name, ...frames].join('\n');
 	}
 
 	private fromHttpException(exception: HttpException): ErrorBody {

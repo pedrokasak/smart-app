@@ -109,7 +109,7 @@ export class InvitesController {
 	@ApiResponse({
 		status: 429,
 		type: ErrorResponseDto,
-		description: 'Limite de 10 convites por 10 minutos por conta',
+		description: 'Limite de 10 convites por 10 minutos por conta e por IP',
 	})
 	async create(
 		@Req() req: any,
@@ -133,7 +133,7 @@ export class InvitesController {
 	@ApiResponse({
 		status: 429,
 		type: ErrorResponseDto,
-		description: 'Limite de 10 reenvios por 10 minutos por conta',
+		description: 'Limite de 10 reenvios por 10 minutos por conta e por IP',
 	})
 	async resend(
 		@Req() req: any,

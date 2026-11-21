@@ -301,7 +301,7 @@ describe('EndpointRateLimitMiddleware', () => {
 			).toBe(10);
 		});
 
-		it('keeps separate counters for two accounts on the same IP', async () => {
+		it('shares the IP bucket between two accounts on the same IP', async () => {
 			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
 			const ana = token('ana');
 			const bia = token('bia');
@@ -312,7 +312,7 @@ describe('EndpointRateLimitMiddleware', () => {
 				await allowedBeforeBlock(middleware, () =>
 					requestAs('POST', '/advisor/v1/invites', { token: bia })
 				)
-			).toBe(10);
+			).toBe(0);
 		});
 
 		it('counts by client when the token is invalid or forged', async () => {
@@ -322,9 +322,11 @@ describe('EndpointRateLimitMiddleware', () => {
 					userId: id,
 					type: 'access',
 				});
-			await allowedBeforeBlock(middleware, () =>
-				requestAs('POST', '/advisor/v1/invites', { token: forged('x') })
-			);
+			expect(
+				await allowedBeforeBlock(middleware, () =>
+					requestAs('POST', '/advisor/v1/invites', { token: forged('x') })
+				)
+			).toBe(10);
 			expect(
 				await allowedBeforeBlock(middleware, () =>
 					requestAs('POST', '/advisor/v1/invites', { token: forged('y') })
@@ -335,6 +337,133 @@ describe('EndpointRateLimitMiddleware', () => {
 					requestAs('POST', '/advisor/v1/invites/', { token: 'garbage' })
 				)
 			).toBe(0);
+		});
+
+		it('falls back to the IP bucket for an expired access token and a refresh token', async () => {
+			const expired = jwt.sign(
+				{ userId: 'ana', type: 'access' },
+				{ expiresIn: -1 }
+			);
+			const refresh = jwt.sign({ userId: 'bia', type: 'refresh' });
+			for (const bad of [expired, refresh]) {
+				const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
+				expect(
+					await allowedBeforeBlock(middleware, () =>
+						requestAs('POST', '/advisor/v1/invites', { token: bad })
+					)
+				).toBe(10);
+				// A valid token of another account on the same IP is blocked by
+				// the IP bucket, proving the bad token was counted by IP.
+				expect(
+					await allowedBeforeBlock(middleware, () =>
+						requestAs('POST', '/advisor/v1/invites', { token: token('cy') })
+					)
+				).toBe(0);
+			}
+		});
+
+		it('also counts an authenticated advisor request by IP', async () => {
+			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
+			let n = 0;
+			// Many accounts on one IP: the IP bucket stops them at 10 in total.
+			expect(
+				await allowedBeforeBlock(middleware, () =>
+					requestAs('POST', '/advisor/v1/invites', {
+						token: token(`user-${n++}`),
+					})
+				)
+			).toBe(10);
+		});
+
+		it('keeps the account bucket when one account changes IP', async () => {
+			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
+			const ana = token('ana');
+			let n = 0;
+			expect(
+				await allowedBeforeBlock(middleware, () =>
+					requestAs('POST', '/advisor/v1/invites', {
+						token: ana,
+						ip: `10.0.2.${n++}`,
+					})
+				)
+			).toBe(10);
+		});
+
+		it('counts mobile requests by account only, not by IP', async () => {
+			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
+			let n = 0;
+			expect(
+				await allowedBeforeBlock(
+					middleware,
+					() =>
+						requestAs('GET', '/mobile/v1/home', {
+							token: token(`user-${n++}`),
+						}),
+					40
+				)
+			).toBe(40);
+		});
+
+		it('ignores the case of the path for pattern and fallback keys', async () => {
+			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
+			const ana = token('ana');
+			const paths = [
+				'/advisor/v1/invites',
+				'/advisor/v1/INVITES',
+				'/Advisor/V1/Invites/',
+			];
+			expect(
+				await allowedBeforeBlock(middleware, (i) =>
+					requestAs('POST', paths[i % 3], { token: ana })
+				)
+			).toBe(10);
+
+			const anon = new EndpointRateLimitMiddleware();
+			const signin = ['/auth/signin', '/AUTH/SignIn', '/auth/SIGNIN'];
+			expect(
+				await allowedBeforeBlock(anon, (i) => requestAs('POST', signin[i % 3]))
+			).toBe(12);
+		});
+
+		it('answers 429 with the BFF error body and Retry-After under /advisor/v1', async () => {
+			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
+			const setHeader = jest.fn();
+			const ana = token('ana');
+			let thrown: HttpException | undefined;
+			for (let i = 0; i < 11 && !thrown; i += 1) {
+				try {
+					await middleware.use(
+						requestAs('POST', '/advisor/v1/invites', { token: ana }),
+						{ setHeader } as any,
+						jest.fn()
+					);
+				} catch (error) {
+					thrown = error as HttpException;
+				}
+			}
+			expect(thrown?.getStatus()).toBe(429);
+			expect(thrown?.getResponse()).toEqual({
+				statusCode: 429,
+				error: 'TOO_MANY_REQUESTS',
+			});
+			expect(setHeader).toHaveBeenCalledWith('Retry-After', expect.any(String));
+		});
+
+		it('keeps the plain message body outside /advisor/v1', async () => {
+			const middleware = new EndpointRateLimitMiddleware();
+			let thrown: HttpException | undefined;
+			for (let i = 0; i < 13 && !thrown; i += 1) {
+				try {
+					await middleware.use(
+						requestAs('POST', '/auth/signin'),
+						res,
+						jest.fn()
+					);
+				} catch (error) {
+					thrown = error as HttpException;
+				}
+			}
+			expect(typeof thrown?.getResponse()).toBe('string');
 		});
 
 		it.each([
