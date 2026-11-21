@@ -17,7 +17,11 @@
           "// cookies entre requests por padrao; sem limpar, o controller passa a",
           "// preferir o cookie acumulado sobre o refreshToken do body e os",
           "// cenarios de rotacao/reuso deixam de testar o que dizem testar.",
-          "pm.cookies.jar().clear(pm.variables.get('baseUrl'), function () {});"
+          "// `.clear` e assincrono e este sandbox nao aceita `await` no topo do",
+          "// script, nem espera a callback antes de disparar o request -- as duas",
+          "// tentativas anteriores falharam por isso. Sobrescrever o header",
+          "// Cookie direto (sincrono) evita o jar por completo.",
+          "pm.request.headers.upsert({key: 'Cookie', value: 'refresh_token='});"
         ]
       }
     }
