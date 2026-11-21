@@ -30,6 +30,10 @@ const DISCRIMINATED_ROUTES = new Set([
 	'POST:/auth/2fa/recovery-codes/consume',
 ]);
 
+/** BFFs autenticados, em que o contador é por conta e não por IP. */
+const ADVISOR_PREFIX = '/advisor/v1/';
+const ACCOUNT_COUNTED_PREFIXES = ['/mobile/v1/', ADVISOR_PREFIX];
+
 @Injectable()
 export class EndpointRateLimitMiddleware implements NestMiddleware {
 	private readonly defaultRule: RateLimitRule = {
@@ -128,6 +132,34 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 			pattern: /^\/me\/advisor-access\/invites\/decline\/?$/,
 			rule: { limit: 5, windowMs: 60_000 },
 		},
+		// Portal do assessor: contagem por conta (`accountUserOf`). Criar
+		// organização, enviar convite (e-mail) e importar CSV (parse em
+		// memória) são as rotas caras ou abusáveis. O id na rota (UUID) fica
+		// fora da chave, senão cada convite abriria um balde novo.
+		{
+			key: 'POST:/advisor/v1/organizations',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/organizations\/?$/,
+			rule: { limit: 5, windowMs: 60_000 },
+		},
+		{
+			key: 'POST:/advisor/v1/invites',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/invites\/?$/,
+			rule: { limit: 10, windowMs: 10 * 60_000 },
+		},
+		{
+			key: 'POST:/advisor/v1/invites/:id/resend',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/invites\/[^/]+\/resend\/?$/,
+			rule: { limit: 10, windowMs: 10 * 60_000 },
+		},
+		{
+			key: 'POST:/advisor/v1/clients/:id/imports',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/clients\/[^/]+\/imports\/?$/,
+			rule: { limit: 20, windowMs: 10 * 60_000 },
+		},
 	];
 
 	private readonly store: RateLimitStore;
@@ -159,29 +191,53 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 	 */
 	async use(req: Request, res: Response, next: NextFunction): Promise<void> {
 		const method = req.method.toUpperCase();
+		// O Express roteia sem diferenciar maiúsculas, mas `req.path` guarda a
+		// caixa do cliente: sem normalizar, `/Invites` e `/INVITES` cairiam no
+		// limite padrão, cada um com balde próprio.
+		const path = (req.path ?? '').toLowerCase();
 		const patternMatch = this.patternRules.find(
-			(entry) => entry.method === method && entry.pattern.test(req.path)
+			(entry) => entry.method === method && entry.pattern.test(path)
 		);
-		const routeKey = patternMatch?.key ?? `${method}:${req.path}`;
+		const routeKey = patternMatch?.key ?? `${method}:${path}`;
 		const rule = patternMatch?.rule || this.rules[routeKey] || this.defaultRule;
-		const fingerprint = this.buildFingerprint(req, routeKey);
-		const key = `${routeKey}:${fingerprint}`;
+		const account = this.accountUserOf(req, path);
+		const ipFingerprint = this.ipFingerprint(req, routeKey);
 
-		const hit = await this.store.hit(key, rule.windowMs);
+		// Portal do assessor: por conta E por IP (§5.2). No app só por conta.
+		const keys = account
+			? path.startsWith(ADVISOR_PREFIX)
+				? [`${routeKey}:user:${account}`, `${routeKey}:${ipFingerprint}`]
+				: [`${routeKey}:user:${account}`]
+			: [`${routeKey}:${ipFingerprint}`];
 
-		// FAIL OPEN. Sem contador não há decisão informada a tomar, e recusar
-		// tudo transformaria uma piscada do Redis em queda do login. Quem
-		// derrubar o armazenamento ganha uma janela sem limite: é o custo
-		// aceito, e o adaptador loga a degradação (uma vez, não por request).
-		if (hit.outcome === 'unavailable') {
-			return next();
+		let blocked = false;
+		let resetInMs = 0;
+		for (const key of keys) {
+			const hit = await this.store.hit(key, rule.windowMs);
+
+			// FAIL OPEN. Sem contador não há decisão informada a tomar, e
+			// recusar tudo transformaria uma piscada do Redis em queda do
+			// login. Quem derrubar o armazenamento ganha uma janela sem limite:
+			// é o custo aceito, e o adaptador loga a degradação (uma vez, não
+			// por request).
+			if (hit.outcome === 'unavailable') continue;
+			if (hit.count > rule.limit) {
+				blocked = true;
+				resetInMs = Math.max(resetInMs, hit.resetInMs);
+			}
 		}
 
-		if (hit.count > rule.limit) {
-			const retryAfterSeconds = Math.max(1, Math.ceil(hit.resetInMs / 1000));
+		if (blocked) {
+			const retryAfterSeconds = Math.max(1, Math.ceil(resetInMs / 1000));
 			res.setHeader('Retry-After', String(retryAfterSeconds));
+			// O BFF do assessor documenta o corpo de erro único do OpenAPI.
 			throw new HttpException(
-				`Rate limit excedido para este endpoint. Tente novamente em ${retryAfterSeconds}s.`,
+				path.startsWith(ADVISOR_PREFIX)
+					? {
+							statusCode: HttpStatus.TOO_MANY_REQUESTS,
+							error: 'TOO_MANY_REQUESTS',
+						}
+					: `Rate limit excedido para este endpoint. Tente novamente em ${retryAfterSeconds}s.`,
 				HttpStatus.TOO_MANY_REQUESTS
 			);
 		}
@@ -207,10 +263,7 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 	 * controlados pelo cliente, mas agora só ajudam a SEPARAR quem divide um
 	 * IP — não a escapar do próprio IP.
 	 */
-	private buildFingerprint(req: Request, routeKey: string): string {
-		const mobileUser = this.mobileUserOf(req);
-		if (mobileUser) return `user:${mobileUser}`;
-
+	private ipFingerprint(req: Request, routeKey: string): string {
 		const ip = req.ip || req.socket?.remoteAddress || 'unknown';
 		const userAgent = String(req.headers['user-agent'] || '').slice(0, 300);
 		const acceptLanguage = String(req.headers['accept-language'] || '').slice(
@@ -226,11 +279,17 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 
 	/**
 	 * No app, o user-agent é quase igual para todos, e operadoras móveis
-	 * compartilham IP. Rota do BFF com token válido conta por conta. Precisa
-	 * validar a assinatura: um token forjado escolheria o próprio contador.
+	 * compartilham IP; no portal do assessor, um escritório inteiro sai pelo
+	 * mesmo IP. Rota de BFF (`/mobile/v1/` e `/advisor/v1/`) com token válido
+	 * conta por conta. Precisa validar a assinatura: um token forjado
+	 * escolheria o próprio contador.
 	 */
-	private mobileUserOf(req: Request): string | null {
-		if (!this.jwtService || !req.path?.startsWith('/mobile/v1/')) return null;
+	private accountUserOf(req: Request, path: string): string | null {
+		if (
+			!this.jwtService ||
+			!ACCOUNT_COUNTED_PREFIXES.some((p) => path.startsWith(p))
+		)
+			return null;
 
 		const [scheme, token] = String(req.headers.authorization || '').split(' ');
 		if (scheme !== 'Bearer' || !token) return null;

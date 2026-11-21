@@ -16,6 +16,10 @@ export const ADVISOR_MEMBERSHIP_MODEL = 'AdvisorMembership';
 export const ADVISOR_RELATIONSHIP_MODEL = 'AdvisorRelationship';
 export const ADVISOR_CLIENT_PROFILE_MODEL = 'AdvisorClientProfile';
 
+/** Nomes dos índices únicos conferidos no erro 11000 dos stores. */
+export const ORGANIZATION_OWNER_INDEX = 'advisor_organization_owner_unique';
+export const MEMBERSHIP_USER_ORG_INDEX = 'advisor_membership_user_org';
+
 interface TimestampedDoc {
 	_id: string;
 	createdAt: Date;
@@ -26,6 +30,7 @@ export interface AdvisorOrganizationDoc extends TimestampedDoc {
 	name: string;
 	advisorType: AdvisorType;
 	plan?: string | null;
+	ownerUserId?: string | null;
 }
 
 export interface AdvisorMembershipDoc extends TimestampedDoc {
@@ -67,8 +72,18 @@ const organizationSchema = new Schema<AdvisorOrganizationDoc>(
 			required: true,
 		},
 		plan: { type: String },
+		ownerUserId: { type: String },
 	},
 	{ ...baseOptions, collection: 'advisor_organizations' }
+);
+// Uma organização por dono; organizações sem dono não entram no índice.
+organizationSchema.index(
+	{ ownerUserId: 1 },
+	{
+		unique: true,
+		name: ORGANIZATION_OWNER_INDEX,
+		partialFilterExpression: { ownerUserId: { $type: 'string' } },
+	}
 );
 
 const membershipSchema = new Schema<AdvisorMembershipDoc>(
@@ -83,7 +98,7 @@ const membershipSchema = new Schema<AdvisorMembershipDoc>(
 // Um vínculo por usuário e organização; também serve `findByUserAndOrg`.
 membershipSchema.index(
 	{ userId: 1, orgId: 1 },
-	{ unique: true, name: 'advisor_membership_user_org' }
+	{ unique: true, name: MEMBERSHIP_USER_ORG_INDEX }
 );
 // `findByUser` em ordem estável.
 membershipSchema.index(
@@ -119,6 +134,11 @@ relationshipSchema.index(
 relationshipSchema.index(
 	{ orgId: 1, clientProfileId: 1, createdAt: -1 },
 	{ name: 'advisor_relationship_org_client_recent' }
+);
+// `listByOrg`: filtro por org e status, ordem de criação decrescente.
+relationshipSchema.index(
+	{ orgId: 1, status: 1, createdAt: -1 },
+	{ name: 'advisor_relationship_org_status_created' }
 );
 
 const clientProfileSchema = new Schema<AdvisorClientProfileDoc>(

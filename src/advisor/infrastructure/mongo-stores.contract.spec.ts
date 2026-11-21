@@ -2,10 +2,16 @@ import { randomUUID } from 'crypto';
 import { Connection, createConnection } from 'mongoose';
 import {
 	describeAdvisorConsentStoreContract,
+	describeAdvisorPortalGrantStoreContract,
 	describeAdvisorPortfolioStoreContract,
 	describeAdvisorStoreContract,
 } from '../application/store-contract.fixture';
 import {
+	DuplicateMembershipError,
+	DuplicateOrganizationOwnerError,
+} from '../application/ports/store-errors';
+import {
+	AdvisorType,
 	ConsentStatus,
 	InviteStatus,
 	OrgRole,
@@ -39,7 +45,13 @@ import {
 	AdvisorTransactionDoc,
 	advisorPortfolioSchemas,
 } from './advisor-portfolio.models';
+import {
+	ADVISOR_PORTAL_GRANT_MODEL,
+	AdvisorPortalGrantDoc,
+	advisorPortalGrantSchema,
+} from './advisor-portal-grant.models';
 import { MongoAllocationTargetStore } from './mongo-allocation-target.store';
+import { MongoPortalGrantStore } from './mongo-portal-grant.store';
 import { MongoTransactionStore } from './mongo-transaction.store';
 import { assertDisposableDb, buildTestDbName } from './mongo-test-database';
 import { MongoClientProfileStore } from './mongo-client-profile.store';
@@ -74,6 +86,7 @@ describeMongo('advisor mongo stores', () => {
 		transactions: MongoTransactionStore;
 		targets: MongoAllocationTargetStore;
 	};
+	let portalGrants: MongoPortalGrantStore;
 
 	beforeAll(async () => {
 		conn = await createConnection(TEST_URI as string, {
@@ -116,6 +129,10 @@ describeMongo('advisor mongo stores', () => {
 			ADVISOR_CONSENT_MODEL,
 			advisorConsentSchemas.consent
 		);
+		const portalGrantModel = conn.model<AdvisorPortalGrantDoc>(
+			ADVISOR_PORTAL_GRANT_MODEL,
+			advisorPortalGrantSchema
+		);
 		// `syncIndexes` garante que os índices únicos existem antes dos testes.
 		await Promise.all(
 			[
@@ -128,8 +145,10 @@ describeMongo('advisor mongo stores', () => {
 				targetModel,
 				inviteModel,
 				consentModel,
+				portalGrantModel,
 			].map((m) => m.syncIndexes())
 		);
+		portalGrants = new MongoPortalGrantStore(portalGrantModel);
 		consentStores = {
 			invites: new MongoInviteStore(inviteModel),
 			consents: new MongoConsentStore(consentModel),
@@ -160,6 +179,7 @@ describeMongo('advisor mongo stores', () => {
 	describeAdvisorStoreContract('mongo', () => stores);
 	describeAdvisorPortfolioStoreContract('mongo', () => portfolioStores);
 	describeAdvisorConsentStoreContract('mongo', () => consentStores);
+	describeAdvisorPortalGrantStoreContract('mongo', () => portalGrants);
 
 	describe('indexes', () => {
 		it('rejects a duplicate membership for the same user and org', async () => {
@@ -168,7 +188,23 @@ describeMongo('advisor mongo stores', () => {
 			await stores.memberships.create({ userId, orgId, role: OrgRole.Advisor });
 			await expect(
 				stores.memberships.create({ userId, orgId, role: OrgRole.OrgAdmin })
-			).rejects.toMatchObject({ code: 11000 });
+			).rejects.toBeInstanceOf(DuplicateMembershipError);
+		});
+
+		it('rejects a second org for the same owner with the typed error, not E11000', async () => {
+			const ownerUserId = randomUUID();
+			await stores.orgs.create({
+				name: 'One',
+				advisorType: AdvisorType.Assessor,
+				ownerUserId,
+			});
+			await expect(
+				stores.orgs.create({
+					name: 'Two',
+					advisorType: AdvisorType.Assessor,
+					ownerUserId,
+				})
+			).rejects.toBeInstanceOf(DuplicateOrganizationOwnerError);
 		});
 
 		it('returns the existing ACTIVE relationship instead of creating a second', async () => {

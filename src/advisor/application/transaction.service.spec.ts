@@ -4,6 +4,7 @@ import { AuditEventInput } from 'src/audit/domain/audit-event';
 import {
 	AssetClass,
 	OrgRole,
+	ProfileOrigin,
 	Provenance,
 	TransactionSide,
 	TransactionSource,
@@ -12,6 +13,7 @@ import { TransactionInput } from '../domain/portfolio.entities';
 import { derivePositions } from '../domain/positions';
 import { AuthorizationService } from './authorization.service';
 import {
+	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
 	InMemoryTransactionStore,
@@ -58,13 +60,37 @@ describe('TransactionService', () => {
 
 	beforeEach(async () => {
 		const memberships = new InMemoryMembershipStore();
+		const profiles = new InMemoryClientProfileStore();
 		relationships = new InMemoryRelationshipStore();
 		rel = new RelationshipService(relationships);
 		audit = new FakeAuditTrail();
 		transactions = new InMemoryTransactionStore();
-		const authz = new AuthorizationService(memberships, relationships, audit);
+		const authz = new AuthorizationService(
+			memberships,
+			relationships,
+			profiles,
+			audit
+		);
 		service = new TransactionService(authz, transactions);
 		await memberships.create({ userId, orgId: 'orgA', role: OrgRole.Advisor });
+		profiles.seed({
+			id: 'clientA',
+			orgId: 'orgA',
+			name: 'clientA',
+			origin: ProfileOrigin.AdvisorCreated,
+		});
+		profiles.seed({
+			id: 'clientB',
+			orgId: 'orgB',
+			name: 'clientB',
+			origin: ProfileOrigin.AdvisorCreated,
+		});
+		profiles.seed({
+			id: 'clientC',
+			orgId: 'orgA',
+			name: 'clientC',
+			origin: ProfileOrigin.AdvisorCreated,
+		});
 		await rel.create('orgA', 'clientA');
 		await rel.create('orgB', 'clientB');
 	});

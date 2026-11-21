@@ -7,9 +7,15 @@ import { canAccessClient, isAllowedRole } from '../domain/access-policy';
 import { Membership } from '../domain/entities';
 import { ClientAction } from '../domain/enums';
 import {
+	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_MEMBERSHIP_STORE,
 	ADVISOR_RELATIONSHIP_STORE,
 } from './advisor.tokens';
+import {
+	ClientActionForbiddenError,
+	ClientNotAccessibleError,
+} from './access-errors';
+import type { ClientProfileStorePort } from './ports/client-profile.store.port';
 import type { MembershipStorePort } from './ports/membership.store.port';
 import type { RelationshipStorePort } from './ports/relationship.store.port';
 
@@ -27,13 +33,15 @@ export class AuthorizationService {
 		private readonly memberships: MembershipStorePort,
 		@Inject(ADVISOR_RELATIONSHIP_STORE)
 		private readonly relationships: RelationshipStorePort,
+		@Inject(ADVISOR_CLIENT_PROFILE_STORE)
+		private readonly profiles: ClientProfileStorePort,
 		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail
 	) {}
 
 	/**
 	 * Resolves the membership strictly in ctx.orgId (no fallback to another
-	 * org) and the relationship for (orgId, client), then applies the access
-	 * policy. Denial throws without auditing; success is audited and, if the
+	 * org), the relationship for (orgId, client) and the client profile (which
+	 * must belong to ctx.orgId), then applies the access policy. Denial throws without auditing; success is audited and, if the
 	 * audit cannot be written, the access is refused too (fail closed).
 	 */
 	async ensureCanAccessClient(
@@ -41,19 +49,20 @@ export class AuthorizationService {
 		clientProfileId: string,
 		action: ClientAction
 	): Promise<void> {
-		const [membership, relationship] = await Promise.all([
+		const [membership, relationship, profile] = await Promise.all([
 			this.memberships.findByUserAndOrg(ctx.userId, ctx.orgId),
 			this.relationships.findByOrgAndClient(ctx.orgId, clientProfileId),
+			this.profiles.findById(clientProfileId),
 		]);
 
-		const allowed = canAccessClient({
+		const decision = canAccessClient({
 			membership: membership ?? undefined,
 			relationship: relationship ?? undefined,
+			profileOrigin: profile?.orgId === ctx.orgId ? profile.origin : undefined,
 			action,
 		});
-		if (!allowed) {
-			throw new ForbiddenException('Access to this client is not allowed');
-		}
+		if (decision === 'NOT_ACCESSIBLE') throw new ClientNotAccessibleError();
+		if (decision === 'ACTION_FORBIDDEN') throw new ClientActionForbiddenError();
 
 		await this.audit.record({
 			eventId: randomUUID(),

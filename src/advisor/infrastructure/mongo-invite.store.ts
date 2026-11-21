@@ -52,6 +52,16 @@ export class MongoInviteStore implements InviteStorePort {
 		return docs.map(toClientInvite);
 	}
 
+	async listPendingByOrg(orgId: string, now: Date): Promise<ClientInvite[]> {
+		const docs = await this.invites
+			.find({ orgId, status: InviteStatus.Pending, expiresAt: { $gt: now } })
+			.sort({ createdAt: -1, _id: -1 })
+			.limit(200)
+			.lean<AdvisorClientInviteDoc[]>()
+			.exec();
+		return docs.map(toClientInvite);
+	}
+
 	/** Um único `findOneAndUpdate` com PENDING no filtro: só um chamador ganha. */
 	async transition(
 		id: string,

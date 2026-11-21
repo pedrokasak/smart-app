@@ -1,7 +1,9 @@
 import { AdminAnalyticsService } from './admin-analytics.service';
+import { AdminAdvisorPortalController } from './admin-advisor-portal.controller';
 import { AdminPromotionsController } from './admin-promotions.controller';
 import { AdminPromotionsService } from './application/admin-promotions.service';
 import { Module } from '@nestjs/common';
+import { AdvisorModule } from 'src/advisor/advisor.module';
 import { MongooseModule } from '@nestjs/mongoose';
 import { SubscriptionModule } from 'src/subscription/subscription.module';
 import {
@@ -27,8 +29,14 @@ import { EmailModule } from 'src/notifications/email/email.module';
 		]),
 		SubscriptionModule,
 		EmailModule,
+		// `PortalAccessService` para a liberação do portal do assessor (P3a).
+		AdvisorModule,
 	],
-	controllers: [AdminController, AdminPromotionsController],
+	controllers: [
+		AdminController,
+		AdminPromotionsController,
+		AdminAdvisorPortalController,
+	],
 	providers: [
 		AdminService,
 		AdminRoleService,

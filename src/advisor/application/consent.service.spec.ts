@@ -22,6 +22,7 @@ import {
 	CONSENT_REVOKED_EVENT,
 	ConsentService,
 	INVITE_DECLINED_EVENT,
+	ConsentTextChangedError,
 	InvalidPortfolioSelectionError,
 	InviteNotFoundError,
 } from './consent.service';
@@ -120,7 +121,12 @@ describe('ConsentService', () => {
 		source.add(OTHER_INVESTOR, { id: 'p9', name: 'Da Maria' });
 
 		const relationshipService = new RelationshipService(relationships);
-		authz = new AuthorizationService(memberships, relationships, audit);
+		authz = new AuthorizationService(
+			memberships,
+			relationships,
+			profiles,
+			audit
+		);
 		inviteService = new InviteService(
 			authz,
 			relationshipService,
@@ -419,6 +425,50 @@ describe('ConsentService', () => {
 			);
 			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Pending);
 			expect(await consents.listByRelationship(inv.relationshipId)).toEqual([]);
+		});
+
+		it('accepts when the consent text version is the current one', async () => {
+			const inv = await invited();
+			const grant = await service.acceptInvite(
+				INVESTOR,
+				inv.token,
+				['p1'],
+				CONSENT_TEXT_VERSION
+			);
+			expect(grant.consentVersion).toBe(1);
+		});
+
+		it('treats a null consent text version as not sent', async () => {
+			const inv = await invited();
+			const grant = await service.acceptInvite(
+				INVESTOR,
+				inv.token,
+				['p1'],
+				null as unknown as string
+			);
+			expect(grant.consentVersion).toBe(1);
+		});
+
+		it('refuses an outdated consent text version before any write', async () => {
+			const inv = await invited();
+			const before = await snapshot(inv);
+
+			const error = await errorOf(
+				service.acceptInvite(INVESTOR, inv.token, ['p1'], '2025-01-01')
+			);
+
+			expect(error).toBeInstanceOf(ConsentTextChangedError);
+			expect((error as ConsentTextChangedError).getStatus()).toBe(409);
+			expect((error as ConsentTextChangedError).getResponse()).toMatchObject({
+				reason: 'CONSENT_TEXT_CHANGED',
+			});
+			expect(await snapshot(inv)).toBe(before);
+			expect((await invites.findById(inv.orgId, inv.inviteId)).status).toBe(
+				InviteStatus.Pending
+			);
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Pending);
+			expect(await consents.listByRelationship(inv.relationshipId)).toEqual([]);
+			expect(audit.ofType(CONSENT_GRANTED_EVENT)).toEqual([]);
 		});
 
 		it('rejects an empty selection', async () => {

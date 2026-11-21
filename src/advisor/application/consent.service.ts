@@ -68,6 +68,18 @@ export class InvalidPortfolioSelectionError extends UnprocessableEntityException
 	}
 }
 
+/** The investor read an outdated consent text: reload the preview first. */
+export class ConsentTextChangedError extends ConflictException {
+	constructor() {
+		super({
+			statusCode: 409,
+			error: 'CONSENT_TEXT_CHANGED',
+			reason: 'CONSENT_TEXT_CHANGED',
+			message: 'The consent text changed; review it again before accepting',
+		});
+	}
+}
+
 export interface InvitePreview {
 	organizationName: string;
 	advisorType: AdvisorType;
@@ -155,9 +167,17 @@ export class ConsentService {
 	async acceptInvite(
 		userId: string,
 		token: string,
-		portfolioIds: string[]
+		portfolioIds: string[],
+		consentTextVersion?: string
 	): Promise<AccessGrant> {
 		const invite = await this.openInvite(userId, token);
+		if (
+			consentTextVersion !== undefined &&
+			consentTextVersion !== null &&
+			consentTextVersion !== CONSENT_TEXT_VERSION
+		) {
+			throw new ConsentTextChangedError();
+		}
 		const selected = await this.validSelection(userId, portfolioIds);
 		await this.ensureNotLinked(userId, invite.orgId);
 		const org = await this.orgOfInvite(invite);

@@ -52,6 +52,22 @@ describe('advisor doc to entity mappers', () => {
 		expect('plan' in result).toBe(false);
 	});
 
+	it('organization: maps ownerUserId and omits it when absent', () => {
+		const base = {
+			_id: 'o1',
+			name: 'Acme',
+			advisorType: AdvisorType.Assessor,
+			createdAt: now,
+			updatedAt: now,
+		};
+		expect(toOrganization({ ...base, ownerUserId: 'u1' }).ownerUserId).toBe(
+			'u1'
+		);
+		expect(
+			'ownerUserId' in toOrganization({ ...base, ownerUserId: null })
+		).toBe(false);
+	});
+
 	it('membership: maps fields', () => {
 		expect(
 			toMembership({

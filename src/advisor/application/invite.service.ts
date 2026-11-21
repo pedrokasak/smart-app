@@ -18,6 +18,7 @@ import {
 	MAX_INVITE_RESENDS,
 	normalizeEmail,
 } from '../domain/invite-rules';
+import { normalizeDisplayName } from '../domain/display-name';
 import { InviteStatus, ProfileOrigin } from '../domain/enums';
 import {
 	ADVISOR_CLIENT_PROFILE_STORE,
@@ -72,10 +73,11 @@ export class InviteService {
 
 		const email = normalizeEmail(input.email ?? '');
 		if (!isValidEmail(email)) throw new InvalidInviteError('INVALID_EMAIL');
-		const clientName = (input.clientName ?? '').trim();
-		if (clientName.length < 1 || clientName.length > MAX_CLIENT_NAME_LENGTH) {
-			throw new InvalidInviteError('INVALID_NAME');
-		}
+		const clientName = normalizeDisplayName(input.clientName, {
+			min: 1,
+			max: MAX_CLIENT_NAME_LENGTH,
+		});
+		if (clientName === null) throw new InvalidInviteError('INVALID_NAME');
 
 		await this.assertNoLivePendingInvite(ctx.orgId, email);
 		const orgName = await this.orgNameOf(ctx.orgId);

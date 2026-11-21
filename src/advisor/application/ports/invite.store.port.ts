@@ -11,6 +11,11 @@ export interface InviteStorePort {
 		email: string
 	): Promise<ClientInvite[]>;
 	/**
+	 * Convites PENDING da organização ainda dentro do prazo
+	 * (`expiresAt > now`), mais recente primeiro, até 200.
+	 */
+	listPendingByOrg(orgId: string, now: Date): Promise<ClientInvite[]>;
+	/**
 	 * Atômico: só muda se o status atual for PENDING. Devolve o convite
 	 * atualizado (com `respondedAt = at`) ou null.
 	 */

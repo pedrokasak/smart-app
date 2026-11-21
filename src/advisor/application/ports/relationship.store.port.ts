@@ -1,4 +1,17 @@
 import { AdvisoryRelationship } from '../../domain/entities';
+import { RelationshipStatus } from '../../domain/enums';
+
+export interface ListRelationshipsQuery {
+	statuses: RelationshipStatus[];
+	/** Cursor opaco devolvido por uma página anterior. */
+	cursor?: string;
+	limit: number;
+}
+
+export interface RelationshipPage {
+	items: AdvisoryRelationship[];
+	nextCursor: string | null;
+}
 
 export interface RelationshipStorePort {
 	/** Persiste a relação de assessoria; o store gera o id. */
@@ -27,6 +40,15 @@ export interface RelationshipStorePort {
 		id: string,
 		consentId: string
 	): Promise<AdvisoryRelationship | null>;
+	/**
+	 * Página das relações da organização nos status pedidos, `createdAt`
+	 * decrescente com desempate por id. O cursor codifica (createdAt, id) em
+	 * base64url; `nextCursor` é null na última página.
+	 */
+	listByOrg(
+		orgId: string,
+		query: ListRelationshipsQuery
+	): Promise<RelationshipPage>;
 	/** LGPD: as relações ACTIVE desses perfis (lista vazia => vazio). */
 	listActiveByClientProfiles(
 		clientProfileIds: string[]

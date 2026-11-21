@@ -1,7 +1,10 @@
 import { Membership } from '../../domain/entities';
 
 export interface MembershipStorePort {
-	/** Persiste o vínculo usuário-organização; o store gera o id. */
+	/**
+	 * Persiste o vínculo usuário-organização; o store gera o id. Par
+	 * (userId, orgId) repetido lança `DuplicateMembershipError`.
+	 */
 	create(membership: Omit<Membership, 'id'>): Promise<Membership>;
 	/** Ordem estável: `createdAt` crescente, desempate por id. */
 	findByUser(userId: string): Promise<Membership[]>;

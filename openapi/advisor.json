@@ -1,0 +1,3147 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/advisor/v1/organizations": {
+      "post": {
+        "operationId": "OrganizationsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateOrganizationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/OrganizationResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_NAME (em branco, fora do tamanho ou com caractere de controle) ou VALIDATION_FAILED (corpo ou query fora do formato), como advisorType fora do enum",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "EMAIL_NOT_VERIFIED ou PLAN_CAPABILITY_REQUIRED (sem acesso ao portal)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ALREADY_OWNS_ORGANIZATION",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 5 criações por minuto por conta e por IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Cria a organização do usuário (uma por dono)",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/me/organizations": {
+      "get": {
+        "operationId": "OrganizationsController_listMine",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/OrganizationResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "PLAN_CAPABILITY_REQUIRED (sem acesso ao portal)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Lista as organizações do usuário",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients": {
+      "get": {
+        "operationId": "ClientsController_list",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Cursor opaco da página anterior",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "OPEN = relações ACTIVE e PENDING; REVOKED = encerradas",
+            "schema": {
+              "default": "OPEN",
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "REVOKED"
+              ]
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientPageResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): status ou limit; INVALID_CURSOR",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Lista os clientes da organização",
+        "tags": [
+          "advisor-bff"
+        ]
+      },
+      "post": {
+        "operationId": "ClientsController_create",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateClientDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientSummaryResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_NAME (em branco, acima de 120 caracteres ou com caractere de controle) ou VALIDATION_FAILED (corpo ou query fora do formato)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Cria um cliente (ADVISOR_CREATED) na org",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}": {
+      "get": {
+        "operationId": "ClientsController_detail",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ClientDetailResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Cliente com o patrimônio somado, uma parte por origem",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}/transactions": {
+      "get": {
+        "operationId": "ClientsController_listTransactions",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Cursor opaco da página anterior",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionPageResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): limit; INVALID_CURSOR; id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Livro de transações lançado pelo assessor",
+        "tags": [
+          "advisor-bff"
+        ]
+      },
+      "post": {
+        "operationId": "ClientsController_addTransaction",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateTransactionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TransactionResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato) ou id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "INVALID_TRANSACTION (details.errors) ou OVERSELL (details.symbol, details.tradeDate)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Lançamento manual",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}/transactions/{transactionId}": {
+      "delete": {
+        "operationId": "ClientsController_removeTransaction",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "transactionId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "OVERSELL: remover deixaria uma venda sem saldo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Remove um lançamento manual",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}/positions": {
+      "get": {
+        "operationId": "ClientsController_positions",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionsResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Posições da carteira lançada pelo assessor",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}/imports": {
+      "post": {
+        "operationId": "ClientsController_importCsv",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/ImportCsvBodyDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "FILE_REQUIRED, campo ou parte além do arquivo (sem reason) ou id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "DUPLICATE_IMPORT: o mesmo arquivo já foi importado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "FILE_TOO_LARGE (acima de 1 MB)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "415": {
+            "description": "UNSUPPORTED_FILE_TYPE (só text/csv e text/plain)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "CSV_REJECTED: details.errors com as linhas { line, code }",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 20 imports por 10 minutos por conta e por IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Importa um CSV de transações",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}/imports/{importBatchId}": {
+      "delete": {
+        "operationId": "ClientsController_revertImport",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "importBatchId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RevertImportResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "OVERSELL: desfazer deixaria uma venda sem saldo",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Desfaz um import",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}/allocation-target": {
+      "get": {
+        "operationId": "ClientsController_getTarget",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllocationTargetResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Meta de alocação (nula se ainda não definida)",
+        "tags": [
+          "advisor-bff"
+        ]
+      },
+      "put": {
+        "operationId": "ClientsController_setTarget",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetAllocationTargetDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AllocationTargetResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato) ou id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "reason EMPTY_TARGET, UNKNOWN_ASSET_CLASS, INVALID_VALUE, VALUE_OUT_OF_RANGE ou SUM_NOT_100",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Define a meta de alocação",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}/metrics": {
+      "get": {
+        "operationId": "ClientsController_getMetrics",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MetricsResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente, lançamento ou lote inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Métricas da carteira lançada pelo assessor",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}/shared-portfolios": {
+      "get": {
+        "operationId": "ClientsController_listShared",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SharedPortfolioResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente inexistente ou de outra org, cliente criado pelo assessor ou sem consentimento ativo. Use hasSharedPortfolios da listagem para saber se há carteira compartilhada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Carteiras que o cliente compartilhou (leitura)",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}/shared-portfolios/metrics": {
+      "get": {
+        "operationId": "ClientsController_sharedMetrics",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SharedPortfolioMetricsResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente inexistente ou de outra org, cliente criado pelo assessor ou sem consentimento ativo. Use hasSharedPortfolios da listagem para saber se há carteira compartilhada",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Métricas das carteiras compartilhadas",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/invites": {
+      "get": {
+        "operationId": "InvitesController_list",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PendingInviteResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Lista os convites pendentes da organização",
+        "tags": [
+          "advisor-bff"
+        ]
+      },
+      "post": {
+        "operationId": "InvitesController_create",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateInviteResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_EMAIL, INVALID_NAME (em branco, acima de 120 caracteres ou com caractere de controle) ou VALIDATION_FAILED (corpo ou query fora do formato)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Convite inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "PENDING_INVITE: já há convite ativo para este e-mail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 10 convites por 10 minutos por conta e por IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Cria um convite e envia o e-mail",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/invites/{inviteId}/resend": {
+      "post": {
+        "operationId": "InvitesController_resend",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "inviteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResendInviteResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Convite inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "RESEND_LIMIT ou NOT_PENDING",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 10 reenvios por 10 minutos por conta e por IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Reenvia o convite com um novo link",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/invites/{inviteId}": {
+      "delete": {
+        "operationId": "InvitesController_cancel",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "inviteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Convite inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "NOT_PENDING: o convite já foi respondido ou cancelado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Cancela um convite pendente",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "Trackerr Advisor API",
+    "description": "The TrackerInvest API description",
+    "version": "1.0.0",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "tracker-invest-api",
+      "description": ""
+    }
+  ],
+  "servers": [],
+  "components": {
+    "securitySchemes": {
+      "access-token": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http"
+      },
+      "basic": {
+        "type": "http",
+        "scheme": "basic"
+      }
+    },
+    "schemas": {
+      "ErrorResponseDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 404
+          },
+          "error": {
+            "type": "string",
+            "example": "NOT_FOUND"
+          },
+          "reason": {
+            "type": "string",
+            "example": "ALREADY_OWNS_ORGANIZATION"
+          },
+          "details": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Detalhes tipados por `reason`: `{ errors }` para CSV_REJECTED e INVALID_TRANSACTION; `{ symbol, tradeDate }` para OVERSELL."
+          }
+        },
+        "required": [
+          "statusCode",
+          "error"
+        ]
+      },
+      "CreateOrganizationDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 120
+          },
+          "advisorType": {
+            "type": "string",
+            "enum": [
+              "ASSESSOR",
+              "CONSULTOR"
+            ]
+          }
+        },
+        "required": [
+          "name",
+          "advisorType"
+        ]
+      },
+      "OrganizationResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "advisorType": {
+            "type": "string",
+            "enum": [
+              "ASSESSOR",
+              "CONSULTOR"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ORG_ADMIN",
+              "ADVISOR"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "advisorType",
+          "role"
+        ]
+      },
+      "ClientSummaryResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "ADVISOR_CREATED",
+              "CLIENT_CREATED"
+            ]
+          },
+          "relationshipStatus": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PENDING",
+              "REVOKED"
+            ]
+          },
+          "hasSharedPortfolios": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "origin",
+          "relationshipStatus",
+          "hasSharedPortfolios"
+        ]
+      },
+      "ClientPageResponseDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ClientSummaryResponseDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "CreateClientDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "WealthPartResponseDto": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "enum": [
+              "ADVISOR_LEDGER",
+              "B2C_SHARED"
+            ]
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "PARTIAL",
+              "MANUAL"
+            ],
+            "nullable": true
+          },
+          "valueMinor": {
+            "type": "number",
+            "nullable": true,
+            "description": "Valor de mercado em centavos; nulo se a parte falhou"
+          },
+          "unavailableReason": {
+            "type": "string",
+            "enum": [
+              "METRICS_UNAVAILABLE"
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "provenance",
+          "valueMinor"
+        ]
+      },
+      "WealthResponseDto": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "enum": [
+              "BRL"
+            ]
+          },
+          "asOf": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "totalMinor": {
+            "type": "number",
+            "nullable": true,
+            "description": "Soma das partes com valor, em centavos; nulo se nenhuma tiver valor"
+          },
+          "totalIsPartial": {
+            "type": "boolean",
+            "description": "Alguma parte ficou fora da soma"
+          },
+          "parts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/WealthPartResponseDto"
+            }
+          }
+        },
+        "required": [
+          "currency",
+          "asOf",
+          "totalMinor",
+          "totalIsPartial",
+          "parts"
+        ]
+      },
+      "ClientDetailResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "origin": {
+            "type": "string",
+            "enum": [
+              "ADVISOR_CREATED",
+              "CLIENT_CREATED"
+            ]
+          },
+          "relationshipStatus": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "PENDING",
+              "REVOKED"
+            ]
+          },
+          "hasSharedPortfolios": {
+            "type": "boolean"
+          },
+          "wealth": {
+            "$ref": "#/components/schemas/WealthResponseDto"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "origin",
+          "relationshipStatus",
+          "hasSharedPortfolios",
+          "wealth"
+        ]
+      },
+      "TransactionResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "symbol": {
+            "type": "string"
+          },
+          "assetClass": {
+            "type": "string",
+            "enum": [
+              "STOCK",
+              "FII",
+              "ETF",
+              "CRYPTO",
+              "FUND",
+              "FIXED_INCOME",
+              "OTHER"
+            ]
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ]
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "unitPriceMinor": {
+            "type": "number"
+          },
+          "feesMinor": {
+            "type": "number"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "tradeDate": {
+            "type": "string",
+            "description": "AAAA-MM-DD"
+          },
+          "liquidityDays": {
+            "type": "number"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "MANUAL"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "MANUAL_ENTRY",
+              "CSV_IMPORT"
+            ]
+          },
+          "importBatchId": {
+            "type": "string",
+            "description": "Lote de importação, se veio de CSV"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "symbol",
+          "assetClass",
+          "side",
+          "quantity",
+          "unitPriceMinor",
+          "feesMinor",
+          "currency",
+          "tradeDate",
+          "provenance",
+          "source",
+          "createdAt"
+        ]
+      },
+      "TransactionPageResponseDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TransactionResponseDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "CreateTransactionDto": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string",
+            "example": "PETR4"
+          },
+          "assetClass": {
+            "type": "string",
+            "enum": [
+              "STOCK",
+              "FII",
+              "ETF",
+              "CRYPTO",
+              "FUND",
+              "FIXED_INCOME",
+              "OTHER"
+            ]
+          },
+          "side": {
+            "type": "string",
+            "enum": [
+              "BUY",
+              "SELL"
+            ]
+          },
+          "quantity": {
+            "type": "number",
+            "example": 10
+          },
+          "unitPriceMinor": {
+            "type": "number",
+            "description": "Preço unitário em centavos",
+            "example": 3550
+          },
+          "feesMinor": {
+            "type": "number",
+            "description": "Taxas em centavos",
+            "example": 0
+          },
+          "currency": {
+            "type": "string",
+            "example": "BRL"
+          },
+          "tradeDate": {
+            "type": "string",
+            "description": "AAAA-MM-DD",
+            "example": "2026-03-02"
+          },
+          "liquidityDays": {
+            "type": "number",
+            "description": "Dias para liquidar a posição"
+          }
+        },
+        "required": [
+          "symbol",
+          "assetClass",
+          "side",
+          "quantity",
+          "unitPriceMinor",
+          "feesMinor",
+          "currency",
+          "tradeDate"
+        ]
+      },
+      "PositionResponseDto": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "assetClass": {
+            "type": "string",
+            "enum": [
+              "STOCK",
+              "FII",
+              "ETF",
+              "CRYPTO",
+              "FUND",
+              "FIXED_INCOME",
+              "OTHER"
+            ]
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "costMinor": {
+            "type": "number",
+            "description": "Custo em centavos"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "MANUAL"
+            ]
+          },
+          "liquidityDays": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol",
+          "assetClass",
+          "quantity",
+          "costMinor",
+          "provenance"
+        ]
+      },
+      "PositionsResponseDto": {
+        "type": "object",
+        "properties": {
+          "positions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PositionResponseDto"
+            }
+          },
+          "inconsistencies": {
+            "description": "Símbolos cujo livro é inconsistente (venda sem saldo)",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "positions",
+          "inconsistencies"
+        ]
+      },
+      "ImportCsvBodyDto": {
+        "type": "object",
+        "properties": {
+          "file": {
+            "type": "string",
+            "format": "binary",
+            "description": "CSV (text/csv ou text/plain), UTF-8, até 1 MB"
+          }
+        },
+        "required": [
+          "file"
+        ]
+      },
+      "ImportResponseDto": {
+        "type": "object",
+        "properties": {
+          "importBatchId": {
+            "type": "string"
+          },
+          "imported": {
+            "type": "number",
+            "description": "Linhas gravadas"
+          }
+        },
+        "required": [
+          "importBatchId",
+          "imported"
+        ]
+      },
+      "RevertImportResponseDto": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "number",
+            "description": "Transações removidas do livro"
+          }
+        },
+        "required": [
+          "removed"
+        ]
+      },
+      "AllocationTargetResponseDto": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "nullable": true,
+            "description": "Percentual por classe de ativo (STOCK, FII, ETF, CRYPTO, FUND, FIXED_INCOME, OTHER); a soma é 100"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "targets",
+          "updatedAt"
+        ]
+      },
+      "SetAllocationTargetDto": {
+        "type": "object",
+        "properties": {
+          "targets": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            },
+            "description": "Percentual por classe de ativo (STOCK, FII, ETF, CRYPTO, FUND, FIXED_INCOME, OTHER); a soma é 100",
+            "example": {
+              "STOCK": 60,
+              "FII": 40
+            }
+          }
+        },
+        "required": [
+          "targets"
+        ]
+      },
+      "ValuedPositionDto": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "assetClass": {
+            "type": "string",
+            "enum": [
+              "STOCK",
+              "FII",
+              "ETF",
+              "CRYPTO",
+              "FUND",
+              "FIXED_INCOME",
+              "OTHER"
+            ]
+          },
+          "quantity": {
+            "type": "number"
+          },
+          "costMinor": {
+            "type": "number",
+            "description": "Centavos"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "MANUAL"
+            ]
+          },
+          "liquidityDays": {
+            "type": "number"
+          },
+          "marketValueMinor": {
+            "type": "number",
+            "description": "A mercado; sem cotação, o custo (centavos)"
+          },
+          "priced": {
+            "type": "boolean"
+          },
+          "weightPct": {
+            "type": "number",
+            "description": "0-100, sobre o total"
+          }
+        },
+        "required": [
+          "symbol",
+          "assetClass",
+          "quantity",
+          "costMinor",
+          "provenance",
+          "marketValueMinor",
+          "priced",
+          "weightPct"
+        ]
+      },
+      "TopWeightDto": {
+        "type": "object",
+        "properties": {
+          "symbol": {
+            "type": "string"
+          },
+          "weightPct": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "symbol",
+          "weightPct"
+        ]
+      },
+      "ConcentrationDto": {
+        "type": "object",
+        "properties": {
+          "hhi": {
+            "type": "number",
+            "nullable": true
+          },
+          "effectiveAssets": {
+            "type": "number",
+            "nullable": true
+          },
+          "top": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TopWeightDto"
+            }
+          }
+        },
+        "required": [
+          "hhi",
+          "effectiveAssets",
+          "top"
+        ]
+      },
+      "AllocationDto": {
+        "type": "object",
+        "properties": {
+          "current": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Percentual atual por classe de ativo"
+          },
+          "target": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "nullable": true
+          },
+          "driftPp": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "nullable": true,
+            "description": "Desvio atual menos meta, em pontos percentuais"
+          }
+        },
+        "required": [
+          "current",
+          "target",
+          "driftPp"
+        ]
+      },
+      "PerformanceDto": {
+        "type": "object",
+        "properties": {
+          "twr": {
+            "type": "number",
+            "nullable": true
+          },
+          "twrAnnualized": {
+            "type": "number",
+            "nullable": true
+          },
+          "mwr": {
+            "type": "number",
+            "nullable": true
+          },
+          "mwrAnnualized": {
+            "type": "number",
+            "nullable": true
+          },
+          "measuredFrom": {
+            "type": "string",
+            "nullable": true
+          },
+          "measuredTo": {
+            "type": "string",
+            "nullable": true
+          },
+          "observations": {
+            "type": "number"
+          },
+          "coveragePct": {
+            "type": "number",
+            "description": "0-100"
+          },
+          "unavailable": {
+            "type": "string",
+            "enum": [
+              "NO_TRANSACTIONS",
+              "INCONSISTENT_LEDGER",
+              "NO_PRICED_POSITIONS",
+              "INSUFFICIENT_HISTORY"
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "twr",
+          "twrAnnualized",
+          "mwr",
+          "mwrAnnualized",
+          "measuredFrom",
+          "measuredTo",
+          "observations",
+          "coveragePct",
+          "unavailable"
+        ]
+      },
+      "Var95Dto": {
+        "type": "object",
+        "properties": {
+          "pct": {
+            "type": "number"
+          },
+          "amountMinor": {
+            "type": "number",
+            "description": "Centavos"
+          },
+          "horizonDays": {
+            "type": "number",
+            "enum": [
+              21
+            ]
+          }
+        },
+        "required": [
+          "pct",
+          "amountMinor",
+          "horizonDays"
+        ]
+      },
+      "RiskDto": {
+        "type": "object",
+        "properties": {
+          "volatilityAnnualized": {
+            "type": "number",
+            "nullable": true
+          },
+          "maxDrawdown": {
+            "type": "number",
+            "nullable": true
+          },
+          "drawdownPeakDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "drawdownTroughDate": {
+            "type": "string",
+            "nullable": true
+          },
+          "var95": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/Var95Dto"
+              }
+            ]
+          },
+          "unavailable": {
+            "type": "string",
+            "enum": [
+              "NO_TRANSACTIONS",
+              "INCONSISTENT_LEDGER",
+              "NO_PRICED_POSITIONS",
+              "INSUFFICIENT_HISTORY"
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "volatilityAnnualized",
+          "maxDrawdown",
+          "drawdownPeakDate",
+          "drawdownTroughDate",
+          "var95",
+          "unavailable"
+        ]
+      },
+      "BenchmarkDto": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "enum": [
+              "CDI",
+              "IBOV",
+              "IPCA"
+            ]
+          },
+          "periodReturn": {
+            "type": "number",
+            "nullable": true
+          },
+          "excess": {
+            "type": "number",
+            "nullable": true
+          }
+        },
+        "required": [
+          "key",
+          "periodReturn",
+          "excess"
+        ]
+      },
+      "MetricsWarningsDto": {
+        "type": "object",
+        "properties": {
+          "unpricedSymbols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "ledgerInconsistencies": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "noHistorySymbols": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "unpricedSymbols",
+          "ledgerInconsistencies",
+          "noHistorySymbols"
+        ]
+      },
+      "MetricsResponseDto": {
+        "type": "object",
+        "properties": {
+          "asOf": {
+            "type": "string",
+            "description": "AAAA-MM-DD"
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "BRL"
+            ]
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "PARTIAL",
+              "MANUAL"
+            ],
+            "nullable": true
+          },
+          "totalValueMinor": {
+            "type": "number",
+            "description": "Centavos"
+          },
+          "positions": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ValuedPositionDto"
+            }
+          },
+          "concentration": {
+            "$ref": "#/components/schemas/ConcentrationDto"
+          },
+          "liquidity": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "number"
+            },
+            "description": "Percentual por faixa: D0, D1_2, D3_30, D31_PLUS, UNKNOWN"
+          },
+          "allocation": {
+            "$ref": "#/components/schemas/AllocationDto"
+          },
+          "performance": {
+            "$ref": "#/components/schemas/PerformanceDto"
+          },
+          "risk": {
+            "$ref": "#/components/schemas/RiskDto"
+          },
+          "benchmarks": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BenchmarkDto"
+            }
+          },
+          "warnings": {
+            "$ref": "#/components/schemas/MetricsWarningsDto"
+          }
+        },
+        "required": [
+          "asOf",
+          "currency",
+          "provenance",
+          "totalValueMinor",
+          "positions",
+          "concentration",
+          "liquidity",
+          "allocation",
+          "performance",
+          "risk",
+          "benchmarks",
+          "warnings"
+        ]
+      },
+      "SharedPortfolioResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "name"
+        ]
+      },
+      "SharedPortfolioMetricsResponseDto": {
+        "type": "object",
+        "properties": {
+          "portfolioId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/MetricsResponseDto"
+          },
+          "unreconciledSymbols": {
+            "description": "Símbolos que a conciliação não conseguiu reproduzir",
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "portfolioId",
+          "name",
+          "metrics",
+          "unreconciledSymbols"
+        ]
+      },
+      "PendingInviteResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "clientProfileId": {
+            "type": "string"
+          },
+          "clientName": {
+            "type": "string"
+          },
+          "invitedEmailMasked": {
+            "type": "string",
+            "example": "m***@e***.com",
+            "description": "Sempre mascarado"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resendCount": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "id",
+          "clientProfileId",
+          "clientName",
+          "invitedEmailMasked",
+          "expiresAt",
+          "resendCount"
+        ]
+      },
+      "CreateInviteDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "E-mail do convidado"
+          },
+          "clientName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "email",
+          "clientName"
+        ]
+      },
+      "CreateInviteResponseDto": {
+        "type": "object",
+        "properties": {
+          "inviteId": {
+            "type": "string"
+          },
+          "clientProfileId": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "inviteId",
+          "clientProfileId",
+          "expiresAt"
+        ]
+      },
+      "ResendInviteResponseDto": {
+        "type": "object",
+        "properties": {
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "expiresAt"
+        ]
+      }
+    }
+  }
+}

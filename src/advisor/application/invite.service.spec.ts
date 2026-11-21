@@ -86,7 +86,7 @@ describe('InviteService', () => {
 			role: OrgRole.OrgAdmin,
 		});
 		service = new InviteService(
-			new AuthorizationService(memberships, relationships, audit),
+			new AuthorizationService(memberships, relationships, profiles, audit),
 			new RelationshipService(relationships),
 			invites,
 			orgs,
@@ -187,6 +187,16 @@ describe('InviteService', () => {
 			['an invalid e-mail', { email: 'not-an-email' }, 'INVALID_EMAIL'],
 			['an empty name', { clientName: '   ' }, 'INVALID_NAME'],
 			['a 121 chars name', { clientName: 'x'.repeat(121) }, 'INVALID_NAME'],
+			[
+				'a name with BEL (U+0007)',
+				{ clientName: 'Joao\u0007' },
+				'INVALID_NAME',
+			],
+			[
+				'a name with RLO (U+202E)',
+				{ clientName: 'Joao‮Silva' },
+				'INVALID_NAME',
+			],
 		])('rejects %s and creates nothing', async (_label, over, reason) => {
 			const promise = create(over);
 			await expect(promise).rejects.toThrow(InvalidInviteError);
