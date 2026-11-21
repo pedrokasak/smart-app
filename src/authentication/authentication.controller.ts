@@ -6,9 +6,11 @@ import {
 	Patch,
 	UseGuards,
 	Request,
+	Res,
 	Get,
 	Param,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
 	AuthenticateDto,
 	AuthSignoutDto,
@@ -24,6 +26,11 @@ import { ForgotPasswordDto } from './dto/forgot-password.dto';
 import { ResetPasswordDto } from './dto/reset-password.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
 import { GoogleSigninDto } from 'src/authentication/dto/google-signin.dto';
+import {
+	REFRESH_TOKEN_COOKIE,
+	clearRefreshTokenCookie,
+	setRefreshTokenCookie,
+} from './refresh-token-cookie';
 
 @Controller('auth')
 @ApiTags('authentication')
@@ -33,22 +40,57 @@ export class AuthenticationController {
 	@Public()
 	@Post('signin')
 	@ApiOkResponse({ type: AuthenticationEntity })
-	signin(@Body() authSignIn: AuthenticateDto) {
-		return this.authService.signin(authSignIn);
+	async signin(
+		@Body() authSignIn: AuthenticateDto,
+		@Res({ passthrough: true }) res: Response
+	) {
+		const result = await this.authService.signin(authSignIn);
+		// TRA-217: cookie httpOnly é a fonte nova; o refreshToken continua no
+		// body por uma janela de transição, para o cliente web em cache.
+		if (result.refreshToken && result.refreshTokenExpiresAt) {
+			setRefreshTokenCookie(
+				res,
+				result.refreshToken,
+				result.refreshTokenExpiresAt.getTime()
+			);
+		}
+		return result;
 	}
 
 	@Public()
 	@Post('google/signin')
 	@ApiOkResponse({ type: AuthenticationEntity })
-	signinWithGoogle(@Body() payload: GoogleSigninDto) {
-		return this.authService.googleSignin(payload);
+	async signinWithGoogle(
+		@Body() payload: GoogleSigninDto,
+		@Res({ passthrough: true }) res: Response
+	) {
+		const result = await this.authService.googleSignin(payload);
+		if (result.refreshToken && result.refreshTokenExpiresAt) {
+			setRefreshTokenCookie(
+				res,
+				result.refreshToken,
+				result.refreshTokenExpiresAt.getTime()
+			);
+		}
+		return result;
 	}
 
 	@Public()
 	@Post('signout')
 	@ApiOkResponse({ type: AuthenticationEntity })
-	signout(@Body() authSignOut: AuthSignoutDto) {
-		return this.authService.signout(authSignOut.token);
+	async signout(
+		@Body() authSignOut: AuthSignoutDto,
+		@Request() req,
+		@Res({ passthrough: true }) res: Response
+	) {
+		// TRA-217: cliente novo não manda mais o token no body, ele vem do
+		// cookie httpOnly. Aceita o body ainda pelo cliente antigo em cache.
+		const token = req.cookies?.[REFRESH_TOKEN_COOKIE] || authSignOut.token;
+		clearRefreshTokenCookie(res);
+		if (!token) {
+			return { message: 'Signout successfully' };
+		}
+		return this.authService.signout(token);
 	}
 
 	@Public()
@@ -74,13 +116,25 @@ export class AuthenticationController {
 			},
 		},
 	})
-	async refreshToken(@Body() body: RefreshTokenDto) {
-		const { refreshToken } = body;
+	async refreshToken(
+		@Body() body: RefreshTokenDto,
+		@Request() req,
+		@Res({ passthrough: true }) res: Response
+	) {
+		// TRA-217: cookie httpOnly é a fonte preferida; body.refreshToken é
+		// fallback só pelo cliente web antigo em cache durante a transição.
+		const refreshToken = req.cookies?.[REFRESH_TOKEN_COOKIE] || body.refreshToken;
 		if (!refreshToken) {
 			throw new UnauthorizedException('Refresh Token is required');
 		}
 
-		return this.authService.refreshAccessToken(refreshToken);
+		const result = await this.authService.refreshAccessToken(refreshToken);
+		setRefreshTokenCookie(
+			res,
+			result.refreshToken ?? refreshToken,
+			result.refreshTokenExpiresAt.getTime()
+		);
+		return result;
 	}
 
 	@UseGuards(JwtAuthGuard)
