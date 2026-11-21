@@ -48,6 +48,7 @@ import { jwtSecret } from 'src/env';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
 import { AdvisorPortalGuard } from './advisor-portal.guard';
 import { CSV_UPLOAD_MAX_BYTES } from './csv-upload';
+import { WealthSummaryAssembler } from './wealth-summary.assembler';
 import { ClientsController } from './clients.controller';
 
 const ORG_A = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
@@ -166,6 +167,7 @@ describe('ClientsController', () => {
 				AllocationTargetService,
 				PortfolioMetricsService,
 				SharedPortfolioService,
+				WealthSummaryAssembler,
 				{ provide: ADVISOR_MEMBERSHIP_STORE, useValue: memberships },
 				{ provide: ADVISOR_RELATIONSHIP_STORE, useValue: relationships },
 				{ provide: ADVISOR_CLIENT_PROFILE_STORE, useValue: profiles },
@@ -839,6 +841,75 @@ describe('ClientsController', () => {
 					metrics: expect.objectContaining({ currency: 'BRL' }),
 				}),
 			]);
+		});
+	});
+
+	describe('client detail', () => {
+		it('returns the client with a wealth summary per source', async () => {
+			const own = await newClient(A());
+			const empty = await http()
+				.get(`/advisor/v1/clients/${own}`)
+				.set(A())
+				.expect(200);
+			expect(empty.headers['cache-control']).toBe('no-store');
+			expect(empty.body).toEqual({
+				id: own,
+				name: 'Maria',
+				origin: 'ADVISOR_CREATED',
+				relationshipStatus: 'ACTIVE',
+				hasSharedPortfolios: false,
+				wealth: {
+					currency: 'BRL',
+					asOf: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/),
+					totalMinor: 0,
+					totalIsPartial: false,
+					parts: [],
+				},
+			});
+
+			await http()
+				.post(`/advisor/v1/clients/${own}/transactions`)
+				.set(A())
+				.send(buy)
+				.expect(201);
+			const withLedger = await http()
+				.get(`/advisor/v1/clients/${own}`)
+				.set(A())
+				.expect(200);
+			expect(withLedger.body.wealth.parts).toEqual([
+				{
+					source: 'ADVISOR_LEDGER',
+					provenance: expect.any(String),
+					valueMinor: expect.any(Number),
+				},
+			]);
+			expect(withLedger.body.wealth.totalMinor).toBe(
+				withLedger.body.wealth.parts[0].valueMinor
+			);
+			expect(withLedger.body.wealth.totalIsPartial).toBe(false);
+		});
+
+		it('returns the shared part for an investor client under consent', async () => {
+			source.add('inv1', { id: 'p1', name: 'Carteira 1' });
+			const investor = await seedInvestorClient({ consent: true });
+			const res = await http()
+				.get(`/advisor/v1/clients/${investor}`)
+				.set(A())
+				.expect(200);
+			expect(res.body.wealth.parts).toEqual([
+				expect.objectContaining({ source: 'B2C_SHARED' }),
+			]);
+		});
+
+		it('answers 400 for a bad id and 404 for a client of another org', async () => {
+			await http().get('/advisor/v1/clients/not-a-uuid').set(A()).expect(400);
+			const other = await newClient(as('u2', ORG_B));
+			await http()
+				.get(`/advisor/v1/clients/${other}`)
+				.set(A())
+				.expect(404)
+				.expect({ statusCode: 404, error: 'NOT_FOUND' });
+			await http().get(`/advisor/v1/clients/${MISSING}`).set(A()).expect(404);
 		});
 	});
 });

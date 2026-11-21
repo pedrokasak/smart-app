@@ -48,6 +48,7 @@ import {
 	ListClientsQueryDto,
 	PageQueryDto,
 } from './dto/client.dto';
+import { ClientDetailResponseDto } from './dto/client-detail.dto';
 import { ErrorResponseDto } from './dto/error-response.dto';
 import {
 	ImportCsvBodyDto,
@@ -67,6 +68,7 @@ import {
 } from './dto/transaction.dto';
 import { pageLedger } from './ledger-page';
 import { accessContextOf } from './request-context';
+import { WealthSummaryAssembler } from './wealth-summary.assembler';
 
 /** Erros comuns às rotas de cliente (§5.3 do spec). */
 function ApiClientErrors(options: { validation?: string } = {}) {
@@ -113,7 +115,8 @@ export class ClientsController {
 		private readonly imports: CsvImportService,
 		private readonly targets: AllocationTargetService,
 		private readonly metrics: PortfolioMetricsService,
-		private readonly shared: SharedPortfolioService
+		private readonly shared: SharedPortfolioService,
+		private readonly wealth: WealthSummaryAssembler
 	) {}
 
 	@Get()
@@ -144,6 +147,22 @@ export class ClientsController {
 			name: body.name,
 		});
 		return ClientSummaryResponseDto.of(created);
+	}
+
+	@Get(':clientId')
+	@ApiOperation({
+		summary: 'Cliente com o patrimônio somado, uma parte por origem',
+	})
+	@ApiResponse({ status: 200, type: ClientDetailResponseDto })
+	@ApiClientErrors()
+	async detail(
+		@Req() req: any,
+		@Param('clientId', new ParseUUIDPipe()) clientId: string
+	): Promise<ClientDetailResponseDto> {
+		const ctx = accessContextOf(req);
+		const client = await this.directory.getClient(ctx, clientId);
+		const wealth = await this.wealth.build(ctx, client);
+		return ClientDetailResponseDto.detailOf(client, wealth);
 	}
 
 	@Get(':clientId/transactions')
