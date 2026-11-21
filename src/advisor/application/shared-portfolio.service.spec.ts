@@ -199,7 +199,12 @@ describe('SharedPortfolioService', () => {
 		benchmarks.set('IPCA', 0.004);
 
 		const relationshipService = new RelationshipService(relationships);
-		const authz = new AuthorizationService(memberships, relationships, audit);
+		const authz = new AuthorizationService(
+			memberships,
+			relationships,
+			profiles,
+			audit
+		);
 		const inviteService = new InviteService(
 			authz,
 			relationshipService,

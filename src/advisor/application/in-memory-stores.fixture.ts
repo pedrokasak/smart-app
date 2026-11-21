@@ -196,6 +196,12 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 		return this.items.size;
 	}
 
+	/** Só para testes: grava um perfil com id escolhido. */
+	seed(profile: ClientProfile): ClientProfile {
+		this.items.set(profile.id, { ...profile });
+		return profile;
+	}
+
 	async create(profile: Omit<ClientProfile, 'id'>): Promise<ClientProfile> {
 		const created: ClientProfile = { ...profile, id: randomUUID() };
 		this.items.set(created.id, created);

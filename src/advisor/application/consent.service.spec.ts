@@ -120,7 +120,12 @@ describe('ConsentService', () => {
 		source.add(OTHER_INVESTOR, { id: 'p9', name: 'Da Maria' });
 
 		const relationshipService = new RelationshipService(relationships);
-		authz = new AuthorizationService(memberships, relationships, audit);
+		authz = new AuthorizationService(
+			memberships,
+			relationships,
+			profiles,
+			audit
+		);
 		inviteService = new InviteService(
 			authz,
 			relationshipService,

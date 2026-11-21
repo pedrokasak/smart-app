@@ -1,7 +1,7 @@
 import { ForbiddenException } from '@nestjs/common';
 import { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { AuditEventInput } from 'src/audit/domain/audit-event';
-import { AssetClass, OrgRole } from '../domain/enums';
+import { AssetClass, OrgRole, ProfileOrigin } from '../domain/enums';
 import {
 	AllocationTargetService,
 	InvalidAllocationTargetError,
@@ -9,6 +9,7 @@ import {
 import { AuthorizationService } from './authorization.service';
 import {
 	InMemoryAllocationTargetStore,
+	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
 } from './in-memory-stores.fixture';
@@ -31,12 +32,14 @@ describe('AllocationTargetService', () => {
 
 	beforeEach(async () => {
 		const memberships = new InMemoryMembershipStore();
+		const profiles = new InMemoryClientProfileStore();
 		const relationships = new InMemoryRelationshipStore();
 		const rel = new RelationshipService(relationships);
 		store = new InMemoryAllocationTargetStore();
 		const authz = new AuthorizationService(
 			memberships,
 			relationships,
+			profiles,
 			new FakeAuditTrail()
 		);
 		service = new AllocationTargetService(authz, store);
@@ -44,6 +47,18 @@ describe('AllocationTargetService', () => {
 			userId: 'user-1',
 			orgId: 'orgA',
 			role: OrgRole.Advisor,
+		});
+		profiles.seed({
+			id: 'clientA',
+			orgId: 'orgA',
+			name: 'clientA',
+			origin: ProfileOrigin.AdvisorCreated,
+		});
+		profiles.seed({
+			id: 'clientB',
+			orgId: 'orgB',
+			name: 'clientB',
+			origin: ProfileOrigin.AdvisorCreated,
 		});
 		await rel.create('orgA', 'clientA');
 		await rel.create('orgB', 'clientB');

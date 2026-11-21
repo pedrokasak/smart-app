@@ -86,7 +86,7 @@ describe('InviteService', () => {
 			role: OrgRole.OrgAdmin,
 		});
 		service = new InviteService(
-			new AuthorizationService(memberships, relationships, audit),
+			new AuthorizationService(memberships, relationships, profiles, audit),
 			new RelationshipService(relationships),
 			invites,
 			orgs,

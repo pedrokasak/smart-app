@@ -4,6 +4,7 @@ import { AuditEventInput } from 'src/audit/domain/audit-event';
 import {
 	AssetClass,
 	OrgRole,
+	ProfileOrigin,
 	Provenance,
 	TransactionSide,
 	TransactionSource,
@@ -13,6 +14,7 @@ import { AuthorizationService } from '../authorization.service';
 import {
 	InMemoryAllocationTargetStore,
 	InMemoryBenchmarkSeries,
+	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
 	InMemoryPriceHistory,
 	InMemoryRelationshipStore,
@@ -99,13 +101,19 @@ describe('PortfolioMetricsService', () => {
 
 	beforeEach(async () => {
 		const memberships = new InMemoryMembershipStore();
+		const profiles = new InMemoryClientProfileStore();
 		relationships = new InMemoryRelationshipStore();
 		transactions = new InMemoryTransactionStore();
 		targets = new InMemoryAllocationTargetStore();
 		prices = new InMemoryPriceHistory();
 		benchmarks = new InMemoryBenchmarkSeries();
 		audit = new FakeAuditTrail();
-		const authz = new AuthorizationService(memberships, relationships, audit);
+		const authz = new AuthorizationService(
+			memberships,
+			relationships,
+			profiles,
+			audit
+		);
 		service = new PortfolioMetricsService(
 			authz,
 			transactions,
@@ -116,8 +124,20 @@ describe('PortfolioMetricsService', () => {
 		await memberships.create({ userId, orgId: 'orgA', role: OrgRole.Advisor });
 		await memberships.create({ userId, orgId: 'orgB', role: OrgRole.Advisor });
 		const rel = new RelationshipService(relationships);
+		profiles.seed({
+			id: 'client-1',
+			orgId: 'orgA',
+			name: 'client-1',
+			origin: ProfileOrigin.AdvisorCreated,
+		});
+		profiles.seed({
+			id: 'client-2',
+			orgId: 'orgB',
+			name: 'client-2',
+			origin: ProfileOrigin.AdvisorCreated,
+		});
 		await rel.create('orgA', 'client-1');
-		await rel.create('orgB', 'client-1');
+		await rel.create('orgB', 'client-2');
 
 		prices.set('PETR4', rising(3000));
 		prices.set('VALE3', rising(6000));
@@ -275,14 +295,19 @@ describe('PortfolioMetricsService', () => {
 		expect(prices.maxInFlight).toBeGreaterThan(1);
 	});
 
-	it('keeps each org on its own ledger for the same client', async () => {
+	it('keeps each org on its own ledger', async () => {
 		await transactions.createMany([
 			newTx(),
-			newTx({ orgId: 'orgB', symbol: 'VALE3', quantity: 3 }),
+			newTx({
+				orgId: 'orgB',
+				clientProfileId: 'client-2',
+				symbol: 'VALE3',
+				quantity: 3,
+			}),
 		]);
 
 		const a = await service.getMetrics(ctxA, 'client-1');
-		const b = await service.getMetrics(ctxB, 'client-1');
+		const b = await service.getMetrics(ctxB, 'client-2');
 
 		expect(a.positions.map((p) => p.symbol)).toEqual(['PETR4']);
 		expect(b.positions.map((p) => p.symbol)).toEqual(['VALE3']);

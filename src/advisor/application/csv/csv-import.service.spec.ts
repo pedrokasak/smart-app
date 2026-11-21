@@ -2,9 +2,15 @@ import { createHash } from 'node:crypto';
 import { ConflictException, ForbiddenException, Logger } from '@nestjs/common';
 import { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { AuditEventInput } from 'src/audit/domain/audit-event';
-import { OrgRole, Provenance, TransactionSource } from '../../domain/enums';
+import {
+	OrgRole,
+	ProfileOrigin,
+	Provenance,
+	TransactionSource,
+} from '../../domain/enums';
 import { AuthorizationService } from '../authorization.service';
 import {
+	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
 	InMemoryTransactionStore,
@@ -46,17 +52,37 @@ describe('CsvImportService', () => {
 
 	beforeEach(async () => {
 		const memberships = new InMemoryMembershipStore();
+		const profiles = new InMemoryClientProfileStore();
 		relationships = new InMemoryRelationshipStore();
 		rel = new RelationshipService(relationships);
 		transactions = new InMemoryTransactionStore();
 		const authz = new AuthorizationService(
 			memberships,
 			relationships,
+			profiles,
 			new FakeAuditTrail()
 		);
 		service = new CsvImportService(authz, transactions);
 		manual = new TransactionService(authz, transactions);
 		await memberships.create({ userId, orgId: 'orgA', role: OrgRole.Advisor });
+		profiles.seed({
+			id: 'clientA',
+			orgId: 'orgA',
+			name: 'clientA',
+			origin: ProfileOrigin.AdvisorCreated,
+		});
+		profiles.seed({
+			id: 'clientC',
+			orgId: 'orgA',
+			name: 'clientC',
+			origin: ProfileOrigin.AdvisorCreated,
+		});
+		profiles.seed({
+			id: 'clientB',
+			orgId: 'orgB',
+			name: 'clientB',
+			origin: ProfileOrigin.AdvisorCreated,
+		});
 		await rel.create('orgA', 'clientA');
 		await rel.create('orgA', 'clientC');
 		await rel.create('orgB', 'clientB');
