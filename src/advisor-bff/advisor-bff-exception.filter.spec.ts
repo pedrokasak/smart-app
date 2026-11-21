@@ -96,10 +96,10 @@ describe('AdvisorBffExceptionFilter', () => {
 
 	it('reads the reason from the response body of service errors', () => {
 		const { status, body } = run(new InvalidInviteError('INVALID_EMAIL'));
-		expect(status).toBe(422);
+		expect(status).toBe(400);
 		expect(body).toEqual({
-			statusCode: 422,
-			error: 'UNPROCESSABLE_ENTITY',
+			statusCode: 400,
+			error: 'BAD_REQUEST',
 			reason: 'INVALID_EMAIL',
 		});
 		expect(

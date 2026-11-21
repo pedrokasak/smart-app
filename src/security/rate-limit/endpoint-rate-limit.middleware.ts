@@ -30,6 +30,9 @@ const DISCRIMINATED_ROUTES = new Set([
 	'POST:/auth/2fa/recovery-codes/consume',
 ]);
 
+/** BFFs autenticados, em que o contador é por conta e não por IP. */
+const ACCOUNT_COUNTED_PREFIXES = ['/mobile/v1/', '/advisor/v1/'];
+
 @Injectable()
 export class EndpointRateLimitMiddleware implements NestMiddleware {
 	private readonly defaultRule: RateLimitRule = {
@@ -128,6 +131,34 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 			pattern: /^\/me\/advisor-access\/invites\/decline\/?$/,
 			rule: { limit: 5, windowMs: 60_000 },
 		},
+		// Portal do assessor: contagem por conta (`accountUserOf`). Criar
+		// organização, enviar convite (e-mail) e importar CSV (parse em
+		// memória) são as rotas caras ou abusáveis. O id na rota (UUID) fica
+		// fora da chave, senão cada convite abriria um balde novo.
+		{
+			key: 'POST:/advisor/v1/organizations',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/organizations\/?$/,
+			rule: { limit: 5, windowMs: 60_000 },
+		},
+		{
+			key: 'POST:/advisor/v1/invites',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/invites\/?$/,
+			rule: { limit: 10, windowMs: 10 * 60_000 },
+		},
+		{
+			key: 'POST:/advisor/v1/invites/:id/resend',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/invites\/[^/]+\/resend\/?$/,
+			rule: { limit: 10, windowMs: 10 * 60_000 },
+		},
+		{
+			key: 'POST:/advisor/v1/clients/:id/imports',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/clients\/[^/]+\/imports\/?$/,
+			rule: { limit: 20, windowMs: 10 * 60_000 },
+		},
 	];
 
 	private readonly store: RateLimitStore;
@@ -208,8 +239,8 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 	 * IP — não a escapar do próprio IP.
 	 */
 	private buildFingerprint(req: Request, routeKey: string): string {
-		const mobileUser = this.mobileUserOf(req);
-		if (mobileUser) return `user:${mobileUser}`;
+		const accountUser = this.accountUserOf(req);
+		if (accountUser) return `user:${accountUser}`;
 
 		const ip = req.ip || req.socket?.remoteAddress || 'unknown';
 		const userAgent = String(req.headers['user-agent'] || '').slice(0, 300);
@@ -226,11 +257,17 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 
 	/**
 	 * No app, o user-agent é quase igual para todos, e operadoras móveis
-	 * compartilham IP. Rota do BFF com token válido conta por conta. Precisa
-	 * validar a assinatura: um token forjado escolheria o próprio contador.
+	 * compartilham IP; no portal do assessor, um escritório inteiro sai pelo
+	 * mesmo IP. Rota de BFF (`/mobile/v1/` e `/advisor/v1/`) com token válido
+	 * conta por conta. Precisa validar a assinatura: um token forjado
+	 * escolheria o próprio contador.
 	 */
-	private mobileUserOf(req: Request): string | null {
-		if (!this.jwtService || !req.path?.startsWith('/mobile/v1/')) return null;
+	private accountUserOf(req: Request): string | null {
+		if (
+			!this.jwtService ||
+			!ACCOUNT_COUNTED_PREFIXES.some((p) => req.path?.startsWith(p))
+		)
+			return null;
 
 		const [scheme, token] = String(req.headers.authorization || '').split(' ');
 		if (scheme !== 'Bearer' || !token) return null;

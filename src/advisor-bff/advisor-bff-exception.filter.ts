@@ -10,6 +10,7 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ClientNotAccessibleError } from 'src/advisor/application/access-errors';
+import { InvalidInviteError } from 'src/advisor/application/invite.service';
 import { InvalidCursorError } from 'src/advisor/application/ports/store-errors';
 import { NoActiveConsentError } from 'src/advisor/application/shared-portfolio.service';
 import type { ErrorResponseDto } from './dto/error-response.dto';
@@ -49,6 +50,14 @@ export class AdvisorBffExceptionFilter implements ExceptionFilter {
 				statusCode: HttpStatus.BAD_REQUEST,
 				error: 'BAD_REQUEST',
 				reason: 'INVALID_CURSOR',
+			};
+		}
+		// Mesma família de INVALID_NAME da organização: 400, não 422.
+		if (exception instanceof InvalidInviteError) {
+			return {
+				statusCode: HttpStatus.BAD_REQUEST,
+				error: 'BAD_REQUEST',
+				reason: (exception.getResponse() as { reason: string }).reason,
 			};
 		}
 		if (exception instanceof HttpException) {

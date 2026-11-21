@@ -3,6 +3,7 @@ import { AdvisorModule } from 'src/advisor/advisor.module';
 import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
 import { AdvisorPortalGuard } from './advisor-portal.guard';
 import { ClientsController } from './clients.controller';
+import { InvitesController } from './invites.controller';
 import { OrganizationsController } from './organizations.controller';
 import { WealthSummaryAssembler } from './wealth-summary.assembler';
 
@@ -12,7 +13,7 @@ import { WealthSummaryAssembler } from './wealth-summary.assembler';
  */
 @Module({
 	imports: [AdvisorModule],
-	controllers: [OrganizationsController, ClientsController],
+	controllers: [OrganizationsController, ClientsController, InvitesController],
 	providers: [
 		AdvisorPortalGuard,
 		AdvisorBffExceptionFilter,
