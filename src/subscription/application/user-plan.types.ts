@@ -26,6 +26,15 @@ export const PRO_ACCESS_LEVEL = 10;
 /** Patamar minimo usado hoje pelas features "Wealth" (IA Insights, radar). */
 export const PREMIUM_ACCESS_LEVEL = 20;
 
+/**
+ * Patamar padrao de `advisor.portal` (Trackerr Advisor P3a, U4): nenhum
+ * `accessLevel` alcanca, entao plano B2C que nunca decidiu sobre a chave nao
+ * abre o portal do assessor. So libera quem o admin marcar no plano ou quem
+ * tiver liberacao propria do piloto.
+ */
+export const ADVISOR_PORTAL_ACCESS_LEVEL: UserPlanTier =
+	Number.POSITIVE_INFINITY;
+
 export function planAtLeast(
 	actual: UserPlanTier,
 	required: UserPlanTier
@@ -50,7 +59,8 @@ export type PlanCapability =
 	| 'research.comparator'
 	| 'ri.ai_summary'
 	| 'ai.copilot_advanced'
-	| 'ai.voice';
+	| 'ai.voice'
+	| 'advisor.portal';
 
 export const ALL_PLAN_CAPABILITIES: PlanCapability[] = [
 	'fiscal.ir_report',
@@ -65,6 +75,7 @@ export const ALL_PLAN_CAPABILITIES: PlanCapability[] = [
 	'ri.ai_summary',
 	'ai.copilot_advanced',
 	'ai.voice',
+	'advisor.portal',
 ];
 
 /**
@@ -93,6 +104,7 @@ export const PLAN_CAPABILITY_LABELS: Record<PlanCapability, string> = {
 	'ri.ai_summary': 'Resumo por IA de documentos de RI',
 	'ai.copilot_advanced': 'Copiloto até o modo Avançado',
 	'ai.voice': 'Copiloto por voz',
+	'advisor.portal': 'Portal do assessor',
 };
 
 /**
@@ -121,6 +133,7 @@ export const CAPABILITY_DEFAULT_LEVEL: Record<PlanCapability, UserPlanTier> = {
 	// Voz tem custo por uso (STT e TTS), então não vai para o plano grátis
 	// (ADR-007, decisão 7).
 	'ai.voice': PRO_ACCESS_LEVEL,
+	'advisor.portal': ADVISOR_PORTAL_ACCESS_LEVEL,
 };
 
 /**

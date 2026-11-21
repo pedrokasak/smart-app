@@ -21,6 +21,7 @@ import {
 	NewTransaction,
 	Transaction,
 } from '../domain/portfolio.entities';
+import { PortalGrant } from '../domain/portal-access';
 import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
 import {
 	BenchmarkKey,
@@ -39,6 +40,8 @@ import {
 } from './ports/invitee-identity.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
+import { PortalAccountDirectoryPort } from './ports/portal-account-directory.port';
+import { PortalGrantStorePort } from './ports/portal-grant.store.port';
 import { DailyCloseMinor, PriceHistoryPort } from './ports/price-history.port';
 import {
 	ListRelationshipsQuery,
@@ -872,5 +875,72 @@ export class InMemorySharedPortfolioSource implements SharedPortfolioSourcePort 
 			.map((id) => this.portfolios.get(id))
 			.filter((p) => p && p.ownerId === userId)
 			.map((p) => structuredClone(p.data));
+	}
+}
+
+/** Liberações do portal em memória; uma ativa por usuário. */
+export class InMemoryPortalGrantStore implements PortalGrantStorePort {
+	private readonly grants: PortalGrant[] = [];
+
+	async grant(
+		userId: string,
+		grantedBy: string,
+		at: Date
+	): Promise<PortalGrant> {
+		const active = this.active(userId);
+		if (active) return { ...active };
+		const created: PortalGrant = {
+			id: randomUUID(),
+			userId,
+			grantedBy,
+			grantedAt: at,
+		};
+		this.grants.push(created);
+		return { ...created };
+	}
+
+	async revoke(userId: string, at: Date): Promise<boolean> {
+		const active = this.active(userId);
+		if (!active) return false;
+		active.revokedAt = at;
+		return true;
+	}
+
+	async findActive(userId: string): Promise<PortalGrant | null> {
+		const active = this.active(userId);
+		return active ? { ...active } : null;
+	}
+
+	async listActive(): Promise<PortalGrant[]> {
+		return this.grants.filter((g) => !g.revokedAt).map((g) => ({ ...g }));
+	}
+
+	private active(userId: string): PortalGrant | undefined {
+		return this.grants.find((g) => g.userId === userId && !g.revokedAt);
+	}
+}
+
+/** Contas B2C em memória para a liberação do portal, por userId. */
+export class InMemoryPortalAccountDirectory implements PortalAccountDirectoryPort {
+	private readonly emails = new Map<string, string>();
+
+	set(userId: string, email: string): void {
+		this.emails.set(userId, email);
+	}
+
+	async findUserIdByEmail(email: string): Promise<string | null> {
+		for (const [userId, stored] of this.emails) {
+			if (stored === email) return userId;
+		}
+		return null;
+	}
+
+	async findEmails(userIds: string[]): Promise<Map<string, string>> {
+		const found = new Map<string, string>();
+		for (const userId of userIds) {
+			const email = this.emails.get(userId);
+			if (email) found.set(userId, email);
+		}
+		return found;
 	}
 }

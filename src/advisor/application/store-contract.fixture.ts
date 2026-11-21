@@ -21,6 +21,7 @@ import { ConsentStorePort } from './ports/consent.store.port';
 import { InviteStorePort } from './ports/invite.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
+import { PortalGrantStorePort } from './ports/portal-grant.store.port';
 import { RelationshipStorePort } from './ports/relationship.store.port';
 import {
 	DuplicateMembershipError,
@@ -1626,6 +1627,86 @@ export function describeAdvisorPortfolioStoreContract(
 
 			expect(await s.targets.find(randomUUID(), clientId)).toBeNull();
 			expect(await s.targets.find(orgId, randomUUID())).toBeNull();
+		});
+	});
+}
+
+/**
+ * Suíte de contrato do port de liberação do portal (P3a, U6). Ids aleatórios
+ * por teste; não assume coleção vazia, então a listagem é filtrada pelos ids
+ * do próprio teste.
+ */
+export function describeAdvisorPortalGrantStoreContract(
+	name: string,
+	makeStore: () => PortalGrantStorePort
+): void {
+	describe(`${name} - advisor portal grant store contract`, () => {
+		let store: PortalGrantStorePort;
+		const mine = async (userIds: string[]) =>
+			(await store.listActive()).filter((g) => userIds.includes(g.userId));
+
+		beforeEach(() => {
+			store = makeStore();
+		});
+
+		it('grant/findActive round trip; unknown user gives null', async () => {
+			const userId = randomUUID();
+			const at = new Date('2026-11-20T10:00:00.000Z');
+			const created = await store.grant(userId, 'admin-1', at);
+			expect(created).toEqual({
+				id: expect.any(String),
+				userId,
+				grantedBy: 'admin-1',
+				grantedAt: at,
+			});
+			expect(await store.findActive(userId)).toEqual(created);
+			expect(await store.findActive(randomUUID())).toBeNull();
+		});
+
+		it('granting again returns the active grant instead of a second one', async () => {
+			const userId = randomUUID();
+			const first = await store.grant(userId, 'admin-1', new Date());
+			const again = await store.grant(userId, 'admin-2', new Date());
+			expect(again).toEqual(first);
+			expect(await mine([userId])).toEqual([first]);
+		});
+
+		it('concurrent grants for the same user leave one active grant', async () => {
+			const userId = randomUUID();
+			const results = await Promise.all(
+				[1, 2, 3].map((n) => store.grant(userId, `admin-${n}`, new Date()))
+			);
+			expect(new Set(results.map((g) => g.id)).size).toBe(1);
+			expect(await mine([userId])).toHaveLength(1);
+		});
+
+		it('revoke ends the active grant once; a later grant is a new one', async () => {
+			const userId = randomUUID();
+			const first = await store.grant(userId, 'admin-1', new Date());
+			const at = new Date('2026-11-21T10:00:00.000Z');
+
+			expect(await store.revoke(userId, at)).toBe(true);
+			expect(await store.findActive(userId)).toBeNull();
+			expect(await mine([userId])).toEqual([]);
+			expect(await store.revoke(userId, at)).toBe(false);
+
+			const second = await store.grant(userId, 'admin-1', new Date());
+			expect(second.id).not.toBe(first.id);
+			expect(second.revokedAt).toBeUndefined();
+			expect(await store.findActive(userId)).toEqual(second);
+		});
+
+		it('revoking an unknown user is false', async () => {
+			expect(await store.revoke(randomUUID(), new Date())).toBe(false);
+		});
+
+		it('listActive holds only the active grants', async () => {
+			const kept = randomUUID();
+			const gone = randomUUID();
+			const keptGrant = await store.grant(kept, 'admin-1', new Date());
+			await store.grant(gone, 'admin-1', new Date());
+			await store.revoke(gone, new Date());
+			expect(await mine([kept, gone])).toEqual([keptGrant]);
 		});
 	});
 }

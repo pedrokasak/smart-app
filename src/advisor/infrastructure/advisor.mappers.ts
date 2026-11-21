@@ -5,7 +5,9 @@ import {
 	Membership,
 	Organization,
 } from '../domain/entities';
+import { PortalGrant } from '../domain/portal-access';
 import { AllocationTarget, Transaction } from '../domain/portfolio.entities';
+import { AdvisorPortalGrantDoc } from './advisor-portal-grant.models';
 import {
 	AdvisorAllocationTargetDoc,
 	AdvisorTransactionDoc,
@@ -132,5 +134,16 @@ export function toConsent(doc: AdvisorConsentDoc): Consent {
 		status: doc.status,
 		grantedAt: doc.grantedAt,
 		...(doc.endedAt != null && { endedAt: doc.endedAt }),
+	};
+}
+
+/** `active` é detalhe do índice e não sai do store. */
+export function toPortalGrant(doc: AdvisorPortalGrantDoc): PortalGrant {
+	return {
+		id: doc._id,
+		userId: doc.userId,
+		grantedBy: doc.grantedBy,
+		grantedAt: doc.grantedAt,
+		...(doc.revokedAt != null && { revokedAt: doc.revokedAt }),
 	};
 }

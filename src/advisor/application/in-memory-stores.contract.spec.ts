@@ -5,11 +5,13 @@ import {
 	InMemoryInviteStore,
 	InMemoryMembershipStore,
 	InMemoryOrganizationStore,
+	InMemoryPortalGrantStore,
 	InMemoryRelationshipStore,
 	InMemoryTransactionStore,
 } from './in-memory-stores.fixture';
 import {
 	describeAdvisorConsentStoreContract,
+	describeAdvisorPortalGrantStoreContract,
 	describeAdvisorPortfolioStoreContract,
 	describeAdvisorStoreContract,
 } from './store-contract.fixture';
@@ -30,3 +32,8 @@ describeAdvisorConsentStoreContract('in-memory', () => ({
 	invites: new InMemoryInviteStore(),
 	consents: new InMemoryConsentStore(),
 }));
+
+describeAdvisorPortalGrantStoreContract(
+	'in-memory',
+	() => new InMemoryPortalGrantStore()
+);

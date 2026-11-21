@@ -4,6 +4,7 @@ import { MacroIndicatorsModule } from 'src/macro-indicators/macro-indicators.mod
 import { MarketDataModule } from 'src/market-data/market-data.module';
 import { EmailModule } from 'src/notifications/email/email.module';
 import { PortfolioSharingReadModule } from 'src/portfolio/sharing/portfolio-sharing-read.module';
+import { SubscriptionModule } from 'src/subscription/subscription.module';
 import { UsersModule } from 'src/users/users.module';
 import {
 	ADVISOR_ALLOCATION_TARGET_STORE,
@@ -13,6 +14,7 @@ import {
 	ADVISOR_INVITE_STORE,
 	ADVISOR_MEMBERSHIP_STORE,
 	ADVISOR_ORG_STORE,
+	ADVISOR_PORTAL_GRANT_STORE,
 	ADVISOR_PRICE_HISTORY,
 	ADVISOR_RELATIONSHIP_STORE,
 	ADVISOR_TRANSACTION_STORE,
@@ -28,7 +30,9 @@ import { PortfolioMetricsService } from './application/metrics/portfolio-metrics
 import { OrganizationService } from './application/organization.service';
 import { ADVISOR_INVITE_NOTIFIER } from './application/ports/invite-notifier.port';
 import { ADVISOR_INVITEE_IDENTITY } from './application/ports/invitee-identity.port';
+import { ADVISOR_PORTAL_ACCOUNT_DIRECTORY } from './application/ports/portal-account-directory.port';
 import { ADVISOR_SHARED_PORTFOLIO_SOURCE } from './application/ports/shared-portfolio-source.port';
+import { PortalAccessService } from './application/portal-access.service';
 import { RelationshipService } from './application/relationship.service';
 import { SharedPortfolioService } from './application/shared-portfolio.service';
 import { TransactionService } from './application/transaction.service';
@@ -50,6 +54,10 @@ import {
 	ADVISOR_CONSENT_MODEL,
 	advisorConsentSchemas,
 } from './infrastructure/advisor-consent.models';
+import {
+	ADVISOR_PORTAL_GRANT_MODEL,
+	advisorPortalGrantSchema,
+} from './infrastructure/advisor-portal-grant.models';
 import { B2cSharedPortfolioSourceAdapter } from './infrastructure/b2c-shared-portfolio-source.adapter';
 import { EmailInviteNotifierAdapter } from './infrastructure/email-invite-notifier.adapter';
 import { MacroBenchmarkSeriesAdapter } from './infrastructure/macro-benchmark-series.adapter';
@@ -60,9 +68,11 @@ import { MongoConsentStore } from './infrastructure/mongo-consent.store';
 import { MongoInviteStore } from './infrastructure/mongo-invite.store';
 import { MongoMembershipStore } from './infrastructure/mongo-membership.store';
 import { MongoOrganizationStore } from './infrastructure/mongo-organization.store';
+import { MongoPortalGrantStore } from './infrastructure/mongo-portal-grant.store';
 import { MongoRelationshipStore } from './infrastructure/mongo-relationship.store';
 import { MongoTransactionStore } from './infrastructure/mongo-transaction.store';
 import { UserInviteeIdentityAdapter } from './infrastructure/user-invitee-identity.adapter';
+import { UserPortalAccountDirectoryAdapter } from './infrastructure/user-portal-account-directory.adapter';
 import { AdvisorAccessController } from './interface/advisor-access.controller';
 import { OrgContextGuard } from './interface/org-context.guard';
 
@@ -103,12 +113,15 @@ import { OrgContextGuard } from './interface/org-context.guard';
 				schema: advisorConsentSchemas.clientInvite,
 			},
 			{ name: ADVISOR_CONSENT_MODEL, schema: advisorConsentSchemas.consent },
+			{ name: ADVISOR_PORTAL_GRANT_MODEL, schema: advisorPortalGrantSchema },
 		]),
 		MarketDataModule,
 		MacroIndicatorsModule,
 		PortfolioSharingReadModule,
 		EmailModule,
 		UsersModule,
+		// `USER_PLAN_RESOLVER` para a capability `advisor.portal` (P3a, U4).
+		SubscriptionModule,
 	],
 	controllers: [AdvisorAccessController],
 	providers: [
@@ -159,6 +172,14 @@ import { OrgContextGuard } from './interface/org-context.guard';
 			provide: ADVISOR_SHARED_PORTFOLIO_SOURCE,
 			useExisting: B2cSharedPortfolioSourceAdapter,
 		},
+		MongoPortalGrantStore,
+		UserPortalAccountDirectoryAdapter,
+		{ provide: ADVISOR_PORTAL_GRANT_STORE, useExisting: MongoPortalGrantStore },
+		{
+			provide: ADVISOR_PORTAL_ACCOUNT_DIRECTORY,
+			useExisting: UserPortalAccountDirectoryAdapter,
+		},
+		PortalAccessService,
 		OrganizationService,
 		MembershipService,
 		RelationshipService,
@@ -187,6 +208,7 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		ConsentService,
 		SharedPortfolioService,
 		OrgContextGuard,
+		PortalAccessService,
 	],
 })
 export class AdvisorModule {}
