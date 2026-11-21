@@ -6,10 +6,12 @@ import {
 	HttpStatus,
 	Logger,
 	NotFoundException,
+	PayloadTooLargeException,
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ClientNotAccessibleError } from 'src/advisor/application/access-errors';
 import { InvalidCursorError } from 'src/advisor/application/ports/store-errors';
+import { NoActiveConsentError } from 'src/advisor/application/shared-portfolio.service';
 import type { ErrorResponseDto } from './dto/error-response.dto';
 
 type ErrorBody = ErrorResponseDto;
@@ -33,9 +35,12 @@ export class AdvisorBffExceptionFilter implements ExceptionFilter {
 	}
 
 	private toBody(exception: unknown): ErrorBody {
+		// Sem consentimento ativo é "não existe" para o assessor: não revela se
+		// o cliente chegou a compartilhar algo. Vem antes do HttpException.
 		if (
 			exception instanceof ClientNotAccessibleError ||
-			exception instanceof NotFoundException
+			exception instanceof NotFoundException ||
+			exception instanceof NoActiveConsentError
 		) {
 			return { statusCode: HttpStatus.NOT_FOUND, error: 'NOT_FOUND' };
 		}
@@ -96,6 +101,8 @@ export class AdvisorBffExceptionFilter implements ExceptionFilter {
 	): string | undefined {
 		const onException = (exception as { reason?: unknown }).reason;
 		if (typeof onException === 'string') return onException;
+		// O Multer só recusa por tamanho na rota de upload de CSV.
+		if (exception instanceof PayloadTooLargeException) return 'FILE_TOO_LARGE';
 		return typeof payload.reason === 'string' ? payload.reason : undefined;
 	}
 

@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { AdvisorModule } from 'src/advisor/advisor.module';
 import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
 import { AdvisorPortalGuard } from './advisor-portal.guard';
+import { ClientsController } from './clients.controller';
 import { OrganizationsController } from './organizations.controller';
 
 /**
@@ -10,7 +11,7 @@ import { OrganizationsController } from './organizations.controller';
  */
 @Module({
 	imports: [AdvisorModule],
-	controllers: [OrganizationsController],
+	controllers: [OrganizationsController, ClientsController],
 	providers: [AdvisorPortalGuard, AdvisorBffExceptionFilter],
 })
 export class AdvisorBffModule {}

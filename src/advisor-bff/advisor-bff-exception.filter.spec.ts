@@ -5,6 +5,7 @@ import {
 	ForbiddenException,
 	Logger,
 	NotFoundException,
+	PayloadTooLargeException,
 	UnprocessableEntityException,
 } from '@nestjs/common';
 import {
@@ -15,6 +16,7 @@ import {
 	AlreadyOwnsOrganizationError,
 	OrganizationRuleError,
 } from 'src/advisor/application/organization.service';
+import { NoActiveConsentError } from 'src/advisor/application/shared-portfolio.service';
 import { InvalidCursorError } from 'src/advisor/application/ports/store-errors';
 import {
 	InvalidTransactionError,
@@ -174,6 +176,34 @@ describe('AdvisorBffExceptionFilter', () => {
 			body: { statusCode: 403, error: 'FORBIDDEN' },
 		});
 		expect(run(new UnprocessableEntityException()).status).toBe(422);
+	});
+
+	it('turns NoActiveConsentError into the bare 404 (not a 403)', () => {
+		expect(run(new NoActiveConsentError())).toEqual({
+			status: 404,
+			body: { statusCode: 404, error: 'NOT_FOUND' },
+		});
+	});
+
+	it('maps the Multer size refusal (413) to FILE_TOO_LARGE', () => {
+		expect(run(new PayloadTooLargeException('File too large'))).toEqual({
+			status: 413,
+			body: {
+				statusCode: 413,
+				error: 'PAYLOAD_TOO_LARGE',
+				reason: 'FILE_TOO_LARGE',
+			},
+		});
+	});
+
+	it('keeps the reason of a duplicate import conflict', () => {
+		expect(
+			run(new ConflictException({ reason: 'DUPLICATE_IMPORT' })).body
+		).toEqual({
+			statusCode: 409,
+			error: 'CONFLICT',
+			reason: 'DUPLICATE_IMPORT',
+		});
 	});
 
 	it('answers 500 without message or stack for an unknown error, logging it', () => {
