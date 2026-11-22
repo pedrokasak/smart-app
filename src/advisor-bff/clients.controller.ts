@@ -25,6 +25,7 @@ import {
 	ApiTags,
 } from '@nestjs/swagger';
 import { AllocationTargetService } from 'src/advisor/application/allocation-target.service';
+import { AssignmentService } from 'src/advisor/application/assignment.service';
 import { ClientDirectoryService } from 'src/advisor/application/client-directory.service';
 import { CsvImportService } from 'src/advisor/application/csv/csv-import.service';
 import { PortfolioMetricsService } from 'src/advisor/application/metrics/portfolio-metrics.service';
@@ -57,6 +58,7 @@ import {
 } from './dto/client.dto';
 import { ClientDetailResponseDto } from './dto/client-detail.dto';
 import { ErrorResponseDto } from './dto/error-response.dto';
+import { ClientAssigneeResponseDto } from './dto/member.dto';
 import {
 	ImportCsvBodyDto,
 	ImportResponseDto,
@@ -75,6 +77,7 @@ import {
 } from './dto/transaction.dto';
 import { pageLedger } from './ledger-page';
 import { accessContextOf } from './request-context';
+import { ParseUserIdPipe } from './user-id.pipe';
 import { WealthSummaryAssembler } from './wealth-summary.assembler';
 
 /** Erros comuns às rotas de cliente (§5.3 do spec). */
@@ -99,6 +102,29 @@ function ApiClientErrors(
 			description:
 				options.notFound ??
 				'Cliente, lançamento ou lote inexistente ou de outra org',
+		})
+	);
+}
+
+/** Erros das rotas de atribuição, só para ORG_ADMIN (§6.4 do spec). */
+function ApiAssigneeErrors() {
+	return applyDecorators(
+		ApiResponse({
+			status: 400,
+			type: ErrorResponseDto,
+			description: `${INVALID_ID_DESCRIPTION}, ou userId fora do formato de id de usuário`,
+		}),
+		ApiResponse({
+			status: 403,
+			type: ErrorResponseDto,
+			description:
+				'ROLE_REQUIRED (ADVISOR numa rota de ORG_ADMIN). Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org',
+		}),
+		ApiResponse({
+			status: 404,
+			type: ErrorResponseDto,
+			description:
+				'Cliente inexistente ou de outra org, ou usuário que não é membro',
 		})
 	);
 }
@@ -130,14 +156,15 @@ export class ClientsController {
 		private readonly targets: AllocationTargetService,
 		private readonly metrics: PortfolioMetricsService,
 		private readonly shared: SharedPortfolioService,
-		private readonly wealth: WealthSummaryAssembler
+		private readonly wealth: WealthSummaryAssembler,
+		private readonly assignments: AssignmentService
 	) {}
 
 	@Get()
 	@ApiOperation({ summary: 'Lista os clientes da organização' })
 	@ApiResponse({ status: 200, type: ClientPageResponseDto })
 	@ApiClientErrors({
-		validation: `${VALIDATION_FAILED_DESCRIPTION}: status ou limit; INVALID_CURSOR`,
+		validation: `${VALIDATION_FAILED_DESCRIPTION}: status, limit ou assignee; INVALID_CURSOR; ASSIGNEE_FILTER_FORBIDDEN (assignee enviado por um ADVISOR)`,
 	})
 	async list(
 		@Req() req: any,
@@ -147,6 +174,7 @@ export class ClientsController {
 			status: query.status ?? 'OPEN',
 			cursor: query.cursor,
 			limit: query.limit ?? DEFAULT_PAGE_LIMIT,
+			...(query.assignee !== undefined && { assignee: query.assignee }),
 		});
 		return ClientPageResponseDto.of(page);
 	}
@@ -421,5 +449,46 @@ export class ClientsController {
 			clientId
 		);
 		return items.map(SharedPortfolioMetricsResponseDto.of);
+	}
+
+	@Get(':clientId/assignees')
+	@ApiOperation({ summary: 'Membros a que o cliente está atribuído' })
+	@ApiResponse({ status: 200, type: [ClientAssigneeResponseDto] })
+	@ApiAssigneeErrors()
+	async listAssignees(
+		@Req() req: any,
+		@Param('clientId', new ParseUUIDPipe()) clientId: string
+	): Promise<ClientAssigneeResponseDto[]> {
+		const assignees = await this.assignments.listAssignees(
+			accessContextOf(req),
+			clientId
+		);
+		return assignees.map(ClientAssigneeResponseDto.of);
+	}
+
+	@Put(':clientId/assignees/:userId')
+	@HttpCode(HttpStatus.NO_CONTENT)
+	@ApiOperation({ summary: 'Atribui o cliente a um membro (idempotente)' })
+	@ApiResponse({ status: 204 })
+	@ApiAssigneeErrors()
+	async assign(
+		@Req() req: any,
+		@Param('clientId', new ParseUUIDPipe()) clientId: string,
+		@Param('userId', ParseUserIdPipe) userId: string
+	): Promise<void> {
+		await this.assignments.assign(accessContextOf(req), clientId, userId);
+	}
+
+	@Delete(':clientId/assignees/:userId')
+	@HttpCode(HttpStatus.NO_CONTENT)
+	@ApiOperation({ summary: 'Desatribui o cliente de um membro (idempotente)' })
+	@ApiResponse({ status: 204 })
+	@ApiAssigneeErrors()
+	async unassign(
+		@Req() req: any,
+		@Param('clientId', new ParseUUIDPipe()) clientId: string,
+		@Param('userId', ParseUserIdPipe) userId: string
+	): Promise<void> {
+		await this.assignments.unassign(accessContextOf(req), clientId, userId);
 	}
 }

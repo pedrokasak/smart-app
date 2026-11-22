@@ -1,11 +1,22 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Type } from 'class-transformer';
-import { IsIn, IsInt, IsOptional, IsString, Max, Min } from 'class-validator';
+import {
+	IsIn,
+	IsInt,
+	IsOptional,
+	IsString,
+	Matches,
+	Max,
+	Min,
+} from 'class-validator';
 import type { ClientSummary } from 'src/advisor/application/client-directory.service';
 import { ProfileOrigin, RelationshipStatus } from 'src/advisor/domain/enums';
 
 export const CLIENT_STATUS_FILTERS = ['OPEN', 'REVOKED'] as const;
 export type ClientStatusFilter = (typeof CLIENT_STATUS_FILTERS)[number];
+
+/** `me`, `none` ou um id de usuário do projeto (ObjectId, 24 hex). */
+export const ASSIGNEE_FILTER_PATTERN = /^(me|none|[0-9a-fA-F]{24})$/;
 
 export const MAX_PAGE_LIMIT = 100;
 export const DEFAULT_PAGE_LIMIT = 50;
@@ -39,6 +50,16 @@ export class ListClientsQueryDto extends PageQueryDto {
 	@IsOptional()
 	@IsIn(CLIENT_STATUS_FILTERS)
 	status?: ClientStatusFilter;
+
+	@ApiPropertyOptional({
+		pattern: ASSIGNEE_FILTER_PATTERN.source,
+		description:
+			'Só ORG_ADMIN: me, none (sem atribuição) ou o userId de um membro. Para o ADVISOR a lista já vem filtrada e o parâmetro é 400 ASSIGNEE_FILTER_FORBIDDEN',
+	})
+	@IsOptional()
+	@IsString()
+	@Matches(ASSIGNEE_FILTER_PATTERN)
+	assignee?: string;
 }
 
 export class CreateClientDto {

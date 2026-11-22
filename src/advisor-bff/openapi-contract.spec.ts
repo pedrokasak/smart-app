@@ -87,9 +87,14 @@ describe('contrato OpenAPI do Advisor', () => {
 					if (!operation.responses?.[status])
 						missing.push(`${label} ${status}`);
 				}
-				const orgScoped =
-					path.startsWith(`${ADVISOR_PATH_PREFIX}/clients`) ||
-					path.startsWith(`${ADVISOR_PATH_PREFIX}/invites`);
+				// As rotas do convidado (`/me/member-invites`) ficam sem org ativa.
+				const orgScoped = [
+					'/clients',
+					'/invites',
+					'/members',
+					'/member-invites',
+					'/me/membership',
+				].some((scoped) => path.startsWith(`${ADVISOR_PATH_PREFIX}${scoped}`));
 				const header = (operation.parameters ?? []).find(
 					(p: any) => p.in === 'header' && p.name === 'x-org-id'
 				) as any;
