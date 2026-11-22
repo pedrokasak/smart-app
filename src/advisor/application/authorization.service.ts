@@ -15,6 +15,7 @@ import {
 import {
 	ClientActionForbiddenError,
 	ClientNotAccessibleError,
+	RoleRequiredError,
 } from './access-errors';
 import type { AssignmentStorePort } from './ports/assignment.store.port';
 import type { ClientProfileStorePort } from './ports/client-profile.store.port';
@@ -27,13 +28,6 @@ export interface AccessContext {
 }
 
 export const CLIENT_ACCESSED_EVENT = 'advisor.client.accessed';
-
-/** ADVISOR numa operação reservada ao ORG_ADMIN. */
-export class RoleRequiredError extends ForbiddenException {
-	constructor() {
-		super({ reason: 'ROLE_REQUIRED' });
-	}
-}
 
 @Injectable()
 export class AuthorizationService {

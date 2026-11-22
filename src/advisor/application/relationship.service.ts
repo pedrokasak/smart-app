@@ -60,6 +60,14 @@ export class RelationshipService {
 		});
 	}
 
+	/**
+	 * Apaga a relação de verdade. Só para desfazer uma criação: o chamador
+	 * passa apenas o id que ele mesmo acabou de criar.
+	 */
+	async deleteCreated(id: string): Promise<void> {
+		await this.relationships.deleteById(id);
+	}
+
 	/** Devolve true se esta chamada mudou o status para REVOKED. */
 	async revoke(id: string): Promise<boolean> {
 		const relationship = await this.relationships.findById(id);

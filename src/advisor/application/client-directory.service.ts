@@ -1,9 +1,4 @@
-import {
-	BadRequestException,
-	Inject,
-	Injectable,
-	Logger,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { randomUUID } from 'crypto';
 import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import type { AuditTrail } from 'src/audit/application/audit-trail.port';
@@ -18,7 +13,10 @@ import {
 	ADVISOR_INVITE_STORE,
 	ADVISOR_RELATIONSHIP_STORE,
 } from './advisor.tokens';
-import { ClientNotAccessibleError } from './access-errors';
+import {
+	AssigneeFilterForbiddenError,
+	ClientNotAccessibleError,
+} from './access-errors';
 import { OrganizationRuleError } from './organization.service';
 import { AuthorizationService } from './authorization.service';
 import type { AccessContext } from './authorization.service';
@@ -43,13 +41,6 @@ export interface ListClientsQuery {
 	assignee?: ClientAssigneeFilter;
 	cursor?: string;
 	limit: number;
-}
-
-/** ADVISOR não escolhe de quem é a lista: ela já vem filtrada para ele. */
-export class AssigneeFilterForbiddenError extends BadRequestException {
-	constructor() {
-		super({ reason: 'ASSIGNEE_FILTER_FORBIDDEN' });
-	}
 }
 
 export interface ClientSummary {

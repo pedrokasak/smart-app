@@ -5,10 +5,8 @@ import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
 import { InviteStatus, OrgRole, ProfileOrigin } from '../domain/enums';
 import { RelationshipStatus } from '../domain/enums';
 import { AuthorizationService } from './authorization.service';
-import {
-	AssigneeFilterForbiddenError,
-	ClientDirectoryService,
-} from './client-directory.service';
+import { AssigneeFilterForbiddenError } from './access-errors';
+import { ClientDirectoryService } from './client-directory.service';
 import { ClientProfileService } from './client-profile.service';
 import {
 	InMemoryAssignmentStore,

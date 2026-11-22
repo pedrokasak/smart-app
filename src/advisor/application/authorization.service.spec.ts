@@ -6,11 +6,9 @@ import { OrgRole, ProfileOrigin } from '../domain/enums';
 import {
 	ClientActionForbiddenError,
 	ClientNotAccessibleError,
-} from './access-errors';
-import {
-	AuthorizationService,
 	RoleRequiredError,
-} from './authorization.service';
+} from './access-errors';
+import { AuthorizationService } from './authorization.service';
 import {
 	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,

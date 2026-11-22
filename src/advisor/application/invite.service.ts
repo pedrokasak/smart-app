@@ -40,6 +40,13 @@ export const INVITE_CREATED_EVENT = 'advisor.invite.created';
 
 const MAX_CLIENT_NAME_LENGTH = 120;
 
+/** Ids criados por um `createInvite`, para o desfazimento. */
+interface CreatedInvite {
+	profileId: string;
+	relationshipId?: string;
+	assigned: boolean;
+}
+
 export class InvalidInviteError extends UnprocessableEntityException {
 	constructor(reason: 'INVALID_EMAIL' | 'INVALID_NAME') {
 		super({ reason });
@@ -92,29 +99,29 @@ export class InviteService {
 			name: clientName,
 			origin: ProfileOrigin.ClientCreated,
 		});
-		const relationship = await this.relationships.createPending(
-			ctx.orgId,
-			profile.id
-		);
-		const { token, tokenHash } = generateInviteToken();
-		const expiresAt = inviteExpiry(new Date());
-		const invite = await this.invites.create({
-			orgId: ctx.orgId,
-			clientProfileId: profile.id,
-			relationshipId: relationship.id,
-			email,
-			tokenHash,
-			status: InviteStatus.Pending,
-			expiresAt,
-			resendCount: 0,
-			invitedByUserId: ctx.userId,
-		});
-
-		let assigned = false;
+		const created: CreatedInvite = { profileId: profile.id, assigned: false };
 		try {
+			const relationship = await this.relationships.createPending(
+				ctx.orgId,
+				profile.id
+			);
+			created.relationshipId = relationship.id;
+			const { token, tokenHash } = generateInviteToken();
+			const expiresAt = inviteExpiry(new Date());
+			const invite = await this.invites.create({
+				orgId: ctx.orgId,
+				clientProfileId: profile.id,
+				relationshipId: relationship.id,
+				email,
+				tokenHash,
+				status: InviteStatus.Pending,
+				expiresAt,
+				resendCount: 0,
+				invitedByUserId: ctx.userId,
+			});
 			// Convite feito por ADVISOR: o cliente novo já nasce atribuído a ele.
 			if (membership.role === OrgRole.Advisor) {
-				assigned = true;
+				created.assigned = true;
 				await this.assignments.assign(
 					ctx.orgId,
 					profile.id,
@@ -138,17 +145,15 @@ export class InviteService {
 				orgName,
 				expiresAt,
 			});
+			return {
+				inviteId: invite.id,
+				clientProfileId: profile.id,
+				expiresAt,
+			};
 		} catch (error) {
-			if (assigned) await this.unassignCreator(ctx, profile.id, invite.id);
-			await this.discard(invite.id, invite.relationshipId);
+			await this.undoCreate(ctx, created);
 			throw error;
 		}
-
-		return {
-			inviteId: invite.id,
-			clientProfileId: profile.id,
-			expiresAt,
-		};
 	}
 
 	async resendInvite(
@@ -239,46 +244,55 @@ export class InviteService {
 	}
 
 	/**
-	 * Compensation for a failed audit or send: each step is independent and
-	 * best effort, so one failing never skips the other. The caller rethrows
-	 * the original error. Logs carry ids only (no e-mail, name or token).
+	 * Fail closed: desfaz por exclusão de verdade só o que esta mesma chamada
+	 * criou (atribuição, convite, relação e perfil), para não sobrar cliente
+	 * que ninguém vê nem convite apontando para perfil apagado. Cada passo é
+	 * independente e best effort; o chamador relança o erro original. Logs só
+	 * com ids (sem e-mail, nome ou token).
 	 */
-	private async discard(
-		inviteId: string,
-		relationshipId: string
-	): Promise<void> {
-		try {
-			await this.invites.transition(
-				inviteId,
-				InviteStatus.Cancelled,
-				new Date()
-			);
-		} catch (error) {
-			this.logFailure('cancel invite', inviteId, error);
-		}
-		try {
-			await this.relationships.revokePending(relationshipId);
-		} catch (error) {
-			this.logFailure('revoke pending relationship of invite', inviteId, error);
-		}
-	}
-
-	/** Best effort, como `discard`: a falha só vai para o log, com ids. */
-	private async unassignCreator(
+	private async undoCreate(
 		ctx: AccessContext,
+		created: CreatedInvite
+	): Promise<void> {
+		const { profileId, relationshipId } = created;
+		if (created.assigned) {
+			await this.attempt('unassign the creator of', profileId, () =>
+				this.assignments.unassign(ctx.orgId, profileId, ctx.userId)
+			);
+		}
+		if (relationshipId) {
+			// A relação é nova: só o convite desta chamada aponta para ela.
+			await this.attempt('delete the invite of', profileId, () =>
+				this.invites.deleteByRelationshipIds([relationshipId])
+			);
+			await this.attempt('delete the relationship of', profileId, () =>
+				this.relationships.deleteCreated(relationshipId)
+			);
+		}
+		await this.attempt('delete', profileId, () =>
+			this.profiles.deleteById(profileId)
+		);
+	}
+
+	private async attempt(
+		step: string,
 		clientProfileId: string,
-		inviteId: string
+		run: () => Promise<unknown>
 	): Promise<void> {
 		try {
-			await this.assignments.unassign(ctx.orgId, clientProfileId, ctx.userId);
+			await run();
 		} catch (error) {
-			this.logFailure('unassign the creator of invite', inviteId, error);
+			this.logFailure(step, clientProfileId, error);
 		}
 	}
 
-	private logFailure(step: string, inviteId: string, error: unknown): void {
+	private logFailure(
+		step: string,
+		clientProfileId: string,
+		error: unknown
+	): void {
 		this.logger.error(
-			`Failed to ${step} ${inviteId} during compensation: ${
+			`Failed to ${step} client ${clientProfileId} during compensation: ${
 				error instanceof Error ? error.name : 'unknown'
 			}`
 		);

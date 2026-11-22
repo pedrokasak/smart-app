@@ -65,6 +65,14 @@ describe('RelationshipService', () => {
 		await expect(svc.revoke('missing')).rejects.toThrow(NotFoundException);
 	});
 
+	it('deleteCreated apaga só a relação daquele id', async () => {
+		const a = await svc.createPending('orgA', 'p1');
+		const b = await svc.createPending('orgA', 'p2');
+		await svc.deleteCreated(a.id);
+		expect(await store.findById(a.id)).toBeNull();
+		expect(await store.findById(b.id)).not.toBeNull();
+	});
+
 	describe('createPending', () => {
 		it('always creates a new PENDING relationship', async () => {
 			const first = await svc.createPending('orgA', 'cp1');

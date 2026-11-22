@@ -116,6 +116,14 @@ describe('InviteService', () => {
 			...over,
 		});
 
+	/** Nada do convite sobrou: nem perfil, nem relação, nem convite, nem atribuição. */
+	const expectNothingLeft = () => {
+		expect(profiles.size).toBe(0);
+		expect(relationships.size).toBe(0);
+		expect(invites.size).toBe(0);
+		expect(assignments.size).toBe(0);
+	};
+
 	const reasonOf = async (promise: Promise<unknown>): Promise<unknown> => {
 		try {
 			await promise;
@@ -256,17 +264,17 @@ describe('InviteService', () => {
 			expect(old.status).toBe(InviteStatus.Expired);
 		});
 
-		it('cancels the invite and revokes the relationship when the e-mail fails', async () => {
+		it('apaga perfil, relação e convite quando o e-mail falha', async () => {
 			notifier.failWith = new Error('smtp down');
 			await expect(create()).rejects.toThrow('smtp down');
 
-			const invite = await invites.findByTokenHash(
-				hashInviteToken(notifier.attempts[0].token)
-			);
-			expect(invite.status).toBe(InviteStatus.Cancelled);
-			const relationship = await relationships.findById(invite.relationshipId);
-			expect(relationship.status).toBe(RelationshipStatus.Revoked);
+			expect(
+				await invites.findByTokenHash(
+					hashInviteToken(notifier.attempts[0].token)
+				)
+			).toBeNull();
 			expect(audit.recorded).toHaveLength(1);
+			expectNothingLeft();
 		});
 
 		it('writes the audit event before sending and keeps PII out of it', async () => {
@@ -299,12 +307,7 @@ describe('InviteService', () => {
 			audit.failWith = new Error('audit down');
 			await expect(create()).rejects.toThrow('audit down');
 			expect(notifier.attempts).toHaveLength(0);
-			expect(
-				await invites.findPendingByOrgAndEmail(orgAId, 'joao@exemplo.com')
-			).toEqual([]);
-			expect(relationships.size).toBe(1);
-			const [only] = relationships.all;
-			expect(only.status).toBe(RelationshipStatus.Revoked);
+			expectNothingLeft();
 
 			audit.failWith = undefined;
 			await expect(create()).resolves.toBeTruthy();
@@ -462,7 +465,7 @@ describe('InviteService', () => {
 			expect(assignments.size).toBe(0);
 		});
 
-		it('desfaz o convite como no P2b quando a atribuição falha', async () => {
+		it('apaga tudo o que criou quando a atribuição falha', async () => {
 			jest
 				.spyOn(assignments, 'assign')
 				.mockRejectedValueOnce(new Error('assign down'));
@@ -471,23 +474,65 @@ describe('InviteService', () => {
 
 			expect(notifier.attempts).toHaveLength(0);
 			expect(audit.recorded).toHaveLength(0);
-			expect(assignments.size).toBe(0);
-			expect(
-				await invites.findPendingByOrgAndEmail(orgAId, 'joao@exemplo.com')
-			).toEqual([]);
-			const [only] = relationships.all;
-			expect(only.status).toBe(RelationshipStatus.Revoked);
+			expectNothingLeft();
 		});
 
-		it('remove a atribuição quando a auditoria ou o envio falha', async () => {
+		it('apaga tudo o que criou quando a auditoria falha', async () => {
 			audit.failWith = new Error('audit down');
 			await expect(create()).rejects.toThrow('audit down');
-			expect(assignments.size).toBe(0);
+			expect(notifier.attempts).toHaveLength(0);
+			expectNothingLeft();
+		});
 
-			audit.failWith = undefined;
+		it('apaga tudo o que criou quando o envio falha', async () => {
 			notifier.failWith = new Error('smtp down');
 			await expect(create()).rejects.toThrow('smtp down');
+			expectNothingLeft();
+		});
+
+		it('ORG_ADMIN: apaga tudo o que criou quando o envio falha', async () => {
+			notifier.failWith = new Error('smtp down');
+			await expect(create({}, admin())).rejects.toThrow('smtp down');
+			expectNothingLeft();
+		});
+
+		it('apaga tudo o que criou quando a criação do convite falha', async () => {
+			jest
+				.spyOn(invites, 'create')
+				.mockRejectedValueOnce(new Error('invite store down'));
+			await expect(create()).rejects.toThrow('invite store down');
+			expect(notifier.attempts).toHaveLength(0);
+			expectNothingLeft();
+		});
+
+		it('relança o erro original mesmo se um passo do desfazimento falhar', async () => {
+			notifier.failWith = new Error('smtp down');
+			jest
+				.spyOn(invites, 'deleteByRelationshipIds')
+				.mockRejectedValueOnce(new Error('delete down'));
+
+			await expect(create()).rejects.toThrow('smtp down');
+
+			// Os outros passos rodam mesmo com um falhando.
+			expect(profiles.size).toBe(0);
+			expect(relationships.size).toBe(0);
 			expect(assignments.size).toBe(0);
+		});
+
+		it('não apaga outro cliente da org quando um convite falha', async () => {
+			const kept = await create({ email: 'ana@exemplo.com' });
+			notifier.failWith = new Error('smtp down');
+
+			await expect(create()).rejects.toThrow('smtp down');
+
+			expect(profiles.size).toBe(1);
+			expect(relationships.size).toBe(1);
+			expect(invites.size).toBe(1);
+			expect(await profiles.findById(kept.clientProfileId)).not.toBeNull();
+			expect(await invites.findById(orgAId, kept.inviteId)).not.toBeNull();
+			expect(
+				await assignments.isAssigned(orgAId, kept.clientProfileId, ctxA.userId)
+			).toBe(true);
 		});
 
 		it('ADVISOR não reenvia nem cancela convite de cliente não atribuído: 404', async () => {
