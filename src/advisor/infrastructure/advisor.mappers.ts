@@ -6,8 +6,13 @@ import {
 	Organization,
 } from '../domain/entities';
 import { PortalGrant } from '../domain/portal-access';
+import { ClientAssignment, MemberInvite } from '../domain/team.entities';
 import { AllocationTarget, Transaction } from '../domain/portfolio.entities';
 import { AdvisorPortalGrantDoc } from './advisor-portal-grant.models';
+import {
+	AdvisorClientAssignmentDoc,
+	AdvisorMemberInviteDoc,
+} from './advisor-team.models';
 import {
 	AdvisorAllocationTargetDoc,
 	AdvisorTransactionDoc,
@@ -145,5 +150,34 @@ export function toPortalGrant(doc: AdvisorPortalGrantDoc): PortalGrant {
 		grantedBy: doc.grantedBy,
 		grantedAt: doc.grantedAt,
 		...(doc.revokedAt != null && { revokedAt: doc.revokedAt }),
+	};
+}
+
+export function toClientAssignment(
+	doc: AdvisorClientAssignmentDoc
+): ClientAssignment {
+	return {
+		id: doc._id,
+		orgId: doc.orgId,
+		clientProfileId: doc.clientProfileId,
+		userId: doc.userId,
+		assignedBy: doc.assignedBy,
+		createdAt: doc.createdAt,
+	};
+}
+
+export function toMemberInvite(doc: AdvisorMemberInviteDoc): MemberInvite {
+	return {
+		id: doc._id,
+		orgId: doc.orgId,
+		email: doc.email,
+		role: doc.role,
+		tokenHash: doc.tokenHash,
+		status: doc.status,
+		expiresAt: doc.expiresAt,
+		resendCount: doc.resendCount,
+		invitedByUserId: doc.invitedByUserId,
+		createdAt: doc.createdAt,
+		...(doc.respondedAt != null && { respondedAt: doc.respondedAt }),
 	};
 }

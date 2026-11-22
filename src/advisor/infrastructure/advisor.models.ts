@@ -105,6 +105,11 @@ membershipSchema.index(
 	{ userId: 1, createdAt: 1, _id: 1 },
 	{ name: 'advisor_membership_user_created' }
 );
+// `listByOrg` em ordem estável.
+membershipSchema.index(
+	{ orgId: 1, createdAt: 1, _id: 1 },
+	{ name: 'advisor_membership_org_created' }
+);
 
 const relationshipSchema = new Schema<AdvisorRelationshipDoc>(
 	{

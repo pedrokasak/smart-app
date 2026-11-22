@@ -6,6 +6,7 @@ import {
 	AssetClass,
 	ConsentStatus,
 	InviteStatus,
+	MemberInviteStatus,
 	OrgRole,
 	ProfileOrigin,
 	Provenance,
@@ -14,11 +15,14 @@ import {
 	TransactionSource,
 } from '../domain/enums';
 import { ERASED_CLIENT_NAME } from '../domain/entities';
+import { MemberInvite } from '../domain/team.entities';
 import { NewTransaction } from '../domain/portfolio.entities';
 import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
+import { AssignmentStorePort } from './ports/assignment.store.port';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
 import { ConsentStorePort } from './ports/consent.store.port';
 import { InviteStorePort } from './ports/invite.store.port';
+import { MemberInviteStorePort } from './ports/member-invite.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
 import { PortalGrantStorePort } from './ports/portal-grant.store.port';
@@ -26,6 +30,8 @@ import { RelationshipStorePort } from './ports/relationship.store.port';
 import {
 	DuplicateMembershipError,
 	DuplicateOrganizationOwnerError,
+	DuplicatePendingMemberInviteError,
+	InvalidCursorError,
 } from './ports/store-errors';
 import {
 	DuplicateImportError,
@@ -1707,6 +1713,722 @@ export function describeAdvisorPortalGrantStoreContract(
 			await store.grant(gone, 'admin-1', new Date());
 			await store.revoke(gone, new Date());
 			expect(await mine([kept, gone])).toEqual([keptGrant]);
+		});
+	});
+}
+
+export interface AdvisorTeamStores {
+	assignments: AssignmentStorePort;
+	memberInvites: MemberInviteStorePort;
+	memberships: MembershipStorePort;
+	relationships: RelationshipStorePort;
+	profiles: ClientProfileStorePort;
+}
+
+/**
+ * Suíte de contrato dos stores da equipe: atribuição, convite de membro e os
+ * métodos novos de vínculo, relação e perfil. Ids aleatórios por teste.
+ */
+export function describeAdvisorTeamStoreContract(
+	name: string,
+	makeStores: () => AdvisorTeamStores
+): void {
+	describe(`${name} - advisor team store contract`, () => {
+		let s: AdvisorTeamStores;
+		beforeEach(() => {
+			s = makeStores();
+		});
+
+		const FUTURE = new Date('2030-01-01T00:00:00Z');
+		const NOW = new Date('2029-01-01T00:00:00Z');
+
+		const newInvite = (
+			overrides: Partial<Omit<MemberInvite, 'id' | 'createdAt'>> = {}
+		): Omit<MemberInvite, 'id' | 'createdAt'> => ({
+			orgId: randomUUID(),
+			email: `${randomUUID()}@example.com`,
+			role: OrgRole.Advisor,
+			tokenHash: randomUUID(),
+			status: MemberInviteStatus.Pending,
+			expiresAt: FUTURE,
+			resendCount: 0,
+			invitedByUserId: randomUUID(),
+			...overrides,
+		});
+
+		describe('assignments', () => {
+			it('assign is idempotent: repeating keeps one row with the first assignedBy', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const userId = randomUUID();
+				const first = await s.assignments.assign(orgId, clientId, userId, 'a1');
+				const again = await s.assignments.assign(orgId, clientId, userId, 'a2');
+
+				expect(again).toEqual(first);
+				expect(first).toEqual({
+					id: expect.any(String),
+					orgId,
+					clientProfileId: clientId,
+					userId,
+					assignedBy: 'a1',
+					createdAt: expect.any(Date),
+				});
+				expect(await s.assignments.listByClient(orgId, clientId)).toEqual([
+					first,
+				]);
+			});
+
+			it('concurrent assigns of the same trio leave one row', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const userId = randomUUID();
+				const results = await Promise.all(
+					[1, 2, 3, 4].map((n) =>
+						s.assignments.assign(orgId, clientId, userId, `a${n}`)
+					)
+				);
+				expect(new Set(results.map((r) => r.id)).size).toBe(1);
+				expect(await s.assignments.listByClient(orgId, clientId)).toHaveLength(
+					1
+				);
+			});
+
+			it('unassign removes once; an unknown assignment gives false', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const userId = randomUUID();
+				expect(await s.assignments.unassign(orgId, clientId, userId)).toBe(
+					false
+				);
+				await s.assignments.assign(orgId, clientId, userId, 'a1');
+				expect(await s.assignments.isAssigned(orgId, clientId, userId)).toBe(
+					true
+				);
+				expect(await s.assignments.unassign(orgId, clientId, userId)).toBe(
+					true
+				);
+				expect(await s.assignments.isAssigned(orgId, clientId, userId)).toBe(
+					false
+				);
+				expect(await s.assignments.unassign(orgId, clientId, userId)).toBe(
+					false
+				);
+			});
+
+			it('isAssigned is scoped by org, client and user', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const userId = randomUUID();
+				await s.assignments.assign(orgId, clientId, userId, 'a1');
+				expect(
+					await s.assignments.isAssigned(randomUUID(), clientId, userId)
+				).toBe(false);
+				expect(
+					await s.assignments.isAssigned(orgId, randomUUID(), userId)
+				).toBe(false);
+				expect(
+					await s.assignments.isAssigned(orgId, clientId, randomUUID())
+				).toBe(false);
+			});
+
+			it('listByClient returns every advisor of that client in creation order', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const first = await s.assignments.assign(orgId, clientId, 'u1', 'a');
+				await tick();
+				const second = await s.assignments.assign(orgId, clientId, 'u2', 'a');
+				await s.assignments.assign(randomUUID(), clientId, 'u3', 'a');
+				await s.assignments.assign(orgId, randomUUID(), 'u4', 'a');
+
+				expect(await s.assignments.listByClient(orgId, clientId)).toEqual([
+					first,
+					second,
+				]);
+			});
+
+			it('listClientIdsByUser pages 5 clients with limit 2 without repeats; other orgs and users do not show', async () => {
+				const orgId = randomUUID();
+				const userId = randomUUID();
+				const clients = [1, 2, 3, 4, 5].map(() => randomUUID());
+				for (const c of clients) {
+					await s.assignments.assign(orgId, c, userId, 'a');
+					await tick();
+				}
+				await s.assignments.assign(randomUUID(), randomUUID(), userId, 'a');
+				await s.assignments.assign(orgId, randomUUID(), randomUUID(), 'a');
+
+				const seen: string[] = [];
+				let cursor: string | undefined;
+				let pages = 0;
+				do {
+					const page = await s.assignments.listClientIdsByUser(orgId, userId, {
+						cursor,
+						limit: 2,
+					});
+					seen.push(...page.ids);
+					cursor = page.nextCursor ?? undefined;
+					pages += 1;
+				} while (cursor);
+
+				expect(seen).toEqual(clients);
+				expect(pages).toBe(3);
+			});
+
+			it('listClientIdsByUser: the last page has no cursor and an exact fit does not invent one', async () => {
+				const orgId = randomUUID();
+				const userId = randomUUID();
+				await s.assignments.assign(orgId, randomUUID(), userId, 'a');
+				await tick();
+				await s.assignments.assign(orgId, randomUUID(), userId, 'a');
+				const page = await s.assignments.listClientIdsByUser(orgId, userId, {
+					limit: 2,
+				});
+				expect(page.ids).toHaveLength(2);
+				expect(page.nextCursor).toBeNull();
+				expect(
+					await s.assignments.listClientIdsByUser(orgId, randomUUID(), {
+						limit: 2,
+					})
+				).toEqual({ ids: [], nextCursor: null });
+			});
+
+			it('listClientIdsByUser keeps paging when the last item seen is deleted', async () => {
+				const orgId = randomUUID();
+				const userId = randomUUID();
+				const clients = [1, 2, 3, 4].map(() => randomUUID());
+				for (const c of clients) {
+					await s.assignments.assign(orgId, c, userId, 'a');
+					await tick();
+				}
+				const first = await s.assignments.listClientIdsByUser(orgId, userId, {
+					limit: 2,
+				});
+				expect(first.ids).toEqual(clients.slice(0, 2));
+				await s.assignments.unassign(orgId, clients[1], userId);
+
+				const second = await s.assignments.listClientIdsByUser(orgId, userId, {
+					cursor: first.nextCursor as string,
+					limit: 2,
+				});
+				expect(second.ids).toEqual(clients.slice(2));
+				expect(second.nextCursor).toBeNull();
+			});
+
+			it('listClientIdsByUser rejects a cursor that is not ours', async () => {
+				await expect(
+					s.assignments.listClientIdsByUser(randomUUID(), randomUUID(), {
+						cursor: 'not-a-cursor',
+						limit: 2,
+					})
+				).rejects.toBeInstanceOf(InvalidCursorError);
+			});
+
+			it('deleteByUser only touches that user in that org', async () => {
+				const orgId = randomUUID();
+				const otherOrg = randomUUID();
+				const userId = randomUUID();
+				const clientA = randomUUID();
+				const clientB = randomUUID();
+				await s.assignments.assign(orgId, clientA, userId, 'a');
+				await s.assignments.assign(orgId, clientB, userId, 'a');
+				await s.assignments.assign(otherOrg, clientA, userId, 'a');
+				await s.assignments.assign(orgId, clientA, 'other-user', 'a');
+
+				expect(await s.assignments.deleteByUser(orgId, userId)).toBe(2);
+				expect(await s.assignments.deleteByUser(orgId, userId)).toBe(0);
+				expect(await s.assignments.isAssigned(otherOrg, clientA, userId)).toBe(
+					true
+				);
+				expect(
+					await s.assignments.isAssigned(orgId, clientA, 'other-user')
+				).toBe(true);
+			});
+
+			it('deleteAllForUser clears the user in every org and leaves others', async () => {
+				const userId = randomUUID();
+				const clientId = randomUUID();
+				const orgA = randomUUID();
+				const orgB = randomUUID();
+				await s.assignments.assign(orgA, clientId, userId, 'a');
+				await s.assignments.assign(orgB, clientId, userId, 'a');
+				await s.assignments.assign(orgA, clientId, 'other-user', 'a');
+
+				expect(await s.assignments.deleteAllForUser(userId)).toBe(2);
+				expect(await s.assignments.deleteAllForUser(userId)).toBe(0);
+				expect(await s.assignments.listByClient(orgA, clientId)).toHaveLength(
+					1
+				);
+			});
+
+			it('deleteByClient clears every advisor of that client in that org only', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				await s.assignments.assign(orgId, clientId, 'u1', 'a');
+				await s.assignments.assign(orgId, clientId, 'u2', 'a');
+				await s.assignments.assign(randomUUID(), clientId, 'u1', 'a');
+				await s.assignments.assign(orgId, randomUUID(), 'u1', 'a');
+
+				expect(await s.assignments.deleteByClient(orgId, clientId)).toBe(2);
+				expect(await s.assignments.listByClient(orgId, clientId)).toEqual([]);
+				expect(await s.assignments.deleteByClient(orgId, clientId)).toBe(0);
+			});
+		});
+
+		describe('member invites', () => {
+			it('create round trips by id and token hash, keeping the role; other org gives null', async () => {
+				const created = await s.memberInvites.create(newInvite());
+
+				expect(created).toMatchObject({
+					id: expect.any(String),
+					role: OrgRole.Advisor,
+					status: MemberInviteStatus.Pending,
+					resendCount: 0,
+				});
+				expect(created.createdAt).toBeInstanceOf(Date);
+				expect(created.respondedAt).toBeUndefined();
+				expect(
+					await s.memberInvites.findById(created.orgId, created.id)
+				).toEqual(created);
+				expect(
+					await s.memberInvites.findById(randomUUID(), created.id)
+				).toBeNull();
+				expect(
+					await s.memberInvites.findById(created.orgId, 'nope')
+				).toBeNull();
+				expect(
+					await s.memberInvites.findByTokenHash(created.tokenHash)
+				).toEqual(created);
+				expect(await s.memberInvites.findByTokenHash('unknown')).toBeNull();
+			});
+
+			it('a second PENDING invite for the same email in the same org is rejected', async () => {
+				const first = await s.memberInvites.create(newInvite());
+				await expect(
+					s.memberInvites.create(
+						newInvite({ orgId: first.orgId, email: first.email })
+					)
+				).rejects.toBeInstanceOf(DuplicatePendingMemberInviteError);
+			});
+
+			it('the same email can be invited by another org', async () => {
+				const first = await s.memberInvites.create(newInvite());
+				await expect(
+					s.memberInvites.create(newInvite({ email: first.email }))
+				).resolves.toBeTruthy();
+			});
+
+			it('a new invite is allowed once the previous one left PENDING', async () => {
+				const first = await s.memberInvites.create(newInvite());
+				await s.memberInvites.transition(
+					first.id,
+					MemberInviteStatus.Pending,
+					MemberInviteStatus.Declined,
+					NOW
+				);
+				const second = await s.memberInvites.create(
+					newInvite({ orgId: first.orgId, email: first.email })
+				);
+				expect(second.id).not.toBe(first.id);
+			});
+
+			it('transition: concurrent calls leave exactly one winner', async () => {
+				const invite = await s.memberInvites.create(newInvite());
+				const results = await Promise.allSettled(
+					[
+						MemberInviteStatus.Accepted,
+						MemberInviteStatus.Declined,
+						MemberInviteStatus.Cancelled,
+					].map((to) =>
+						s.memberInvites.transition(
+							invite.id,
+							MemberInviteStatus.Pending,
+							to,
+							NOW
+						)
+					)
+				);
+				const winners = results.filter(
+					(r) => r.status === 'fulfilled' && r.value !== null
+				);
+				expect(winners).toHaveLength(1);
+				const stored = await s.memberInvites.findById(invite.orgId, invite.id);
+				expect(stored?.status).not.toBe(MemberInviteStatus.Pending);
+				expect(stored?.respondedAt).toEqual(NOW);
+			});
+
+			it('transition only fires from the expected status', async () => {
+				const invite = await s.memberInvites.create(newInvite());
+				expect(
+					await s.memberInvites.transition(
+						invite.id,
+						MemberInviteStatus.Expired,
+						MemberInviteStatus.Cancelled,
+						NOW
+					)
+				).toBeNull();
+				const accepted = await s.memberInvites.transition(
+					invite.id,
+					MemberInviteStatus.Pending,
+					MemberInviteStatus.Accepted,
+					NOW
+				);
+				expect(accepted).toMatchObject({
+					status: MemberInviteStatus.Accepted,
+					respondedAt: NOW,
+				});
+				expect(
+					await s.memberInvites.transition(
+						invite.id,
+						MemberInviteStatus.Pending,
+						MemberInviteStatus.Declined,
+						NOW
+					)
+				).toBeNull();
+				expect(
+					await s.memberInvites.transition(
+						randomUUID(),
+						MemberInviteStatus.Pending,
+						MemberInviteStatus.Declined,
+						NOW
+					)
+				).toBeNull();
+			});
+
+			it('rotateToken adds 1 to resendCount, swaps hash and expiry; the old hash stops working', async () => {
+				const invite = await s.memberInvites.create(newInvite());
+				const later = new Date('2031-01-01T00:00:00Z');
+				const rotated = await s.memberInvites.rotateToken(
+					invite.id,
+					'new-hash',
+					later
+				);
+				expect(rotated).toMatchObject({
+					tokenHash: 'new-hash',
+					expiresAt: later,
+					resendCount: 1,
+				});
+				const again = await s.memberInvites.rotateToken(
+					invite.id,
+					'newer-hash',
+					later
+				);
+				expect(again?.resendCount).toBe(2);
+				expect(
+					await s.memberInvites.findByTokenHash(invite.tokenHash)
+				).toBeNull();
+				expect((await s.memberInvites.findByTokenHash('newer-hash'))?.id).toBe(
+					invite.id
+				);
+			});
+
+			it('rotateToken is null for an unknown or no longer PENDING invite', async () => {
+				expect(
+					await s.memberInvites.rotateToken(randomUUID(), 'h', FUTURE)
+				).toBeNull();
+				const invite = await s.memberInvites.create(newInvite());
+				await s.memberInvites.transition(
+					invite.id,
+					MemberInviteStatus.Pending,
+					MemberInviteStatus.Cancelled,
+					NOW
+				);
+				expect(
+					await s.memberInvites.rotateToken(invite.id, 'h', FUTURE)
+				).toBeNull();
+			});
+
+			it('findPendingByOrgAndEmail ignores expired, answered and other-org invites', async () => {
+				const orgId = randomUUID();
+				const live = await s.memberInvites.create(newInvite({ orgId }));
+				expect(
+					(
+						await s.memberInvites.findPendingByOrgAndEmail(
+							orgId,
+							live.email,
+							NOW
+						)
+					)?.id
+				).toBe(live.id);
+				expect(
+					await s.memberInvites.findPendingByOrgAndEmail(
+						orgId,
+						live.email,
+						new Date('2031-01-01T00:00:00Z')
+					)
+				).toBeNull();
+				expect(
+					await s.memberInvites.findPendingByOrgAndEmail(
+						randomUUID(),
+						live.email,
+						NOW
+					)
+				).toBeNull();
+				await s.memberInvites.transition(
+					live.id,
+					MemberInviteStatus.Pending,
+					MemberInviteStatus.Accepted,
+					NOW
+				);
+				expect(
+					await s.memberInvites.findPendingByOrgAndEmail(orgId, live.email, NOW)
+				).toBeNull();
+			});
+
+			it('listPendingByOrg lists live PENDING invites of the org, newest first', async () => {
+				const orgId = randomUUID();
+				const older = await s.memberInvites.create(newInvite({ orgId }));
+				await tick();
+				const newer = await s.memberInvites.create(newInvite({ orgId }));
+				const answered = await s.memberInvites.create(newInvite({ orgId }));
+				await s.memberInvites.transition(
+					answered.id,
+					MemberInviteStatus.Pending,
+					MemberInviteStatus.Declined,
+					NOW
+				);
+				await s.memberInvites.create(
+					newInvite({ orgId, expiresAt: new Date('2028-01-01T00:00:00Z') })
+				);
+				await s.memberInvites.create(newInvite());
+
+				const listed = await s.memberInvites.listPendingByOrg(orgId, NOW);
+				expect(listed.map((i) => i.id)).toEqual([newer.id, older.id]);
+			});
+
+			it('deleteById removes just that invite and is silent for an unknown id', async () => {
+				const orgId = randomUUID();
+				const keep = await s.memberInvites.create(newInvite({ orgId }));
+				const drop = await s.memberInvites.create(newInvite({ orgId }));
+				await s.memberInvites.deleteById(drop.id);
+				await s.memberInvites.deleteById(randomUUID());
+				expect(await s.memberInvites.findById(orgId, drop.id)).toBeNull();
+				expect(await s.memberInvites.findById(orgId, keep.id)).toEqual(keep);
+			});
+
+			it('deletePendingByEmail clears PENDING invites of that email in every org and keeps the answered ones', async () => {
+				const email = `${randomUUID()}@example.com`;
+				const a = await s.memberInvites.create(newInvite({ email }));
+				const b = await s.memberInvites.create(newInvite({ email }));
+				const answered = await s.memberInvites.create(newInvite({ email }));
+				await s.memberInvites.transition(
+					answered.id,
+					MemberInviteStatus.Pending,
+					MemberInviteStatus.Accepted,
+					NOW
+				);
+				const other = await s.memberInvites.create(newInvite());
+
+				expect(await s.memberInvites.deletePendingByEmail(email)).toBe(2);
+				expect(await s.memberInvites.deletePendingByEmail(email)).toBe(0);
+				expect(await s.memberInvites.findById(a.orgId, a.id)).toBeNull();
+				expect(await s.memberInvites.findById(b.orgId, b.id)).toBeNull();
+				expect(
+					await s.memberInvites.findById(answered.orgId, answered.id)
+				).not.toBeNull();
+				expect(
+					await s.memberInvites.findById(other.orgId, other.id)
+				).not.toBeNull();
+			});
+		});
+
+		describe('memberships', () => {
+			it('delete removes one vínculo once', async () => {
+				const userId = randomUUID();
+				const orgId = randomUUID();
+				await s.memberships.create({ userId, orgId, role: OrgRole.Advisor });
+				await s.memberships.create({
+					userId,
+					orgId: randomUUID(),
+					role: OrgRole.Advisor,
+				});
+
+				expect(await s.memberships.delete(userId, orgId)).toBe(true);
+				expect(await s.memberships.delete(userId, orgId)).toBe(false);
+				expect(await s.memberships.findByUserAndOrg(userId, orgId)).toBeNull();
+				expect(await s.memberships.findByUser(userId)).toHaveLength(1);
+			});
+
+			it('setRole changes only that vínculo; unknown gives null', async () => {
+				const userId = randomUUID();
+				const orgId = randomUUID();
+				const created = await s.memberships.create({
+					userId,
+					orgId,
+					role: OrgRole.Advisor,
+				});
+				const bystander = await s.memberships.create({
+					userId: randomUUID(),
+					orgId,
+					role: OrgRole.Advisor,
+				});
+
+				expect(
+					await s.memberships.setRole(userId, orgId, OrgRole.OrgAdmin)
+				).toEqual({ ...created, role: OrgRole.OrgAdmin });
+				expect(await s.memberships.findByUserAndOrg(userId, orgId)).toEqual({
+					...created,
+					role: OrgRole.OrgAdmin,
+				});
+				expect(
+					await s.memberships.findByUserAndOrg(bystander.userId, orgId)
+				).toEqual(bystander);
+				expect(
+					await s.memberships.setRole(userId, randomUUID(), OrgRole.OrgAdmin)
+				).toBeNull();
+			});
+
+			it('listByOrg is isolated by org and in createdAt order', async () => {
+				const orgId = randomUUID();
+				const first = await s.memberships.create({
+					userId: randomUUID(),
+					orgId,
+					role: OrgRole.OrgAdmin,
+				});
+				await tick();
+				const second = await s.memberships.create({
+					userId: randomUUID(),
+					orgId,
+					role: OrgRole.Advisor,
+				});
+				await s.memberships.create({
+					userId: randomUUID(),
+					orgId: randomUUID(),
+					role: OrgRole.Advisor,
+				});
+
+				expect(await s.memberships.listByOrg(orgId)).toEqual([first, second]);
+				expect(await s.memberships.listByOrg(randomUUID())).toEqual([]);
+			});
+
+			it('deleteAllForUser clears the user in every org and leaves others', async () => {
+				const userId = randomUUID();
+				const orgId = randomUUID();
+				await s.memberships.create({ userId, orgId, role: OrgRole.Advisor });
+				await s.memberships.create({
+					userId,
+					orgId: randomUUID(),
+					role: OrgRole.Advisor,
+				});
+				await s.memberships.create({
+					userId: randomUUID(),
+					orgId,
+					role: OrgRole.Advisor,
+				});
+
+				expect(await s.memberships.deleteAllForUser(userId)).toBe(2);
+				expect(await s.memberships.deleteAllForUser(userId)).toBe(0);
+				expect(await s.memberships.findByUser(userId)).toEqual([]);
+				expect(await s.memberships.listByOrg(orgId)).toHaveLength(1);
+			});
+		});
+
+		describe('relationships and profiles', () => {
+			const relationInOrg = async (
+				orgId: string,
+				clientProfileId: string,
+				status = RelationshipStatus.Active
+			) => s.relationships.create({ orgId, clientProfileId, status });
+
+			it('listUnassignedByOrg drops profiles with any assignment, keeps the rest in listByOrg order', async () => {
+				const orgId = randomUUID();
+				const clients = [1, 2, 3, 4].map(() => randomUUID());
+				const rels = [];
+				for (const c of clients) {
+					rels.push(await relationInOrg(orgId, c));
+					await tick();
+				}
+				await s.assignments.assign(orgId, clients[1], randomUUID(), 'a');
+				await s.assignments.assign(orgId, clients[1], randomUUID(), 'a');
+				await s.assignments.assign(orgId, clients[2], randomUUID(), 'a');
+
+				const page = await s.relationships.listUnassignedByOrg(orgId, {
+					statuses: [RelationshipStatus.Active],
+					limit: 10,
+				});
+				expect(page.items.map((r) => r.id)).toEqual([rels[3].id, rels[0].id]);
+				expect(page.nextCursor).toBeNull();
+			});
+
+			it('listUnassignedByOrg ignores an assignment made in another org and respects statuses', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const active = await relationInOrg(orgId, clientId);
+				const pending = await relationInOrg(
+					orgId,
+					randomUUID(),
+					RelationshipStatus.Pending
+				);
+				await s.assignments.assign(randomUUID(), clientId, randomUUID(), 'a');
+
+				const onlyActive = await s.relationships.listUnassignedByOrg(orgId, {
+					statuses: [RelationshipStatus.Active],
+					limit: 10,
+				});
+				expect(onlyActive.items.map((r) => r.id)).toEqual([active.id]);
+				const both = await s.relationships.listUnassignedByOrg(orgId, {
+					statuses: [RelationshipStatus.Active, RelationshipStatus.Pending],
+					limit: 10,
+				});
+				expect(both.items.map((r) => r.id).sort()).toEqual(
+					[active.id, pending.id].sort()
+				);
+			});
+
+			it('listUnassignedByOrg pages with limit and cursor without repeats', async () => {
+				const orgId = randomUUID();
+				const rels = [];
+				for (let i = 0; i < 5; i += 1) {
+					rels.push(await relationInOrg(orgId, randomUUID()));
+					await tick();
+				}
+				const seen: string[] = [];
+				let cursor: string | undefined;
+				do {
+					const page = await s.relationships.listUnassignedByOrg(orgId, {
+						statuses: [RelationshipStatus.Active],
+						cursor,
+						limit: 2,
+					});
+					seen.push(...page.items.map((r) => r.id));
+					cursor = page.nextCursor ?? undefined;
+				} while (cursor);
+
+				expect(seen).toEqual(rels.map((r) => r.id).reverse());
+			});
+
+			it('listUnassignedByOrg: a profile becomes listed again once unassigned', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const userId = randomUUID();
+				const rel = await relationInOrg(orgId, clientId);
+				await s.assignments.assign(orgId, clientId, userId, 'a');
+				const query = { statuses: [RelationshipStatus.Active], limit: 10 };
+				expect(
+					(await s.relationships.listUnassignedByOrg(orgId, query)).items
+				).toEqual([]);
+				await s.assignments.unassign(orgId, clientId, userId);
+				expect(
+					(await s.relationships.listUnassignedByOrg(orgId, query)).items
+				).toEqual([rel]);
+			});
+
+			it('relationship deleteById removes it and is silent for an unknown id', async () => {
+				const rel = await relationInOrg(randomUUID(), randomUUID());
+				await s.relationships.deleteById(rel.id);
+				await s.relationships.deleteById(randomUUID());
+				expect(await s.relationships.findById(rel.id)).toBeNull();
+			});
+
+			it('profile deleteById removes it and is silent for an unknown id', async () => {
+				const profile = await s.profiles.create({
+					orgId: randomUUID(),
+					name: 'Gone',
+					origin: ProfileOrigin.AdvisorCreated,
+				});
+				await s.profiles.deleteById(profile.id);
+				await s.profiles.deleteById(randomUUID());
+				expect(await s.profiles.findById(profile.id)).toBeNull();
+			});
 		});
 	});
 }

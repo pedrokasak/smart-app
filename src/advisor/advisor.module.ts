@@ -8,10 +8,12 @@ import { SubscriptionModule } from 'src/subscription/subscription.module';
 import { UsersModule } from 'src/users/users.module';
 import {
 	ADVISOR_ALLOCATION_TARGET_STORE,
+	ADVISOR_ASSIGNMENT_STORE,
 	ADVISOR_BENCHMARK_SERIES,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_CONSENT_STORE,
 	ADVISOR_INVITE_STORE,
+	ADVISOR_MEMBER_INVITE_STORE,
 	ADVISOR_MEMBERSHIP_STORE,
 	ADVISOR_ORG_STORE,
 	ADVISOR_PORTAL_GRANT_STORE,
@@ -59,14 +61,21 @@ import {
 	ADVISOR_PORTAL_GRANT_MODEL,
 	advisorPortalGrantSchema,
 } from './infrastructure/advisor-portal-grant.models';
+import {
+	ADVISOR_CLIENT_ASSIGNMENT_MODEL,
+	ADVISOR_MEMBER_INVITE_MODEL,
+	advisorTeamSchemas,
+} from './infrastructure/advisor-team.models';
 import { B2cSharedPortfolioSourceAdapter } from './infrastructure/b2c-shared-portfolio-source.adapter';
 import { EmailInviteNotifierAdapter } from './infrastructure/email-invite-notifier.adapter';
 import { MacroBenchmarkSeriesAdapter } from './infrastructure/macro-benchmark-series.adapter';
 import { MarketPriceHistoryAdapter } from './infrastructure/market-price-history.adapter';
 import { MongoAllocationTargetStore } from './infrastructure/mongo-allocation-target.store';
+import { MongoAssignmentStore } from './infrastructure/mongo-assignment.store';
 import { MongoClientProfileStore } from './infrastructure/mongo-client-profile.store';
 import { MongoConsentStore } from './infrastructure/mongo-consent.store';
 import { MongoInviteStore } from './infrastructure/mongo-invite.store';
+import { MongoMemberInviteStore } from './infrastructure/mongo-member-invite.store';
 import { MongoMembershipStore } from './infrastructure/mongo-membership.store';
 import { MongoOrganizationStore } from './infrastructure/mongo-organization.store';
 import { MongoPortalGrantStore } from './infrastructure/mongo-portal-grant.store';
@@ -115,6 +124,14 @@ import { OrgContextGuard } from './interface/org-context.guard';
 			},
 			{ name: ADVISOR_CONSENT_MODEL, schema: advisorConsentSchemas.consent },
 			{ name: ADVISOR_PORTAL_GRANT_MODEL, schema: advisorPortalGrantSchema },
+			{
+				name: ADVISOR_CLIENT_ASSIGNMENT_MODEL,
+				schema: advisorTeamSchemas.assignment,
+			},
+			{
+				name: ADVISOR_MEMBER_INVITE_MODEL,
+				schema: advisorTeamSchemas.memberInvite,
+			},
 		]),
 		MarketDataModule,
 		MacroIndicatorsModule,
@@ -172,6 +189,13 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		{
 			provide: ADVISOR_SHARED_PORTFOLIO_SOURCE,
 			useExisting: B2cSharedPortfolioSourceAdapter,
+		},
+		MongoAssignmentStore,
+		MongoMemberInviteStore,
+		{ provide: ADVISOR_ASSIGNMENT_STORE, useExisting: MongoAssignmentStore },
+		{
+			provide: ADVISOR_MEMBER_INVITE_STORE,
+			useExisting: MongoMemberInviteStore,
 		},
 		MongoPortalGrantStore,
 		UserPortalAccountDirectoryAdapter,

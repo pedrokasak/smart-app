@@ -13,6 +13,8 @@ import {
 	ConsentStatus,
 	ImportBatchStatus,
 	InviteStatus,
+	MemberInviteStatus,
+	OrgRole,
 	ProfileOrigin,
 	RelationshipStatus,
 } from '../domain/enums';
@@ -22,7 +24,13 @@ import {
 	Transaction,
 } from '../domain/portfolio.entities';
 import { PortalGrant } from '../domain/portal-access';
+import { ClientAssignment, MemberInvite } from '../domain/team.entities';
 import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
+import {
+	AssignedClientsPage,
+	AssignmentStorePort,
+	ListAssignedClientsQuery,
+} from './ports/assignment.store.port';
 import {
 	BenchmarkKey,
 	BenchmarkSeriesPort,
@@ -38,6 +46,7 @@ import {
 	InviteeAccount,
 	InviteeIdentityPort,
 } from './ports/invitee-identity.port';
+import { MemberInviteStorePort } from './ports/member-invite.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
 import { PortalAccountDirectoryPort } from './ports/portal-account-directory.port';
@@ -51,6 +60,7 @@ import {
 import {
 	DuplicateMembershipError,
 	DuplicateOrganizationOwnerError,
+	DuplicatePendingMemberInviteError,
 } from './ports/store-errors';
 import {
 	decodeRelationshipCursor,
@@ -128,6 +138,42 @@ export class InMemoryMembershipStore implements MembershipStorePort {
 			) ?? null
 		);
 	}
+
+	async delete(userId: string, orgId: string): Promise<boolean> {
+		const found = await this.findByUserAndOrg(userId, orgId);
+		return found !== null && this.items.delete(found.id);
+	}
+
+	async setRole(
+		userId: string,
+		orgId: string,
+		role: OrgRole
+	): Promise<Membership | null> {
+		const found = await this.findByUserAndOrg(userId, orgId);
+		if (!found) return null;
+		const updated: Membership = { ...found, role };
+		this.items.set(found.id, updated);
+		return { ...updated };
+	}
+
+	async listByOrg(orgId: string): Promise<Membership[]> {
+		// Map preserva a ordem de criação.
+		return [...this.items.values()]
+			.filter((m) => m.orgId === orgId)
+			.slice(0, 200)
+			.map((m) => ({ ...m }));
+	}
+
+	async deleteAllForUser(userId: string): Promise<number> {
+		let removed = 0;
+		for (const [id, membership] of this.items) {
+			if (membership.userId === userId) {
+				this.items.delete(id);
+				removed += 1;
+			}
+		}
+		return removed;
+	}
 }
 
 export class InMemoryRelationshipStore implements RelationshipStorePort {
@@ -135,6 +181,12 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 	/** Instante de criação por id, estritamente crescente (ordem de `listByOrg`). */
 	private readonly createdAt = new Map<string, Date>();
 	private lastCreatedAtMs = 0;
+
+	/**
+	 * Fonte das atribuições para `listUnassignedByOrg`; sem ela, todo perfil
+	 * conta como não atribuído.
+	 */
+	constructor(private readonly assignments?: AssignmentStorePort) {}
 
 	private stamp(id: string): void {
 		if (this.createdAt.has(id)) return;
@@ -222,6 +274,35 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 		orgId: string,
 		query: ListRelationshipsQuery
 	): Promise<RelationshipPage> {
+		return this.page(orgId, query, () => true);
+	}
+
+	async listUnassignedByOrg(
+		orgId: string,
+		query: ListRelationshipsQuery
+	): Promise<RelationshipPage> {
+		const assigned = new Set<string>();
+		for (const r of this.items.values()) {
+			if (r.orgId !== orgId) continue;
+			const rows = await this.assignments?.listByClient(
+				orgId,
+				r.clientProfileId
+			);
+			if (rows && rows.length > 0) assigned.add(r.clientProfileId);
+		}
+		return this.page(orgId, query, (r) => !assigned.has(r.clientProfileId));
+	}
+
+	async deleteById(id: string): Promise<void> {
+		this.items.delete(id);
+		this.createdAt.delete(id);
+	}
+
+	private page(
+		orgId: string,
+		query: ListRelationshipsQuery,
+		keep: (r: AdvisoryRelationship) => boolean
+	): RelationshipPage {
 		const statuses = new Set(query.statuses);
 		const cursor = query.cursor ? decodeRelationshipCursor(query.cursor) : null;
 		const key = (r: AdvisoryRelationship) => ({
@@ -230,7 +311,7 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 		});
 		// createdAt decrescente, desempate por id decrescente.
 		const ordered = [...this.items.values()]
-			.filter((r) => r.orgId === orgId && statuses.has(r.status))
+			.filter((r) => r.orgId === orgId && statuses.has(r.status) && keep(r))
 			.sort((a, b) => {
 				const ka = key(a);
 				const kb = key(b);
@@ -357,6 +438,10 @@ export class InMemoryClientProfileStore implements ClientProfileStorePort {
 		return [...this.items.values()]
 			.filter((p) => p.ownerUserId === userId)
 			.map((p) => p.id);
+	}
+
+	async deleteById(id: string): Promise<void> {
+		this.items.delete(id);
 	}
 }
 
@@ -942,5 +1027,261 @@ export class InMemoryPortalAccountDirectory implements PortalAccountDirectoryPor
 			if (email) found.set(userId, email);
 		}
 		return found;
+	}
+}
+
+export class InMemoryAssignmentStore implements AssignmentStorePort {
+	private readonly items = new Map<string, ClientAssignment>();
+	private lastCreatedAtMs = 0;
+
+	async assign(
+		orgId: string,
+		clientProfileId: string,
+		userId: string,
+		assignedBy: string
+	): Promise<ClientAssignment> {
+		const existing = this.find(orgId, clientProfileId, userId);
+		if (existing) return { ...existing };
+		// Estritamente crescente: a ordem de listagem não depende do relógio.
+		this.lastCreatedAtMs = Math.max(Date.now(), this.lastCreatedAtMs + 1);
+		const created: ClientAssignment = {
+			id: randomUUID(),
+			orgId,
+			clientProfileId,
+			userId,
+			assignedBy,
+			createdAt: new Date(this.lastCreatedAtMs),
+		};
+		this.items.set(created.id, created);
+		return { ...created };
+	}
+
+	async unassign(
+		orgId: string,
+		clientProfileId: string,
+		userId: string
+	): Promise<boolean> {
+		const found = this.find(orgId, clientProfileId, userId);
+		return found !== undefined && this.items.delete(found.id);
+	}
+
+	async isAssigned(
+		orgId: string,
+		clientProfileId: string,
+		userId: string
+	): Promise<boolean> {
+		return this.find(orgId, clientProfileId, userId) !== undefined;
+	}
+
+	async listByClient(
+		orgId: string,
+		clientProfileId: string
+	): Promise<ClientAssignment[]> {
+		return this.ordered(
+			(a) => a.orgId === orgId && a.clientProfileId === clientProfileId
+		).map((a) => ({ ...a }));
+	}
+
+	async listClientIdsByUser(
+		orgId: string,
+		userId: string,
+		query: ListAssignedClientsQuery
+	): Promise<AssignedClientsPage> {
+		const cursor = query.cursor ? decodeRelationshipCursor(query.cursor) : null;
+		const rows = this.ordered(
+			(a) => a.orgId === orgId && a.userId === userId
+		).filter((a) => {
+			if (!cursor) return true;
+			const diff = a.createdAt.getTime() - cursor.createdAt.getTime();
+			return diff > 0 || (diff === 0 && a.id > cursor.id);
+		});
+		const page = rows.slice(0, query.limit);
+		const last = page[page.length - 1];
+		return {
+			ids: page.map((a) => a.clientProfileId),
+			nextCursor:
+				rows.length > query.limit && last
+					? encodeRelationshipCursor({
+							createdAt: last.createdAt,
+							id: last.id,
+						})
+					: null,
+		};
+	}
+
+	async deleteByUser(orgId: string, userId: string): Promise<number> {
+		return this.removeWhere((a) => a.orgId === orgId && a.userId === userId);
+	}
+
+	async deleteAllForUser(userId: string): Promise<number> {
+		return this.removeWhere((a) => a.userId === userId);
+	}
+
+	async deleteByClient(
+		orgId: string,
+		clientProfileId: string
+	): Promise<number> {
+		return this.removeWhere(
+			(a) => a.orgId === orgId && a.clientProfileId === clientProfileId
+		);
+	}
+
+	private find(
+		orgId: string,
+		clientProfileId: string,
+		userId: string
+	): ClientAssignment | undefined {
+		return [...this.items.values()].find(
+			(a) =>
+				a.orgId === orgId &&
+				a.clientProfileId === clientProfileId &&
+				a.userId === userId
+		);
+	}
+
+	private ordered(
+		predicate: (a: ClientAssignment) => boolean
+	): ClientAssignment[] {
+		return [...this.items.values()]
+			.filter(predicate)
+			.sort(
+				(a, b) =>
+					a.createdAt.getTime() - b.createdAt.getTime() ||
+					(a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+			);
+	}
+
+	private removeWhere(predicate: (a: ClientAssignment) => boolean): number {
+		let removed = 0;
+		for (const [id, a] of this.items) {
+			if (predicate(a)) {
+				this.items.delete(id);
+				removed += 1;
+			}
+		}
+		return removed;
+	}
+}
+
+export class InMemoryMemberInviteStore implements MemberInviteStorePort {
+	private readonly items = new Map<string, MemberInvite>();
+
+	/** Só para testes: quantidade de itens gravados. */
+	get size(): number {
+		return this.items.size;
+	}
+
+	async create(
+		invite: Omit<MemberInvite, 'id' | 'createdAt'>
+	): Promise<MemberInvite> {
+		if (
+			invite.status === MemberInviteStatus.Pending &&
+			[...this.items.values()].some(
+				(i) =>
+					i.orgId === invite.orgId &&
+					i.email === invite.email &&
+					i.status === MemberInviteStatus.Pending
+			)
+		) {
+			throw new DuplicatePendingMemberInviteError();
+		}
+		const created: MemberInvite = {
+			...invite,
+			id: randomUUID(),
+			createdAt: new Date(),
+		};
+		this.items.set(created.id, created);
+		return { ...created };
+	}
+
+	async findById(orgId: string, id: string): Promise<MemberInvite | null> {
+		const found = this.items.get(id);
+		return found && found.orgId === orgId ? { ...found } : null;
+	}
+
+	async findByTokenHash(tokenHash: string): Promise<MemberInvite | null> {
+		const found = [...this.items.values()].find(
+			(i) => i.tokenHash === tokenHash
+		);
+		return found ? { ...found } : null;
+	}
+
+	async findPendingByOrgAndEmail(
+		orgId: string,
+		email: string,
+		now: Date
+	): Promise<MemberInvite | null> {
+		const found = [...this.items.values()].find(
+			(i) =>
+				i.orgId === orgId &&
+				i.email === email &&
+				i.status === MemberInviteStatus.Pending &&
+				i.expiresAt.getTime() > now.getTime()
+		);
+		return found ? { ...found } : null;
+	}
+
+	async listPendingByOrg(orgId: string, now: Date): Promise<MemberInvite[]> {
+		// Map preserva a ordem de criação; o mais recente primeiro.
+		return [...this.items.values()]
+			.filter(
+				(i) =>
+					i.orgId === orgId &&
+					i.status === MemberInviteStatus.Pending &&
+					i.expiresAt.getTime() > now.getTime()
+			)
+			.reverse()
+			.slice(0, 200)
+			.map((i) => ({ ...i }));
+	}
+
+	async transition(
+		id: string,
+		from: MemberInviteStatus,
+		to: MemberInviteStatus,
+		at: Date
+	): Promise<MemberInvite | null> {
+		const current = this.items.get(id);
+		if (!current || current.status !== from) return null;
+		const updated: MemberInvite = { ...current, status: to, respondedAt: at };
+		this.items.set(id, updated);
+		return { ...updated };
+	}
+
+	async rotateToken(
+		id: string,
+		tokenHash: string,
+		expiresAt: Date
+	): Promise<MemberInvite | null> {
+		const current = this.items.get(id);
+		if (!current || current.status !== MemberInviteStatus.Pending) {
+			return null;
+		}
+		const updated: MemberInvite = {
+			...current,
+			tokenHash,
+			expiresAt,
+			resendCount: current.resendCount + 1,
+		};
+		this.items.set(id, updated);
+		return { ...updated };
+	}
+
+	async deleteById(id: string): Promise<void> {
+		this.items.delete(id);
+	}
+
+	async deletePendingByEmail(email: string): Promise<number> {
+		let removed = 0;
+		for (const [id, invite] of this.items) {
+			if (
+				invite.email === email &&
+				invite.status === MemberInviteStatus.Pending
+			) {
+				this.items.delete(id);
+				removed += 1;
+			}
+		}
+		return removed;
 	}
 }

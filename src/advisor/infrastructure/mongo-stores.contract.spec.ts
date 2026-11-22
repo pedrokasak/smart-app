@@ -5,15 +5,19 @@ import {
 	describeAdvisorPortalGrantStoreContract,
 	describeAdvisorPortfolioStoreContract,
 	describeAdvisorStoreContract,
+	describeAdvisorTeamStoreContract,
+	AdvisorTeamStores,
 } from '../application/store-contract.fixture';
 import {
 	DuplicateMembershipError,
 	DuplicateOrganizationOwnerError,
+	DuplicatePendingMemberInviteError,
 } from '../application/ports/store-errors';
 import {
 	AdvisorType,
 	ConsentStatus,
 	InviteStatus,
+	MemberInviteStatus,
 	OrgRole,
 	ProfileOrigin,
 	RelationshipStatus,
@@ -50,6 +54,15 @@ import {
 	AdvisorPortalGrantDoc,
 	advisorPortalGrantSchema,
 } from './advisor-portal-grant.models';
+import {
+	ADVISOR_CLIENT_ASSIGNMENT_MODEL,
+	ADVISOR_MEMBER_INVITE_MODEL,
+	AdvisorClientAssignmentDoc,
+	AdvisorMemberInviteDoc,
+	advisorTeamSchemas,
+} from './advisor-team.models';
+import { MongoAssignmentStore } from './mongo-assignment.store';
+import { MongoMemberInviteStore } from './mongo-member-invite.store';
 import { MongoAllocationTargetStore } from './mongo-allocation-target.store';
 import { MongoPortalGrantStore } from './mongo-portal-grant.store';
 import { MongoTransactionStore } from './mongo-transaction.store';
@@ -87,6 +100,7 @@ describeMongo('advisor mongo stores', () => {
 		targets: MongoAllocationTargetStore;
 	};
 	let portalGrants: MongoPortalGrantStore;
+	let teamStores: AdvisorTeamStores;
 
 	beforeAll(async () => {
 		conn = await createConnection(TEST_URI as string, {
@@ -133,6 +147,14 @@ describeMongo('advisor mongo stores', () => {
 			ADVISOR_PORTAL_GRANT_MODEL,
 			advisorPortalGrantSchema
 		);
+		const assignmentModel = conn.model<AdvisorClientAssignmentDoc>(
+			ADVISOR_CLIENT_ASSIGNMENT_MODEL,
+			advisorTeamSchemas.assignment
+		);
+		const memberInviteModel = conn.model<AdvisorMemberInviteDoc>(
+			ADVISOR_MEMBER_INVITE_MODEL,
+			advisorTeamSchemas.memberInvite
+		);
 		// `syncIndexes` garante que os índices únicos existem antes dos testes.
 		await Promise.all(
 			[
@@ -146,6 +168,8 @@ describeMongo('advisor mongo stores', () => {
 				inviteModel,
 				consentModel,
 				portalGrantModel,
+				assignmentModel,
+				memberInviteModel,
 			].map((m) => m.syncIndexes())
 		);
 		portalGrants = new MongoPortalGrantStore(portalGrantModel);
@@ -166,6 +190,13 @@ describeMongo('advisor mongo stores', () => {
 			relationships: new MongoRelationshipStore(relationshipModel),
 			profiles: new MongoClientProfileStore(profileModel),
 		};
+		teamStores = {
+			assignments: new MongoAssignmentStore(assignmentModel),
+			memberInvites: new MongoMemberInviteStore(memberInviteModel),
+			memberships: stores.memberships,
+			relationships: stores.relationships,
+			profiles: stores.profiles,
+		};
 	});
 
 	afterAll(async () => {
@@ -180,6 +211,7 @@ describeMongo('advisor mongo stores', () => {
 	describeAdvisorPortfolioStoreContract('mongo', () => portfolioStores);
 	describeAdvisorConsentStoreContract('mongo', () => consentStores);
 	describeAdvisorPortalGrantStoreContract('mongo', () => portalGrants);
+	describeAdvisorTeamStoreContract('mongo', () => teamStores);
 
 	describe('indexes', () => {
 		it('rejects a duplicate membership for the same user and org', async () => {
@@ -309,6 +341,71 @@ describeMongo('advisor mongo stores', () => {
 				(await consentStores.invites.findById(other.orgId, other.id))
 					?.resendCount
 			).toBe(0);
+		});
+
+		it('rejects an assignment row duplicated at the index level, but assign stays idempotent under load', async () => {
+			const orgId = randomUUID();
+			const clientId = randomUUID();
+			const userId = randomUUID();
+			const rows = await Promise.all(
+				Array.from({ length: 8 }, () =>
+					teamStores.assignments.assign(orgId, clientId, userId, 'a')
+				)
+			);
+			expect(new Set(rows.map((r) => r.id)).size).toBe(1);
+		});
+
+		it('rejects two member invites with the same token hash', async () => {
+			const tokenHash = randomUUID();
+			const invite = (): Parameters<MongoMemberInviteStore['create']>[0] => ({
+				orgId: randomUUID(),
+				email: `${randomUUID()}@example.com`,
+				role: OrgRole.Advisor,
+				tokenHash,
+				status: MemberInviteStatus.Pending,
+				expiresAt: new Date('2030-01-01T00:00:00Z'),
+				resendCount: 0,
+				invitedByUserId: randomUUID(),
+			});
+			await teamStores.memberInvites.create(invite());
+			await expect(
+				teamStores.memberInvites.create(invite())
+			).rejects.toMatchObject({ code: 11000 });
+		});
+
+		it('maps the partial (org, email) index to the typed error, not E11000, and lets non-PENDING rows repeat', async () => {
+			const orgId = randomUUID();
+			const email = `${randomUUID()}@example.com`;
+			const base = {
+				orgId,
+				email,
+				role: OrgRole.Advisor,
+				expiresAt: new Date('2030-01-01T00:00:00Z'),
+				resendCount: 0,
+				invitedByUserId: randomUUID(),
+			};
+			await teamStores.memberInvites.create({
+				...base,
+				tokenHash: randomUUID(),
+				status: MemberInviteStatus.Pending,
+			});
+			await expect(
+				teamStores.memberInvites.create({
+					...base,
+					tokenHash: randomUUID(),
+					status: MemberInviteStatus.Pending,
+				})
+			).rejects.toBeInstanceOf(DuplicatePendingMemberInviteError);
+			await teamStores.memberInvites.create({
+				...base,
+				tokenHash: randomUUID(),
+				status: MemberInviteStatus.Declined,
+			});
+			await teamStores.memberInvites.create({
+				...base,
+				tokenHash: randomUUID(),
+				status: MemberInviteStatus.Declined,
+			});
 		});
 
 		it('keeps one ACTIVE consent when the same user and org are granted in parallel for one relationship', async () => {

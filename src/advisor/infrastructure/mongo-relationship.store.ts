@@ -12,6 +12,7 @@ import {
 } from '../application/relationship-cursor';
 import { AdvisoryRelationship } from '../domain/entities';
 import { RelationshipStatus } from '../domain/enums';
+import { ADVISOR_CLIENT_ASSIGNMENTS_COLLECTION } from './advisor-team.models';
 import { toRelationship } from './advisor.mappers';
 import {
 	ADVISOR_RELATIONSHIP_MODEL,
@@ -142,35 +143,59 @@ export class MongoRelationshipStore implements RelationshipStorePort {
 		orgId: string,
 		query: ListRelationshipsQuery
 	): Promise<RelationshipPage> {
-		const filter: Record<string, unknown> = {
-			orgId,
-			status: { $in: query.statuses },
-		};
-		if (query.cursor) {
-			const { createdAt, id } = decodeRelationshipCursor(query.cursor);
-			filter.$or = [
-				{ createdAt: { $lt: createdAt } },
-				{ createdAt, _id: { $lt: id } },
-			];
-		}
 		const docs = await this.relationships
-			.find(filter)
+			.find(this.pageFilter(orgId, query))
 			.sort({ createdAt: -1, _id: -1 })
 			.limit(query.limit + 1)
 			.lean<AdvisorRelationshipDoc[]>()
 			.exec();
-		const page = docs.slice(0, query.limit);
-		const last = page[page.length - 1];
-		return {
-			items: page.map(toRelationship),
-			nextCursor:
-				docs.length > query.limit && last
-					? encodeRelationshipCursor({
-							createdAt: last.createdAt,
-							id: last._id,
-						})
-					: null,
-		};
+		return this.toPage(docs, query.limit);
+	}
+
+	/**
+	 * Mesma ordem e cursor de `listByOrg`; o `$lookup` descarta as relações cujo
+	 * perfil tem alguma atribuição na organização (índice único das
+	 * atribuições serve o lookup).
+	 */
+	async listUnassignedByOrg(
+		orgId: string,
+		query: ListRelationshipsQuery
+	): Promise<RelationshipPage> {
+		const docs = await this.relationships
+			.aggregate<AdvisorRelationshipDoc>([
+				{ $match: this.pageFilter(orgId, query) },
+				{ $sort: { createdAt: -1, _id: -1 } },
+				{
+					$lookup: {
+						from: ADVISOR_CLIENT_ASSIGNMENTS_COLLECTION,
+						let: { profileId: '$clientProfileId' },
+						pipeline: [
+							{
+								$match: {
+									$expr: {
+										$and: [
+											{ $eq: ['$orgId', orgId] },
+											{ $eq: ['$clientProfileId', '$$profileId'] },
+										],
+									},
+								},
+							},
+							{ $limit: 1 },
+							{ $project: { _id: 1 } },
+						],
+						as: 'assignments',
+					},
+				},
+				{ $match: { assignments: { $size: 0 } } },
+				{ $limit: query.limit + 1 },
+				{ $project: { assignments: 0 } },
+			])
+			.exec();
+		return this.toPage(docs, query.limit);
+	}
+
+	async deleteById(id: string): Promise<void> {
+		await this.relationships.deleteOne({ _id: id }).exec();
 	}
 
 	async listActiveByClientProfiles(
@@ -185,6 +210,42 @@ export class MongoRelationshipStore implements RelationshipStorePort {
 			.lean<AdvisorRelationshipDoc[]>()
 			.exec();
 		return docs.map(toRelationship);
+	}
+
+	private pageFilter(
+		orgId: string,
+		query: ListRelationshipsQuery
+	): Record<string, unknown> {
+		const filter: Record<string, unknown> = {
+			orgId,
+			status: { $in: query.statuses },
+		};
+		if (query.cursor) {
+			const { createdAt, id } = decodeRelationshipCursor(query.cursor);
+			filter.$or = [
+				{ createdAt: { $lt: createdAt } },
+				{ createdAt, _id: { $lt: id } },
+			];
+		}
+		return filter;
+	}
+
+	private toPage(
+		docs: AdvisorRelationshipDoc[],
+		limit: number
+	): RelationshipPage {
+		const page = docs.slice(0, limit);
+		const last = page[page.length - 1];
+		return {
+			items: page.map(toRelationship),
+			nextCursor:
+				docs.length > limit && last
+					? encodeRelationshipCursor({
+							createdAt: last.createdAt,
+							id: last._id,
+						})
+					: null,
+		};
 	}
 
 	private async findActive(

@@ -53,4 +53,14 @@ export interface RelationshipStorePort {
 	listActiveByClientProfiles(
 		clientProfileIds: string[]
 	): Promise<AdvisoryRelationship[]>;
+	/**
+	 * Mesma paginação de `listByOrg`, só das relações cujo perfil não tem
+	 * nenhuma atribuição a assessor naquela organização.
+	 */
+	listUnassignedByOrg(
+		orgId: string,
+		query: ListRelationshipsQuery
+	): Promise<RelationshipPage>;
+	/** Só para desfazer a criação da relação. */
+	deleteById(id: string): Promise<void>;
 }
