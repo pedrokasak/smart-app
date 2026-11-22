@@ -114,6 +114,17 @@ describe('AssignmentService', () => {
 			expect(events()).toEqual([CLIENT_ASSIGNED_EVENT]);
 		});
 
+		it('linha criada por outra requisição: não audita nem desfaz a dela', async () => {
+			await assignments.assign(orgId, CLIENT, ADVISOR, ADMIN);
+			audit.failWith = new Error('audit down');
+
+			await expect(
+				service.assign(adminCtx, CLIENT, ADVISOR)
+			).resolves.toBeUndefined();
+
+			expect(await assignments.isAssigned(orgId, CLIENT, ADVISOR)).toBe(true);
+		});
+
 		it('destino que não é membro dá 404 e não grava', async () => {
 			await expect(
 				service.assign(adminCtx, CLIENT, OUTSIDER)

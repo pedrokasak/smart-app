@@ -51,20 +51,14 @@ export class AssignmentService {
 		userId: string
 	): Promise<void> {
 		await this.checkTargets(ctx, clientProfileId, userId);
-		// `assign` não diz se criou: quem já está atribuído não muda nem audita.
-		const existed = await this.assignments.isAssigned(
-			ctx.orgId,
-			clientProfileId,
-			userId
-		);
-		if (existed) return;
-
-		await this.assignments.assign(
+		// Só quem gravou a linha audita e, se a auditoria falhar, desfaz.
+		const { created } = await this.assignments.assign(
 			ctx.orgId,
 			clientProfileId,
 			userId,
 			ctx.userId
 		);
+		if (!created) return;
 		try {
 			await this.record(CLIENT_ASSIGNED_EVENT, ctx, clientProfileId, userId);
 		} catch (error) {

@@ -28,6 +28,7 @@ import { ClientAssignment, MemberInvite } from '../domain/team.entities';
 import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
 import {
 	AssignedClientsPage,
+	AssignResult,
 	AssignmentStorePort,
 	ListAssignedClientsQuery,
 } from './ports/assignment.store.port';
@@ -114,6 +115,12 @@ export class InMemoryOrganizationStore implements OrganizationStorePort {
 
 export class InMemoryMembershipStore implements MembershipStorePort {
 	private readonly items = new Map<string, Membership>();
+	private lastCreatedAtMs = 0;
+
+	private nextStamp(): Date {
+		this.lastCreatedAtMs = Math.max(Date.now(), this.lastCreatedAtMs + 1);
+		return new Date(this.lastCreatedAtMs);
+	}
 
 	async create(
 		membership: Omit<Membership, 'id' | 'createdAt'> & { createdAt?: Date }
@@ -128,14 +135,15 @@ export class InMemoryMembershipStore implements MembershipStorePort {
 		const created: Membership = {
 			...membership,
 			id: randomUUID(),
-			createdAt: membership.createdAt ?? new Date(),
+			// Estritamente crescente: a ordem não depende do relógio.
+			createdAt: membership.createdAt ?? this.nextStamp(),
 		};
 		this.items.set(created.id, created);
 		return created;
 	}
 
 	async findByUser(userId: string): Promise<Membership[]> {
-		return [...this.items.values()].filter((m) => m.userId === userId);
+		return this.ordered((m) => m.userId === userId);
 	}
 
 	async findByUserAndOrg(
@@ -167,10 +175,18 @@ export class InMemoryMembershipStore implements MembershipStorePort {
 	}
 
 	async listByOrg(orgId: string): Promise<Membership[]> {
-		// Map preserva a ordem de criação.
+		return this.ordered((m) => m.orgId === orgId).slice(0, 200);
+	}
+
+	/** `createdAt` crescente, desempate por id (como o Mongo). */
+	private ordered(predicate: (m: Membership) => boolean): Membership[] {
 		return [...this.items.values()]
-			.filter((m) => m.orgId === orgId)
-			.slice(0, 200)
+			.filter(predicate)
+			.sort(
+				(a, b) =>
+					a.createdAt.getTime() - b.createdAt.getTime() ||
+					(a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+			)
 			.map((m) => ({ ...m }));
 	}
 
@@ -1085,9 +1101,9 @@ export class InMemoryAssignmentStore implements AssignmentStorePort {
 		clientProfileId: string,
 		userId: string,
 		assignedBy: string
-	): Promise<ClientAssignment> {
+	): Promise<AssignResult> {
 		const existing = this.find(orgId, clientProfileId, userId);
-		if (existing) return { ...existing };
+		if (existing) return { assignment: { ...existing }, created: false };
 		// Estritamente crescente: a ordem de listagem não depende do relógio.
 		this.lastCreatedAtMs = Math.max(Date.now(), this.lastCreatedAtMs + 1);
 		const created: ClientAssignment = {
@@ -1099,7 +1115,7 @@ export class InMemoryAssignmentStore implements AssignmentStorePort {
 			createdAt: new Date(this.lastCreatedAtMs),
 		};
 		this.items.set(created.id, created);
-		return { ...created };
+		return { assignment: { ...created }, created: true };
 	}
 
 	async unassign(

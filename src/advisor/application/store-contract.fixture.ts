@@ -129,17 +129,16 @@ export function describeAdvisorStoreContract(
 		it('membership: an explicit createdAt is kept (restoring a removed member)', async () => {
 			const orgId = randomUUID();
 			const joinedAt = new Date('2026-01-02T03:04:05.000Z');
+			const later = await s.memberships.create({
+				userId: randomUUID(),
+				orgId,
+				role: OrgRole.Advisor,
+			});
 			const early = await s.memberships.create({
 				userId: randomUUID(),
 				orgId,
 				role: OrgRole.Advisor,
 				createdAt: joinedAt,
-			});
-			await tick();
-			const later = await s.memberships.create({
-				userId: randomUUID(),
-				orgId,
-				role: OrgRole.Advisor,
 			});
 
 			expect(early.createdAt).toEqual(joinedAt);
@@ -1787,9 +1786,17 @@ export function describeAdvisorTeamStoreContract(
 				const orgId = randomUUID();
 				const clientId = randomUUID();
 				const userId = randomUUID();
-				const first = await s.assignments.assign(orgId, clientId, userId, 'a1');
-				const again = await s.assignments.assign(orgId, clientId, userId, 'a2');
+				const { assignment: first, created } = await s.assignments.assign(
+					orgId,
+					clientId,
+					userId,
+					'a1'
+				);
+				const { assignment: again, created: createdAgain } =
+					await s.assignments.assign(orgId, clientId, userId, 'a2');
 
+				expect(created).toBe(true);
+				expect(createdAgain).toBe(false);
 				expect(again).toEqual(first);
 				expect(first).toEqual({
 					id: expect.any(String),
@@ -1813,7 +1820,8 @@ export function describeAdvisorTeamStoreContract(
 						s.assignments.assign(orgId, clientId, userId, `a${n}`)
 					)
 				);
-				expect(new Set(results.map((r) => r.id)).size).toBe(1);
+				expect(new Set(results.map((r) => r.assignment.id)).size).toBe(1);
+				expect(results.filter((r) => r.created)).toHaveLength(1);
 				expect(await s.assignments.listByClient(orgId, clientId)).toHaveLength(
 					1
 				);
@@ -1860,9 +1868,19 @@ export function describeAdvisorTeamStoreContract(
 			it('listByClient returns every advisor of that client in creation order', async () => {
 				const orgId = randomUUID();
 				const clientId = randomUUID();
-				const first = await s.assignments.assign(orgId, clientId, 'u1', 'a');
+				const { assignment: first } = await s.assignments.assign(
+					orgId,
+					clientId,
+					'u1',
+					'a'
+				);
 				await tick();
-				const second = await s.assignments.assign(orgId, clientId, 'u2', 'a');
+				const { assignment: second } = await s.assignments.assign(
+					orgId,
+					clientId,
+					'u2',
+					'a'
+				);
 				await s.assignments.assign(randomUUID(), clientId, 'u3', 'a');
 				await s.assignments.assign(orgId, randomUUID(), 'u4', 'a');
 

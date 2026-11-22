@@ -1,4 +1,8 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import {
+	ConflictException,
+	ForbiddenException,
+	NotFoundException,
+} from '@nestjs/common';
 import { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { AuditEventInput } from 'src/audit/domain/audit-event';
 import { AdvisorType, OrgRole, RelationshipStatus } from '../domain/enums';
@@ -156,7 +160,7 @@ describe('TeamService', () => {
 		it('recusa quem não é membro da organização', async () => {
 			await expect(
 				service.listMembers({ userId: OUTSIDER, orgId })
-			).rejects.toThrow();
+			).rejects.toBeInstanceOf(ForbiddenException);
 		});
 	});
 
@@ -263,7 +267,9 @@ describe('TeamService', () => {
 
 		it('a ordem da equipe não muda depois de um desfazer', async () => {
 			audit.failWith = new Error('audit down');
-			await expect(service.removeMember(ownerCtx, ADVISOR)).rejects.toThrow();
+			await expect(service.removeMember(ownerCtx, ADVISOR)).rejects.toThrow(
+				'audit down'
+			);
 			audit.failWith = undefined;
 
 			const members = await service.listMembers(ownerCtx);
@@ -271,8 +277,8 @@ describe('TeamService', () => {
 			expect(members.map((m) => m.userId)).toEqual([
 				OWNER,
 				ADMIN,
-				OTHER_ADVISOR,
 				ADVISOR,
+				OTHER_ADVISOR,
 			]);
 		});
 	});
@@ -357,7 +363,7 @@ describe('TeamService', () => {
 		it('quem não é membro não sai (403) e não audita', async () => {
 			await expect(
 				service.leave({ userId: OUTSIDER, orgId })
-			).rejects.toThrow();
+			).rejects.toBeInstanceOf(ForbiddenException);
 			expect(audit.recorded).toHaveLength(0);
 		});
 

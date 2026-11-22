@@ -1,9 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { randomUUID } from 'crypto';
-import { Model } from 'mongoose';
+import { Model, ModifyResult } from 'mongoose';
 import {
 	AssignedClientsPage,
+	AssignResult,
 	AssignmentStorePort,
 	ListAssignedClientsQuery,
 } from '../application/ports/assignment.store.port';
@@ -29,26 +30,31 @@ export class MongoAssignmentStore implements AssignmentStorePort {
 
 	/**
 	 * Upsert pelo trio único: só grava `assignedBy` e `_id` na inserção, então
-	 * repetir devolve a atribuição original. Se duas chamadas inserem juntas, a
-	 * perdedora leva E11000 do índice e relê a vencedora.
+	 * repetir devolve a atribuição original (`created` false). Se duas
+	 * chamadas inserem juntas, a perdedora leva E11000 do índice, relê a
+	 * vencedora e também devolve `created` false.
 	 */
 	async assign(
 		orgId: string,
 		clientProfileId: string,
 		userId: string,
 		assignedBy: string
-	): Promise<ClientAssignment> {
+	): Promise<AssignResult> {
 		const filter = { orgId, clientProfileId, userId };
 		try {
-			const doc = await this.assignments
+			const result = await this.assignments
 				.findOneAndUpdate(
 					filter,
 					{ $setOnInsert: { _id: randomUUID(), assignedBy } },
-					{ new: true, upsert: true }
+					{ new: true, upsert: true, includeResultMetadata: true }
 				)
-				.lean<AdvisorClientAssignmentDoc>()
+				.lean<ModifyResult<AdvisorClientAssignmentDoc>>()
 				.exec();
-			return toClientAssignment(doc);
+			if (!result.value) throw new Error('Assignment upsert returned no row');
+			return {
+				assignment: toClientAssignment(result.value),
+				created: result.lastErrorObject?.updatedExisting === false,
+			};
 		} catch (error) {
 			if (
 				!isDuplicateOnIndex(error, ASSIGNMENT_UNIQUE_INDEX, [
@@ -64,7 +70,7 @@ export class MongoAssignmentStore implements AssignmentStorePort {
 				.lean<AdvisorClientAssignmentDoc>()
 				.exec();
 			if (!existing) throw error;
-			return toClientAssignment(existing);
+			return { assignment: toClientAssignment(existing), created: false };
 		}
 	}
 

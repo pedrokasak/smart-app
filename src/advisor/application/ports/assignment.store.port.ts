@@ -11,17 +11,24 @@ export interface AssignedClientsPage {
 	nextCursor: string | null;
 }
 
+export interface AssignResult {
+	assignment: ClientAssignment;
+	created: boolean;
+}
+
 export interface AssignmentStorePort {
 	/**
 	 * Idempotente pelo trio (orgId, clientProfileId, userId): repetir devolve a
 	 * atribuição existente, sem alterar `assignedBy` nem `createdAt`.
+	 * `created` é true só para a chamada que gravou a linha; em chamadas
+	 * concorrentes do mesmo trio, exatamente uma recebe true.
 	 */
 	assign(
 		orgId: string,
 		clientProfileId: string,
 		userId: string,
 		assignedBy: string
-	): Promise<ClientAssignment>;
+	): Promise<AssignResult>;
 	/** Remove a atribuição; false se não existia. */
 	unassign(
 		orgId: string,

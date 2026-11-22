@@ -352,7 +352,9 @@ describeMongo('advisor mongo stores', () => {
 					teamStores.assignments.assign(orgId, clientId, userId, 'a')
 				)
 			);
-			expect(new Set(rows.map((r) => r.id)).size).toBe(1);
+			expect(new Set(rows.map((r) => r.assignment.id)).size).toBe(1);
+			expect(rows.filter((r) => r.created)).toHaveLength(1);
+			expect(rows.filter((r) => r.created)).toHaveLength(1);
 		});
 
 		it('rejects two member invites with the same token hash', async () => {
