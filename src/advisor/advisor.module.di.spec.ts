@@ -18,6 +18,12 @@ import { ConsentService } from './application/consent.service';
 import { CsvImportService } from './application/csv/csv-import.service';
 import { PortfolioMetricsService } from './application/metrics/portfolio-metrics.service';
 import { InviteService } from './application/invite.service';
+import { MemberInviteService } from './application/member-invite.service';
+import { ADVISOR_MEMBER_INVITE_NOTIFIER } from './application/ports/member-invite-notifier.port';
+import {
+	ADVISOR_WEB_URL,
+	EmailMemberInviteNotifierAdapter,
+} from './infrastructure/email-member-invite-notifier.adapter';
 import { ADVISOR_INVITE_NOTIFIER } from './application/ports/invite-notifier.port';
 import { ADVISOR_INVITEE_IDENTITY } from './application/ports/invitee-identity.port';
 import { ADVISOR_SHARED_PORTFOLIO_SOURCE } from './application/ports/shared-portfolio-source.port';
@@ -165,6 +171,19 @@ describe('AdvisorModule wiring', () => {
 		);
 		expect(adminImports).toContain(AdvisorModule);
 		expect(advisorImports).not.toContain(AdminModule);
+	});
+
+	it('provides and exports MemberInviteService with the e-mail notifier', () => {
+		const providers: Array<{ provide?: unknown; useExisting?: unknown }> =
+			Reflect.getMetadata('providers', AdvisorModule);
+		const exported: unknown[] = Reflect.getMetadata('exports', AdvisorModule);
+		const byToken = new Map(providers.map((p) => [p.provide, p]));
+		expect(providers).toContain(MemberInviteService);
+		expect(exported).toContain(MemberInviteService);
+		expect(byToken.get(ADVISOR_MEMBER_INVITE_NOTIFIER)).toMatchObject({
+			useExisting: EmailMemberInviteNotifierAdapter,
+		});
+		expect(byToken.has(ADVISOR_WEB_URL)).toBe(true);
 	});
 
 	it('registers the investor advisor-access controller', () => {

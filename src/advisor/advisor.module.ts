@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { MongooseModule } from '@nestjs/mongoose';
+import { advisorWebUrl } from 'src/env';
 import { MacroIndicatorsModule } from 'src/macro-indicators/macro-indicators.module';
 import { MarketDataModule } from 'src/market-data/market-data.module';
 import { EmailModule } from 'src/notifications/email/email.module';
@@ -28,11 +29,13 @@ import { ClientProfileService } from './application/client-profile.service';
 import { ConsentService } from './application/consent.service';
 import { CsvImportService } from './application/csv/csv-import.service';
 import { InviteService } from './application/invite.service';
+import { MemberInviteService } from './application/member-invite.service';
 import { MembershipService } from './application/membership.service';
 import { PortfolioMetricsService } from './application/metrics/portfolio-metrics.service';
 import { OrganizationService } from './application/organization.service';
 import { ADVISOR_INVITE_NOTIFIER } from './application/ports/invite-notifier.port';
 import { ADVISOR_INVITEE_IDENTITY } from './application/ports/invitee-identity.port';
+import { ADVISOR_MEMBER_INVITE_NOTIFIER } from './application/ports/member-invite-notifier.port';
 import { ADVISOR_PORTAL_ACCOUNT_DIRECTORY } from './application/ports/portal-account-directory.port';
 import { ADVISOR_SHARED_PORTFOLIO_SOURCE } from './application/ports/shared-portfolio-source.port';
 import { PortalAccessService } from './application/portal-access.service';
@@ -68,6 +71,10 @@ import {
 } from './infrastructure/advisor-team.models';
 import { B2cSharedPortfolioSourceAdapter } from './infrastructure/b2c-shared-portfolio-source.adapter';
 import { EmailInviteNotifierAdapter } from './infrastructure/email-invite-notifier.adapter';
+import {
+	ADVISOR_WEB_URL,
+	EmailMemberInviteNotifierAdapter,
+} from './infrastructure/email-member-invite-notifier.adapter';
 import { MacroBenchmarkSeriesAdapter } from './infrastructure/macro-benchmark-series.adapter';
 import { MarketPriceHistoryAdapter } from './infrastructure/market-price-history.adapter';
 import { MongoAllocationTargetStore } from './infrastructure/mongo-allocation-target.store';
@@ -197,6 +204,13 @@ import { OrgContextGuard } from './interface/org-context.guard';
 			provide: ADVISOR_MEMBER_INVITE_STORE,
 			useExisting: MongoMemberInviteStore,
 		},
+		// Sem ADVISOR_WEB_URL o notifier lança e o convite de membro é desfeito.
+		{ provide: ADVISOR_WEB_URL, useFactory: () => advisorWebUrl ?? null },
+		EmailMemberInviteNotifierAdapter,
+		{
+			provide: ADVISOR_MEMBER_INVITE_NOTIFIER,
+			useExisting: EmailMemberInviteNotifierAdapter,
+		},
 		MongoPortalGrantStore,
 		UserPortalAccountDirectoryAdapter,
 		{ provide: ADVISOR_PORTAL_GRANT_STORE, useExisting: MongoPortalGrantStore },
@@ -216,6 +230,7 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		AllocationTargetService,
 		PortfolioMetricsService,
 		InviteService,
+		MemberInviteService,
 		ConsentService,
 		SharedPortfolioService,
 		OrgContextGuard,
@@ -232,6 +247,7 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		ClientProfileService,
 		ClientDirectoryService,
 		InviteService,
+		MemberInviteService,
 		ConsentService,
 		SharedPortfolioService,
 		OrgContextGuard,

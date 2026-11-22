@@ -257,6 +257,41 @@ Se não foi você, fale com suporte@trackerr.com.br.`;
 
 		await this.sender.send({ to: params.to, subject, html, text });
 	}
+
+	/**
+	 * Convite de membro para a equipe de um escritório no portal do assessor
+	 * (Trackerr Advisor). O link já vem montado, com o token no fragmento (#),
+	 * e nunca é registrado em log.
+	 */
+	async sendAdvisorTeamInviteEmail(params: {
+		to: string;
+		inviteLink: string;
+		orgName: string;
+		expiresAt: Date;
+	}): Promise<void> {
+		const orgName = singleLine(params.orgName);
+		const safeOrg = escapeHtml(orgName);
+		const expiry = params.expiresAt.toLocaleDateString('pt-BR', {
+			timeZone: 'America/Sao_Paulo',
+		});
+
+		const subject = `${orgName} convidou você para a equipe no Trackerr Advisor`;
+		const html = this.getBaseTemplate({
+			title: `${safeOrg} convidou você`,
+			hero: 'Você recebeu um convite para a equipe',
+			description:
+				`<strong>${safeOrg}</strong> convidou você para fazer parte da equipe do escritório no Trackerr Advisor. ` +
+				`O convite vale até ${expiry}.`,
+			ctaLabel: 'Ver o convite',
+			ctaUrl: escapeHtml(params.inviteLink),
+			footerNote:
+				'Entre (ou crie sua conta) com este e-mail para aceitar ou recusar. Se você não esperava este convite, ignore este e-mail com segurança.',
+		});
+		const text = `Convite para a equipe - Trackerr Advisor\n\n${orgName} convidou você para fazer parte da equipe do escritório no Trackerr Advisor.\nO convite vale até ${expiry}.\nVer o convite: ${params.inviteLink}\n\nSe você não esperava este convite, ignore este e-mail.`;
+
+		await this.sender.send({ to: params.to, subject, html, text });
+	}
+
 	async sendWelcomeEmail(email: string, firstName?: string): Promise<void> {
 		const dashboardLink = `${this.getAppBaseUrl()}/dashboard`;
 		const safeName = String(firstName || 'Investidor').trim();

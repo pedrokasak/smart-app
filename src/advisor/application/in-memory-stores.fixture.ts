@@ -46,6 +46,10 @@ import {
 	InviteeAccount,
 	InviteeIdentityPort,
 } from './ports/invitee-identity.port';
+import {
+	MemberInviteNotifierPort,
+	SendMemberInviteInput,
+} from './ports/member-invite-notifier.port';
 import { MemberInviteStorePort } from './ports/member-invite.store.port';
 import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
@@ -899,6 +903,19 @@ export class InMemoryInviteNotifier implements InviteNotifierPort {
 	failWith?: Error;
 
 	async sendInvite(input: SendInviteInput): Promise<void> {
+		this.attempts.push(input);
+		if (this.failWith) throw this.failWith;
+		this.sent.push(input);
+	}
+}
+
+/** E-mails de convite de membro em memória; `failWith` simula a falha. */
+export class InMemoryMemberInviteNotifier implements MemberInviteNotifierPort {
+	readonly attempts: SendMemberInviteInput[] = [];
+	readonly sent: SendMemberInviteInput[] = [];
+	failWith?: Error;
+
+	async sendMemberInvite(input: SendMemberInviteInput): Promise<void> {
 		this.attempts.push(input);
 		if (this.failWith) throw this.failWith;
 		this.sent.push(input);
