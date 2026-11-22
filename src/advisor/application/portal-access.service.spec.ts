@@ -86,6 +86,10 @@ describe('PortalAccessService', () => {
 			await expect(service.hasAccess(USER)).resolves.toBe(false);
 		});
 
+		it('is false for a user without account, plan or grant (owner whose account was deleted)', async () => {
+			await expect(service.hasAccess('deleted-owner')).resolves.toBe(false);
+		});
+
 		it('is false when reading the plan fails, never access', async () => {
 			plans.failWith = new Error('subscription lookup down');
 			await expect(service.hasAccess(USER)).resolves.toBe(false);

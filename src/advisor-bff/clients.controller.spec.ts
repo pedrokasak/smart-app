@@ -34,6 +34,7 @@ import {
 } from 'src/advisor/application/in-memory-stores.fixture';
 import { MembershipService } from 'src/advisor/application/membership.service';
 import { PortfolioMetricsService } from 'src/advisor/application/metrics/portfolio-metrics.service';
+import { OrganizationService } from 'src/advisor/application/organization.service';
 import { PortalAccessService } from 'src/advisor/application/portal-access.service';
 import { ADVISOR_SHARED_PORTFOLIO_SOURCE } from 'src/advisor/application/ports/shared-portfolio-source.port';
 import { RelationshipService } from 'src/advisor/application/relationship.service';
@@ -48,7 +49,7 @@ import { OrgContextGuard } from 'src/advisor/interface/org-context.guard';
 import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import { jwtSecret } from 'src/env';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
-import { AdvisorPortalGuard } from './advisor-portal.guard';
+import { OrgPortalGuard } from './org-portal.guard';
 import { CSV_UPLOAD_MAX_BYTES } from './csv-upload';
 import { WealthSummaryAssembler } from './wealth-summary.assembler';
 import { ClientsController } from './clients.controller';
@@ -157,8 +158,8 @@ describe('ClientsController', () => {
 			imports: [JwtModule.register({ secret: jwtSecret })],
 			controllers: [ClientsController],
 			providers: [
-				AdvisorPortalGuard,
 				OrgContextGuard,
+				OrgPortalGuard,
 				MembershipService,
 				AuthorizationService,
 				ClientProfileService,
@@ -192,6 +193,13 @@ describe('ClientsController', () => {
 				},
 				{ provide: AUDIT_TRAIL, useValue: { record: jest.fn() } },
 				{ provide: PortalAccessService, useValue: { hasAccess } },
+				{
+					provide: OrganizationService,
+					useValue: {
+						ownerOf: async (orgId: string) =>
+							({ [ORG_A]: 'u1', [ORG_B]: 'u2' })[orgId] ?? null,
+					},
+				},
 				{
 					provide: TokenBlacklistService,
 					useValue: { isBlacklisted: jest.fn().mockResolvedValue(false) },
@@ -227,6 +235,16 @@ describe('ClientsController', () => {
 				.get('/advisor/v1/clients')
 				.set(as('nobody', ORG_A))
 				.expect(403);
+		});
+
+		it('answers 403 PLAN_CAPABILITY_REQUIRED when the org owner has no portal access', async () => {
+			hasAccess.mockImplementation(async (userId: string) => userId !== 'u1');
+			const res = await http().get('/advisor/v1/clients').set(A()).expect(403);
+			expect(res.body).toEqual({
+				statusCode: 403,
+				error: 'PLAN_CAPABILITY_REQUIRED',
+			});
+			expect(hasAccess).toHaveBeenCalledWith('u1');
 		});
 
 		it('answers 403 ORG_HEADER_REQUIRED without x-org-id, never using the first membership', async () => {

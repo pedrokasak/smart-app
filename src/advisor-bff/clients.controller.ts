@@ -35,7 +35,7 @@ import { OrgContextGuard } from 'src/advisor/interface/org-context.guard';
 import { OwnershipChecked } from 'src/auth/decorators/ownership.decorator';
 import { JwtAuthGuard } from 'src/authentication/jwt-auth.guard';
 import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
-import { AdvisorPortalGuard } from './advisor-portal.guard';
+import { OrgPortalGuard } from './org-portal.guard';
 import {
 	ApiBffCommonResponses,
 	ApiOrgHeader,
@@ -119,7 +119,7 @@ const UNPROCESSABLE = (description: string) =>
 @ApiBearerAuth('access-token')
 @ApiOrgHeader()
 @ApiBffCommonResponses()
-@UseGuards(JwtAuthGuard, AdvisorPortalGuard, OrgContextGuard)
+@UseGuards(JwtAuthGuard, OrgContextGuard, OrgPortalGuard)
 @UseFilters(AdvisorBffExceptionFilter)
 @UseInterceptors(NoStoreInterceptor)
 export class ClientsController {
