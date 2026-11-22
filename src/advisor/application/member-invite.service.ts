@@ -11,12 +11,10 @@ import {
 	inviteExpiry,
 	isValidEmail,
 	maskEmail,
+	MAX_INVITE_RESENDS,
 	normalizeEmail,
 } from '../domain/invite-rules';
-import {
-	canResendMemberInvite,
-	memberInviteUsability,
-} from '../domain/team-rules';
+import { memberInviteUsability } from '../domain/team-rules';
 import { MemberInvite } from '../domain/team.entities';
 import {
 	ADVISOR_MEMBER_INVITE_STORE,
@@ -153,27 +151,31 @@ export class MemberInviteService {
 	/**
 	 * Mesma regra do reenvio do convite de cliente: vale para qualquer PENDING
 	 * abaixo do limite, inclusive o vencido, que ganha token e prazo novos.
+	 * O limite fica no filtro atômico do store; a releitura só diz por que a
+	 * troca não aconteceu.
 	 */
 	async resend(
 		ctx: AccessContext,
 		inviteId: string
 	): Promise<{ expiresAt: Date }> {
 		const invite = await this.findInOrg(ctx, inviteId);
-		if (invite.status !== MemberInviteStatus.Pending) {
-			throw new MemberInviteConflictError('NOT_PENDING');
-		}
-		if (!canResendMemberInvite(invite)) {
-			throw new MemberInviteConflictError('RESEND_LIMIT');
-		}
 
 		const { token, tokenHash } = generateInviteToken();
 		const expiresAt = inviteExpiry(new Date());
 		const rotated = await this.invites.rotateToken(
 			invite.id,
 			tokenHash,
-			expiresAt
+			expiresAt,
+			MAX_INVITE_RESENDS
 		);
-		if (!rotated) throw new MemberInviteConflictError('NOT_PENDING');
+		if (!rotated) {
+			const current = await this.invites.findById(ctx.orgId, inviteId);
+			throw new MemberInviteConflictError(
+				current?.status === MemberInviteStatus.Pending
+					? 'RESEND_LIMIT'
+					: 'NOT_PENDING'
+			);
+		}
 
 		await this.notifier.sendMemberInvite({
 			to: rotated.email,

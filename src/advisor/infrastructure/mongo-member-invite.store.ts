@@ -94,26 +94,32 @@ export class MongoMemberInviteStore implements MemberInviteStorePort {
 		to: MemberInviteStatus,
 		at: Date
 	): Promise<MemberInvite | null> {
+		// Voltar a PENDING desfaz a resposta: sem `respondedAt`.
+		const update =
+			to === MemberInviteStatus.Pending
+				? { $set: { status: to }, $unset: { respondedAt: 1 } }
+				: { $set: { status: to, respondedAt: at } };
 		const doc = await this.invites
-			.findOneAndUpdate(
-				{ _id: id, status: from },
-				{ $set: { status: to, respondedAt: at } },
-				{ new: true }
-			)
+			.findOneAndUpdate({ _id: id, status: from }, update, { new: true })
 			.lean<AdvisorMemberInviteDoc>()
 			.exec();
 		return doc ? toMemberInvite(doc) : null;
 	}
 
-	/** PENDING no filtro; o hash antigo deixa de existir. */
+	/** PENDING e abaixo do limite no filtro; o hash antigo deixa de existir. */
 	async rotateToken(
 		id: string,
 		tokenHash: string,
-		expiresAt: Date
+		expiresAt: Date,
+		max: number
 	): Promise<MemberInvite | null> {
 		const doc = await this.invites
 			.findOneAndUpdate(
-				{ _id: id, status: MemberInviteStatus.Pending },
+				{
+					_id: id,
+					status: MemberInviteStatus.Pending,
+					resendCount: { $lt: max },
+				},
 				{ $set: { tokenHash, expiresAt }, $inc: { resendCount: 1 } },
 				{ new: true }
 			)

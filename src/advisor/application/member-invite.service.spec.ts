@@ -361,6 +361,28 @@ describe('MemberInviteService', () => {
 			expect((await invites.findById(orgId, inviteId))?.resendCount).toBe(3);
 		});
 
+		it('dois reenvios simultâneos no último reenvio: um passa, o outro dá RESEND_LIMIT', async () => {
+			const { inviteId } = await create();
+			for (let i = 0; i < 2; i++) await service.resend(adminCtx, inviteId);
+			const sentBefore = notifier.sent.length;
+
+			const results = await Promise.allSettled([
+				service.resend(adminCtx, inviteId),
+				service.resend(adminCtx, inviteId),
+			]);
+
+			expect(results.filter((r) => r.status === 'fulfilled')).toHaveLength(1);
+			const rejected = results.find((r) => r.status === 'rejected');
+			expect(
+				(
+					(rejected as PromiseRejectedResult)
+						.reason as MemberInviteConflictError
+				).getResponse()
+			).toEqual({ reason: 'RESEND_LIMIT' });
+			expect((await invites.findById(orgId, inviteId))?.resendCount).toBe(3);
+			expect(notifier.sent.length - sentBefore).toBe(1);
+		});
+
 		it('convite de outra org dá 404', async () => {
 			const { inviteId } = await create();
 			await expect(

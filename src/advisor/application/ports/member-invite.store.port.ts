@@ -23,7 +23,8 @@ export interface MemberInviteStorePort {
 	listPendingByOrg(orgId: string, now: Date): Promise<MemberInvite[]>;
 	/**
 	 * Atômico: só muda se o status atual for `from`. Devolve o convite
-	 * atualizado (com `respondedAt = at`) ou null.
+	 * atualizado (com `respondedAt = at`) ou null. A volta para PENDING
+	 * (desfazer uma resposta) apaga `respondedAt`.
 	 */
 	transition(
 		id: string,
@@ -32,13 +33,15 @@ export interface MemberInviteStorePort {
 		at: Date
 	): Promise<MemberInvite | null>;
 	/**
-	 * Atômico: só se PENDING. Troca token e prazo e incrementa `resendCount`
-	 * (o limite de reenvios é regra do serviço). Null caso contrário.
+	 * Atômico: só se PENDING e `resendCount < max`. Troca token e prazo e
+	 * incrementa `resendCount`. Null caso contrário (dois reenvios
+	 * simultâneos no limite: só um passa).
 	 */
 	rotateToken(
 		id: string,
 		tokenHash: string,
-		expiresAt: Date
+		expiresAt: Date,
+		max: number
 	): Promise<MemberInvite | null>;
 	/** Só para desfazer a criação quando o envio falha. */
 	deleteById(id: string): Promise<void>;

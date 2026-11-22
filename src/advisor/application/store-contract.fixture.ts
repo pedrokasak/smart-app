@@ -2100,7 +2100,8 @@ export function describeAdvisorTeamStoreContract(
 				const rotated = await s.memberInvites.rotateToken(
 					invite.id,
 					'new-hash',
-					later
+					later,
+					3
 				);
 				expect(rotated).toMatchObject({
 					tokenHash: 'new-hash',
@@ -2110,7 +2111,8 @@ export function describeAdvisorTeamStoreContract(
 				const again = await s.memberInvites.rotateToken(
 					invite.id,
 					'newer-hash',
-					later
+					later,
+					3
 				);
 				expect(again?.resendCount).toBe(2);
 				expect(
@@ -2123,7 +2125,7 @@ export function describeAdvisorTeamStoreContract(
 
 			it('rotateToken is null for an unknown or no longer PENDING invite', async () => {
 				expect(
-					await s.memberInvites.rotateToken(randomUUID(), 'h', FUTURE)
+					await s.memberInvites.rotateToken(randomUUID(), 'h', FUTURE, 3)
 				).toBeNull();
 				const invite = await s.memberInvites.create(newInvite());
 				await s.memberInvites.transition(
@@ -2133,8 +2135,52 @@ export function describeAdvisorTeamStoreContract(
 					NOW
 				);
 				expect(
-					await s.memberInvites.rotateToken(invite.id, 'h', FUTURE)
+					await s.memberInvites.rotateToken(invite.id, 'h', FUTURE, 3)
 				).toBeNull();
+			});
+
+			it('rotateToken stops at max; two concurrent rotates at max - 1 let only one through', async () => {
+				const invite = await s.memberInvites.create(newInvite());
+				for (let i = 0; i < 2; i++) {
+					await s.memberInvites.rotateToken(invite.id, `h${i}`, FUTURE, 3);
+				}
+
+				const results = await Promise.allSettled([
+					s.memberInvites.rotateToken(invite.id, 'race-a', FUTURE, 3),
+					s.memberInvites.rotateToken(invite.id, 'race-b', FUTURE, 3),
+				]);
+
+				const won = results.filter(
+					(r) => r.status === 'fulfilled' && r.value !== null
+				);
+				expect(won).toHaveLength(1);
+				const stored = await s.memberInvites.findById(invite.orgId, invite.id);
+				expect(stored?.resendCount).toBe(3);
+				expect(
+					await s.memberInvites.rotateToken(invite.id, 'h', FUTURE, 3)
+				).toBeNull();
+			});
+
+			it('transition back to PENDING clears respondedAt', async () => {
+				const invite = await s.memberInvites.create(newInvite());
+				await s.memberInvites.transition(
+					invite.id,
+					MemberInviteStatus.Pending,
+					MemberInviteStatus.Accepted,
+					NOW
+				);
+
+				const reopened = await s.memberInvites.transition(
+					invite.id,
+					MemberInviteStatus.Accepted,
+					MemberInviteStatus.Pending,
+					NOW
+				);
+
+				expect(reopened?.status).toBe(MemberInviteStatus.Pending);
+				expect(reopened?.respondedAt).toBeUndefined();
+				const stored = await s.memberInvites.findById(invite.orgId, invite.id);
+				expect(stored?.respondedAt).toBeUndefined();
 			});
 
 			it('findPendingByOrgAndEmail ignores expired, answered and other-org invites', async () => {

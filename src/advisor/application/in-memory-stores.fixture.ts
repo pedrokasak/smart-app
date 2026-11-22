@@ -1269,6 +1269,7 @@ export class InMemoryMemberInviteStore implements MemberInviteStorePort {
 		const current = this.items.get(id);
 		if (!current || current.status !== from) return null;
 		const updated: MemberInvite = { ...current, status: to, respondedAt: at };
+		if (to === MemberInviteStatus.Pending) delete updated.respondedAt;
 		this.items.set(id, updated);
 		return { ...updated };
 	}
@@ -1276,10 +1277,15 @@ export class InMemoryMemberInviteStore implements MemberInviteStorePort {
 	async rotateToken(
 		id: string,
 		tokenHash: string,
-		expiresAt: Date
+		expiresAt: Date,
+		max: number
 	): Promise<MemberInvite | null> {
 		const current = this.items.get(id);
-		if (!current || current.status !== MemberInviteStatus.Pending) {
+		if (
+			!current ||
+			current.status !== MemberInviteStatus.Pending ||
+			current.resendCount >= max
+		) {
 			return null;
 		}
 		const updated: MemberInvite = {
