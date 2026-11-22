@@ -70,3 +70,6 @@ secrets/
 
 # Pacote de acesso da B3 (certificado, chave, client secret) - TRA-185
 secrets/
+
+# Estado local do plugin ruflo (hooks do Claude Code)
+.claude-flow/
