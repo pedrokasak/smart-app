@@ -9,6 +9,7 @@ import {
 import { AuthorizationService } from './authorization.service';
 import {
 	InMemoryAllocationTargetStore,
+	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
@@ -36,10 +37,12 @@ describe('AllocationTargetService', () => {
 		const relationships = new InMemoryRelationshipStore();
 		const rel = new RelationshipService(relationships);
 		store = new InMemoryAllocationTargetStore();
+		const assignments = new InMemoryAssignmentStore();
 		const authz = new AuthorizationService(
 			memberships,
 			relationships,
 			profiles,
+			assignments,
 			new FakeAuditTrail()
 		);
 		service = new AllocationTargetService(authz, store);
@@ -62,6 +65,7 @@ describe('AllocationTargetService', () => {
 		});
 		await rel.create('orgA', 'clientA');
 		await rel.create('orgB', 'clientB');
+		await assignments.assign('orgA', 'clientA', 'user-1', 'user-1');
 	});
 
 	it('stores a valid target with identity from ctx', async () => {

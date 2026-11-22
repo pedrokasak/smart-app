@@ -13,7 +13,7 @@ import { OrganizationService } from 'src/advisor/application/organization.servic
 import { ADVISOR_INVITEE_IDENTITY } from 'src/advisor/application/ports/invitee-identity.port';
 import { ADVISOR_MEMBERSHIP_STORE } from 'src/advisor/application/advisor.tokens';
 import { PortalAccessService } from 'src/advisor/application/portal-access.service';
-import { AdvisorType, OrgRole } from 'src/advisor/domain/enums';
+import { AdvisorType } from 'src/advisor/domain/enums';
 import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import { jwtSecret } from 'src/env';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
@@ -83,7 +83,6 @@ describe('OrganizationsController', () => {
 
 	it('answers 401 without a JWT', async () => {
 		await http().post('/advisor/v1/organizations').send(body).expect(401);
-		await http().get('/advisor/v1/me/organizations').expect(401);
 	});
 
 	it('answers 403 PLAN_CAPABILITY_REQUIRED without portal access', async () => {
@@ -97,10 +96,6 @@ describe('OrganizationsController', () => {
 			statusCode: 403,
 			error: 'PLAN_CAPABILITY_REQUIRED',
 		});
-		await http()
-			.get('/advisor/v1/me/organizations')
-			.set('Authorization', bearer('u1'))
-			.expect(403);
 	});
 
 	it('creates the organization (201) with the creator as ORG_ADMIN and no-store', async () => {
@@ -165,38 +160,5 @@ describe('OrganizationsController', () => {
 			error: 'CONFLICT',
 			reason: 'ALREADY_OWNS_ORGANIZATION',
 		});
-	});
-
-	it('lists only the organizations of the calling user', async () => {
-		await http()
-			.post('/advisor/v1/organizations')
-			.set('Authorization', bearer('u1'))
-			.send({ name: 'Org do U1', advisorType: 'CONSULTOR' })
-			.expect(201);
-		await http()
-			.post('/advisor/v1/organizations')
-			.set('Authorization', bearer('u2'))
-			.send({ name: 'Org do U2', advisorType: 'ASSESSOR' })
-			.expect(201);
-
-		const res = await http()
-			.get('/advisor/v1/me/organizations')
-			.set('Authorization', bearer('u1'))
-			.expect(200);
-		expect(res.body).toEqual([
-			{
-				id: expect.any(String),
-				name: 'Org do U1',
-				advisorType: 'CONSULTOR',
-				role: OrgRole.OrgAdmin,
-			},
-		]);
-		expect(res.headers['cache-control']).toBe('no-store');
-
-		const none = await http()
-			.get('/advisor/v1/me/organizations')
-			.set('Authorization', bearer('u3'))
-			.expect(200);
-		expect(none.body).toEqual([]);
 	});
 });

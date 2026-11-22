@@ -4,6 +4,12 @@ import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
 import { AdvisorPortalGuard } from './advisor-portal.guard';
 import { ClientsController } from './clients.controller';
 import { InvitesController } from './invites.controller';
+import { MeMemberInvitesController } from './me-member-invites.controller';
+import { MeMembershipController } from './me-membership.controller';
+import { MeOrganizationsController } from './me-organizations.controller';
+import { MemberInvitesController } from './member-invites.controller';
+import { MembersController } from './members.controller';
+import { OrgPortalGuard } from './org-portal.guard';
 import { OrganizationsController } from './organizations.controller';
 import { WealthSummaryAssembler } from './wealth-summary.assembler';
 
@@ -13,9 +19,19 @@ import { WealthSummaryAssembler } from './wealth-summary.assembler';
  */
 @Module({
 	imports: [AdvisorModule],
-	controllers: [OrganizationsController, ClientsController, InvitesController],
+	controllers: [
+		OrganizationsController,
+		MeOrganizationsController,
+		ClientsController,
+		InvitesController,
+		MembersController,
+		MeMembershipController,
+		MemberInvitesController,
+		MeMemberInvitesController,
+	],
 	providers: [
 		AdvisorPortalGuard,
+		OrgPortalGuard,
 		AdvisorBffExceptionFilter,
 		WealthSummaryAssembler,
 	],

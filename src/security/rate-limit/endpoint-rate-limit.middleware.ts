@@ -154,6 +154,39 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 			pattern: /^\/advisor\/v1\/invites\/[^/]+\/resend\/?$/,
 			rule: { limit: 10, windowMs: 10 * 60_000 },
 		},
+		// Convite de membro: o mesmo teto do convite de cliente (e-mail sai a
+		// cada chamada) e, nas rotas do convidado, o do convite de assessor
+		// (5/min contra tentativa de token).
+		{
+			key: 'POST:/advisor/v1/member-invites',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/member-invites\/?$/,
+			rule: { limit: 10, windowMs: 10 * 60_000 },
+		},
+		{
+			key: 'POST:/advisor/v1/member-invites/:id/resend',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/member-invites\/[^/]+\/resend\/?$/,
+			rule: { limit: 10, windowMs: 10 * 60_000 },
+		},
+		{
+			key: 'POST:/advisor/v1/me/member-invites/preview',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/me\/member-invites\/preview\/?$/,
+			rule: { limit: 5, windowMs: 60_000 },
+		},
+		{
+			key: 'POST:/advisor/v1/me/member-invites/accept',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/me\/member-invites\/accept\/?$/,
+			rule: { limit: 5, windowMs: 60_000 },
+		},
+		{
+			key: 'POST:/advisor/v1/me/member-invites/decline',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/me\/member-invites\/decline\/?$/,
+			rule: { limit: 5, windowMs: 60_000 },
+		},
 		{
 			key: 'POST:/advisor/v1/clients/:id/imports',
 			method: 'POST',

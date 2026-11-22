@@ -6,9 +6,11 @@ import { OrgRole, ProfileOrigin } from '../domain/enums';
 import {
 	ClientActionForbiddenError,
 	ClientNotAccessibleError,
+	RoleRequiredError,
 } from './access-errors';
 import { AuthorizationService } from './authorization.service';
 import {
+	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
@@ -32,6 +34,7 @@ describe('AuthorizationService', () => {
 	let memberships: InMemoryMembershipStore;
 	let relationships: InMemoryRelationshipStore;
 	let profiles: InMemoryClientProfileStore;
+	let assignments: InMemoryAssignmentStore;
 	let rel: RelationshipService;
 	let audit: FakeAuditTrail;
 	let authz: AuthorizationService;
@@ -40,12 +43,14 @@ describe('AuthorizationService', () => {
 		memberships = new InMemoryMembershipStore();
 		relationships = new InMemoryRelationshipStore();
 		profiles = new InMemoryClientProfileStore();
+		assignments = new InMemoryAssignmentStore();
 		rel = new RelationshipService(relationships);
 		audit = new FakeAuditTrail();
 		authz = new AuthorizationService(
 			memberships,
 			relationships,
 			profiles,
+			assignments,
 			audit
 		);
 		await memberships.create({ userId, orgId: 'orgA', role: OrgRole.Advisor });
@@ -56,6 +61,9 @@ describe('AuthorizationService', () => {
 		orgId: string,
 		origin = ProfileOrigin.AdvisorCreated
 	) => profiles.seed({ id, orgId, name: id, origin });
+
+	const assignToUser = (clientProfileId: string, orgId = 'orgA') =>
+		assignments.assign(orgId, clientProfileId, userId, 'admin-1');
 
 	it('denies a client of another org and audits nothing', async () => {
 		seed('clientB', 'orgB');
@@ -73,6 +81,7 @@ describe('AuthorizationService', () => {
 	it('allows a valid access and records one pseudonymous event', async () => {
 		seed('clientA', 'orgA');
 		await rel.create('orgA', 'clientA');
+		await assignToUser('clientA');
 		await authz.ensureCanAccessClient(
 			{ userId, orgId: 'orgA' },
 			'clientA',
@@ -174,6 +183,7 @@ describe('AuthorizationService', () => {
 	it('fails closed when the audit trail cannot record', async () => {
 		seed('clientA', 'orgA');
 		await rel.create('orgA', 'clientA');
+		await assignToUser('clientA');
 		audit.failWith = new Error('audit store down');
 		await expect(
 			authz.ensureCanAccessClient(
@@ -227,6 +237,7 @@ describe('AuthorizationService', () => {
 	it('throws ClientActionForbiddenError for a write on a CLIENT_CREATED profile, without auditing', async () => {
 		seed('clientA', 'orgA', ProfileOrigin.ClientCreated);
 		await rel.create('orgA', 'clientA');
+		await assignToUser('clientA');
 		const error = await authz
 			.ensureCanAccessClient(
 				{ userId, orgId: 'orgA' },
@@ -245,6 +256,7 @@ describe('AuthorizationService', () => {
 	it('allows reading a CLIENT_CREATED profile and audits it', async () => {
 		seed('clientA', 'orgA', ProfileOrigin.ClientCreated);
 		await rel.create('orgA', 'clientA');
+		await assignToUser('clientA');
 		await authz.ensureCanAccessClient(
 			{ userId, orgId: 'orgA' },
 			'clientA',
@@ -290,6 +302,134 @@ describe('AuthorizationService', () => {
 		it('does not call the audit trail on success', async () => {
 			await authz.ensureOrgMember({ userId, orgId: 'orgA' });
 			expect(audit.recorded).toHaveLength(0);
+		});
+	});
+
+	describe('atribuição', () => {
+		const ctx = { userId, orgId: 'orgA' };
+
+		beforeEach(async () => {
+			await memberships.create({
+				userId: 'admin-1',
+				orgId: 'orgA',
+				role: OrgRole.OrgAdmin,
+			});
+			seed('clientA', 'orgA');
+			await rel.create('orgA', 'clientA');
+		});
+
+		it('nega ao ADVISOR um cliente da org sem atribuição, com o mesmo erro de outra org e sem auditar', async () => {
+			const error = await authz
+				.ensureCanAccessClient(ctx, 'clientA', 'VIEW_PORTFOLIO')
+				.catch((e: unknown) => e);
+
+			expect(error).toBeInstanceOf(ClientNotAccessibleError);
+			expect((error as ClientNotAccessibleError).reason).toBe(
+				'CLIENT_NOT_ACCESSIBLE'
+			);
+			expect(audit.recorded).toHaveLength(0);
+		});
+
+		it('não aceita atribuição de outra org nem de outro assessor', async () => {
+			await assignments.assign('orgB', 'clientA', userId, 'admin-1');
+			await assignments.assign('orgA', 'clientA', 'other-advisor', 'admin-1');
+
+			await expect(
+				authz.ensureCanAccessClient(ctx, 'clientA', 'VIEW_PORTFOLIO')
+			).rejects.toBeInstanceOf(ClientNotAccessibleError);
+			expect(audit.recorded).toHaveLength(0);
+		});
+
+		it('libera o ADVISOR atribuído e nega de novo depois de desatribuído', async () => {
+			await assignToUser('clientA');
+			await authz.ensureCanAccessClient(ctx, 'clientA', 'VIEW_PORTFOLIO');
+			expect(audit.recorded).toHaveLength(1);
+
+			await assignments.unassign('orgA', 'clientA', userId);
+
+			await expect(
+				authz.ensureCanAccessClient(ctx, 'clientA', 'VIEW_PORTFOLIO')
+			).rejects.toBeInstanceOf(ClientNotAccessibleError);
+			expect(audit.recorded).toHaveLength(1);
+		});
+
+		it('libera o ORG_ADMIN sem atribuição e nem consulta a atribuição', async () => {
+			const isAssigned = jest.spyOn(assignments, 'isAssigned');
+
+			await authz.ensureCanAccessClient(
+				{ userId: 'admin-1', orgId: 'orgA' },
+				'clientA',
+				'VIEW_PORTFOLIO'
+			);
+
+			expect(audit.recorded).toHaveLength(1);
+			expect(isAssigned).not.toHaveBeenCalled();
+		});
+
+		it('não consulta a atribuição de quem não é membro', async () => {
+			const isAssigned = jest.spyOn(assignments, 'isAssigned');
+
+			await expect(
+				authz.ensureCanAccessClient(
+					{ userId: 'stranger', orgId: 'orgA' },
+					'clientA',
+					'VIEW_PORTFOLIO'
+				)
+			).rejects.toBeInstanceOf(ClientNotAccessibleError);
+			expect(isAssigned).not.toHaveBeenCalled();
+		});
+	});
+
+	describe('ensureOrgAdmin', () => {
+		it('devolve a membership do ORG_ADMIN', async () => {
+			await memberships.create({
+				userId: 'admin-1',
+				orgId: 'orgA',
+				role: OrgRole.OrgAdmin,
+			});
+			await expect(
+				authz.ensureOrgAdmin({ userId: 'admin-1', orgId: 'orgA' })
+			).resolves.toMatchObject({ userId: 'admin-1', role: OrgRole.OrgAdmin });
+		});
+
+		it('recusa o ADVISOR com 403 ROLE_REQUIRED', async () => {
+			const error = await authz
+				.ensureOrgAdmin({ userId, orgId: 'orgA' })
+				.catch((e: unknown) => e);
+			expect(error).toBeInstanceOf(RoleRequiredError);
+			expect(error).toBeInstanceOf(ForbiddenException);
+			expect((error as RoleRequiredError).getStatus()).toBe(403);
+			expect((error as RoleRequiredError).getResponse()).toEqual({
+				reason: 'ROLE_REQUIRED',
+			});
+		});
+
+		it('recusa quem não é membro, sem ROLE_REQUIRED', async () => {
+			const error = await authz
+				.ensureOrgAdmin({ userId: 'stranger', orgId: 'orgA' })
+				.catch((e: unknown) => e);
+			expect(error).toBeInstanceOf(ForbiddenException);
+			expect(error).not.toBeInstanceOf(RoleRequiredError);
+		});
+	});
+
+	describe('isClientInScope', () => {
+		it('ORG_ADMIN alcança qualquer cliente; ADVISOR só os atribuídos', async () => {
+			const admin = await memberships.create({
+				userId: 'admin-1',
+				orgId: 'orgA',
+				role: OrgRole.OrgAdmin,
+			});
+			const advisor = await authz.ensureOrgMember({ userId, orgId: 'orgA' });
+			await assignToUser('clientA');
+
+			await expect(authz.isClientInScope(admin, 'clientZ')).resolves.toBe(true);
+			await expect(authz.isClientInScope(advisor, 'clientA')).resolves.toBe(
+				true
+			);
+			await expect(authz.isClientInScope(advisor, 'clientZ')).resolves.toBe(
+				false
+			);
 		});
 	});
 });

@@ -18,6 +18,15 @@ import {
 } from './advisor.tokens';
 
 describe('advisor in-memory stores', () => {
+	it('listUnassignedByOrg throws when no assignment store is wired', async () => {
+		await expect(
+			new InMemoryRelationshipStore().listUnassignedByOrg('org-1', {
+				statuses: [RelationshipStatus.Active],
+				limit: 10,
+			})
+		).rejects.toThrow('needs an AssignmentStorePort');
+	});
+
 	it('exposes distinct DI tokens', () => {
 		const tokens = [
 			ADVISOR_ORG_STORE,

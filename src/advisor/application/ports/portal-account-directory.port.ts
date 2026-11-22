@@ -9,4 +9,12 @@ export interface PortalAccountDirectoryPort {
 
 	/** E-mail de cada conta que existe; as que não existem ficam fora. */
 	findEmails(userIds: string[]): Promise<Map<string, string>>;
+
+	/**
+	 * Nome e e-mail de cada conta que existe (só esses dois campos); as que
+	 * não existem ficam fora. O nome pode vir vazio.
+	 */
+	findProfiles(
+		userIds: string[]
+	): Promise<Map<string, { name: string; email: string }>>;
 }

@@ -5,7 +5,15 @@ import {
 	ADVISOR_CLIENT_INVITE_MODEL,
 	ADVISOR_CONSENT_MODEL,
 } from 'src/advisor/infrastructure/advisor-consent.models';
-import { ADVISOR_CLIENT_PROFILE_MODEL } from 'src/advisor/infrastructure/advisor.models';
+import { ADVISOR_PORTAL_GRANT_MODEL } from 'src/advisor/infrastructure/advisor-portal-grant.models';
+import {
+	ADVISOR_CLIENT_ASSIGNMENT_MODEL,
+	ADVISOR_MEMBER_INVITE_MODEL,
+} from 'src/advisor/infrastructure/advisor-team.models';
+import {
+	ADVISOR_CLIENT_PROFILE_MODEL,
+	ADVISOR_MEMBERSHIP_MODEL,
+} from 'src/advisor/infrastructure/advisor.models';
 import {
 	ERASABLE_COLLECTIONS,
 	MODULE_ERASED_COLLECTIONS,
@@ -79,6 +87,10 @@ describe('Política de exclusão de conta (TRA-127)', () => {
 			ADVISOR_CONSENT_MODEL,
 			ADVISOR_CLIENT_INVITE_MODEL,
 			ADVISOR_CLIENT_PROFILE_MODEL,
+			ADVISOR_MEMBERSHIP_MODEL,
+			ADVISOR_CLIENT_ASSIGNMENT_MODEL,
+			ADVISOR_MEMBER_INVITE_MODEL,
+			ADVISOR_PORTAL_GRANT_MODEL,
 		]) {
 			expect(classified.has(model)).toBe(true);
 		}
@@ -91,6 +103,10 @@ describe('Política de exclusão de conta (TRA-127)', () => {
 			[ADVISOR_CONSENT_MODEL, 'userId'],
 			[ADVISOR_CLIENT_INVITE_MODEL, 'email'],
 			[ADVISOR_CLIENT_PROFILE_MODEL, 'ownerUserId'],
+			[ADVISOR_MEMBERSHIP_MODEL, 'userId'],
+			[ADVISOR_CLIENT_ASSIGNMENT_MODEL, 'userId'],
+			[ADVISOR_MEMBER_INVITE_MODEL, 'email'],
+			[ADVISOR_PORTAL_GRANT_MODEL, 'userId'],
 		]);
 	});
 });

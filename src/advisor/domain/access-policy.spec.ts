@@ -7,6 +7,7 @@ const memOrgA: Membership = {
 	userId: 'u1',
 	orgId: 'orgA',
 	role: OrgRole.Advisor,
+	createdAt: new Date('2026-01-01T00:00:00Z'),
 };
 const adminOrgA: Membership = { ...memOrgA, id: 'm2', role: OrgRole.OrgAdmin };
 const activeOrgA: AdvisoryRelationship = {
@@ -104,6 +105,7 @@ describe('canAccessClient', () => {
 			canAccessClient({
 				membership: memOrgA,
 				relationship: activeOrgA,
+				assigned: true,
 				profileOrigin: ADV,
 				action: 'VIEW_PORTFOLIO',
 			})
@@ -136,6 +138,7 @@ describe('canAccessClient', () => {
 			canAccessClient({
 				membership: memOrgA,
 				relationship: activeOrgA,
+				assigned: true,
 				profileOrigin: CLI,
 				action: 'VIEW_PORTFOLIO',
 			})
@@ -147,6 +150,7 @@ describe('canAccessClient', () => {
 			canAccessClient({
 				membership: memOrgA,
 				relationship: activeOrgA,
+				assigned: true,
 				profileOrigin: CLI,
 				action: 'EDIT_POSITION',
 			})
@@ -158,6 +162,7 @@ describe('canAccessClient', () => {
 			canAccessClient({
 				membership: memOrgA,
 				relationship: activeOrgA,
+				assigned: true,
 				profileOrigin: ADV,
 				action: 'EDIT_POSITION',
 			})
@@ -169,6 +174,7 @@ describe('canAccessClient', () => {
 			canAccessClient({
 				membership: memOrgA,
 				relationship: activeOrgA,
+				assigned: true,
 				profileOrigin: origin,
 				action: 'PUBLISH_REPORT',
 			})
@@ -184,5 +190,62 @@ describe('canAccessClient', () => {
 				action: 'PUBLISH_REPORT',
 			})
 		).toBe('NOT_ACCESSIBLE');
+	});
+
+	it('denies an ADVISOR when the client is not assigned', () => {
+		expect(
+			canAccessClient({
+				membership: memOrgA,
+				relationship: activeOrgA,
+				profileOrigin: ADV,
+				assigned: false,
+				action: 'VIEW_PORTFOLIO',
+			})
+		).toBe('NOT_ACCESSIBLE');
+	});
+
+	it('denies an ADVISOR when assigned is absent', () => {
+		expect(
+			canAccessClient({
+				membership: memOrgA,
+				relationship: activeOrgA,
+				profileOrigin: ADV,
+				action: 'VIEW_PORTFOLIO',
+			})
+		).toBe('NOT_ACCESSIBLE');
+	});
+
+	it('allows an ORG_ADMIN regardless of assignment', () => {
+		expect(
+			canAccessClient({
+				membership: adminOrgA,
+				relationship: activeOrgA,
+				profileOrigin: ADV,
+				assigned: false,
+				action: 'VIEW_PORTFOLIO',
+			})
+		).toBe('ALLOWED');
+	});
+
+	it('allows an ORG_ADMIN to VIEW_PORTFOLIO without assigned', () => {
+		expect(
+			canAccessClient({
+				membership: adminOrgA,
+				relationship: activeOrgA,
+				profileOrigin: CLI,
+				action: 'VIEW_PORTFOLIO',
+			})
+		).toBe('ALLOWED');
+	});
+
+	it('still forbids EDIT_POSITION on CLIENT_CREATED for an ORG_ADMIN', () => {
+		expect(
+			canAccessClient({
+				membership: adminOrgA,
+				relationship: activeOrgA,
+				profileOrigin: CLI,
+				action: 'EDIT_POSITION',
+			})
+		).toBe('ACTION_FORBIDDEN');
 	});
 });

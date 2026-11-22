@@ -438,3 +438,113 @@ describe('EmailService.sendAdvisorInviteEmail', () => {
 		expect(logged).not.toContain('cliente@example.com');
 	});
 });
+
+describe('EmailService.sendAdvisorTeamInviteEmail', () => {
+	const expiresAt = new Date('2030-06-15T12:00:00Z');
+	const inviteLink =
+		'https://assessor.trackerr.com.br/convite-equipe#token=secret-token';
+
+	function buildService() {
+		const sender: EmailSender = {
+			send: jest.fn().mockResolvedValue(undefined),
+		};
+		return { service: new EmailService(sender), sender };
+	}
+
+	const sent = (sender: EmailSender) =>
+		(sender.send as jest.Mock).mock.calls[0][0];
+
+	const send = (
+		service: EmailService,
+		over: Partial<{ to: string; inviteLink: string; orgName: string }> = {}
+	) =>
+		service.sendAdvisorTeamInviteEmail({
+			to: 'assessor@example.com',
+			inviteLink,
+			orgName: 'Acme',
+			expiresAt,
+			...over,
+		});
+
+	afterEach(() => {
+		jest.restoreAllMocks();
+	});
+
+	it('envia uma vez para o destinatário com o link do portal, token só no fragmento', async () => {
+		const { service, sender } = buildService();
+
+		await send(service);
+
+		expect(sender.send).toHaveBeenCalledTimes(1);
+		const payload = sent(sender);
+		expect(payload.to).toBe('assessor@example.com');
+		expect(payload.html).toContain(`href="${inviteLink}"`);
+		expect(payload.text).toContain(inviteLink);
+		expect(payload.html).not.toContain('?token=');
+		expect(payload.text).not.toContain('?token=');
+	});
+
+	it('diz que é convite para a equipe e mostra a validade em pt-BR', async () => {
+		const { service, sender } = buildService();
+
+		await send(service);
+
+		const payload = sent(sender);
+		expect(payload.subject).toBe(
+			'Acme convidou você para a equipe no Trackerr Advisor'
+		);
+		expect(payload.html).toContain('15/06/2030');
+		expect(payload.text).toContain('15/06/2030');
+	});
+
+	it('escapa o nome da organização no HTML e o link no atributo', async () => {
+		const { service, sender } = buildService();
+
+		await send(service, {
+			orgName: '<b>Acme</b>',
+			inviteLink: 'https://x.test/convite-equipe#token="a"',
+		});
+
+		const payload = sent(sender);
+		expect(payload.html).toContain('&lt;b&gt;Acme&lt;/b&gt;');
+		expect(payload.html).not.toContain('<b>Acme</b>');
+		expect(payload.html).toContain('#token=&quot;a&quot;');
+	});
+
+	it('remove CR/LF e outros caracteres de controle do nome da organização', async () => {
+		const { service, sender } = buildService();
+
+		await send(service, {
+			orgName: 'Acme\r\nBcc: x@evil.test\u0000\u2028Ltda\u202e',
+		});
+
+		const payload = sent(sender);
+		expect(payload.subject).toBe(
+			'Acme Bcc: x@evil.test Ltda convidou você para a equipe no Trackerr Advisor'
+		);
+		for (const field of [payload.subject, payload.text, payload.html]) {
+			expect(field).not.toMatch(/[\r\n]Bcc/);
+			expect(field).not.toMatch(/[\u0000\u2028\u202e]/);
+		}
+	});
+
+	it('propaga a falha do envio', async () => {
+		const { service, sender } = buildService();
+		(sender.send as jest.Mock).mockRejectedValue(new Error('provider down'));
+
+		await expect(send(service)).rejects.toThrow('provider down');
+	});
+
+	it('nunca registra link nem e-mail em log', async () => {
+		const spies = (['log', 'warn', 'error', 'debug', 'verbose'] as const).map(
+			(level) => jest.spyOn(Logger.prototype, level).mockImplementation()
+		);
+		const { service } = buildService();
+
+		await send(service);
+
+		const logged = JSON.stringify(spies.flatMap((s) => s.mock.calls));
+		expect(logged).not.toContain('secret-token');
+		expect(logged).not.toContain('assessor@example.com');
+	});
+});

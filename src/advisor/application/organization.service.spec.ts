@@ -191,6 +191,25 @@ describe('OrganizationService', () => {
 		});
 	});
 
+	describe('ownerOf', () => {
+		it('returns the owner of the organization', async () => {
+			const org = await svc.createForOwner('u1', input);
+			expect(await svc.ownerOf(org.id)).toBe('u1');
+		});
+
+		it('is null for a legacy organization without owner', async () => {
+			const legacy = await orgs.create({
+				name: 'Legada',
+				advisorType: AdvisorType.Assessor,
+			});
+			expect(await svc.ownerOf(legacy.id)).toBeNull();
+		});
+
+		it('is null for an unknown organization', async () => {
+			expect(await svc.ownerOf('missing')).toBeNull();
+		});
+	});
+
 	describe('listForUser', () => {
 		it('lists the organizations of the user with the role', async () => {
 			const org = await svc.createForOwner('u1', input);
@@ -217,12 +236,14 @@ describe('OrganizationService', () => {
 					name: 'Acme Assessoria',
 					advisorType: AdvisorType.Assessor,
 					role: OrgRole.OrgAdmin,
+					ownerUserId: 'u1',
 				},
 				{
 					id: other.id,
 					name: 'Beta',
 					advisorType: AdvisorType.Consultor,
 					role: OrgRole.Advisor,
+					ownerUserId: null,
 				},
 			]);
 		});

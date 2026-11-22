@@ -78,7 +78,13 @@ describe('advisor doc to entity mappers', () => {
 				createdAt: now,
 				updatedAt: now,
 			})
-		).toEqual({ id: 'm1', userId: 'u1', orgId: 'o1', role: OrgRole.Advisor });
+		).toEqual({
+			id: 'm1',
+			userId: 'u1',
+			orgId: 'o1',
+			role: OrgRole.Advisor,
+			createdAt: now,
+		});
 	});
 
 	it('relationship: maps optional consentId and scope only when present', () => {

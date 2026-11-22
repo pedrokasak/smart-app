@@ -475,6 +475,16 @@ describe('EndpointRateLimitMiddleware', () => {
 			['POST', `/advisor/v1/invites/${ID_A}/resend/`, 10],
 			['POST', `/advisor/v1/clients/${ID_A}/imports`, 20],
 			['POST', `/advisor/v1/clients/${ID_A}/imports/`, 20],
+			['POST', '/advisor/v1/member-invites', 10],
+			['POST', '/advisor/v1/member-invites/', 10],
+			['POST', `/advisor/v1/member-invites/${ID_A}/resend`, 10],
+			['POST', `/advisor/v1/member-invites/${ID_A}/resend/`, 10],
+			['POST', '/advisor/v1/me/member-invites/preview', 5],
+			['POST', '/advisor/v1/me/member-invites/preview/', 5],
+			['POST', '/advisor/v1/me/member-invites/accept', 5],
+			['POST', '/advisor/v1/me/member-invites/accept/', 5],
+			['POST', '/advisor/v1/me/member-invites/decline', 5],
+			['POST', '/advisor/v1/me/member-invites/decline/', 5],
 		])('%s %s allows %i per account', async (method, path, limit) => {
 			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
 			const ana = token('ana');
@@ -499,6 +509,42 @@ describe('EndpointRateLimitMiddleware', () => {
 			).toBe(10);
 		});
 
+		it('blocks the 6th member invite accept in a minute, per account and per IP', async () => {
+			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
+			const path = '/advisor/v1/me/member-invites/accept';
+			const ana = token('ana');
+			expect(
+				await allowedBeforeBlock(middleware, (i) =>
+					requestAs('POST', path, { token: ana, ip: `10.0.2.${i}` })
+				)
+			).toBe(5);
+			// Outra conta no mesmo IP, e a mesma conta com a barra final.
+			expect(
+				await allowedBeforeBlock(middleware, (i) =>
+					requestAs('POST', path, { token: token(`u${i}`), ip: '10.0.3.1' })
+				)
+			).toBe(5);
+			expect(
+				await allowedBeforeBlock(middleware, () =>
+					requestAs('POST', `${path}/`, { token: ana, ip: '10.0.4.1' })
+				)
+			).toBe(0);
+		});
+
+		it('shares one bucket across different member invite ids on resend', async () => {
+			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
+			const ana = token('ana');
+			expect(
+				await allowedBeforeBlock(middleware, (i) =>
+					requestAs(
+						'POST',
+						`/advisor/v1/member-invites/aaaaaaaa-aaaa-4aaa-8aaa-${String(i).padStart(12, '0')}/resend`,
+						{ token: ana }
+					)
+				)
+			).toBe(10);
+		});
+
 		it('does not limit other methods or routes below the default', async () => {
 			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
 			const ana = token('ana');
@@ -510,6 +556,11 @@ describe('EndpointRateLimitMiddleware', () => {
 			expect(
 				await allowedBeforeBlock(middleware, () =>
 					requestAs('DELETE', `/advisor/v1/invites/${ID_A}`, { token: ana })
+				)
+			).toBe(300);
+			expect(
+				await allowedBeforeBlock(middleware, () =>
+					requestAs('GET', '/advisor/v1/member-invites', { token: ana })
 				)
 			).toBe(300);
 		});

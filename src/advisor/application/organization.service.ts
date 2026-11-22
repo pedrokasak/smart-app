@@ -31,6 +31,8 @@ export interface OrganizationSummary {
 	name: string;
 	advisorType: AdvisorType;
 	role: OrgRole;
+	/** Dono da organização; null em linha legada sem `ownerUserId`. */
+	ownerUserId: string | null;
 }
 
 export type OrganizationRuleReason =
@@ -155,11 +157,18 @@ export class OrganizationService {
 							name: org.name,
 							advisorType: org.advisorType,
 							role: membership.role,
+							ownerUserId: org.ownerUserId ?? null,
 						}
 					: null;
 			})
 		);
 		return summaries.filter((s): s is OrganizationSummary => s !== null);
+	}
+
+	/** Dono da organização; null se ela não existe ou não tem dono (legado). */
+	async ownerOf(orgId: string): Promise<string | null> {
+		const org = await this.orgs.findById(orgId);
+		return org?.ownerUserId ?? null;
 	}
 
 	private validName(raw: unknown): string {

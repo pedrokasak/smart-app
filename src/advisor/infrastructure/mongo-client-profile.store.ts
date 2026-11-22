@@ -94,4 +94,8 @@ export class MongoClientProfileStore implements ClientProfileStorePort {
 			.exec();
 		return docs.map((d) => String(d._id));
 	}
+
+	async deleteById(id: string): Promise<void> {
+		await this.profiles.deleteOne({ _id: id }).exec();
+	}
 }

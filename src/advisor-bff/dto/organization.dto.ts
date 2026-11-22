@@ -26,12 +26,30 @@ export class OrganizationResponseDto {
 	@ApiProperty({ enum: OrgRole })
 	role: OrgRole;
 
-	static of(summary: OrganizationSummary): OrganizationResponseDto {
+	static of(
+		summary: Omit<OrganizationSummary, 'ownerUserId'>
+	): OrganizationResponseDto {
 		return {
 			id: summary.id,
 			name: summary.name,
 			advisorType: summary.advisorType,
 			role: summary.role,
 		};
+	}
+}
+
+/** Item de `GET /me/organizations`: a organização mais o estado do portal. */
+export class MyOrganizationResponseDto extends OrganizationResponseDto {
+	@ApiProperty({
+		description:
+			'O dono da organização tem acesso ao portal (plano ou liberação)',
+	})
+	portalActive: boolean;
+
+	static withPortal(
+		summary: OrganizationSummary,
+		portalActive: boolean
+	): MyOrganizationResponseDto {
+		return { ...OrganizationResponseDto.of(summary), portalActive };
 	}
 }

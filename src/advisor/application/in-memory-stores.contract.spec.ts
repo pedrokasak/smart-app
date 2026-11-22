@@ -1,8 +1,10 @@
 import {
 	InMemoryAllocationTargetStore,
+	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
 	InMemoryConsentStore,
 	InMemoryInviteStore,
+	InMemoryMemberInviteStore,
 	InMemoryMembershipStore,
 	InMemoryOrganizationStore,
 	InMemoryPortalGrantStore,
@@ -14,6 +16,7 @@ import {
 	describeAdvisorPortalGrantStoreContract,
 	describeAdvisorPortfolioStoreContract,
 	describeAdvisorStoreContract,
+	describeAdvisorTeamStoreContract,
 } from './store-contract.fixture';
 
 describeAdvisorStoreContract('in-memory', () => ({
@@ -37,3 +40,14 @@ describeAdvisorPortalGrantStoreContract(
 	'in-memory',
 	() => new InMemoryPortalGrantStore()
 );
+
+describeAdvisorTeamStoreContract('in-memory', () => {
+	const assignments = new InMemoryAssignmentStore();
+	return {
+		assignments,
+		memberInvites: new InMemoryMemberInviteStore(),
+		memberships: new InMemoryMembershipStore(),
+		relationships: new InMemoryRelationshipStore(assignments),
+		profiles: new InMemoryClientProfileStore(),
+	};
+});

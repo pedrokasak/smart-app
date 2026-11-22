@@ -25,4 +25,6 @@ export interface ClientProfileStorePort {
 	anonymizeByOwner(userId: string): Promise<number>;
 	/** LGPD: ids dos perfis daquele dono (lido antes de `anonymizeByOwner`). */
 	listIdsByOwner(userId: string): Promise<string[]>;
+	/** Só para desfazer a criação do perfil. */
+	deleteById(id: string): Promise<void>;
 }

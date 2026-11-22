@@ -90,7 +90,7 @@
     },
     "/advisor/v1/me/organizations": {
       "get": {
-        "operationId": "OrganizationsController_listMine",
+        "operationId": "MeOrganizationsController_listMine",
         "parameters": [],
         "responses": {
           "200": {
@@ -100,7 +100,7 @@
                 "schema": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/components/schemas/OrganizationResponseDto"
+                    "$ref": "#/components/schemas/MyOrganizationResponseDto"
                   }
                 }
               }
@@ -108,16 +108,6 @@
           },
           "401": {
             "description": "Sem JWT de acesso válido",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "PLAN_CAPABILITY_REQUIRED (sem acesso ao portal)",
             "content": {
               "application/json": {
                 "schema": {
@@ -194,6 +184,16 @@
                 "REVOKED"
               ]
             }
+          },
+          {
+            "name": "assignee",
+            "required": false,
+            "in": "query",
+            "description": "Só ORG_ADMIN: me, none (sem atribuição) ou o userId de um membro. Para o ADVISOR a lista já vem filtrada e o parâmetro é 400 ASSIGNEE_FILTER_FORBIDDEN",
+            "schema": {
+              "pattern": "^(me|none|[0-9a-fA-F]{24})$",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -208,7 +208,7 @@
             }
           },
           "400": {
-            "description": "VALIDATION_FAILED (corpo ou query fora do formato): status ou limit; INVALID_CURSOR",
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): status, limit ou assignee; INVALID_CURSOR; ASSIGNEE_FILTER_FORBIDDEN (assignee enviado por um ADVISOR)",
             "content": {
               "application/json": {
                 "schema": {
@@ -1645,6 +1645,294 @@
         ]
       }
     },
+    "/advisor/v1/clients/{clientId}/assignees": {
+      "get": {
+        "operationId": "ClientsController_listAssignees",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ClientAssigneeResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason), ou userId fora do formato de id de usuário",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ROLE_REQUIRED (ADVISOR numa rota de ORG_ADMIN). Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente inexistente ou de outra org, ou usuário que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Membros a que o cliente está atribuído",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/clients/{clientId}/assignees/{userId}": {
+      "put": {
+        "operationId": "ClientsController_assign",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason), ou userId fora do formato de id de usuário",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ROLE_REQUIRED (ADVISOR numa rota de ORG_ADMIN). Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente inexistente ou de outra org, ou usuário que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Atribui o cliente a um membro (idempotente)",
+        "tags": [
+          "advisor-bff"
+        ]
+      },
+      "delete": {
+        "operationId": "ClientsController_unassign",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason), ou userId fora do formato de id de usuário",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ROLE_REQUIRED (ADVISOR numa rota de ORG_ADMIN). Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente inexistente ou de outra org, ou usuário que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Desatribui o cliente de um membro (idempotente)",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
     "/advisor/v1/invites": {
       "get": {
         "operationId": "InvitesController_list",
@@ -2022,6 +2310,941 @@
           "advisor-bff"
         ]
       }
+    },
+    "/advisor/v1/members": {
+      "get": {
+        "operationId": "MembersController_list",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/TeamMemberResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Lista a equipe da organização",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/members/{userId}": {
+      "delete": {
+        "operationId": "MembersController_remove",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "userId fora do formato de id de usuário (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ROLE_REQUIRED (ADVISOR numa rota de ORG_ADMIN). Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Usuário que não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "OWNER_CANNOT_BE_REMOVED: o dono não é removido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Remove o membro e as atribuições dele",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/members/{userId}/promote": {
+      "post": {
+        "operationId": "MembersController_promote",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "userId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PromoteMemberResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "userId fora do formato de id de usuário (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ROLE_REQUIRED (ADVISOR numa rota de ORG_ADMIN). Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Usuário que não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Promove um ADVISOR a ORG_ADMIN (já ORG_ADMIN: 200 sem mudança)",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/me/membership": {
+      "delete": {
+        "operationId": "MeMembershipController_leave",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "OWNER_CANNOT_LEAVE: o dono não sai da organização",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Sai da organização ativa",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/member-invites": {
+      "get": {
+        "operationId": "MemberInvitesController_list",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/PendingMemberInviteResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ROLE_REQUIRED (ADVISOR numa rota de ORG_ADMIN). Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Lista os convites de membro pendentes",
+        "tags": [
+          "advisor-bff"
+        ]
+      },
+      "post": {
+        "operationId": "MemberInvitesController_create",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateMemberInviteDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Mesma resposta para e-mail com ou sem conta Trackerr",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateMemberInviteResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "INVALID_EMAIL ou VALIDATION_FAILED (corpo ou query fora do formato)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ROLE_REQUIRED (ADVISOR numa rota de ORG_ADMIN). Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ALREADY_MEMBER: o e-mail já é de um membro; PENDING_INVITE: já há convite ativo para o e-mail",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 10 convites por 10 minutos por conta e por IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Convida um ADVISOR por e-mail",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/member-invites/{inviteId}/resend": {
+      "post": {
+        "operationId": "MemberInvitesController_resend",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "inviteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResendInviteResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ROLE_REQUIRED (ADVISOR numa rota de ORG_ADMIN). Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Convite inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "RESEND_LIMIT (já reenviado 3 vezes) ou NOT_PENDING",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 10 reenvios por 10 minutos por conta e por IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Reenvia o convite com um novo link",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/member-invites/{inviteId}": {
+      "delete": {
+        "operationId": "MemberInvitesController_cancel",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "inviteId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ROLE_REQUIRED (ADVISOR numa rota de ORG_ADMIN). Sem acesso ao portal, ORG_HEADER_REQUIRED ou não é membro da org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Convite inexistente ou de outra org",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "NOT_PENDING: o convite já foi respondido ou cancelado",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Cancela um convite de membro pendente",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/me/member-invites/preview": {
+      "post": {
+        "operationId": "MeMemberInvitesController_preview",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberInviteTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MemberInvitePreviewResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): token ausente, fora do tamanho ou na query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Token inválido, vencido, já usado ou de outro e-mail (sem distinção)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 5 por minuto por conta e por IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Mostra o escritório do convite",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/me/member-invites/accept": {
+      "post": {
+        "operationId": "MeMemberInvitesController_accept",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberInviteTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptMemberInviteResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): token ausente, fora do tamanho ou na query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Token inválido, vencido, já usado ou de outro e-mail (sem distinção)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ALREADY_MEMBER: a conta já é membro da organização",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 5 por minuto por conta e por IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Aceita o convite e entra como ADVISOR",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/me/member-invites/decline": {
+      "post": {
+        "operationId": "MeMemberInvitesController_decline",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MemberInviteTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): token ausente, fora do tamanho ou na query",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Token inválido, vencido, já usado ou de outro e-mail (sem distinção)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 5 por minuto por conta e por IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Recusa o convite",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
     }
   },
   "info": {
@@ -2126,6 +3349,42 @@
           "name",
           "advisorType",
           "role"
+        ]
+      },
+      "MyOrganizationResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "advisorType": {
+            "type": "string",
+            "enum": [
+              "ASSESSOR",
+              "CONSULTOR"
+            ]
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ORG_ADMIN",
+              "ADVISOR"
+            ]
+          },
+          "portalActive": {
+            "type": "boolean",
+            "description": "O dono da organização tem acesso ao portal (plano ou liberação)"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "advisorType",
+          "role",
+          "portalActive"
         ]
       },
       "ClientSummaryResponseDto": {
@@ -3058,6 +4317,21 @@
           "unreconciledSymbols"
         ]
       },
+      "ClientAssigneeResponseDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId",
+          "name"
+        ]
+      },
       "PendingInviteResponseDto": {
         "type": "object",
         "properties": {
@@ -3140,6 +4414,186 @@
         },
         "required": [
           "expiresAt"
+        ]
+      },
+      "TeamMemberResponseDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "emailMasked": {
+            "type": "string",
+            "example": "fu***@es***.com",
+            "description": "Sempre mascarado"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ORG_ADMIN",
+              "ADVISOR"
+            ]
+          },
+          "joinedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "isOwner": {
+            "type": "boolean",
+            "description": "Dono da organização: não sai nem é removido"
+          }
+        },
+        "required": [
+          "userId",
+          "name",
+          "emailMasked",
+          "role",
+          "joinedAt",
+          "isOwner"
+        ]
+      },
+      "PromoteMemberResponseDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ORG_ADMIN",
+              "ADVISOR"
+            ]
+          }
+        },
+        "required": [
+          "userId",
+          "role"
+        ]
+      },
+      "PendingMemberInviteResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "emailMasked": {
+            "type": "string",
+            "example": "fu***@ex***.com",
+            "description": "Sempre mascarado"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "resendCount": {
+            "type": "number"
+          },
+          "invitedBy": {
+            "type": "string",
+            "description": "userId de quem convidou"
+          }
+        },
+        "required": [
+          "id",
+          "emailMasked",
+          "expiresAt",
+          "resendCount",
+          "invitedBy"
+        ]
+      },
+      "CreateMemberInviteDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "description": "E-mail do convidado (entra como ADVISOR)"
+          }
+        },
+        "required": [
+          "email"
+        ]
+      },
+      "CreateMemberInviteResponseDto": {
+        "type": "object",
+        "properties": {
+          "inviteId": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "inviteId",
+          "expiresAt"
+        ]
+      },
+      "MemberInviteTokenDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "token"
+        ]
+      },
+      "MemberInvitePreviewResponseDto": {
+        "type": "object",
+        "properties": {
+          "organizationName": {
+            "type": "string"
+          },
+          "advisorType": {
+            "type": "string",
+            "enum": [
+              "ASSESSOR",
+              "CONSULTOR"
+            ]
+          },
+          "invitedEmailMasked": {
+            "type": "string",
+            "example": "fu***@ex***.com",
+            "description": "Sempre mascarado"
+          },
+          "expiresAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "organizationName",
+          "advisorType",
+          "invitedEmailMasked",
+          "expiresAt"
+        ]
+      },
+      "AcceptMemberInviteResponseDto": {
+        "type": "object",
+        "properties": {
+          "orgId": {
+            "type": "string",
+            "description": "Organização em que a conta entrou"
+          },
+          "role": {
+            "type": "string",
+            "enum": [
+              "ORG_ADMIN",
+              "ADVISOR"
+            ]
+          }
+        },
+        "required": [
+          "orgId",
+          "role"
         ]
       }
     }

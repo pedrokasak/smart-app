@@ -3,6 +3,7 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import {
+	ADVISOR_ASSIGNMENT_STORE,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_INVITE_STORE,
 	ADVISOR_MEMBERSHIP_STORE,
@@ -13,7 +14,9 @@ import { AuthorizationService } from 'src/advisor/application/authorization.serv
 import { ClientDirectoryService } from 'src/advisor/application/client-directory.service';
 import { ClientProfileService } from 'src/advisor/application/client-profile.service';
 import {
+	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
+	InMemoryInviteeIdentity,
 	InMemoryInviteNotifier,
 	InMemoryInviteStore,
 	InMemoryMembershipStore,
@@ -22,7 +25,9 @@ import {
 } from 'src/advisor/application/in-memory-stores.fixture';
 import { InviteService } from 'src/advisor/application/invite.service';
 import { MembershipService } from 'src/advisor/application/membership.service';
+import { OrganizationService } from 'src/advisor/application/organization.service';
 import { PortalAccessService } from 'src/advisor/application/portal-access.service';
+import { ADVISOR_INVITEE_IDENTITY } from 'src/advisor/application/ports/invitee-identity.port';
 import { ADVISOR_INVITE_NOTIFIER } from 'src/advisor/application/ports/invite-notifier.port';
 import { RelationshipService } from 'src/advisor/application/relationship.service';
 import { AdvisorType, OrgRole } from 'src/advisor/domain/enums';
@@ -30,7 +35,7 @@ import { OrgContextGuard } from 'src/advisor/interface/org-context.guard';
 import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import { jwtSecret } from 'src/env';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
-import { AdvisorPortalGuard } from './advisor-portal.guard';
+import { OrgPortalGuard } from './org-portal.guard';
 import { InvitesController } from './invites.controller';
 
 const MISSING = 'cccccccc-cccc-4ccc-8ccc-cccccccccccc';
@@ -42,6 +47,8 @@ describe('InvitesController', () => {
 	let orgA: string;
 	let orgB: string;
 	let notifier: InMemoryInviteNotifier;
+	let orgs: InMemoryOrganizationStore;
+	let memberships: InMemoryMembershipStore;
 	const record = jest.fn();
 	const hasAccess = jest.fn();
 
@@ -59,8 +66,8 @@ describe('InvitesController', () => {
 	) => http().post('/advisor/v1/invites').set(headers).send(body);
 
 	beforeEach(async () => {
-		const orgs = new InMemoryOrganizationStore();
-		const memberships = new InMemoryMembershipStore();
+		orgs = new InMemoryOrganizationStore();
+		memberships = new InMemoryMembershipStore();
 		notifier = new InMemoryInviteNotifier();
 		orgA = (
 			await orgs.create({
@@ -91,8 +98,9 @@ describe('InvitesController', () => {
 			imports: [JwtModule.register({ secret: jwtSecret })],
 			controllers: [InvitesController],
 			providers: [
-				AdvisorPortalGuard,
 				OrgContextGuard,
+				OrgPortalGuard,
+				OrganizationService,
 				MembershipService,
 				AuthorizationService,
 				ClientProfileService,
@@ -100,7 +108,15 @@ describe('InvitesController', () => {
 				ClientDirectoryService,
 				InviteService,
 				{ provide: ADVISOR_ORG_STORE, useValue: orgs },
+				{
+					provide: ADVISOR_INVITEE_IDENTITY,
+					useValue: new InMemoryInviteeIdentity(),
+				},
 				{ provide: ADVISOR_MEMBERSHIP_STORE, useValue: memberships },
+				{
+					provide: ADVISOR_ASSIGNMENT_STORE,
+					useValue: new InMemoryAssignmentStore(),
+				},
 				{
 					provide: ADVISOR_RELATIONSHIP_STORE,
 					useValue: new InMemoryRelationshipStore(),
@@ -145,6 +161,56 @@ describe('InvitesController', () => {
 		await http().get('/advisor/v1/invites').set(as('u1', orgB)).expect(403);
 		hasAccess.mockResolvedValue(false);
 		await http().get('/advisor/v1/invites').set(A()).expect(403);
+	});
+
+	describe('portal access inherited from the organization owner', () => {
+		const memberHeaders = () => as('u3', orgA);
+
+		beforeEach(async () => {
+			await memberships.create({
+				userId: 'u3',
+				orgId: orgA,
+				role: OrgRole.Advisor,
+			});
+			// So o dono (u1) tem liberacao; o membro (u3) nao tem plano nem liberacao.
+			hasAccess.mockImplementation(async (userId: string) => userId === 'u1');
+		});
+
+		it('lets a member without plan or grant in because the owner has access', async () => {
+			await http().get('/advisor/v1/invites').set(memberHeaders()).expect(200);
+			expect(hasAccess).toHaveBeenCalledWith('u1');
+			expect(hasAccess).not.toHaveBeenCalledWith('u3');
+		});
+
+		it('denies the whole office, member and owner, once the owner loses access', async () => {
+			hasAccess.mockResolvedValue(false);
+			for (const headers of [memberHeaders(), A()]) {
+				const res = await http()
+					.get('/advisor/v1/invites')
+					.set(headers)
+					.expect(403);
+				expect(res.body).toEqual({
+					statusCode: 403,
+					error: 'PLAN_CAPABILITY_REQUIRED',
+				});
+			}
+		});
+
+		it('denies an organization without owner, even for a member with access of their own', async () => {
+			const legacy = (
+				await orgs.create({
+					name: 'Legada',
+					advisorType: AdvisorType.Assessor,
+				})
+			).id;
+			await memberships.create({
+				userId: 'u3',
+				orgId: legacy,
+				role: OrgRole.OrgAdmin,
+			});
+			hasAccess.mockResolvedValue(true);
+			await http().get('/advisor/v1/invites').set(as('u3', legacy)).expect(403);
+		});
 	});
 
 	it('creates an invite (201), sends the e-mail and lists it masked', async () => {

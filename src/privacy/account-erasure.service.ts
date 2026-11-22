@@ -10,6 +10,7 @@ import {
 	ConsentService,
 	UserErasure,
 } from 'src/advisor/application/consent.service';
+import { TeamErasure, TeamService } from 'src/advisor/application/team.service';
 import { SubscriptionService } from 'src/subscription/subscription.service';
 import {
 	ERASABLE_COLLECTIONS,
@@ -22,6 +23,7 @@ import {
 export interface ErasureReport {
 	subscription: 'cancel_scheduled' | 'none';
 	advisor: UserErasure;
+	team: TeamErasure;
 	deleted: Record<string, number>;
 	anonymized: Record<string, number>;
 	skipped: string[];
@@ -40,7 +42,8 @@ export class AccountErasureService {
 	constructor(
 		@InjectConnection() private readonly connection: Connection,
 		private readonly subscriptionService: SubscriptionService,
-		private readonly advisorConsents: ConsentService
+		private readonly advisorConsents: ConsentService,
+		private readonly advisorTeam: TeamService
 	) {}
 
 	/**
@@ -49,8 +52,9 @@ export class AccountErasureService {
 	 * passado (explícito, mesmo `undefined`); sem ele, só os convites de
 	 * assessor achados apenas pelo e-mail ficam (o resto segue pelo id).
 	 *
-	 * Depois da cobrança, o primeiro passo encerra os acessos de assessores:
-	 * se falhar, nada foi apagado e a repetição recomeça do zero.
+	 * Depois da cobrança, os primeiros passos encerram os acessos de assessores
+	 * e apagam os vínculos de equipe: se falharem, nada de outro módulo foi
+	 * apagado e a repetição recomeça do zero.
 	 */
 	async eraseDependents(
 		userId: string,
@@ -58,9 +62,11 @@ export class AccountErasureService {
 	): Promise<ErasureReport> {
 		const subscription = await this.stopBilling(userId);
 		const advisor = await this.advisorConsents.eraseUser(userId, email);
+		const team = await this.advisorTeam.eraseUser(userId, email);
 		const report: ErasureReport = {
 			subscription,
 			advisor,
+			team,
 			deleted: {},
 			anonymized: {},
 			skipped: [],

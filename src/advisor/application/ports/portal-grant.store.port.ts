@@ -14,4 +14,10 @@ export interface PortalGrantStorePort {
 	findActive(userId: string): Promise<PortalGrant | null>;
 
 	listActive(): Promise<PortalGrant[]>;
+
+	/**
+	 * LGPD: apaga todas as liberações do usuário, ativas e revogadas (o
+	 * histórico também guarda o id). Devolve quantas apagou.
+	 */
+	deleteAllForUser(userId: string): Promise<number>;
 }

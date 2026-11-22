@@ -76,6 +76,12 @@ export interface RetainedCollection extends ErasableCollection {
  * acessos (e audita) antes de apagar, acha os convites pelas relações dos
  * consentimentos do usuário e pelo e-mail da conta e só desliga o perfil do cliente, que é registro da organização. Tudo isso é
  * `ConsentService.eraseUser`, chamado antes de qualquer outra remoção.
+ *
+ * Equipe do escritório (`TeamService.eraseUser`, logo depois): vínculo,
+ * atribuições e convites de membro pendentes (pelo e-mail normalizado) são
+ * dado do titular; a liberação do portal (`AdvisorPortalGrant`) também, e
+ * apagá-la fecha o escritório de um dono excluído que só tinha acesso por
+ * liberação do admin (E6).
  */
 export interface ModuleErasedCollection extends ErasableCollection {
 	effect: 'delete' | 'anonymize';
@@ -90,6 +96,14 @@ export const MODULE_ERASED_COLLECTIONS: ReadonlyArray<ModuleErasedCollection> =
 			ownerField: 'ownerUserId',
 			effect: 'anonymize',
 		},
+		{ model: 'AdvisorMembership', ownerField: 'userId', effect: 'delete' },
+		{
+			model: 'AdvisorClientAssignment',
+			ownerField: 'userId',
+			effect: 'delete',
+		},
+		{ model: 'AdvisorMemberInvite', ownerField: 'email', effect: 'delete' },
+		{ model: 'AdvisorPortalGrant', ownerField: 'userId', effect: 'delete' },
 	];
 
 export const RETAINED_COLLECTIONS: ReadonlyArray<RetainedCollection> = [

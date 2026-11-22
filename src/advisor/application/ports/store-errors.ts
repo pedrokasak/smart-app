@@ -21,3 +21,11 @@ export class InvalidCursorError extends Error {
 		this.name = 'InvalidCursorError';
 	}
 }
+
+/** Já existe convite de membro PENDING para este e-mail nesta organização. */
+export class DuplicatePendingMemberInviteError extends Error {
+	constructor() {
+		super('Pending member invite already exists for this email');
+		this.name = 'DuplicatePendingMemberInviteError';
+	}
+}

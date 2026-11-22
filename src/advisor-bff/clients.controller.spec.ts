@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import {
 	ADVISOR_ALLOCATION_TARGET_STORE,
+	ADVISOR_ASSIGNMENT_STORE,
 	ADVISOR_BENCHMARK_SERIES,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_CONSENT_STORE,
@@ -14,17 +15,20 @@ import {
 	ADVISOR_TRANSACTION_STORE,
 } from 'src/advisor/application/advisor.tokens';
 import { AllocationTargetService } from 'src/advisor/application/allocation-target.service';
+import { AssignmentService } from 'src/advisor/application/assignment.service';
 import { AuthorizationService } from 'src/advisor/application/authorization.service';
 import { ClientDirectoryService } from 'src/advisor/application/client-directory.service';
 import { ClientProfileService } from 'src/advisor/application/client-profile.service';
 import { CsvImportService } from 'src/advisor/application/csv/csv-import.service';
 import {
 	InMemoryAllocationTargetStore,
+	InMemoryAssignmentStore,
 	InMemoryBenchmarkSeries,
 	InMemoryClientProfileStore,
 	InMemoryConsentStore,
 	InMemoryInviteStore,
 	InMemoryMembershipStore,
+	InMemoryPortalAccountDirectory,
 	InMemoryPriceHistory,
 	InMemoryRelationshipStore,
 	InMemorySharedPortfolioSource,
@@ -32,7 +36,9 @@ import {
 } from 'src/advisor/application/in-memory-stores.fixture';
 import { MembershipService } from 'src/advisor/application/membership.service';
 import { PortfolioMetricsService } from 'src/advisor/application/metrics/portfolio-metrics.service';
+import { OrganizationService } from 'src/advisor/application/organization.service';
 import { PortalAccessService } from 'src/advisor/application/portal-access.service';
+import { ADVISOR_PORTAL_ACCOUNT_DIRECTORY } from 'src/advisor/application/ports/portal-account-directory.port';
 import { ADVISOR_SHARED_PORTFOLIO_SOURCE } from 'src/advisor/application/ports/shared-portfolio-source.port';
 import { RelationshipService } from 'src/advisor/application/relationship.service';
 import { SharedPortfolioService } from 'src/advisor/application/shared-portfolio.service';
@@ -46,7 +52,7 @@ import { OrgContextGuard } from 'src/advisor/interface/org-context.guard';
 import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import { jwtSecret } from 'src/env';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
-import { AdvisorPortalGuard } from './advisor-portal.guard';
+import { OrgPortalGuard } from './org-portal.guard';
 import { CSV_UPLOAD_MAX_BYTES } from './csv-upload';
 import { WealthSummaryAssembler } from './wealth-summary.assembler';
 import { ClientsController } from './clients.controller';
@@ -74,6 +80,8 @@ describe('ClientsController', () => {
 	let profiles: InMemoryClientProfileStore;
 	let relationships: InMemoryRelationshipStore;
 	let memberships: InMemoryMembershipStore;
+	let assignments: InMemoryAssignmentStore;
+	let accounts: InMemoryPortalAccountDirectory;
 	let ledger: InMemoryTransactionStore;
 	let targets: InMemoryAllocationTargetStore;
 	let consents: InMemoryConsentStore;
@@ -134,7 +142,9 @@ describe('ClientsController', () => {
 
 	beforeEach(async () => {
 		profiles = new InMemoryClientProfileStore();
-		relationships = new InMemoryRelationshipStore();
+		assignments = new InMemoryAssignmentStore();
+		accounts = new InMemoryPortalAccountDirectory();
+		relationships = new InMemoryRelationshipStore(assignments);
 		memberships = new InMemoryMembershipStore();
 		ledger = new InMemoryTransactionStore();
 		targets = new InMemoryAllocationTargetStore();
@@ -155,8 +165,8 @@ describe('ClientsController', () => {
 			imports: [JwtModule.register({ secret: jwtSecret })],
 			controllers: [ClientsController],
 			providers: [
-				AdvisorPortalGuard,
 				OrgContextGuard,
+				OrgPortalGuard,
 				MembershipService,
 				AuthorizationService,
 				ClientProfileService,
@@ -167,8 +177,11 @@ describe('ClientsController', () => {
 				AllocationTargetService,
 				PortfolioMetricsService,
 				SharedPortfolioService,
+				AssignmentService,
 				WealthSummaryAssembler,
 				{ provide: ADVISOR_MEMBERSHIP_STORE, useValue: memberships },
+				{ provide: ADVISOR_ASSIGNMENT_STORE, useValue: assignments },
+				{ provide: ADVISOR_PORTAL_ACCOUNT_DIRECTORY, useValue: accounts },
 				{ provide: ADVISOR_RELATIONSHIP_STORE, useValue: relationships },
 				{ provide: ADVISOR_CLIENT_PROFILE_STORE, useValue: profiles },
 				{ provide: ADVISOR_INVITE_STORE, useValue: new InMemoryInviteStore() },
@@ -186,6 +199,13 @@ describe('ClientsController', () => {
 				},
 				{ provide: AUDIT_TRAIL, useValue: { record: jest.fn() } },
 				{ provide: PortalAccessService, useValue: { hasAccess } },
+				{
+					provide: OrganizationService,
+					useValue: {
+						ownerOf: async (orgId: string) =>
+							({ [ORG_A]: 'u1', [ORG_B]: 'u2' })[orgId] ?? null,
+					},
+				},
 				{
 					provide: TokenBlacklistService,
 					useValue: { isBlacklisted: jest.fn().mockResolvedValue(false) },
@@ -221,6 +241,16 @@ describe('ClientsController', () => {
 				.get('/advisor/v1/clients')
 				.set(as('nobody', ORG_A))
 				.expect(403);
+		});
+
+		it('answers 403 PLAN_CAPABILITY_REQUIRED when the org owner has no portal access', async () => {
+			hasAccess.mockImplementation(async (userId: string) => userId !== 'u1');
+			const res = await http().get('/advisor/v1/clients').set(A()).expect(403);
+			expect(res.body).toEqual({
+				statusCode: 403,
+				error: 'PLAN_CAPABILITY_REQUIRED',
+			});
+			expect(hasAccess).toHaveBeenCalledWith('u1');
 		});
 
 		it('answers 403 ORG_HEADER_REQUIRED without x-org-id, never using the first membership', async () => {
@@ -956,6 +986,124 @@ describe('ClientsController', () => {
 				.expect(404)
 				.expect({ statusCode: 404, error: 'NOT_FOUND' });
 			await http().get(`/advisor/v1/clients/${MISSING}`).set(A()).expect(404);
+		});
+	});
+	describe('assignees', () => {
+		// Ids de usuário no formato do projeto (ObjectId).
+		const ADVISOR_ID = '64b000000000000000000002';
+		const STRANGER = '64b000000000000000000009';
+		const advisor = () => as(ADVISOR_ID, ORG_A);
+		const assignees = (clientId: string, userId = ADVISOR_ID) =>
+			`/advisor/v1/clients/${clientId}/assignees/${userId}`;
+
+		beforeEach(async () => {
+			await memberships.create({
+				userId: ADVISOR_ID,
+				orgId: ORG_A,
+				role: OrgRole.Advisor,
+			});
+			accounts.set(ADVISOR_ID, 'fulano@escritorio.com', 'Fulano');
+		});
+
+		it('assigns and unassigns idempotently with 204, and lists the assignees', async () => {
+			const client = await newClient(A());
+			for (let i = 0; i < 2; i += 1) {
+				await http().put(assignees(client)).set(A()).expect(204);
+			}
+			const list = await http()
+				.get(`/advisor/v1/clients/${client}/assignees`)
+				.set(A())
+				.expect(200);
+			expect(list.body).toEqual([{ userId: ADVISOR_ID, name: 'Fulano' }]);
+			await http()
+				.get(`/advisor/v1/clients/${client}`)
+				.set(advisor())
+				.expect(200);
+
+			for (let i = 0; i < 2; i += 1) {
+				await http().delete(assignees(client)).set(A()).expect(204);
+			}
+			await http()
+				.get(`/advisor/v1/clients/${client}/assignees`)
+				.set(A())
+				.expect(200)
+				.expect([]);
+			// Desatribuído: a próxima requisição dá o mesmo 404 de outra org.
+			await http()
+				.get(`/advisor/v1/clients/${client}`)
+				.set(advisor())
+				.expect(404)
+				.expect({ statusCode: 404, error: 'NOT_FOUND' });
+		});
+
+		it('answers 403 ROLE_REQUIRED to an ADVISOR on the three routes', async () => {
+			const client = await newClient(A());
+			await http().put(assignees(client)).set(A()).expect(204);
+			for (const call of [
+				() =>
+					http().get(`/advisor/v1/clients/${client}/assignees`).set(advisor()),
+				() => http().put(assignees(client)).set(advisor()),
+				() => http().delete(assignees(client)).set(advisor()),
+			]) {
+				const res = await call().expect(403);
+				expect(res.body).toEqual({
+					statusCode: 403,
+					error: 'FORBIDDEN',
+					reason: 'ROLE_REQUIRED',
+				});
+			}
+		});
+
+		it('answers 404 for a non-member or a client of another org, 400 for bad ids', async () => {
+			const client = await newClient(A());
+			const other = await newClient(as('u2', ORG_B));
+			for (const call of [
+				() => http().put(assignees(client, STRANGER)).set(A()),
+				() => http().put(assignees(other)).set(A()),
+				() => http().get(`/advisor/v1/clients/${other}/assignees`).set(A()),
+				() => http().delete(assignees(MISSING)).set(A()),
+			]) {
+				const res = await call().expect(404);
+				expect(res.body).toEqual({ statusCode: 404, error: 'NOT_FOUND' });
+			}
+			await http().put(assignees('not-a-uuid')).set(A()).expect(400);
+			await http().put(assignees(client, 'not-a-user')).set(A()).expect(400);
+			expect(await assignments.listByClient(ORG_A, client)).toEqual([]);
+		});
+
+		it('filters the list by assignee=me|none|<userId> for an ORG_ADMIN', async () => {
+			const mine = await newClient(A(), 'Minha');
+			const theirs = await newClient(A(), 'Dele');
+			const nobody = await newClient(A(), 'Ninguem');
+			// u1 (ORG_ADMIN) não tem id no formato do projeto: direto no store.
+			await assignments.assign(ORG_A, mine, 'u1', 'u1');
+			await http().put(assignees(theirs)).set(A()).expect(204);
+			const idsOf = async (query: string) =>
+				(
+					await http().get(`/advisor/v1/clients?${query}`).set(A()).expect(200)
+				).body.items.map((c: any) => c.id);
+			expect(await idsOf('assignee=me')).toEqual([mine]);
+			expect(await idsOf('assignee=none')).toEqual([nobody]);
+			expect(await idsOf(`assignee=${ADVISOR_ID}`)).toEqual([theirs]);
+			expect((await idsOf('')).sort()).toEqual([mine, theirs, nobody].sort());
+		});
+
+		it('rejects assignee for an ADVISOR (400) and a malformed value', async () => {
+			const forbidden = await http()
+				.get('/advisor/v1/clients?assignee=none')
+				.set(advisor())
+				.expect(400);
+			expect(forbidden.body).toEqual({
+				statusCode: 400,
+				error: 'BAD_REQUEST',
+				reason: 'ASSIGNEE_FILTER_FORBIDDEN',
+			});
+			const malformed = await http()
+				.get('/advisor/v1/clients?assignee=fulano')
+				.set(A())
+				.expect(400);
+			expect(malformed.body.reason).toBe('VALIDATION_FAILED');
+			await http().get('/advisor/v1/clients').set(advisor()).expect(200);
 		});
 	});
 });

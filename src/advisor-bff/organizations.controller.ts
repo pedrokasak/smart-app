@@ -1,9 +1,6 @@
 import {
 	Body,
 	Controller,
-	Get,
-	HttpCode,
-	HttpStatus,
 	Post,
 	Req,
 	UseFilters,
@@ -85,19 +82,5 @@ export class OrganizationsController {
 			advisorType: org.advisorType,
 			role: OrgRole.OrgAdmin,
 		});
-	}
-
-	@Get('me/organizations')
-	@HttpCode(HttpStatus.OK)
-	@ApiOperation({ summary: 'Lista as organizações do usuário' })
-	@ApiResponse({ status: 200, type: [OrganizationResponseDto] })
-	@ApiResponse({
-		status: 403,
-		type: ErrorResponseDto,
-		description: 'PLAN_CAPABILITY_REQUIRED (sem acesso ao portal)',
-	})
-	async listMine(@Req() req: any): Promise<OrganizationResponseDto[]> {
-		const orgs = await this.organizations.listForUser(requesterIdOf(req));
-		return orgs.map(OrganizationResponseDto.of);
 	}
 }

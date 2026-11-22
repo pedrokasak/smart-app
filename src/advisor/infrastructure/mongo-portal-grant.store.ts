@@ -73,6 +73,11 @@ export class MongoPortalGrantStore implements PortalGrantStorePort {
 		return doc ? toPortalGrant(doc) : null;
 	}
 
+	async deleteAllForUser(userId: string): Promise<number> {
+		const result = await this.grants.deleteMany({ userId }).exec();
+		return result.deletedCount ?? 0;
+	}
+
 	async listActive(): Promise<PortalGrant[]> {
 		const docs = await this.grants
 			.find({ active: true })

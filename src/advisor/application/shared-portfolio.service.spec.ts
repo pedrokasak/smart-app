@@ -14,14 +14,16 @@ import {
 	AuthorizationService,
 	CLIENT_ACCESSED_EVENT,
 } from './authorization.service';
+import { ClientNotAccessibleError } from './access-errors';
 import { ConsentService } from './consent.service';
 import {
+	InMemoryAssignmentStore,
 	InMemoryBenchmarkSeries,
 	InMemoryClientProfileStore,
 	InMemoryConsentStore,
-	InMemoryInviteeIdentity,
 	InMemoryInviteNotifier,
 	InMemoryInviteStore,
+	InMemoryInviteeIdentity,
 	InMemoryMembershipStore,
 	InMemoryOrganizationStore,
 	InMemoryPriceHistory,
@@ -106,6 +108,7 @@ describe('SharedPortfolioService', () => {
 	let ctxA: { userId: string; orgId: string };
 	let ctxB: { userId: string; orgId: string };
 	let clientProfileId: string;
+	let assignments: InMemoryAssignmentStore;
 	let relationshipId: string;
 
 	beforeAll(() => {
@@ -125,7 +128,8 @@ describe('SharedPortfolioService', () => {
 		const invites = new InMemoryInviteStore();
 		const notifier = new InMemoryInviteNotifier();
 		const identity = new InMemoryInviteeIdentity();
-		relationships = new InMemoryRelationshipStore();
+		assignments = new InMemoryAssignmentStore();
+		relationships = new InMemoryRelationshipStore(assignments);
 		profiles = new InMemoryClientProfileStore();
 		consents = new InMemoryConsentStore();
 		source = new InMemorySharedPortfolioSource();
@@ -203,6 +207,7 @@ describe('SharedPortfolioService', () => {
 			memberships,
 			relationships,
 			profiles,
+			assignments,
 			audit
 		);
 		const inviteService = new InviteService(
@@ -212,6 +217,7 @@ describe('SharedPortfolioService', () => {
 			orgs,
 			profiles,
 			notifier,
+			assignments,
 			audit
 		);
 		consentService = new ConsentService(
@@ -251,6 +257,19 @@ describe('SharedPortfolioService', () => {
 
 	afterEach(() => {
 		jest.restoreAllMocks();
+	});
+
+	it('nega ao ADVISOR desatribuído na chamada seguinte, sem auditar nem ler a fonte', async () => {
+		await service.getSharedMetrics(ctxA, clientProfileId);
+		audit.recorded.length = 0;
+		await assignments.unassign(ctxA.orgId, clientProfileId, ctxA.userId);
+		const read = jest.spyOn(source, 'read');
+
+		await expect(
+			service.getSharedMetrics(ctxA, clientProfileId)
+		).rejects.toBeInstanceOf(ClientNotAccessibleError);
+		expect(audit.recorded).toHaveLength(0);
+		expect(read).not.toHaveBeenCalled();
 	});
 
 	it('returns each consented portfolio with its own metrics and audits once', async () => {
@@ -375,6 +394,7 @@ describe('SharedPortfolioService', () => {
 			origin: ProfileOrigin.AdvisorCreated,
 		});
 		await new RelationshipService(relationships).create(ctxA.orgId, profile.id);
+		await assignments.assign(ctxA.orgId, profile.id, ctxA.userId, ctxA.userId);
 		const read = jest.spyOn(source, 'read');
 
 		await expect(

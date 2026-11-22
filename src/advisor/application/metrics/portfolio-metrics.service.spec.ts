@@ -10,9 +10,11 @@ import {
 	TransactionSource,
 } from '../../domain/enums';
 import { NewTransaction } from '../../domain/portfolio.entities';
+import { ClientNotAccessibleError } from '../access-errors';
 import { AuthorizationService } from '../authorization.service';
 import {
 	InMemoryAllocationTargetStore,
+	InMemoryAssignmentStore,
 	InMemoryBenchmarkSeries,
 	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
@@ -86,6 +88,7 @@ describe('PortfolioMetricsService', () => {
 	let prices: InMemoryPriceHistory;
 	let benchmarks: InMemoryBenchmarkSeries;
 	let audit: FakeAuditTrail;
+	let assignments: InMemoryAssignmentStore;
 	let service: PortfolioMetricsService;
 
 	beforeAll(() => {
@@ -108,10 +111,12 @@ describe('PortfolioMetricsService', () => {
 		prices = new InMemoryPriceHistory();
 		benchmarks = new InMemoryBenchmarkSeries();
 		audit = new FakeAuditTrail();
+		assignments = new InMemoryAssignmentStore();
 		const authz = new AuthorizationService(
 			memberships,
 			relationships,
 			profiles,
+			assignments,
 			audit
 		);
 		service = new PortfolioMetricsService(
@@ -138,12 +143,28 @@ describe('PortfolioMetricsService', () => {
 		});
 		await rel.create('orgA', 'client-1');
 		await rel.create('orgB', 'client-2');
+		await assignments.assign('orgA', 'client-1', userId, userId);
+		await assignments.assign('orgB', 'client-2', userId, userId);
 
 		prices.set('PETR4', rising(3000));
 		prices.set('VALE3', rising(6000));
 		benchmarks.set('CDI', 0.01);
 		benchmarks.set('IBOV', 0.02);
 		benchmarks.set('IPCA', 0.004);
+	});
+
+	it('nega ao ADVISOR desatribuído na chamada seguinte, sem auditar', async () => {
+		await transactions.createMany([newTx()]);
+		await service.getMetrics(ctxA, 'client-1');
+		audit.recorded.length = 0;
+		prices.calls.length = 0;
+		await assignments.unassign('orgA', 'client-1', userId);
+
+		await expect(service.getMetrics(ctxA, 'client-1')).rejects.toBeInstanceOf(
+			ClientNotAccessibleError
+		);
+		expect(audit.recorded).toHaveLength(0);
+		expect(prices.calls).toHaveLength(0);
 	});
 
 	it('returns the metrics and audits VIEW_PORTFOLIO once', async () => {

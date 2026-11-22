@@ -18,6 +18,8 @@ export interface Membership {
 	userId: string;
 	orgId: string;
 	role: OrgRole;
+	/** Quando o usuário entrou na organização. */
+	createdAt: Date;
 }
 
 export interface AdvisoryRelationship {

@@ -19,13 +19,16 @@ import {
 	normalizeEmail,
 } from '../domain/invite-rules';
 import { normalizeDisplayName } from '../domain/display-name';
-import { InviteStatus, ProfileOrigin } from '../domain/enums';
+import { InviteStatus, OrgRole, ProfileOrigin } from '../domain/enums';
+import { ClientInvite } from '../domain/consent.entities';
 import {
+	ADVISOR_ASSIGNMENT_STORE,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_INVITE_STORE,
 	ADVISOR_ORG_STORE,
 } from './advisor.tokens';
 import { AccessContext, AuthorizationService } from './authorization.service';
+import type { AssignmentStorePort } from './ports/assignment.store.port';
 import type { ClientProfileStorePort } from './ports/client-profile.store.port';
 import { ADVISOR_INVITE_NOTIFIER } from './ports/invite-notifier.port';
 import type { InviteNotifierPort } from './ports/invite-notifier.port';
@@ -36,6 +39,13 @@ import { RelationshipService } from './relationship.service';
 export const INVITE_CREATED_EVENT = 'advisor.invite.created';
 
 const MAX_CLIENT_NAME_LENGTH = 120;
+
+/** Ids criados por um `createInvite`, para o desfazimento. */
+interface CreatedInvite {
+	profileId: string;
+	relationshipId?: string;
+	assigned: boolean;
+}
 
 export class InvalidInviteError extends UnprocessableEntityException {
 	constructor(reason: 'INVALID_EMAIL' | 'INVALID_NAME') {
@@ -62,6 +72,8 @@ export class InviteService {
 		private readonly profiles: ClientProfileStorePort,
 		@Inject(ADVISOR_INVITE_NOTIFIER)
 		private readonly notifier: InviteNotifierPort,
+		@Inject(ADVISOR_ASSIGNMENT_STORE)
+		private readonly assignments: AssignmentStorePort,
 		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail
 	) {}
 
@@ -69,7 +81,7 @@ export class InviteService {
 		ctx: AccessContext,
 		input: { email: string; clientName: string }
 	): Promise<{ inviteId: string; clientProfileId: string; expiresAt: Date }> {
-		await this.authz.ensureOrgMember(ctx);
+		const membership = await this.authz.ensureOrgMember(ctx);
 
 		const email = normalizeEmail(input.email ?? '');
 		if (!isValidEmail(email)) throw new InvalidInviteError('INVALID_EMAIL');
@@ -87,25 +99,36 @@ export class InviteService {
 			name: clientName,
 			origin: ProfileOrigin.ClientCreated,
 		});
-		const relationship = await this.relationships.createPending(
-			ctx.orgId,
-			profile.id
-		);
-		const { token, tokenHash } = generateInviteToken();
-		const expiresAt = inviteExpiry(new Date());
-		const invite = await this.invites.create({
-			orgId: ctx.orgId,
-			clientProfileId: profile.id,
-			relationshipId: relationship.id,
-			email,
-			tokenHash,
-			status: InviteStatus.Pending,
-			expiresAt,
-			resendCount: 0,
-			invitedByUserId: ctx.userId,
-		});
-
+		const created: CreatedInvite = { profileId: profile.id, assigned: false };
 		try {
+			const relationship = await this.relationships.createPending(
+				ctx.orgId,
+				profile.id
+			);
+			created.relationshipId = relationship.id;
+			const { token, tokenHash } = generateInviteToken();
+			const expiresAt = inviteExpiry(new Date());
+			const invite = await this.invites.create({
+				orgId: ctx.orgId,
+				clientProfileId: profile.id,
+				relationshipId: relationship.id,
+				email,
+				tokenHash,
+				status: InviteStatus.Pending,
+				expiresAt,
+				resendCount: 0,
+				invitedByUserId: ctx.userId,
+			});
+			// Convite feito por ADVISOR: o cliente novo já nasce atribuído a ele.
+			if (membership.role === OrgRole.Advisor) {
+				created.assigned = true;
+				await this.assignments.assign(
+					ctx.orgId,
+					profile.id,
+					ctx.userId,
+					ctx.userId
+				);
+			}
 			// Fail closed: a failed audit blocks the grant path, nothing is sent.
 			await this.audit.record({
 				eventId: randomUUID(),
@@ -122,25 +145,22 @@ export class InviteService {
 				orgName,
 				expiresAt,
 			});
+			return {
+				inviteId: invite.id,
+				clientProfileId: profile.id,
+				expiresAt,
+			};
 		} catch (error) {
-			await this.discard(invite.id, invite.relationshipId);
+			await this.undoCreate(ctx, created);
 			throw error;
 		}
-
-		return {
-			inviteId: invite.id,
-			clientProfileId: profile.id,
-			expiresAt,
-		};
 	}
 
 	async resendInvite(
 		ctx: AccessContext,
 		inviteId: string
 	): Promise<{ expiresAt: Date }> {
-		await this.authz.ensureOrgMember(ctx);
-		const invite = await this.invites.findById(ctx.orgId, inviteId);
-		if (!invite) throw new NotFoundException('Invite not found');
+		const invite = await this.findInScope(ctx, inviteId);
 
 		const { token, tokenHash } = generateInviteToken();
 		const expiresAt = inviteExpiry(new Date());
@@ -169,9 +189,7 @@ export class InviteService {
 	}
 
 	async cancelInvite(ctx: AccessContext, inviteId: string): Promise<void> {
-		await this.authz.ensureOrgMember(ctx);
-		const invite = await this.invites.findById(ctx.orgId, inviteId);
-		if (!invite) throw new NotFoundException('Invite not found');
+		const invite = await this.findInScope(ctx, inviteId);
 
 		const cancelled = await this.invites.transition(
 			invite.id,
@@ -180,6 +198,25 @@ export class InviteService {
 		);
 		if (!cancelled) throw new InviteConflictError('NOT_PENDING');
 		await this.relationships.revokePending(cancelled.relationshipId);
+	}
+
+	/**
+	 * Convite da org de ctx cujo cliente está no alcance do membro. ADVISOR
+	 * sobre cliente não atribuído recebe o mesmo 404 de convite inexistente.
+	 */
+	private async findInScope(
+		ctx: AccessContext,
+		inviteId: string
+	): Promise<ClientInvite> {
+		const membership = await this.authz.ensureOrgMember(ctx);
+		const invite = await this.invites.findById(ctx.orgId, inviteId);
+		if (
+			!invite ||
+			!(await this.authz.isClientInScope(membership, invite.clientProfileId))
+		) {
+			throw new NotFoundException('Invite not found');
+		}
+		return invite;
 	}
 
 	/** A live PENDING invite blocks; expired ones are closed and ignored. */
@@ -207,33 +244,55 @@ export class InviteService {
 	}
 
 	/**
-	 * Compensation for a failed audit or send: each step is independent and
-	 * best effort, so one failing never skips the other. The caller rethrows
-	 * the original error. Logs carry ids only (no e-mail, name or token).
+	 * Fail closed: desfaz por exclusão de verdade só o que esta mesma chamada
+	 * criou (atribuição, convite, relação e perfil), para não sobrar cliente
+	 * que ninguém vê nem convite apontando para perfil apagado. Cada passo é
+	 * independente e best effort; o chamador relança o erro original. Logs só
+	 * com ids (sem e-mail, nome ou token).
 	 */
-	private async discard(
-		inviteId: string,
-		relationshipId: string
+	private async undoCreate(
+		ctx: AccessContext,
+		created: CreatedInvite
+	): Promise<void> {
+		const { profileId, relationshipId } = created;
+		if (created.assigned) {
+			await this.attempt('unassign the creator of', profileId, () =>
+				this.assignments.unassign(ctx.orgId, profileId, ctx.userId)
+			);
+		}
+		if (relationshipId) {
+			// A relação é nova: só o convite desta chamada aponta para ela.
+			await this.attempt('delete the invite of', profileId, () =>
+				this.invites.deleteByRelationshipIds([relationshipId])
+			);
+			await this.attempt('delete the relationship of', profileId, () =>
+				this.relationships.deleteCreated(relationshipId)
+			);
+		}
+		await this.attempt('delete', profileId, () =>
+			this.profiles.deleteById(profileId)
+		);
+	}
+
+	private async attempt(
+		step: string,
+		clientProfileId: string,
+		run: () => Promise<unknown>
 	): Promise<void> {
 		try {
-			await this.invites.transition(
-				inviteId,
-				InviteStatus.Cancelled,
-				new Date()
-			);
+			await run();
 		} catch (error) {
-			this.logFailure('cancel invite', inviteId, error);
-		}
-		try {
-			await this.relationships.revokePending(relationshipId);
-		} catch (error) {
-			this.logFailure('revoke pending relationship of invite', inviteId, error);
+			this.logFailure(step, clientProfileId, error);
 		}
 	}
 
-	private logFailure(step: string, inviteId: string, error: unknown): void {
+	private logFailure(
+		step: string,
+		clientProfileId: string,
+		error: unknown
+	): void {
 		this.logger.error(
-			`Failed to ${step} ${inviteId} during compensation: ${
+			`Failed to ${step} client ${clientProfileId} during compensation: ${
 				error instanceof Error ? error.name : 'unknown'
 			}`
 		);

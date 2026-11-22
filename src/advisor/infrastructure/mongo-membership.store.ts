@@ -4,6 +4,7 @@ import { Model } from 'mongoose';
 import { DuplicateMembershipError } from '../application/ports/store-errors';
 import { MembershipStorePort } from '../application/ports/membership.store.port';
 import { Membership } from '../domain/entities';
+import { OrgRole } from '../domain/enums';
 import { toMembership } from './advisor.mappers';
 import {
 	ADVISOR_MEMBERSHIP_MODEL,
@@ -20,7 +21,9 @@ export class MongoMembershipStore implements MembershipStorePort {
 	) {}
 
 	/** Vínculo duplicado (userId, orgId) vira `DuplicateMembershipError`. */
-	async create(membership: Omit<Membership, 'id'>): Promise<Membership> {
+	async create(
+		membership: Omit<Membership, 'id' | 'createdAt'> & { createdAt?: Date }
+	): Promise<Membership> {
 		try {
 			const created = await this.memberships.create(membership);
 			return toMembership(created.toObject());
@@ -55,5 +58,37 @@ export class MongoMembershipStore implements MembershipStorePort {
 			.lean<AdvisorMembershipDoc>()
 			.exec();
 		return doc ? toMembership(doc) : null;
+	}
+
+	async delete(userId: string, orgId: string): Promise<boolean> {
+		const result = await this.memberships.deleteOne({ userId, orgId }).exec();
+		return (result.deletedCount ?? 0) > 0;
+	}
+
+	async setRole(
+		userId: string,
+		orgId: string,
+		role: OrgRole
+	): Promise<Membership | null> {
+		const doc = await this.memberships
+			.findOneAndUpdate({ userId, orgId }, { $set: { role } }, { new: true })
+			.lean<AdvisorMembershipDoc>()
+			.exec();
+		return doc ? toMembership(doc) : null;
+	}
+
+	async listByOrg(orgId: string): Promise<Membership[]> {
+		const docs = await this.memberships
+			.find({ orgId })
+			.sort({ createdAt: 1, _id: 1 })
+			.limit(200)
+			.lean<AdvisorMembershipDoc[]>()
+			.exec();
+		return docs.map(toMembership);
+	}
+
+	async deleteAllForUser(userId: string): Promise<number> {
+		const result = await this.memberships.deleteMany({ userId }).exec();
+		return result.deletedCount ?? 0;
 	}
 }

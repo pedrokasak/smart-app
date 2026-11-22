@@ -5,9 +5,11 @@ import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
 import { InviteStatus, OrgRole, ProfileOrigin } from '../domain/enums';
 import { RelationshipStatus } from '../domain/enums';
 import { AuthorizationService } from './authorization.service';
+import { AssigneeFilterForbiddenError } from './access-errors';
 import { ClientDirectoryService } from './client-directory.service';
 import { ClientProfileService } from './client-profile.service';
 import {
+	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
 	InMemoryInviteStore,
 	InMemoryMembershipStore,
@@ -33,22 +35,31 @@ describe('ClientDirectoryService', () => {
 	let relationships: InMemoryRelationshipStore;
 	let profiles: InMemoryClientProfileStore;
 	let invites: InMemoryInviteStore;
+	let assignments: InMemoryAssignmentStore;
 	let audit: FakeAuditTrail;
 	let svc: ClientDirectoryService;
 
 	beforeEach(async () => {
 		memberships = new InMemoryMembershipStore();
-		relationships = new InMemoryRelationshipStore();
+		assignments = new InMemoryAssignmentStore();
+		relationships = new InMemoryRelationshipStore(assignments);
 		profiles = new InMemoryClientProfileStore();
 		invites = new InMemoryInviteStore();
 		audit = new FakeAuditTrail();
 		svc = new ClientDirectoryService(
-			new AuthorizationService(memberships, relationships, profiles, audit),
+			new AuthorizationService(
+				memberships,
+				relationships,
+				profiles,
+				assignments,
+				audit
+			),
 			new ClientProfileService(profiles),
 			new RelationshipService(relationships),
 			relationships,
 			profiles,
 			invites,
+			assignments,
 			audit
 		);
 		await memberships.create({
@@ -62,7 +73,8 @@ describe('ClientDirectoryService', () => {
 		orgId: string,
 		name: string,
 		status: RelationshipStatus,
-		origin = ProfileOrigin.AdvisorCreated
+		origin = ProfileOrigin.AdvisorCreated,
+		assignee: string | null = orgId === 'orgA' ? ctx.userId : null
 	) => {
 		const profile = profiles.seed({
 			id: `p-${name}`,
@@ -75,6 +87,9 @@ describe('ClientDirectoryService', () => {
 			clientProfileId: profile.id,
 			status,
 		});
+		if (assignee) {
+			await assignments.assign(orgId, profile.id, assignee, 'admin-1');
+		}
 		return { profile, relationship };
 	};
 
@@ -152,6 +167,106 @@ describe('ClientDirectoryService', () => {
 				svc.listClients(ctx, { status: 'OPEN', limit: 2, cursor: '!!!' })
 			).rejects.toMatchObject({ name: 'InvalidCursorError' });
 		});
+
+		describe('por atribuição', () => {
+			const admin = { userId: 'admin-1', orgId: 'orgA' };
+
+			beforeEach(async () => {
+				await memberships.create({
+					userId: admin.userId,
+					orgId: 'orgA',
+					role: OrgRole.OrgAdmin,
+				});
+				await memberships.create({
+					userId: 'adv-2',
+					orgId: 'orgA',
+					role: OrgRole.Advisor,
+				});
+				await addClient('orgA', 'ana', RelationshipStatus.Active);
+				await addClient(
+					'orgA',
+					'bia',
+					RelationshipStatus.Active,
+					ProfileOrigin.AdvisorCreated,
+					'adv-2'
+				);
+				await addClient(
+					'orgA',
+					'caio',
+					RelationshipStatus.Pending,
+					ProfileOrigin.AdvisorCreated,
+					null
+				);
+			});
+
+			const names = async (
+				who: { userId: string; orgId: string },
+				assignee?: string
+			) =>
+				(
+					await svc.listClients(who, { status: 'OPEN', assignee, limit: 50 })
+				).items
+					.map((c) => c.name)
+					.sort();
+
+			it('ADVISOR vê só os clientes atribuídos a ele', async () => {
+				expect(await names(ctx)).toEqual(['ana']);
+				expect(await names({ userId: 'adv-2', orgId: 'orgA' })).toEqual([
+					'bia',
+				]);
+			});
+
+			it('ADVISOR que passa assignee recebe 400 ASSIGNEE_FILTER_FORBIDDEN', async () => {
+				for (const assignee of ['me', 'none', 'adv-2']) {
+					const error = await svc
+						.listClients(ctx, { status: 'OPEN', assignee, limit: 50 })
+						.catch((e) => e);
+					expect(error).toBeInstanceOf(AssigneeFilterForbiddenError);
+					expect(error.getStatus()).toBe(400);
+					expect(error.getResponse()).toEqual({
+						reason: 'ASSIGNEE_FILTER_FORBIDDEN',
+					});
+				}
+			});
+
+			it('ORG_ADMIN sem filtro vê todos; com none, só os sem assessor', async () => {
+				expect(await names(admin)).toEqual(['ana', 'bia', 'caio']);
+				expect(await names(admin, 'none')).toEqual(['caio']);
+			});
+
+			it('ORG_ADMIN filtra por um assessor e por me', async () => {
+				expect(await names(admin, ctx.userId)).toEqual(['ana']);
+				expect(await names(admin, 'adv-2')).toEqual(['bia']);
+				expect(await names(admin, 'me')).toEqual([]);
+				await assignments.assign('orgA', 'p-caio', admin.userId, admin.userId);
+				expect(await names(admin, 'me')).toEqual(['caio']);
+				expect(await names(admin, 'none')).toEqual([]);
+			});
+
+			it('desatribuído some da lista do ADVISOR', async () => {
+				await assignments.unassign('orgA', 'p-ana', ctx.userId);
+				expect(await names(ctx)).toEqual([]);
+			});
+		});
+
+		it('ADVISOR pagina pelas atribuições pulando o status que não pediu', async () => {
+			await addClient('orgA', 'ana', RelationshipStatus.Active);
+			await addClient('orgA', 'bia', RelationshipStatus.Revoked);
+			await addClient('orgA', 'caio', RelationshipStatus.Revoked);
+			await addClient('orgA', 'duda', RelationshipStatus.Pending);
+			await addClient('orgA', 'eva', RelationshipStatus.Active);
+
+			const first = await svc.listClients(ctx, { status: 'OPEN', limit: 2 });
+			expect(first.items.map((c) => c.name)).toEqual(['ana', 'duda']);
+			expect(first.nextCursor).not.toBeNull();
+			const second = await svc.listClients(ctx, {
+				status: 'OPEN',
+				limit: 2,
+				cursor: first.nextCursor!,
+			});
+			expect(second.items.map((c) => c.name)).toEqual(['eva']);
+			expect(second.nextCursor).toBeNull();
+		});
 	});
 
 	describe('createClient', () => {
@@ -200,18 +315,74 @@ describe('ClientDirectoryService', () => {
 			).toEqual([]);
 		});
 
-		it('keeps the client and relationship and throws when the audit fails', async () => {
+		it('apaga atribuição, relação e perfil e relança quando a auditoria falha', async () => {
 			audit.failWith = new Error('audit down');
 
 			await expect(svc.createClient(ctx, { name: 'Maria' })).rejects.toThrow(
 				'audit down'
 			);
 
-			const { items } = await svc.listClients(ctx, {
-				status: 'OPEN',
-				limit: 10,
+			expect(profiles.size).toBe(0);
+			expect(relationships.size).toBe(0);
+			expect(assignments.size).toBe(0);
+		});
+
+		it('nasce atribuído ao ADVISOR que criou', async () => {
+			const created = await svc.createClient(ctx, { name: 'Maria' });
+
+			expect(await assignments.isAssigned('orgA', created.id, ctx.userId)).toBe(
+				true
+			);
+			await expect(svc.getClient(ctx, created.id)).resolves.toMatchObject({
+				id: created.id,
 			});
-			expect(items.map((c) => c.name)).toEqual(['Maria']);
+		});
+
+		it('apaga relação e perfil e relança quando a atribuição falha', async () => {
+			jest
+				.spyOn(assignments, 'assign')
+				.mockRejectedValueOnce(new Error('assign down'));
+
+			await expect(svc.createClient(ctx, { name: 'Maria' })).rejects.toThrow(
+				'assign down'
+			);
+
+			expect(profiles.size).toBe(0);
+			expect(relationships.size).toBe(0);
+			expect(assignments.size).toBe(0);
+			expect(audit.recorded).toEqual([]);
+		});
+
+		it('relança o erro original mesmo se o desfazimento falhar', async () => {
+			audit.failWith = new Error('audit down');
+			jest
+				.spyOn(relationships, 'deleteById')
+				.mockRejectedValueOnce(new Error('delete down'));
+
+			await expect(svc.createClient(ctx, { name: 'Maria' })).rejects.toThrow(
+				'audit down'
+			);
+
+			// Os outros passos rodam mesmo com um falhando.
+			expect(profiles.size).toBe(0);
+			expect(assignments.size).toBe(0);
+		});
+
+		it('feito por ORG_ADMIN nasce sem atribuição', async () => {
+			await memberships.create({
+				userId: 'admin-1',
+				orgId: 'orgA',
+				role: OrgRole.OrgAdmin,
+			});
+
+			const created = await svc.createClient(
+				{ userId: 'admin-1', orgId: 'orgA' },
+				{ name: 'Maria' }
+			);
+
+			expect(assignments.size).toBe(0);
+			expect(relationships.size).toBe(1);
+			expect(created.relationshipStatus).toBe(RelationshipStatus.Active);
 		});
 	});
 
@@ -279,6 +450,46 @@ describe('ClientDirectoryService', () => {
 				},
 			]);
 			expect(JSON.stringify(list)).not.toContain('joao@exemplo.com');
+		});
+
+		it('ADVISOR vê só convites de clientes atribuídos a ele; ORG_ADMIN vê todos', async () => {
+			await memberships.create({
+				userId: 'admin-1',
+				orgId: 'orgA',
+				role: OrgRole.OrgAdmin,
+			});
+			for (const [name, assignee] of [
+				['ana', ctx.userId],
+				['bia', null],
+			] as const) {
+				const { profile, relationship } = await addClient(
+					'orgA',
+					name,
+					RelationshipStatus.Pending,
+					ProfileOrigin.ClientCreated,
+					assignee
+				);
+				await invites.create({
+					orgId: 'orgA',
+					clientProfileId: profile.id,
+					relationshipId: relationship.id,
+					email: `${name}@exemplo.com`,
+					tokenHash: `h-${name}`,
+					status: InviteStatus.Pending,
+					expiresAt: new Date(Date.now() + 3600_000),
+					resendCount: 0,
+					invitedByUserId: 'admin-1',
+				});
+			}
+
+			const mine = await svc.listPendingInvites(ctx);
+			const all = await svc.listPendingInvites({
+				userId: 'admin-1',
+				orgId: 'orgA',
+			});
+
+			expect(mine.map((i) => i.clientName)).toEqual(['ana']);
+			expect(all.map((i) => i.clientName).sort()).toEqual(['ana', 'bia']);
 		});
 	});
 

@@ -109,6 +109,12 @@ const envSchema = z.object({
 	B3_INVESTOR_TOKEN_URL: z.string().optional(),
 	B3_INVESTOR_SCOPE: z.string().optional(),
 	B3_INVESTOR_TIMEOUT_MS: z.string().optional(),
+	/**
+	 * Endereço do portal do assessor (Trackerr Advisor), base do link do
+	 * convite de membro. Opcional para não travar o boot: sem ele o envio do
+	 * convite falha e o convite é desfeito.
+	 */
+	ADVISOR_WEB_URL: z.string().optional(),
 });
 
 const isTestEnvironment = process.env.NODE_ENV === 'test';
@@ -200,6 +206,8 @@ export const brokerEncryptionKey: string | undefined =
 	env.data.BROKER_ENCRYPTION_KEY;
 export const brokerEncryptionKeyLegacy: string | undefined =
 	env.data.BROKER_ENCRYPTION_KEY_LEGACY;
+export const advisorWebUrl: string | undefined =
+	env.data.ADVISOR_WEB_URL?.trim() || undefined;
 export const b3InvestorEnv: Record<string, string | undefined> = {
 	B3_INVESTOR_ENV: env.data.B3_INVESTOR_ENV,
 	B3_INVESTOR_CLIENT_ID: env.data.B3_INVESTOR_CLIENT_ID,
