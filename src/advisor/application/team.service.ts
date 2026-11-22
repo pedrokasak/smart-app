@@ -5,17 +5,25 @@ import type { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
 import { Membership } from '../domain/entities';
 import { OrgRole } from '../domain/enums';
-import { maskEmail } from '../domain/invite-rules';
+import {
+	isValidEmail,
+	maskEmail,
+	normalizeEmail,
+} from '../domain/invite-rules';
 import {
 	ADVISOR_ASSIGNMENT_STORE,
+	ADVISOR_MEMBER_INVITE_STORE,
 	ADVISOR_MEMBERSHIP_STORE,
+	ADVISOR_PORTAL_GRANT_STORE,
 } from './advisor.tokens';
 import { AccessContext, AuthorizationService } from './authorization.service';
 import { OrganizationService } from './organization.service';
 import type { AssignmentStorePort } from './ports/assignment.store.port';
+import type { MemberInviteStorePort } from './ports/member-invite.store.port';
 import type { MembershipStorePort } from './ports/membership.store.port';
 import { ADVISOR_PORTAL_ACCOUNT_DIRECTORY } from './ports/portal-account-directory.port';
 import type { PortalAccountDirectoryPort } from './ports/portal-account-directory.port';
+import type { PortalGrantStorePort } from './ports/portal-grant.store.port';
 import {
 	MemberNotFoundError,
 	OwnerCannotBeRemovedError,
@@ -35,6 +43,14 @@ export interface TeamMember {
 	role: OrgRole;
 	joinedAt: Date;
 	isOwner: boolean;
+}
+
+/** O que a exclusão de conta apagou (só contagens). */
+export interface TeamErasure {
+	memberships: number;
+	assignments: number;
+	memberInvites: number;
+	portalGrants: number;
 }
 
 /** O que o desfazer precisa para voltar ao estado anterior à saída. */
@@ -61,8 +77,47 @@ export class TeamService {
 		private readonly assignments: AssignmentStorePort,
 		@Inject(ADVISOR_PORTAL_ACCOUNT_DIRECTORY)
 		private readonly accounts: PortalAccountDirectoryPort,
-		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail
+		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail,
+		@Inject(ADVISOR_MEMBER_INVITE_STORE)
+		private readonly memberInvites: MemberInviteStorePort,
+		@Inject(ADVISOR_PORTAL_GRANT_STORE)
+		private readonly portalGrants: PortalGrantStorePort
 	) {}
+
+	/**
+	 * LGPD: a conta Trackerr foi excluída. Apaga os vínculos do usuário em toda
+	 * organização, as atribuições, os convites de membro pendentes para o
+	 * e-mail da conta (guardados normalizados) e a liberação do portal: sem
+	 * esta última, um dono excluído com liberação do admin manteria o
+	 * escritório aberto. Clientes, relacionamentos e convites de cliente
+	 * ficam. Sem e-mail utilizável, só os convites ficam. Tudo idempotente;
+	 * falha sobe para a exclusão ser repetida, como no `ConsentService`.
+	 * Sem auditoria: o evento carregaria o id de quem foi apagado.
+	 */
+	async eraseUser(
+		userId: string,
+		email: string | undefined
+	): Promise<TeamErasure> {
+		const assignments = await this.assignments.deleteAllForUser(userId);
+		const memberships = await this.memberships.deleteAllForUser(userId);
+		const portalGrants = await this.portalGrants.deleteAllForUser(userId);
+		const memberInvites = await this.deleteInvitesOf(userId, email);
+		return { memberships, assignments, memberInvites, portalGrants };
+	}
+
+	private async deleteInvitesOf(
+		userId: string,
+		email: string | undefined
+	): Promise<number> {
+		const normalized = typeof email === 'string' ? normalizeEmail(email) : '';
+		if (!isValidEmail(normalized)) {
+			this.logger.warn(
+				`Erasure of user ${userId} without a known e-mail: member invites kept`
+			);
+			return 0;
+		}
+		return this.memberInvites.deletePendingByEmail(normalized);
+	}
 
 	/** Qualquer membro vê a equipe; e-mail só mascarado. */
 	async listMembers(ctx: AccessContext): Promise<TeamMember[]> {

@@ -1042,6 +1042,13 @@ export class InMemoryPortalGrantStore implements PortalGrantStorePort {
 		return this.grants.filter((g) => !g.revokedAt).map((g) => ({ ...g }));
 	}
 
+	async deleteAllForUser(userId: string): Promise<number> {
+		const kept = this.grants.filter((g) => g.userId !== userId);
+		const removed = this.grants.length - kept.length;
+		this.grants.splice(0, this.grants.length, ...kept);
+		return removed;
+	}
+
 	private active(userId: string): PortalGrant | undefined {
 		return this.grants.find((g) => g.userId === userId && !g.revokedAt);
 	}

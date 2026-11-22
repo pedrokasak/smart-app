@@ -21,6 +21,12 @@ type FakeModel = {
 
 const PORTFOLIO_IDS = ['p-1', 'p-2'];
 const ADVISOR_ERASURE = { revoked: 1, consents: 2, invites: 1, profiles: 1 };
+const TEAM_ERASURE = {
+	memberships: 1,
+	assignments: 2,
+	memberInvites: 1,
+	portalGrants: 1,
+};
 
 function fakeModels(names: string[]) {
 	const models: Record<string, FakeModel> = {};
@@ -47,12 +53,14 @@ describe('AccountErasureService (TRA-213, TRA-127)', () => {
 		const advisor = {
 			eraseUser: jest.fn().mockResolvedValue(ADVISOR_ERASURE),
 		};
+		const team = { eraseUser: jest.fn().mockResolvedValue(TEAM_ERASURE) };
 		const service = new AccountErasureService(
 			{ models } as any,
 			{ cancelUserSubscription: cancel } as any,
-			advisor as any
+			advisor as any,
+			team as any
 		);
-		return { service, cancel, advisor };
+		return { service, cancel, advisor, team };
 	}
 
 	it('apaga cada coleção pelo campo de dono certo', async () => {
@@ -331,9 +339,54 @@ describe('AccountErasureService (TRA-213, TRA-127)', () => {
 			expect(advisor.eraseUser).toHaveBeenCalledWith(userId, undefined);
 		});
 
+		it('apaga os vínculos de equipe com o e-mail da conta, depois dos consentimentos e antes do resto', async () => {
+			const models = fakeModels(allNames);
+			const { service, advisor, team } = build(models);
+
+			const report = await service.eraseDependents(userId, email);
+
+			expect(team.eraseUser).toHaveBeenCalledWith(userId, email);
+			const teamOrder = team.eraseUser.mock.invocationCallOrder[0];
+			expect(advisor.eraseUser.mock.invocationCallOrder[0]).toBeLessThan(
+				teamOrder
+			);
+			for (const name of allNames) {
+				for (const call of [
+					...models[name].deleteMany.mock.invocationCallOrder,
+					...models[name].updateMany.mock.invocationCallOrder,
+				]) {
+					expect(teamOrder).toBeLessThan(call);
+				}
+			}
+			expect(report.team).toEqual(TEAM_ERASURE);
+		});
+
+		it('sem e-mail conhecido, ainda apaga os vínculos de equipe pelo id', async () => {
+			const models = fakeModels(allNames);
+			const { service, team } = build(models);
+
+			await service.eraseDependents(userId, undefined);
+
+			expect(team.eraseUser).toHaveBeenCalledWith(userId, undefined);
+		});
+
+		it('falha ao apagar a equipe recusa a exclusão sem apagar mais nada', async () => {
+			const models = fakeModels(allNames);
+			const { service, team } = build(models);
+			team.eraseUser.mockRejectedValue(new Error('store down'));
+
+			await expect(service.eraseDependents(userId, email)).rejects.toThrow(
+				'store down'
+			);
+			for (const name of allNames) {
+				expect(models[name].deleteMany).not.toHaveBeenCalled();
+				expect(models[name].updateMany).not.toHaveBeenCalled();
+			}
+		});
+
 		it('falha no Stripe não encerra acesso nenhum', async () => {
 			const models = fakeModels(allNames);
-			const { service, advisor } = build(
+			const { service, advisor, team } = build(
 				models,
 				jest.fn().mockRejectedValue(new InternalServerErrorException('stripe'))
 			);
@@ -342,6 +395,7 @@ describe('AccountErasureService (TRA-213, TRA-127)', () => {
 				ServiceUnavailableException
 			);
 			expect(advisor.eraseUser).not.toHaveBeenCalled();
+			expect(team.eraseUser).not.toHaveBeenCalled();
 		});
 	});
 });

@@ -5,15 +5,22 @@ import {
 } from '@nestjs/common';
 import { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { AuditEventInput } from 'src/audit/domain/audit-event';
-import { AdvisorType, OrgRole, RelationshipStatus } from '../domain/enums';
+import {
+	AdvisorType,
+	MemberInviteStatus,
+	OrgRole,
+	RelationshipStatus,
+} from '../domain/enums';
 import { RoleRequiredError } from './access-errors';
 import { AuthorizationService } from './authorization.service';
 import {
 	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
+	InMemoryMemberInviteStore,
 	InMemoryMembershipStore,
 	InMemoryOrganizationStore,
 	InMemoryPortalAccountDirectory,
+	InMemoryPortalGrantStore,
 	InMemoryRelationshipStore,
 } from './in-memory-stores.fixture';
 import { MembershipService } from './membership.service';
@@ -60,6 +67,8 @@ describe('TeamService', () => {
 	let assignments: InMemoryAssignmentStore;
 	let relationships: InMemoryRelationshipStore;
 	let directory: InMemoryPortalAccountDirectory;
+	let memberInvites: InMemoryMemberInviteStore;
+	let portalGrants: InMemoryPortalGrantStore;
 	let audit: FakeAuditTrail;
 	let service: TeamService;
 	let orgId: string;
@@ -70,6 +79,8 @@ describe('TeamService', () => {
 		assignments = new InMemoryAssignmentStore();
 		relationships = new InMemoryRelationshipStore(assignments);
 		directory = new InMemoryPortalAccountDirectory();
+		memberInvites = new InMemoryMemberInviteStore();
+		portalGrants = new InMemoryPortalGrantStore();
 		audit = new FakeAuditTrail();
 		const orgs = new InMemoryOrganizationStore();
 		const org = await orgs.create({
@@ -106,7 +117,9 @@ describe('TeamService', () => {
 			memberships,
 			assignments,
 			directory,
-			audit
+			audit,
+			memberInvites,
+			portalGrants
 		);
 	});
 
@@ -377,6 +390,118 @@ describe('TeamService', () => {
 
 			expect(await roleOf(ADVISOR)).toBe(OrgRole.Advisor);
 			expect(await assignments.isAssigned(orgId, 'c1', ADVISOR)).toBe(true);
+		});
+	});
+	describe('eraseUser (LGPD)', () => {
+		const EMAIL = 'fulano@escritorio.com';
+		const pendingInvite = (orgId: string, email: string) =>
+			memberInvites.create({
+				orgId,
+				email,
+				role: OrgRole.Advisor,
+				tokenHash: `hash-${orgId}-${email}`,
+				status: MemberInviteStatus.Pending,
+				expiresAt: new Date(Date.now() + 86_400_000),
+				resendCount: 0,
+				invitedByUserId: OWNER,
+			});
+
+		it('apaga vínculos, atribuições e convite pendente do membro; os clientes ficam', async () => {
+			await assign('c1');
+			await assign('c2');
+			await assign('c1', OTHER_ADVISOR);
+			await pendingInvite(orgId, EMAIL);
+
+			const result = await service.eraseUser(ADVISOR, 'Fulano@Escritorio.com');
+
+			expect(result).toEqual({
+				memberships: 1,
+				assignments: 2,
+				memberInvites: 1,
+				portalGrants: 0,
+			});
+			expect(await memberships.findByUserAndOrg(ADVISOR, orgId)).toBeNull();
+			expect(await assignments.isAssigned(orgId, 'c1', ADVISOR)).toBe(false);
+			expect(await assignments.isAssigned(orgId, 'c2', ADVISOR)).toBe(false);
+			expect(memberInvites.size).toBe(0);
+			// quem ficou na organização e as atribuições dele seguem intactos
+			expect(await roleOf(OTHER_ADVISOR)).toBe(OrgRole.Advisor);
+			expect(await assignments.isAssigned(orgId, 'c1', OTHER_ADVISOR)).toBe(
+				true
+			);
+		});
+
+		it('apaga o vínculo em toda organização e só o convite pendente do e-mail', async () => {
+			const other = await memberships.create({
+				userId: ADVISOR,
+				orgId: 'org-2',
+				role: OrgRole.Advisor,
+			});
+			await pendingInvite(orgId, EMAIL);
+			await pendingInvite('org-2', EMAIL);
+			await pendingInvite(orgId, 'outra@escritorio.com');
+
+			const result = await service.eraseUser(ADVISOR, EMAIL);
+
+			expect(result.memberships).toBe(2);
+			expect(result.memberInvites).toBe(2);
+			expect(
+				await memberships.findByUserAndOrg(ADVISOR, other.orgId)
+			).toBeNull();
+			expect(memberInvites.size).toBe(1);
+		});
+
+		it('apaga a liberação do portal do usuário (ativa e revogada), não a de outro', async () => {
+			await portalGrants.grant(OWNER, ADMIN, new Date());
+			await portalGrants.revoke(OWNER, new Date());
+			await portalGrants.grant(OWNER, ADMIN, new Date());
+			await portalGrants.grant(ADVISOR, ADMIN, new Date());
+
+			const result = await service.eraseUser(OWNER, undefined);
+
+			expect(result.portalGrants).toBe(2);
+			expect(await portalGrants.findActive(OWNER)).toBeNull();
+			expect(await portalGrants.findActive(ADVISOR)).not.toBeNull();
+		});
+
+		it('sem e-mail, apaga vínculos e atribuições e mantém os convites', async () => {
+			await assign('c1');
+			await pendingInvite(orgId, EMAIL);
+
+			for (const email of [undefined, '', '   ', 'sem-arroba']) {
+				const result = await service.eraseUser(ADVISOR, email);
+				expect(result.memberInvites).toBe(0);
+			}
+
+			expect(await memberships.findByUserAndOrg(ADVISOR, orgId)).toBeNull();
+			expect(await assignments.isAssigned(orgId, 'c1', ADVISOR)).toBe(false);
+			expect(memberInvites.size).toBe(1);
+		});
+
+		it('é idempotente e não audita (o evento carregaria o id apagado)', async () => {
+			await service.eraseUser(ADVISOR, EMAIL);
+			const again = await service.eraseUser(ADVISOR, EMAIL);
+
+			expect(again).toEqual({
+				memberships: 0,
+				assignments: 0,
+				memberInvites: 0,
+				portalGrants: 0,
+			});
+			expect(audit.recorded).toHaveLength(0);
+		});
+
+		it('falha de um store sobe, para a exclusão ser repetida', async () => {
+			jest
+				.spyOn(memberships, 'deleteAllForUser')
+				.mockRejectedValueOnce(new Error('store down'));
+
+			await expect(service.eraseUser(ADVISOR, EMAIL)).rejects.toThrow(
+				'store down'
+			);
+			await expect(service.eraseUser(ADVISOR, EMAIL)).resolves.toMatchObject({
+				memberships: 1,
+			});
 		});
 	});
 });

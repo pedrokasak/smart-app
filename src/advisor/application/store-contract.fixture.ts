@@ -1739,6 +1739,20 @@ export function describeAdvisorPortalGrantStoreContract(
 			await store.revoke(gone, new Date());
 			expect(await mine([kept, gone])).toEqual([keptGrant]);
 		});
+
+		it('deleteAllForUser removes active and revoked grants of the user only', async () => {
+			const userId = randomUUID();
+			const other = randomUUID();
+			await store.grant(userId, 'admin-1', new Date());
+			await store.revoke(userId, new Date());
+			await store.grant(userId, 'admin-1', new Date());
+			const otherGrant = await store.grant(other, 'admin-1', new Date());
+
+			expect(await store.deleteAllForUser(userId)).toBe(2);
+			expect(await store.findActive(userId)).toBeNull();
+			expect(await store.deleteAllForUser(userId)).toBe(0);
+			expect(await store.findActive(other)).toEqual(otherGrant);
+		});
 	});
 }
 

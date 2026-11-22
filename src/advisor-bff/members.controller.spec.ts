@@ -14,11 +14,17 @@ import {
 	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
 	InMemoryInviteeIdentity,
+	InMemoryMemberInviteStore,
 	InMemoryMembershipStore,
 	InMemoryOrganizationStore,
 	InMemoryPortalAccountDirectory,
+	InMemoryPortalGrantStore,
 	InMemoryRelationshipStore,
 } from 'src/advisor/application/in-memory-stores.fixture';
+import {
+	ADVISOR_MEMBER_INVITE_STORE,
+	ADVISOR_PORTAL_GRANT_STORE,
+} from 'src/advisor/application/advisor.tokens';
 import { MembershipService } from 'src/advisor/application/membership.service';
 import { OrganizationService } from 'src/advisor/application/organization.service';
 import { PortalAccessService } from 'src/advisor/application/portal-access.service';
@@ -108,6 +114,14 @@ describe('MembersController', () => {
 					useValue: new InMemoryClientProfileStore(),
 				},
 				{ provide: ADVISOR_PORTAL_ACCOUNT_DIRECTORY, useValue: accounts },
+				{
+					provide: ADVISOR_MEMBER_INVITE_STORE,
+					useValue: new InMemoryMemberInviteStore(),
+				},
+				{
+					provide: ADVISOR_PORTAL_GRANT_STORE,
+					useValue: new InMemoryPortalGrantStore(),
+				},
 				{
 					provide: ADVISOR_INVITEE_IDENTITY,
 					useValue: new InMemoryInviteeIdentity(),
