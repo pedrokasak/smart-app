@@ -1346,13 +1346,10 @@ export class InMemoryMemberInviteStore implements MemberInviteStorePort {
 		this.items.delete(id);
 	}
 
-	async deletePendingByEmail(email: string): Promise<number> {
+	async deleteByEmail(email: string): Promise<number> {
 		let removed = 0;
 		for (const [id, invite] of this.items) {
-			if (
-				invite.email === email &&
-				invite.status === MemberInviteStatus.Pending
-			) {
+			if (invite.email === email) {
 				this.items.delete(id);
 				removed += 1;
 			}

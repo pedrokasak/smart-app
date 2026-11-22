@@ -2309,7 +2309,7 @@ export function describeAdvisorTeamStoreContract(
 				expect(await s.memberInvites.findById(orgId, keep.id)).toEqual(keep);
 			});
 
-			it('deletePendingByEmail clears PENDING invites of that email in every org and keeps the answered ones', async () => {
+			it('deleteByEmail removes every invite of that email in any status, keeps other emails', async () => {
 				const email = `${randomUUID()}@example.com`;
 				const a = await s.memberInvites.create(newInvite({ email }));
 				const b = await s.memberInvites.create(newInvite({ email }));
@@ -2322,13 +2322,13 @@ export function describeAdvisorTeamStoreContract(
 				);
 				const other = await s.memberInvites.create(newInvite());
 
-				expect(await s.memberInvites.deletePendingByEmail(email)).toBe(2);
-				expect(await s.memberInvites.deletePendingByEmail(email)).toBe(0);
+				expect(await s.memberInvites.deleteByEmail(email)).toBe(3);
+				expect(await s.memberInvites.deleteByEmail(email)).toBe(0);
 				expect(await s.memberInvites.findById(a.orgId, a.id)).toBeNull();
 				expect(await s.memberInvites.findById(b.orgId, b.id)).toBeNull();
 				expect(
 					await s.memberInvites.findById(answered.orgId, answered.id)
-				).not.toBeNull();
+				).toBeNull();
 				expect(
 					await s.memberInvites.findById(other.orgId, other.id)
 				).not.toBeNull();

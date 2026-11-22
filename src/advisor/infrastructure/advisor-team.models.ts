@@ -111,11 +111,8 @@ memberInviteSchema.index(
 	{ orgId: 1, status: 1, expiresAt: 1 },
 	{ name: 'advisor_member_invite_org_status_expires' }
 );
-// `deletePendingByEmail` (LGPD).
-memberInviteSchema.index(
-	{ email: 1, status: 1 },
-	{ name: 'advisor_member_invite_email_status' }
-);
+// `deleteByEmail` (LGPD).
+memberInviteSchema.index({ email: 1 }, { name: 'advisor_member_invite_email' });
 
 export const advisorTeamSchemas = {
 	assignment: assignmentSchema,

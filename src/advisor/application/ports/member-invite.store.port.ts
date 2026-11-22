@@ -45,6 +45,6 @@ export interface MemberInviteStorePort {
 	): Promise<MemberInvite | null>;
 	/** Só para desfazer a criação quando o envio falha. */
 	deleteById(id: string): Promise<void>;
-	/** LGPD: apaga os convites PENDING desse e-mail em todas as organizações. */
-	deletePendingByEmail(email: string): Promise<number>;
+	/** LGPD: apaga os convites desse e-mail, em qualquer status, em todas as organizações. */
+	deleteByEmail(email: string): Promise<number>;
 }

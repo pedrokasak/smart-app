@@ -431,7 +431,7 @@ describe('TeamService', () => {
 			);
 		});
 
-		it('apaga o vínculo em toda organização e só o convite pendente do e-mail', async () => {
+		it('apaga o vínculo em toda organização e os convites do e-mail', async () => {
 			const other = await memberships.create({
 				userId: ADVISOR,
 				orgId: 'org-2',
@@ -448,6 +448,23 @@ describe('TeamService', () => {
 			expect(
 				await memberships.findByUserAndOrg(ADVISOR, other.orgId)
 			).toBeNull();
+			expect(memberInvites.size).toBe(1);
+		});
+
+		it('apaga também o convite já respondido (ACCEPTED) do e-mail', async () => {
+			const accepted = await pendingInvite(orgId, EMAIL);
+			await memberInvites.transition(
+				accepted.id,
+				MemberInviteStatus.Pending,
+				MemberInviteStatus.Accepted,
+				new Date()
+			);
+			await pendingInvite(orgId, 'outra@escritorio.com');
+
+			const result = await service.eraseUser(ADVISOR, EMAIL);
+
+			expect(result.memberInvites).toBe(1);
+			expect(await memberInvites.findById(orgId, accepted.id)).toBeNull();
 			expect(memberInvites.size).toBe(1);
 		});
 

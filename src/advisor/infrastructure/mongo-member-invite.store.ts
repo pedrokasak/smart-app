@@ -132,10 +132,8 @@ export class MongoMemberInviteStore implements MemberInviteStorePort {
 		await this.invites.deleteOne({ _id: id }).exec();
 	}
 
-	async deletePendingByEmail(email: string): Promise<number> {
-		const result = await this.invites
-			.deleteMany({ email, status: MemberInviteStatus.Pending })
-			.exec();
+	async deleteByEmail(email: string): Promise<number> {
+		const result = await this.invites.deleteMany({ email }).exec();
 		return result.deletedCount ?? 0;
 	}
 }

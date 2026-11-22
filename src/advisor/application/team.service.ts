@@ -116,7 +116,7 @@ export class TeamService {
 			);
 			return 0;
 		}
-		return this.memberInvites.deletePendingByEmail(normalized);
+		return this.memberInvites.deleteByEmail(normalized);
 	}
 
 	/** Qualquer membro vê a equipe; e-mail só mascarado. */
