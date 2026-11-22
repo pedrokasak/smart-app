@@ -183,8 +183,8 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 	private lastCreatedAtMs = 0;
 
 	/**
-	 * Fonte das atribuições para `listUnassignedByOrg`; sem ela, todo perfil
-	 * conta como não atribuído.
+	 * Fonte das atribuições para `listUnassignedByOrg`; sem ela esse método
+	 * lança, para o teste esquecido falhar alto em vez de divergir do Mongo.
 	 */
 	constructor(private readonly assignments?: AssignmentStorePort) {}
 
@@ -281,14 +281,17 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 		orgId: string,
 		query: ListRelationshipsQuery
 	): Promise<RelationshipPage> {
+		const assignments = this.assignments;
+		if (!assignments) {
+			throw new Error(
+				'InMemoryRelationshipStore.listUnassignedByOrg needs an AssignmentStorePort: build it with new InMemoryRelationshipStore(assignments)'
+			);
+		}
 		const assigned = new Set<string>();
 		for (const r of this.items.values()) {
 			if (r.orgId !== orgId) continue;
-			const rows = await this.assignments?.listByClient(
-				orgId,
-				r.clientProfileId
-			);
-			if (rows && rows.length > 0) assigned.add(r.clientProfileId);
+			const rows = await assignments.listByClient(orgId, r.clientProfileId);
+			if (rows.length > 0) assigned.add(r.clientProfileId);
 		}
 		return this.page(orgId, query, (r) => !assigned.has(r.clientProfileId));
 	}
