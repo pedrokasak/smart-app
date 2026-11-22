@@ -21,7 +21,9 @@ export class MongoMembershipStore implements MembershipStorePort {
 	) {}
 
 	/** Vínculo duplicado (userId, orgId) vira `DuplicateMembershipError`. */
-	async create(membership: Omit<Membership, 'id'>): Promise<Membership> {
+	async create(
+		membership: Omit<Membership, 'id' | 'createdAt'> & { createdAt?: Date }
+	): Promise<Membership> {
 		try {
 			const created = await this.memberships.create(membership);
 			return toMembership(created.toObject());

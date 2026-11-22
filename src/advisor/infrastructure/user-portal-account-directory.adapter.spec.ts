@@ -4,7 +4,12 @@ import { UserPortalAccountDirectoryAdapter } from './user-portal-account-directo
 describe('UserPortalAccountDirectoryAdapter', () => {
 	const userId = '65f1c2a4e1b2c3d4e5f60718';
 
-	function build(byId: Record<string, { email: string }>) {
+	function build(
+		byId: Record<
+			string,
+			{ email: string; firstName?: string; lastName?: string }
+		>
+	) {
 		const users = {
 			findByEmail: jest.fn(async (email: string) => {
 				const id = Object.keys(byId).find((k) => byId[k].email === email);
@@ -34,5 +39,29 @@ describe('UserPortalAccountDirectoryAdapter', () => {
 		expect([...emails]).toEqual([[userId, 'a@example.com']]);
 		expect(users.findOne).toHaveBeenCalledTimes(2);
 		expect(users.findOne).not.toHaveBeenCalledWith('nope');
+	});
+	it('returns name and e-mail of existing accounts, skipping malformed ids', async () => {
+		const noName = '65f1c2a4e1b2c3d4e5f60720';
+		const missing = '65f1c2a4e1b2c3d4e5f60719';
+		const { adapter } = build({
+			[userId]: {
+				email: 'a@example.com',
+				firstName: ' Ana ',
+				lastName: 'Lima',
+			},
+			[noName]: { email: 'b@example.com' },
+		});
+
+		const profiles = await adapter.findProfiles([
+			userId,
+			noName,
+			missing,
+			'nope',
+		]);
+
+		expect([...profiles]).toEqual([
+			[userId, { name: 'Ana Lima', email: 'a@example.com' }],
+			[noName, { name: '', email: 'b@example.com' }],
+		]);
 	});
 });

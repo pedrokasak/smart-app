@@ -29,7 +29,9 @@ import { ClientProfileService } from './application/client-profile.service';
 import { ConsentService } from './application/consent.service';
 import { CsvImportService } from './application/csv/csv-import.service';
 import { InviteService } from './application/invite.service';
+import { AssignmentService } from './application/assignment.service';
 import { MemberInviteService } from './application/member-invite.service';
+import { TeamService } from './application/team.service';
 import { MembershipService } from './application/membership.service';
 import { PortfolioMetricsService } from './application/metrics/portfolio-metrics.service';
 import { OrganizationService } from './application/organization.service';
@@ -231,6 +233,8 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		PortfolioMetricsService,
 		InviteService,
 		MemberInviteService,
+		TeamService,
+		AssignmentService,
 		ConsentService,
 		SharedPortfolioService,
 		OrgContextGuard,
@@ -248,6 +252,8 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		ClientDirectoryService,
 		InviteService,
 		MemberInviteService,
+		TeamService,
+		AssignmentService,
 		ConsentService,
 		SharedPortfolioService,
 		OrgContextGuard,

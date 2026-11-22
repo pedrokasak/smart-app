@@ -115,7 +115,9 @@ export class InMemoryOrganizationStore implements OrganizationStorePort {
 export class InMemoryMembershipStore implements MembershipStorePort {
 	private readonly items = new Map<string, Membership>();
 
-	async create(membership: Omit<Membership, 'id'>): Promise<Membership> {
+	async create(
+		membership: Omit<Membership, 'id' | 'createdAt'> & { createdAt?: Date }
+	): Promise<Membership> {
 		if (
 			[...this.items.values()].some(
 				(m) => m.userId === membership.userId && m.orgId === membership.orgId
@@ -123,7 +125,11 @@ export class InMemoryMembershipStore implements MembershipStorePort {
 		) {
 			throw new DuplicateMembershipError();
 		}
-		const created: Membership = { ...membership, id: randomUUID() };
+		const created: Membership = {
+			...membership,
+			id: randomUUID(),
+			createdAt: membership.createdAt ?? new Date(),
+		};
 		this.items.set(created.id, created);
 		return created;
 	}
@@ -1028,9 +1034,11 @@ export class InMemoryPortalGrantStore implements PortalGrantStorePort {
 /** Contas B2C em memória para a liberação do portal, por userId. */
 export class InMemoryPortalAccountDirectory implements PortalAccountDirectoryPort {
 	private readonly emails = new Map<string, string>();
+	private readonly names = new Map<string, string>();
 
-	set(userId: string, email: string): void {
+	set(userId: string, email: string, name = ''): void {
 		this.emails.set(userId, email);
+		this.names.set(userId, name);
 	}
 
 	async findUserIdByEmail(email: string): Promise<string | null> {
@@ -1045,6 +1053,19 @@ export class InMemoryPortalAccountDirectory implements PortalAccountDirectoryPor
 		for (const userId of userIds) {
 			const email = this.emails.get(userId);
 			if (email) found.set(userId, email);
+		}
+		return found;
+	}
+
+	async findProfiles(
+		userIds: string[]
+	): Promise<Map<string, { name: string; email: string }>> {
+		const found = new Map<string, { name: string; email: string }>();
+		for (const userId of userIds) {
+			const email = this.emails.get(userId);
+			if (email) {
+				found.set(userId, { name: this.names.get(userId) ?? '', email });
+			}
 		}
 		return found;
 	}

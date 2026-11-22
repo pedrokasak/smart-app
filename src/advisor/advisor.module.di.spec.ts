@@ -18,7 +18,9 @@ import { ConsentService } from './application/consent.service';
 import { CsvImportService } from './application/csv/csv-import.service';
 import { PortfolioMetricsService } from './application/metrics/portfolio-metrics.service';
 import { InviteService } from './application/invite.service';
+import { AssignmentService } from './application/assignment.service';
 import { MemberInviteService } from './application/member-invite.service';
+import { TeamService } from './application/team.service';
 import { ADVISOR_MEMBER_INVITE_NOTIFIER } from './application/ports/member-invite-notifier.port';
 import {
 	ADVISOR_WEB_URL,
@@ -184,6 +186,18 @@ describe('AdvisorModule wiring', () => {
 			useExisting: EmailMemberInviteNotifierAdapter,
 		});
 		expect(byToken.has(ADVISOR_WEB_URL)).toBe(true);
+	});
+
+	it('provides and exports TeamService and AssignmentService', () => {
+		const providers: unknown[] = Reflect.getMetadata(
+			'providers',
+			AdvisorModule
+		);
+		const exported: unknown[] = Reflect.getMetadata('exports', AdvisorModule);
+		for (const service of [TeamService, AssignmentService]) {
+			expect(providers).toContain(service);
+			expect(exported).toContain(service);
+		}
 	});
 
 	it('registers the investor advisor-access controller', () => {

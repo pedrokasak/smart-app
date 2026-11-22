@@ -15,11 +15,24 @@ export class UserPortalAccountDirectoryAdapter implements PortalAccountDirectory
 	}
 
 	async findEmails(userIds: string[]): Promise<Map<string, string>> {
-		const found = new Map<string, string>();
+		const profiles = await this.findProfiles(userIds);
+		return new Map([...profiles].map(([id, p]) => [id, p.email]));
+	}
+
+	/** Lê só `firstName`, `lastName` e `email` da conta. */
+	async findProfiles(
+		userIds: string[]
+	): Promise<Map<string, { name: string; email: string }>> {
+		const found = new Map<string, { name: string; email: string }>();
 		await Promise.all(
 			[...new Set(userIds)].filter(isValidObjectId).map(async (userId) => {
 				const user = await this.users.findOne(userId);
-				if (user?.email) found.set(userId, user.email);
+				if (!user?.email) return;
+				const name = [user.firstName, user.lastName]
+					.filter((part): part is string => !!part?.trim())
+					.map((part) => part.trim())
+					.join(' ');
+				found.set(userId, { name, email: user.email });
 			})
 		);
 		return found;

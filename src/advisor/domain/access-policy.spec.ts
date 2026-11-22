@@ -7,6 +7,7 @@ const memOrgA: Membership = {
 	userId: 'u1',
 	orgId: 'orgA',
 	role: OrgRole.Advisor,
+	createdAt: new Date('2026-01-01T00:00:00Z'),
 };
 const adminOrgA: Membership = { ...memOrgA, id: 'm2', role: OrgRole.OrgAdmin };
 const activeOrgA: AdvisoryRelationship = {

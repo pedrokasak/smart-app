@@ -126,6 +126,32 @@ export function describeAdvisorStoreContract(
 			expect(await s.memberships.findByUser(randomUUID())).toEqual([]);
 		});
 
+		it('membership: an explicit createdAt is kept (restoring a removed member)', async () => {
+			const orgId = randomUUID();
+			const joinedAt = new Date('2026-01-02T03:04:05.000Z');
+			const early = await s.memberships.create({
+				userId: randomUUID(),
+				orgId,
+				role: OrgRole.Advisor,
+				createdAt: joinedAt,
+			});
+			await tick();
+			const later = await s.memberships.create({
+				userId: randomUUID(),
+				orgId,
+				role: OrgRole.Advisor,
+			});
+
+			expect(early.createdAt).toEqual(joinedAt);
+			expect(
+				(await s.memberships.findByUserAndOrg(early.userId, orgId))?.createdAt
+			).toEqual(joinedAt);
+			expect((await s.memberships.listByOrg(orgId)).map((m) => m.id)).toEqual([
+				early.id,
+				later.id,
+			]);
+		});
+
 		it('relationship: create/findById round trip; unknown or malformed id gives null', async () => {
 			const created = await s.relationships.create({
 				orgId: randomUUID(),

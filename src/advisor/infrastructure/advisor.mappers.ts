@@ -48,6 +48,7 @@ export function toMembership(doc: AdvisorMembershipDoc): Membership {
 		userId: doc.userId,
 		orgId: doc.orgId,
 		role: doc.role,
+		createdAt: doc.createdAt,
 	};
 }
 
