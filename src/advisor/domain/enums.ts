@@ -81,3 +81,11 @@ export enum ConsentStatus {
 	Superseded = 'SUPERSEDED',
 	Revoked = 'REVOKED',
 }
+
+export enum MemberInviteStatus {
+	Pending = 'PENDING',
+	Accepted = 'ACCEPTED',
+	Declined = 'DECLINED',
+	Cancelled = 'CANCELLED',
+	Expired = 'EXPIRED',
+}

@@ -10,6 +10,8 @@ export interface AccessInput {
 	membership?: Membership;
 	relationship?: AdvisoryRelationship;
 	profileOrigin?: ProfileOrigin;
+	/** O cliente está atribuído ao membro (só importa para ADVISOR). */
+	assigned?: boolean;
 	action: ClientAction;
 }
 
@@ -35,13 +37,17 @@ const ADVISOR_ONLY_ACTIONS: readonly ClientAction[] = ['EDIT_POSITION'];
  * refused by the profile origin (ACTION_FORBIDDEN).
  */
 export function canAccessClient(input: AccessInput): AccessDecision {
-	const { membership, relationship, profileOrigin, action } = input;
+	const { membership, relationship, profileOrigin, assigned, action } = input;
 	if (!membership || !relationship || !profileOrigin) return 'NOT_ACCESSIBLE';
 	if (!isAllowedRole(membership.role)) return 'NOT_ACCESSIBLE';
 	if (relationship.status !== RelationshipStatus.Active) {
 		return 'NOT_ACCESSIBLE';
 	}
 	if (relationship.orgId !== membership.orgId) return 'NOT_ACCESSIBLE';
+	// ADVISOR só alcança clientes atribuídos a ele; ORG_ADMIN ignora a atribuição.
+	if (membership.role === OrgRole.Advisor && assigned !== true) {
+		return 'NOT_ACCESSIBLE';
+	}
 	if (BLOCKED_ACTIONS.includes(action)) return 'ACTION_FORBIDDEN';
 	if (
 		ADVISOR_ONLY_ACTIONS.includes(action) &&
