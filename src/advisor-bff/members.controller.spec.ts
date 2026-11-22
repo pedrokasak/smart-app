@@ -30,6 +30,7 @@ import { OrgContextGuard } from 'src/advisor/interface/org-context.guard';
 import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import { jwtSecret } from 'src/env';
 import { TokenBlacklistService } from 'src/token-blacklist/token-blacklist.service';
+import { MeMembershipController } from './me-membership.controller';
 import { MembersController } from './members.controller';
 import { OrgPortalGuard } from './org-portal.guard';
 
@@ -87,7 +88,7 @@ describe('MembersController', () => {
 
 		const moduleRef = await Test.createTestingModule({
 			imports: [JwtModule.register({ secret: jwtSecret })],
-			controllers: [MembersController],
+			controllers: [MembersController, MeMembershipController],
 			providers: [
 				OrgContextGuard,
 				OrgPortalGuard,
@@ -291,6 +292,35 @@ describe('MembersController', () => {
 			expect(record).toHaveBeenCalledWith(
 				expect.objectContaining({ type: 'advisor.member.left' })
 			);
+		});
+
+		it('lets a member leave an office whose owner has no portal access (R10)', async () => {
+			hasAccess.mockResolvedValue(false);
+			const blocked = await http()
+				.get('/advisor/v1/members')
+				.set(as(ADVISOR))
+				.expect(403);
+			expect(blocked.body).toEqual({
+				statusCode: 403,
+				error: 'PLAN_CAPABILITY_REQUIRED',
+			});
+			await http()
+				.delete('/advisor/v1/me/membership')
+				.set(as(ADVISOR))
+				.expect(204);
+			expect(await isMember(ADVISOR)).toBe(false);
+		});
+
+		it('answers 403 without x-org-id or for a non-member', async () => {
+			const res = await http()
+				.delete('/advisor/v1/me/membership')
+				.set({ Authorization: as(ADVISOR).Authorization })
+				.expect(403);
+			expect(res.body.reason).toBe('ORG_HEADER_REQUIRED');
+			await http()
+				.delete('/advisor/v1/me/membership')
+				.set(as(STRANGER))
+				.expect(403);
 		});
 
 		it('answers 409 OWNER_CANNOT_LEAVE to the owner', async () => {

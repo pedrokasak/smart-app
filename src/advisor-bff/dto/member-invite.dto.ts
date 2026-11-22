@@ -109,4 +109,11 @@ export class AcceptMemberInviteResponseDto {
 
 	@ApiProperty({ enum: OrgRole })
 	role: OrgRole;
+
+	static of(joined: {
+		orgId: string;
+		role: OrgRole;
+	}): AcceptMemberInviteResponseDto {
+		return { orgId: joined.orgId, role: joined.role };
+	}
 }

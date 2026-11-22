@@ -100,7 +100,8 @@ export class MeMemberInvitesController {
 		@Query() _query: NoQueryDto,
 		@Body() body: MemberInviteTokenDto
 	): Promise<AcceptMemberInviteResponseDto> {
-		return this.invites.accept(requesterIdOf(req), body.token);
+		const joined = await this.invites.accept(requesterIdOf(req), body.token);
+		return AcceptMemberInviteResponseDto.of(joined);
 	}
 
 	@Post('decline')

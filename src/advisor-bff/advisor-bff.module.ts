@@ -5,6 +5,7 @@ import { AdvisorPortalGuard } from './advisor-portal.guard';
 import { ClientsController } from './clients.controller';
 import { InvitesController } from './invites.controller';
 import { MeMemberInvitesController } from './me-member-invites.controller';
+import { MeMembershipController } from './me-membership.controller';
 import { MeOrganizationsController } from './me-organizations.controller';
 import { MemberInvitesController } from './member-invites.controller';
 import { MembersController } from './members.controller';
@@ -24,6 +25,7 @@ import { WealthSummaryAssembler } from './wealth-summary.assembler';
 		ClientsController,
 		InvitesController,
 		MembersController,
+		MeMembershipController,
 		MemberInvitesController,
 		MeMemberInvitesController,
 	],

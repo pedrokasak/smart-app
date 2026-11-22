@@ -71,7 +71,8 @@ function ApiMemberAdminErrors(conflict?: string) {
 }
 
 /**
- * Equipe da org ativa: listar, remover, promover e sair. Só traduz HTTP; o
+ * Equipe da org ativa: listar, remover e promover (sair fica em
+ * `MeMembershipController`, sem o guard de portal). Só traduz HTTP; o
  * `TeamService` decide o papel, audita e desfaz em caso de falha.
  */
 @Controller('advisor/v1')
@@ -125,23 +126,5 @@ export class MembersController {
 		@Param('userId', ParseUserIdPipe) userId: string
 	): Promise<PromoteMemberResponseDto> {
 		return this.team.promote(accessContextOf(req), userId);
-	}
-
-	@Delete('me/membership')
-	@HttpCode(HttpStatus.NO_CONTENT)
-	@ApiOperation({ summary: 'Sai da organização ativa' })
-	@ApiResponse({ status: 204 })
-	@ApiResponse({
-		status: 403,
-		type: ErrorResponseDto,
-		description: MEMBER_FORBIDDEN,
-	})
-	@ApiResponse({
-		status: 409,
-		type: ErrorResponseDto,
-		description: 'OWNER_CANNOT_LEAVE: o dono não sai da organização',
-	})
-	async leave(@Req() req: any): Promise<void> {
-		await this.team.leave(accessContextOf(req));
 	}
 }
