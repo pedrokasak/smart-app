@@ -3,6 +3,7 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import {
+	ADVISOR_ASSIGNMENT_STORE,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_INVITE_STORE,
 	ADVISOR_MEMBERSHIP_STORE,
@@ -13,6 +14,7 @@ import { AuthorizationService } from 'src/advisor/application/authorization.serv
 import { ClientDirectoryService } from 'src/advisor/application/client-directory.service';
 import { ClientProfileService } from 'src/advisor/application/client-profile.service';
 import {
+	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
 	InMemoryInviteNotifier,
 	InMemoryInviteStore,
@@ -101,6 +103,10 @@ describe('InvitesController', () => {
 				InviteService,
 				{ provide: ADVISOR_ORG_STORE, useValue: orgs },
 				{ provide: ADVISOR_MEMBERSHIP_STORE, useValue: memberships },
+				{
+					provide: ADVISOR_ASSIGNMENT_STORE,
+					useValue: new InMemoryAssignmentStore(),
+				},
 				{
 					provide: ADVISOR_RELATIONSHIP_STORE,
 					useValue: new InMemoryRelationshipStore(),

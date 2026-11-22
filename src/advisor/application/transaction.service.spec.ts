@@ -11,8 +11,10 @@ import {
 } from '../domain/enums';
 import { TransactionInput } from '../domain/portfolio.entities';
 import { derivePositions } from '../domain/positions';
+import { ClientNotAccessibleError } from './access-errors';
 import { AuthorizationService } from './authorization.service';
 import {
+	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
@@ -56,6 +58,7 @@ describe('TransactionService', () => {
 	let relationships: InMemoryRelationshipStore;
 	let rel: RelationshipService;
 	let audit: FakeAuditTrail;
+	let assignments: InMemoryAssignmentStore;
 	let service: TransactionService;
 
 	beforeEach(async () => {
@@ -65,10 +68,12 @@ describe('TransactionService', () => {
 		rel = new RelationshipService(relationships);
 		audit = new FakeAuditTrail();
 		transactions = new InMemoryTransactionStore();
+		assignments = new InMemoryAssignmentStore();
 		const authz = new AuthorizationService(
 			memberships,
 			relationships,
 			profiles,
+			assignments,
 			audit
 		);
 		service = new TransactionService(authz, transactions);
@@ -93,6 +98,8 @@ describe('TransactionService', () => {
 		});
 		await rel.create('orgA', 'clientA');
 		await rel.create('orgB', 'clientB');
+		await assignments.assign('orgA', 'clientA', userId, userId);
+		await assignments.assign('orgA', 'clientC', userId, userId);
 	});
 
 	const stored = () => transactions.listByClient('orgA', 'clientA');
@@ -317,6 +324,21 @@ describe('TransactionService', () => {
 			expect((error as OversellError).getResponse()).toMatchObject({
 				symbol: 'VALE3',
 			});
+		});
+	});
+
+	describe('atribuição', () => {
+		it('nega listTransactions ao ADVISOR desatribuído na chamada seguinte, sem auditar', async () => {
+			await service.listTransactions(ctx, 'clientA');
+			audit.recorded.length = 0;
+			await assignments.unassign('orgA', 'clientA', userId);
+			const read = jest.spyOn(transactions, 'listByClient');
+
+			await expect(
+				service.listTransactions(ctx, 'clientA')
+			).rejects.toBeInstanceOf(ClientNotAccessibleError);
+			expect(audit.recorded).toHaveLength(0);
+			expect(read).not.toHaveBeenCalled();
 		});
 	});
 

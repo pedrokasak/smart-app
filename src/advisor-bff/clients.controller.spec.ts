@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import {
 	ADVISOR_ALLOCATION_TARGET_STORE,
+	ADVISOR_ASSIGNMENT_STORE,
 	ADVISOR_BENCHMARK_SERIES,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_CONSENT_STORE,
@@ -20,6 +21,7 @@ import { ClientProfileService } from 'src/advisor/application/client-profile.ser
 import { CsvImportService } from 'src/advisor/application/csv/csv-import.service';
 import {
 	InMemoryAllocationTargetStore,
+	InMemoryAssignmentStore,
 	InMemoryBenchmarkSeries,
 	InMemoryClientProfileStore,
 	InMemoryConsentStore,
@@ -169,6 +171,10 @@ describe('ClientsController', () => {
 				SharedPortfolioService,
 				WealthSummaryAssembler,
 				{ provide: ADVISOR_MEMBERSHIP_STORE, useValue: memberships },
+				{
+					provide: ADVISOR_ASSIGNMENT_STORE,
+					useValue: new InMemoryAssignmentStore(),
+				},
 				{ provide: ADVISOR_RELATIONSHIP_STORE, useValue: relationships },
 				{ provide: ADVISOR_CLIENT_PROFILE_STORE, useValue: profiles },
 				{ provide: ADVISOR_INVITE_STORE, useValue: new InMemoryInviteStore() },

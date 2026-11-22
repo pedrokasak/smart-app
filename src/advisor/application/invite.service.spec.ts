@@ -15,6 +15,7 @@ import {
 import { hashInviteToken } from '../domain/invite-rules';
 import { AuthorizationService } from './authorization.service';
 import {
+	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
 	InMemoryInviteNotifier,
 	InMemoryInviteStore,
@@ -49,6 +50,7 @@ describe('InviteService', () => {
 	let relationships: InMemoryRelationshipStore;
 	let profiles: InMemoryClientProfileStore;
 	let invites: InMemoryInviteStore;
+	let assignments: InMemoryAssignmentStore;
 	let notifier: InMemoryInviteNotifier;
 	let audit: FakeAuditTrail;
 	let service: InviteService;
@@ -58,7 +60,8 @@ describe('InviteService', () => {
 
 	beforeEach(async () => {
 		memberships = new InMemoryMembershipStore();
-		relationships = new InMemoryRelationshipStore();
+		assignments = new InMemoryAssignmentStore();
+		relationships = new InMemoryRelationshipStore(assignments);
 		profiles = new InMemoryClientProfileStore();
 		invites = new InMemoryInviteStore();
 		notifier = new InMemoryInviteNotifier();
@@ -86,12 +89,19 @@ describe('InviteService', () => {
 			role: OrgRole.OrgAdmin,
 		});
 		service = new InviteService(
-			new AuthorizationService(memberships, relationships, profiles, audit),
+			new AuthorizationService(
+				memberships,
+				relationships,
+				profiles,
+				assignments,
+				audit
+			),
 			new RelationshipService(relationships),
 			invites,
 			orgs,
 			profiles,
 			notifier,
+			assignments,
 			audit
 		);
 	});
@@ -419,6 +429,92 @@ describe('InviteService', () => {
 			);
 			const invite = await invites.findById(orgAId, inviteId);
 			expect(invite.status).toBe(InviteStatus.Pending);
+		});
+	});
+
+	describe('atribuição', () => {
+		const other = () => ({ userId: 'adv-3', orgId: orgAId });
+		const admin = () => ({ userId: 'admin-a', orgId: orgAId });
+
+		beforeEach(async () => {
+			await memberships.create({
+				userId: 'adv-3',
+				orgId: orgAId,
+				role: OrgRole.Advisor,
+			});
+			await memberships.create({
+				userId: 'admin-a',
+				orgId: orgAId,
+				role: OrgRole.OrgAdmin,
+			});
+		});
+
+		it('convite feito por ADVISOR nasce atribuído a ele', async () => {
+			const { clientProfileId } = await create();
+
+			expect(
+				await assignments.listByClient(orgAId, clientProfileId)
+			).toMatchObject([{ userId: ctxA.userId, assignedBy: ctxA.userId }]);
+		});
+
+		it('convite feito por ORG_ADMIN nasce sem atribuição', async () => {
+			await create({}, admin());
+			expect(assignments.size).toBe(0);
+		});
+
+		it('desfaz o convite como no P2b quando a atribuição falha', async () => {
+			jest
+				.spyOn(assignments, 'assign')
+				.mockRejectedValueOnce(new Error('assign down'));
+
+			await expect(create()).rejects.toThrow('assign down');
+
+			expect(notifier.attempts).toHaveLength(0);
+			expect(audit.recorded).toHaveLength(0);
+			expect(assignments.size).toBe(0);
+			expect(
+				await invites.findPendingByOrgAndEmail(orgAId, 'joao@exemplo.com')
+			).toEqual([]);
+			const [only] = relationships.all;
+			expect(only.status).toBe(RelationshipStatus.Revoked);
+		});
+
+		it('remove a atribuição quando a auditoria ou o envio falha', async () => {
+			audit.failWith = new Error('audit down');
+			await expect(create()).rejects.toThrow('audit down');
+			expect(assignments.size).toBe(0);
+
+			audit.failWith = undefined;
+			notifier.failWith = new Error('smtp down');
+			await expect(create()).rejects.toThrow('smtp down');
+			expect(assignments.size).toBe(0);
+		});
+
+		it('ADVISOR não reenvia nem cancela convite de cliente não atribuído: 404', async () => {
+			const { inviteId } = await create();
+
+			await expect(service.resendInvite(other(), inviteId)).rejects.toThrow(
+				NotFoundException
+			);
+			await expect(service.cancelInvite(other(), inviteId)).rejects.toThrow(
+				NotFoundException
+			);
+			expect(notifier.sent).toHaveLength(1);
+			expect((await invites.findById(orgAId, inviteId)).status).toBe(
+				InviteStatus.Pending
+			);
+		});
+
+		it('ORG_ADMIN reenvia e cancela convite de qualquer cliente da org', async () => {
+			const { inviteId } = await create();
+
+			await service.resendInvite(admin(), inviteId);
+			await service.cancelInvite(admin(), inviteId);
+
+			expect(notifier.sent).toHaveLength(2);
+			expect((await invites.findById(orgAId, inviteId)).status).toBe(
+				InviteStatus.Cancelled
+			);
 		});
 	});
 });

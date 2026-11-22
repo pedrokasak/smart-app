@@ -10,6 +10,7 @@ import {
 } from '../../domain/enums';
 import { AuthorizationService } from '../authorization.service';
 import {
+	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
@@ -56,10 +57,12 @@ describe('CsvImportService', () => {
 		relationships = new InMemoryRelationshipStore();
 		rel = new RelationshipService(relationships);
 		transactions = new InMemoryTransactionStore();
+		const assignments = new InMemoryAssignmentStore();
 		const authz = new AuthorizationService(
 			memberships,
 			relationships,
 			profiles,
+			assignments,
 			new FakeAuditTrail()
 		);
 		service = new CsvImportService(authz, transactions);
@@ -86,6 +89,8 @@ describe('CsvImportService', () => {
 		await rel.create('orgA', 'clientA');
 		await rel.create('orgA', 'clientC');
 		await rel.create('orgB', 'clientB');
+		await assignments.assign('orgA', 'clientA', userId, userId);
+		await assignments.assign('orgA', 'clientC', userId, userId);
 	});
 
 	const stored = (client = 'clientA') =>

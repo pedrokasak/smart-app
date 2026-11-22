@@ -27,11 +27,12 @@ import {
 	InviteNotFoundError,
 } from './consent.service';
 import {
+	InMemoryAssignmentStore,
 	InMemoryClientProfileStore,
 	InMemoryConsentStore,
-	InMemoryInviteeIdentity,
 	InMemoryInviteNotifier,
 	InMemoryInviteStore,
+	InMemoryInviteeIdentity,
 	InMemoryMembershipStore,
 	InMemoryOrganizationStore,
 	InMemoryRelationshipStore,
@@ -73,12 +74,14 @@ describe('ConsentService', () => {
 	let authz: AuthorizationService;
 	let inviteService: InviteService;
 	let service: ConsentService;
+	let assignments: InMemoryAssignmentStore;
 	let ctxA: { userId: string; orgId: string };
 	let ctxB: { userId: string; orgId: string };
 
 	beforeEach(async () => {
 		memberships = new InMemoryMembershipStore();
-		relationships = new InMemoryRelationshipStore();
+		assignments = new InMemoryAssignmentStore();
+		relationships = new InMemoryRelationshipStore(assignments);
 		profiles = new InMemoryClientProfileStore();
 		invites = new InMemoryInviteStore();
 		consents = new InMemoryConsentStore();
@@ -125,6 +128,7 @@ describe('ConsentService', () => {
 			memberships,
 			relationships,
 			profiles,
+			assignments,
 			audit
 		);
 		inviteService = new InviteService(
@@ -134,6 +138,7 @@ describe('ConsentService', () => {
 			orgs,
 			profiles,
 			notifier,
+			assignments,
 			audit
 		);
 		service = new ConsentService(

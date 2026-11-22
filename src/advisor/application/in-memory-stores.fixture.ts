@@ -1037,6 +1037,11 @@ export class InMemoryAssignmentStore implements AssignmentStorePort {
 	private readonly items = new Map<string, ClientAssignment>();
 	private lastCreatedAtMs = 0;
 
+	/** Só para testes: quantidade de itens gravados. */
+	get size(): number {
+		return this.items.size;
+	}
+
 	async assign(
 		orgId: string,
 		clientProfileId: string,
