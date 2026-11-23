@@ -1,8 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
-import { randomUUID } from 'crypto';
 import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import type { AuditTrail } from 'src/audit/application/audit-trail.port';
-import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
 import { Alert } from '../../domain/attention.entities';
 import { AlertRule, AlertStatus } from '../../domain/enums';
 import { deadlineInWindow } from '../alert-deadline';
@@ -21,7 +19,8 @@ import type {
 	WealthDailyStorePort,
 	WealthDailySum,
 } from '../ports/wealth-daily.store.port';
-import { AlertService, ALERTS_VIEWED_EVENT } from './alert.service';
+import { AlertService } from './alert.service';
+import { alertsViewedEvent } from './alerts-viewed-event';
 import { InvalidAlertInputError } from './attention-errors';
 
 export const DASHBOARD_DEFAULT_DAYS = 90;
@@ -137,19 +136,18 @@ export class DashboardService {
 
 		const topAlerts = top.items.slice(0, DASHBOARD_TOP_ALERTS);
 		const deadlines = this.deadlinesOf(due, today);
-		await this.record(ctx, {
-			orgId: ctx.orgId,
-			clientIds: [
-				...new Set([
-					...topAlerts.map((a) => a.clientProfileId),
-					...deadlines.map((d) => d.clientProfileId),
-				]),
-			],
-		});
+		const change30d = await this.changeOf(ctx.orgId, series, today, clientIds);
+		// Depois de toda leitura que a resposta usa; falha fechada.
+		await this.audit.record(
+			alertsViewedEvent(ctx, [
+				...topAlerts.map((a) => a.clientProfileId),
+				...deadlines.map((d) => d.clientProfileId),
+			])
+		);
 
 		return {
 			wealth: this.wealthOf(snapshots),
-			change30d: await this.changeOf(ctx.orgId, series, today, clientIds),
+			change30d,
 			clients: snapshots.length,
 			openAlerts,
 			topAlerts,
@@ -198,7 +196,8 @@ export class DashboardService {
 	): Promise<DashboardChange | null> {
 		const baseDate = addDays(today, -DASHBOARD_CHANGE_DAYS);
 		const later = latestOnOrBefore(series, today);
-		if (!later) return null;
+		// Série velha (nada nos últimos 30 dias): sem o que comparar.
+		if (!later || later.date <= baseDate) return null;
 		let earlier = latestOnOrBefore(series, baseDate);
 		if (!earlier) {
 			const older = await this.wealth.sumByDate(
@@ -243,21 +242,6 @@ export class DashboardService {
 					date,
 				},
 			];
-		});
-	}
-
-	private async record(
-		ctx: AccessContext,
-		payload: { orgId: string; clientIds: string[] }
-	): Promise<void> {
-		await this.audit.record({
-			eventId: randomUUID(),
-			type: ALERTS_VIEWED_EVENT,
-			version: 1,
-			subject: ctx.orgId,
-			actorRef: actorRefOf(ctx.userId),
-			occurredAt: new Date(),
-			payload,
 		});
 	}
 }

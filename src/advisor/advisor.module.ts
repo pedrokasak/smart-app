@@ -32,6 +32,7 @@ import {
 import { AttentionScheduler } from './application/attention/attention.scheduler';
 import { AlertSettingsService } from './application/attention/alert-settings.service';
 import { AlertService } from './application/attention/alert.service';
+import { ClientSnapshotService } from './application/attention/client-snapshot.service';
 import { DashboardService } from './application/attention/dashboard.service';
 import { AllocationTargetService } from './application/allocation-target.service';
 import { AuthorizationService } from './application/authorization.service';

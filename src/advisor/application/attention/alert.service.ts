@@ -38,9 +38,10 @@ import {
 	BulkLimitExceededError,
 	InvalidAlertInputError,
 } from './attention-errors';
+import { ALERTS_VIEWED_EVENT, alertsViewedEvent } from './alerts-viewed-event';
 import { renderEmailDraft } from './email-draft';
 
-export const ALERTS_VIEWED_EVENT = 'advisor.alerts.viewed';
+export { ALERTS_VIEWED_EVENT };
 export const ALERT_CREATED_EVENT = 'advisor.alert.created';
 export const ALERT_HANDLED_EVENT = 'advisor.alert.handled';
 export const ALERT_SNOOZED_EVENT = 'advisor.alert.snoozed';
@@ -203,10 +204,12 @@ export class AlertService {
 			cursor: q.cursor,
 			limit: q.limit,
 		});
-		await this.record(ctx, ALERTS_VIEWED_EVENT, ctx.orgId, {
-			orgId: ctx.orgId,
-			clientIds: [...new Set(page.items.map((a) => a.clientProfileId))],
-		});
+		await this.audit.record(
+			alertsViewedEvent(
+				ctx,
+				page.items.map((a) => a.clientProfileId)
+			)
+		);
 		return page;
 	}
 

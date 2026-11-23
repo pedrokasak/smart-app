@@ -357,6 +357,47 @@ describe('DashboardService', () => {
 		expect(audit.recorded).toHaveLength(0);
 	});
 
+	it('has change30d null when the newest row is older than today-30', async () => {
+		await day('c1', addDays(TODAY, -60), 1000);
+		await day('c1', addDays(TODAY, -40), 1100);
+		const out = await service.get(admin(), 90);
+		expect(out.series).toHaveLength(2);
+		expect(out.change30d).toBeNull();
+	});
+
+	it('records no viewed event when a read fails after the audit would have run', async () => {
+		await day('c1', addDays(TODAY, -30), 1000);
+		await day('c1', TODAY, 1100);
+		jest.spyOn(wealth, 'clientIdsOn').mockRejectedValueOnce(new Error('down'));
+		await expect(service.get(admin())).rejects.toThrow('down');
+		expect(audit.recorded).toHaveLength(0);
+	});
+
+	it('gives an ADVISOR without assignments zeros, empty lists and an audit with no ids', async () => {
+		await snapshots.upsert(snapshot('c9'));
+		await day('c9', TODAY, 1000);
+		await alerts.insertMany([alert('c9')]);
+		const out = await service.get(advisor());
+		expect(out.clients).toBe(0);
+		expect(out.wealth.totalMinor).toBeNull();
+		expect(out.series).toEqual([]);
+		expect(out.change30d).toBeNull();
+		expect(out.openAlerts).toEqual({ P0: 0, P1: 0, P2: 0, P3: 0 });
+		expect(out.topAlerts).toEqual([]);
+		expect(out.deadlines).toEqual([]);
+		const events = audit.ofType(ALERTS_VIEWED_EVENT);
+		expect(events).toHaveLength(1);
+		expect(events[0].payload).toEqual({ orgId, clientIds: [] });
+	});
+
+	it('shows nothing for an empty organization and still audits once', async () => {
+		const out = await service.get(admin());
+		expect(out.openAlerts).toEqual({ P0: 0, P1: 0, P2: 0, P3: 0 });
+		expect(out.topAlerts).toEqual([]);
+		expect(out.deadlines).toEqual([]);
+		expect(audit.ofType(ALERTS_VIEWED_EVENT)).toHaveLength(1);
+	});
+
 	it('limits the series to the requested days', async () => {
 		await day('c1', addDays(TODAY, -20), 100);
 		await day('c1', addDays(TODAY, -3), 200);
