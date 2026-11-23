@@ -30,6 +30,8 @@ import {
 	ADVISOR_WEALTH_DAILY_STORE,
 } from './application/advisor.tokens';
 import { AttentionScheduler } from './application/attention/attention.scheduler';
+import { AlertSettingsService } from './application/attention/alert-settings.service';
+import { AlertService } from './application/attention/alert.service';
 import { ClientSnapshotService } from './application/attention/client-snapshot.service';
 import { AllocationTargetService } from './application/allocation-target.service';
 import { AuthorizationService } from './application/authorization.service';
@@ -304,6 +306,8 @@ import { OrgContextGuard } from './interface/org-context.guard';
 			useExisting: InProcessSnapshotTrigger,
 		},
 		AttentionScheduler,
+		AlertService,
+		AlertSettingsService,
 		OrgContextGuard,
 	],
 	exports: [
@@ -323,6 +327,8 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		AssignmentService,
 		ConsentService,
 		SharedPortfolioService,
+		AlertService,
+		AlertSettingsService,
 		OrgContextGuard,
 		PortalAccessService,
 	],
