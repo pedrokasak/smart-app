@@ -1645,6 +1645,94 @@
         ]
       }
     },
+    "/advisor/v1/clients/{clientId}/reviewed": {
+      "post": {
+        "operationId": "ClientsController_markReviewed",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "clientId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED, org de que não é membro, ACTION_FORBIDDEN (cliente criado pelo investidor não aceita lançamento) ou VERIFIED_IMMUTABLE (lançamento importado não se remove; desfaça o import)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente inexistente, de outra org ou fora do alcance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Marca o cliente como revisado: registra o contato e fecha o NO_CONTACT aberto",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
     "/advisor/v1/clients/{clientId}/assignees": {
       "get": {
         "operationId": "ClientsController_listAssignees",
@@ -3245,6 +3333,930 @@
           "advisor-bff"
         ]
       }
+    },
+    "/advisor/v1/dashboard": {
+      "get": {
+        "operationId": "DashboardController_get",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "days",
+            "required": false,
+            "in": "query",
+            "description": "Dias da série de evolução",
+            "schema": {
+              "minimum": 7,
+              "maximum": 365,
+              "default": 90,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): days (inteiro de 7 a 365)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou org de que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "KPIs, top 5 alertas, próximos prazos e a série de evolução",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/alerts": {
+      "get": {
+        "operationId": "AlertsController_list",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "cursor",
+            "required": false,
+            "in": "query",
+            "description": "Cursor opaco da página anterior",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 50,
+              "type": "number"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Lista separada por vírgula ou o parâmetro repetido",
+            "schema": {
+              "default": [
+                "OPEN"
+              ],
+              "example": "OPEN,SNOOZED",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "OPEN",
+                  "SNOOZED",
+                  "HANDLED",
+                  "DISMISSED",
+                  "RESOLVED"
+                ]
+              }
+            }
+          },
+          {
+            "name": "priority",
+            "required": false,
+            "in": "query",
+            "description": "Lista separada por vírgula ou o parâmetro repetido",
+            "schema": {
+              "example": "P0,P1",
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "P0",
+                  "P1",
+                  "P2",
+                  "P3"
+                ]
+              }
+            }
+          },
+          {
+            "name": "rule",
+            "required": false,
+            "in": "query",
+            "description": "Lista separada por vírgula ou o parâmetro repetido",
+            "schema": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "enum": [
+                  "POSITION_DROP",
+                  "PORTFOLIO_DRAWDOWN",
+                  "CONCENTRATION",
+                  "TARGET_DRIFT",
+                  "LARGE_SELLS",
+                  "NO_CONTACT",
+                  "MANUAL"
+                ]
+              }
+            }
+          },
+          {
+            "name": "assignee",
+            "required": false,
+            "in": "query",
+            "description": "Só ORG_ADMIN: me, none (sem atribuição) ou o userId de um membro. Para o ADVISOR a fila já vem filtrada e o parâmetro é 400 ASSIGNEE_FILTER_FORBIDDEN",
+            "schema": {
+              "pattern": "^(me|none|[0-9a-fA-F]{24})$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertPageResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): status, priority, rule, limit ou assignee; INVALID_CURSOR; ASSIGNEE_FILTER_FORBIDDEN (assignee enviado por um ADVISOR)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou org de que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Fila de alertas, por prioridade, prazo e data (padrão: status OPEN)",
+        "tags": [
+          "advisor-bff"
+        ]
+      },
+      "post": {
+        "operationId": "AlertsController_create",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAlertDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato); recusado pelo serviço, com details.field (title, note, dueDate)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou org de que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Cliente inexistente, de outra org ou fora do alcance",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Cria um alerta MANUAL para um cliente",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/alerts/bulk": {
+      "post": {
+        "operationId": "AlertsController_bulk",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BulkAlertsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BulkAlertsResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato); recusado pelo serviço, com details.field (ids, until, reason); details.max quando o filtro passa de 500; ASSIGNEE_FILTER_FORBIDDEN",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou org de que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite de 20 lotes por minuto por conta e por IP",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Ação em lote (REVIEW, SNOOZE, DISMISS) por ids ou filtro, até 500 alertas",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/alerts/{id}/handle": {
+      "post": {
+        "operationId": "AlertsController_handle",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/HandleAlertDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HandleAlertResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato); recusado pelo serviço, com details.field, ou id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou org de que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Alerta inexistente, de outra org ou de cliente fora do alcance (o mesmo 404 de cliente inexistente)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ALERT_NOT_ACTIVE: o alerta já foi tratado, descartado ou resolvido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Trata o alerta (EMAIL ou REVIEWED); com EMAIL, devolve o rascunho",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/alerts/{id}/snooze": {
+      "post": {
+        "operationId": "AlertsController_snooze",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SnoozeAlertDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato); recusado pelo serviço, com details.field, ou id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou org de que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Alerta inexistente, de outra org ou de cliente fora do alcance (o mesmo 404 de cliente inexistente)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ALERT_NOT_ACTIVE: o alerta já foi tratado, descartado ou resolvido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Adia o alerta até uma data (até 90 dias)",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/alerts/{id}/dismiss": {
+      "post": {
+        "operationId": "AlertsController_dismiss",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DismissAlertDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": ""
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato); recusado pelo serviço, com details.field, ou id fora do formato UUID (sem reason)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou org de que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Alerta inexistente, de outra org ou de cliente fora do alcance (o mesmo 404 de cliente inexistente)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ALERT_NOT_ACTIVE: o alerta já foi tratado, descartado ou resolvido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Descarta o alerta, com motivo",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
+    },
+    "/advisor/v1/alert-settings": {
+      "get": {
+        "operationId": "AlertSettingsController_get",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertSettingsResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Sem acesso ao portal, ORG_HEADER_REQUIRED ou org de que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Limites da organização (os padrões quando nada foi salvo)",
+        "tags": [
+          "advisor-bff"
+        ]
+      },
+      "put": {
+        "operationId": "AlertSettingsController_put",
+        "parameters": [
+          {
+            "name": "x-org-id",
+            "in": "header",
+            "description": "Id da organização ativa. Ausente ou em branco: 403 ORG_HEADER_REQUIRED; org de que o usuário não é membro: 403",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PutAlertSettingsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AlertSettingsResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "VALIDATION_FAILED (corpo ou query fora do formato): valor fora da faixa; faixas fora de ordem, com details.field",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Sem JWT de acesso válido",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "ROLE_REQUIRED (ADVISOR). Sem acesso ao portal, ORG_HEADER_REQUIRED ou org de que não é membro",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Limite padrão de 300 requisições por minuto por conta",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          }
+        ],
+        "summary": "Grava o conjunto inteiro de limites (campo omitido volta ao padrão)",
+        "tags": [
+          "advisor-bff"
+        ]
+      }
     }
   },
   "info": {
@@ -3291,7 +4303,7 @@
           "details": {
             "type": "object",
             "additionalProperties": true,
-            "description": "Detalhes tipados por `reason`: `{ errors }` para CSV_REJECTED e INVALID_TRANSACTION; `{ symbol, tradeDate }` para OVERSELL."
+            "description": "Detalhes tipados por `reason`: `{ errors }` para CSV_REJECTED e INVALID_TRANSACTION; `{ symbol, tradeDate }` para OVERSELL; `{ field }` ou `{ max }` para VALIDATION_FAILED recusado pelo serviço."
           }
         },
         "required": [
@@ -4595,6 +5607,726 @@
           "orgId",
           "role"
         ]
+      },
+      "DashboardWealthDto": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "enum": [
+              "BRL"
+            ]
+          },
+          "totalMinor": {
+            "type": "number",
+            "nullable": true,
+            "description": "Soma dos snapshots em centavos; nulo sem nenhum snapshot"
+          },
+          "verifiedMinor": {
+            "type": "number",
+            "nullable": true,
+            "description": "VERIFIED"
+          },
+          "manualMinor": {
+            "type": "number",
+            "nullable": true,
+            "description": "MANUAL"
+          },
+          "asOf": {
+            "type": "string",
+            "nullable": true,
+            "description": "O asOf mais antigo entre os snapshots, YYYY-MM-DD"
+          }
+        },
+        "required": [
+          "currency",
+          "totalMinor",
+          "verifiedMinor",
+          "manualMinor",
+          "asOf"
+        ]
+      },
+      "DashboardChangeDto": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string",
+            "enum": [
+              "BRL"
+            ]
+          },
+          "deltaMinor": {
+            "type": "number",
+            "description": "Centavos"
+          },
+          "pct": {
+            "type": "number",
+            "nullable": true,
+            "description": "Fração (0.05 = 5%); nula com base zero"
+          },
+          "clientsJoined": {
+            "type": "number",
+            "description": "Clientes que entraram na soma no período"
+          },
+          "clientsLeft": {
+            "type": "number",
+            "description": "Clientes que saíram da soma no período"
+          }
+        },
+        "required": [
+          "currency",
+          "deltaMinor",
+          "pct",
+          "clientsJoined",
+          "clientsLeft"
+        ]
+      },
+      "OpenAlertCountsDto": {
+        "type": "object",
+        "properties": {
+          "P0": {
+            "type": "number"
+          },
+          "P1": {
+            "type": "number"
+          },
+          "P2": {
+            "type": "number"
+          },
+          "P3": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "P0",
+          "P1",
+          "P2",
+          "P3"
+        ]
+      },
+      "AlertResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "clientProfileId": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string",
+            "enum": [
+              "POSITION_DROP",
+              "PORTFOLIO_DRAWDOWN",
+              "CONCENTRATION",
+              "TARGET_DRIFT",
+              "LARGE_SELLS",
+              "NO_CONTACT",
+              "MANUAL"
+            ]
+          },
+          "source": {
+            "type": "string",
+            "enum": [
+              "ADVISOR_LEDGER",
+              "B2C_SHARED"
+            ],
+            "nullable": true
+          },
+          "portfolioId": {
+            "type": "string",
+            "description": "Só na carteira compartilhada do B2C: a carteira de origem"
+          },
+          "key": {
+            "type": "string",
+            "description": "Objeto da regra: símbolo, classe, portfolio, client ou, em MANUAL, um id"
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "P0",
+              "P1",
+              "P2",
+              "P3"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "OPEN",
+              "SNOOZED",
+              "HANDLED",
+              "DISMISSED",
+              "RESOLVED"
+            ]
+          },
+          "messageKey": {
+            "type": "string",
+            "example": "advisor.alert.position_drop"
+          },
+          "params": {
+            "type": "object",
+            "additionalProperties": {
+              "oneOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "number"
+                }
+              ]
+            },
+            "description": "Parâmetros da mensagem, sem tradução"
+          },
+          "evidence": {
+            "type": "object",
+            "additionalProperties": true,
+            "description": "Fatos que geraram o alerta (valores em centavos ou %)"
+          },
+          "dataAsOf": {
+            "type": "string",
+            "description": "Data do dado usado, YYYY-MM-DD"
+          },
+          "provenance": {
+            "type": "string",
+            "enum": [
+              "VERIFIED",
+              "PARTIAL",
+              "MANUAL"
+            ],
+            "nullable": true
+          },
+          "lowConfidence": {
+            "type": "boolean",
+            "description": "Prioridade rebaixada pela confiança do dado"
+          },
+          "title": {
+            "type": "string",
+            "description": "Só em MANUAL"
+          },
+          "note": {
+            "type": "string",
+            "description": "Nota da criação (MANUAL)"
+          },
+          "dueDate": {
+            "type": "string",
+            "description": "Prazo (MANUAL), YYYY-MM-DD"
+          },
+          "snoozedUntil": {
+            "type": "string",
+            "description": "Adiado até, YYYY-MM-DD"
+          },
+          "handledVia": {
+            "type": "string",
+            "enum": [
+              "EMAIL",
+              "REVIEWED"
+            ]
+          },
+          "handledNote": {
+            "type": "string",
+            "description": "Nota de quem tratou"
+          },
+          "dismissReason": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "closedAt": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": [
+          "id",
+          "clientProfileId",
+          "rule",
+          "source",
+          "key",
+          "priority",
+          "status",
+          "messageKey",
+          "params",
+          "evidence",
+          "dataAsOf",
+          "provenance",
+          "lowConfidence",
+          "createdAt",
+          "updatedAt"
+        ]
+      },
+      "DashboardDeadlineDto": {
+        "type": "object",
+        "properties": {
+          "alertId": {
+            "type": "string"
+          },
+          "clientProfileId": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "DUE",
+              "SNOOZE_END"
+            ],
+            "description": "Prazo de alerta manual ou fim de adiamento"
+          },
+          "date": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          }
+        },
+        "required": [
+          "alertId",
+          "clientProfileId",
+          "kind",
+          "date"
+        ]
+      },
+      "DashboardSeriesPointDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "totalMinor": {
+            "type": "number",
+            "description": "Soma diária dos snapshots, centavos BRL"
+          }
+        },
+        "required": [
+          "date",
+          "totalMinor"
+        ]
+      },
+      "DashboardResponseDto": {
+        "type": "object",
+        "properties": {
+          "wealth": {
+            "$ref": "#/components/schemas/DashboardWealthDto"
+          },
+          "change30d": {
+            "nullable": true,
+            "description": "Contra o snapshot de 30 dias atrás; nulo sem essa base",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DashboardChangeDto"
+              }
+            ]
+          },
+          "clients": {
+            "type": "number",
+            "description": "Clientes com snapshot"
+          },
+          "openAlerts": {
+            "description": "Alertas OPEN por prioridade (adiados não contam)",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/OpenAlertCountsDto"
+              }
+            ]
+          },
+          "topAlerts": {
+            "description": "Top 5 da fila",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertResponseDto"
+            }
+          },
+          "deadlines": {
+            "description": "Próximos 14 dias",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardDeadlineDto"
+            }
+          },
+          "series": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DashboardSeriesPointDto"
+            }
+          }
+        },
+        "required": [
+          "wealth",
+          "change30d",
+          "clients",
+          "openAlerts",
+          "topAlerts",
+          "deadlines",
+          "series"
+        ]
+      },
+      "AlertPageResponseDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AlertResponseDto"
+            }
+          },
+          "nextCursor": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ]
+      },
+      "CreateAlertDto": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Id do cliente"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "priority": {
+            "type": "string",
+            "enum": [
+              "P0",
+              "P1",
+              "P2",
+              "P3"
+            ]
+          },
+          "dueDate": {
+            "type": "string",
+            "description": "YYYY-MM-DD",
+            "example": "2025-07-01"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "clientId",
+          "title",
+          "priority"
+        ]
+      },
+      "BulkAlertFilterDto": {
+        "type": "object",
+        "properties": {
+          "statuses": {
+            "type": "array",
+            "description": "Só OPEN e SNOOZED (o lote só age sobre ativos); padrão OPEN",
+            "items": {
+              "type": "string",
+              "enum": [
+                "OPEN",
+                "SNOOZED"
+              ]
+            }
+          },
+          "priorities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "P0",
+                "P1",
+                "P2",
+                "P3"
+              ]
+            }
+          },
+          "rules": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "POSITION_DROP",
+                "PORTFOLIO_DRAWDOWN",
+                "CONCENTRATION",
+                "TARGET_DRIFT",
+                "LARGE_SELLS",
+                "NO_CONTACT",
+                "MANUAL"
+              ]
+            }
+          },
+          "assignee": {
+            "type": "string",
+            "pattern": "^(me|none|[0-9a-fA-F]{24})$",
+            "description": "Só ORG_ADMIN: me, none (sem atribuição) ou o userId de um membro. Para o ADVISOR a fila já vem filtrada e o parâmetro é 400 ASSIGNEE_FILTER_FORBIDDEN"
+          }
+        }
+      },
+      "BulkAlertsDto": {
+        "type": "object",
+        "properties": {
+          "action": {
+            "type": "string",
+            "enum": [
+              "REVIEW",
+              "SNOOZE",
+              "DISMISS"
+            ]
+          },
+          "ids": {
+            "minItems": 1,
+            "maxItems": 500,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "filter": {
+            "description": "Até 500 alertas; acima disso, 400 com details.max",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/BulkAlertFilterDto"
+              }
+            ]
+          },
+          "until": {
+            "type": "string",
+            "description": "Com SNOOZE: YYYY-MM-DD, até 90 dias à frente"
+          },
+          "reason": {
+            "type": "string",
+            "description": "Com DISMISS",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "action"
+        ]
+      },
+      "BulkAlertsResponseDto": {
+        "type": "object",
+        "properties": {
+          "affected": {
+            "type": "number",
+            "description": "Alertas alterados"
+          },
+          "skipped": {
+            "type": "number",
+            "description": "Ids fora do alcance, inexistentes ou que já não estavam ativos"
+          }
+        },
+        "required": [
+          "affected",
+          "skipped"
+        ]
+      },
+      "HandleAlertDto": {
+        "type": "object",
+        "properties": {
+          "via": {
+            "type": "string",
+            "enum": [
+              "EMAIL",
+              "REVIEWED"
+            ]
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "via"
+        ]
+      },
+      "EmailDraftResponseDto": {
+        "type": "object",
+        "properties": {
+          "to": {
+            "type": "string",
+            "description": "E-mail do convite aceito que criou o vínculo, só com vínculo ACTIVE; ausente nos demais casos"
+          },
+          "subject": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "body"
+        ]
+      },
+      "HandleAlertResponseDto": {
+        "type": "object",
+        "properties": {
+          "alert": {
+            "$ref": "#/components/schemas/AlertResponseDto"
+          },
+          "emailDraft": {
+            "description": "Só com via EMAIL",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/EmailDraftResponseDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "alert"
+        ]
+      },
+      "SnoozeAlertDto": {
+        "type": "object",
+        "properties": {
+          "until": {
+            "type": "string",
+            "description": "YYYY-MM-DD, depois de hoje e até 90 dias à frente",
+            "example": "2025-07-01"
+          }
+        },
+        "required": [
+          "until"
+        ]
+      },
+      "DismissAlertDto": {
+        "type": "object",
+        "properties": {
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "reason"
+        ]
+      },
+      "AlertSettingsResponseDto": {
+        "type": "object",
+        "properties": {
+          "noContactDays": {
+            "description": "[P3, P2] em dias",
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "positionDropPct": {
+            "description": "[P1, P0] em %, 5 pregões",
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "portfolioDrawdownPct": {
+            "description": "[P2, P1] em %",
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "concentrationPct": {
+            "description": "[P2, P1] em % da carteira",
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "targetDriftPp": {
+            "description": "[P3, P2] em pontos percentuais",
+            "type": "array",
+            "items": {
+              "type": "number"
+            }
+          },
+          "largeSellsPct": {
+            "type": "number",
+            "description": "P1, em % do patrimônio, 30 dias"
+          },
+          "engineEnabledAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true,
+            "description": "Quando o motor foi ligado na organização; nulo antes disso"
+          }
+        },
+        "required": [
+          "noContactDays",
+          "positionDropPct",
+          "portfolioDrawdownPct",
+          "concentrationPct",
+          "targetDriftPp",
+          "largeSellsPct",
+          "engineEnabledAt"
+        ]
+      },
+      "PutAlertSettingsDto": {
+        "type": "object",
+        "properties": {
+          "noContactDays": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[P3, P2], cada um de 7 a 730; P2 > P3. Omitido volta ao padrão"
+          },
+          "positionDropPct": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[P1, P0], cada um de 1 a 90; P0 > P1. Omitido volta ao padrão"
+          },
+          "portfolioDrawdownPct": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[P2, P1], cada um de 1 a 90; P1 > P2. Omitido volta ao padrão"
+          },
+          "concentrationPct": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[P2, P1], cada um de 5 a 100; P1 > P2. Omitido volta ao padrão"
+          },
+          "targetDriftPp": {
+            "type": "array",
+            "items": {
+              "type": "number"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "[P3, P2], cada um de 1 a 100; P2 > P3. Omitido volta ao padrão"
+          },
+          "largeSellsPct": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "P1, em % do patrimônio (30 dias). Omitido volta ao padrão"
+          }
+        }
       }
     }
   }
