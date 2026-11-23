@@ -42,6 +42,7 @@ const IMMUTABLE_KEYS = new Set([
 	'orgId',
 	'clientProfileId',
 	'conditionKey',
+	'portfolioId',
 	'createdAt',
 	'updatedAt',
 ]);

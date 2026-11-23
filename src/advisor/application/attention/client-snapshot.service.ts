@@ -8,8 +8,11 @@ import {
 	ClientSnapshot,
 	conditionKeyOf,
 	SellWindow,
+	SOURCE_METRICS_FAILED,
+	SOURCE_READ_FAILED,
 	SourceSnapshot,
 } from '../../domain/attention.entities';
+import { isErasedClientProfile } from '../../domain/entities';
 import {
 	AlertRule,
 	AlertStatus,
@@ -22,6 +25,7 @@ import {
 	ADVISOR_ALERT_SETTINGS_STORE,
 	ADVISOR_ALERT_STORE,
 	ADVISOR_CLIENT_CONTACT_STORE,
+	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_CLIENT_SNAPSHOT_STORE,
 	ADVISOR_RELATIONSHIP_STORE,
 	ADVISOR_TRANSACTION_STORE,
@@ -33,6 +37,7 @@ import type { AlertSettingsStorePort } from '../ports/alert-settings.store.port'
 import type { AlertStorePort, NewAlert } from '../ports/alert.store.port';
 import type { ClientAttentionPurgePort } from '../ports/client-attention-purge.port';
 import type { ClientContactStorePort } from '../ports/client-contact.store.port';
+import type { ClientProfileStorePort } from '../ports/client-profile.store.port';
 import type { ClientSnapshotStorePort } from '../ports/client-snapshot.store.port';
 import type { RelationshipStorePort } from '../ports/relationship.store.port';
 import type { TransactionStorePort } from '../ports/transaction.store.port';
@@ -51,9 +56,7 @@ export interface RecomputeResult {
 	resolved: number;
 }
 
-/** Motivos de indisponibilidade de uma fonte, gravados no snapshot. */
-export const SOURCE_METRICS_FAILED = 'METRICS_FAILED';
-export const SOURCE_READ_FAILED = 'SOURCE_READ_FAILED';
+export { SOURCE_METRICS_FAILED, SOURCE_READ_FAILED };
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** `previous` das regras: alertas do cliente dos últimos 365 dias. */
@@ -71,17 +74,28 @@ const daysBefore = (iso: string, days: number): string => {
 
 interface BuiltSources {
 	sources: SourceSnapshot[];
-	/** Fontes que falharam: os alertas delas ficam como estão nesta rodada. */
-	frozen: Set<SnapshotSource>;
+	/**
+	 * Fontes que falharam (`sourceKeyOf`): os alertas delas ficam como estão
+	 * nesta rodada. `B2C_SHARED/*` congela todas as carteiras do B2C.
+	 */
+	frozen: Set<string>;
 	/**
 	 * Carteiras B2C desta rodada: `none` sem consentimento ativo, `unknown`
-	 * quando a leitura falhou.
+	 * quando nem o consentimento pôde ser lido.
 	 */
 	b2c:
 		| { kind: 'none' }
 		| { kind: 'unknown' }
-		| { kind: 'shared'; portfolioIds: Set<string> };
+		| { kind: 'shared'; portfolioIds: string[] };
 }
+
+/** O que fazer com o cliente: seguir, aposentar ou apagar tudo. */
+type ClientState = 'ACTIVE' | 'RETIRE' | 'PURGE';
+
+const ALL_SHARED = `${SnapshotSource.B2cShared}/*`;
+
+const sourceKeyOf = (source: SnapshotSource, portfolioId?: string): string =>
+	portfolioId ? `${source}/${portfolioId}` : source;
 
 /**
  * Read model de atenção de um cliente: monta o snapshot por fonte, grava a
@@ -95,6 +109,8 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 	constructor(
 		@Inject(ADVISOR_RELATIONSHIP_STORE)
 		private readonly relationships: RelationshipStorePort,
+		@Inject(ADVISOR_CLIENT_PROFILE_STORE)
+		private readonly profiles: ClientProfileStorePort,
 		@Inject(ADVISOR_TRANSACTION_STORE)
 		private readonly transactions: TransactionStorePort,
 		private readonly metrics: PortfolioMetricsService,
@@ -119,14 +135,14 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 			orgId,
 			clientProfileId
 		);
-		if (!relationship || relationship.status !== RelationshipStatus.Active) {
-			return this.retire(orgId, clientProfileId, now);
+		const state = await this.stateOf(orgId, clientProfileId, relationship);
+		if (!relationship || state !== 'ACTIVE') {
+			return this.leave(orgId, clientProfileId, state, now);
 		}
 
 		const today = isoDate(now);
-		const previous = await this.snapshots.find(orgId, clientProfileId);
 		const built = await this.buildSources(orgId, clientProfileId, now);
-		await this.dropStaleSharedRows(orgId, clientProfileId, previous, built);
+		await this.dropStaleSharedRows(orgId, clientProfileId, built);
 
 		const [startedAt, lastContactAt] = await Promise.all([
 			this.relationships.findCreatedAt(relationship.id),
@@ -173,7 +189,25 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 			)
 		).filter((a) => !isFrozen(a, built.frozen));
 
-		return this.apply(orgId, clientProfileId, candidates, existing, today, now);
+		const result = await this.apply(
+			orgId,
+			clientProfileId,
+			candidates,
+			existing,
+			today,
+			now
+		);
+
+		// R13: o vínculo ou o perfil pode ter acabado durante o cálculo (LGPD,
+		// revogação). Relido depois de gravar, para nada sobreviver à purga.
+		const after = await this.stateOf(orgId, clientProfileId);
+		if (after === 'ACTIVE') return result;
+		const left = await this.leave(orgId, clientProfileId, after, now);
+		return {
+			opened: result.opened,
+			updated: result.updated,
+			resolved: result.resolved + left.resolved,
+		};
 	}
 
 	/** LGPD: tudo do cliente, inclusive os alertas manuais. */
@@ -182,6 +216,41 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 		await this.wealth.deleteClient(orgId, clientProfileId);
 		await this.contacts.deleteByClient(orgId, clientProfileId);
 		await this.alerts.deleteByClient(orgId, clientProfileId);
+	}
+
+	/**
+	 * Perfil apagado ou anonimizado (LGPD): PURGE. Sem relação ACTIVE: RETIRE.
+	 * `relationship` já lida evita reler no começo da recomputação.
+	 */
+	private async stateOf(
+		orgId: string,
+		clientProfileId: string,
+		relationship?: Awaited<
+			ReturnType<RelationshipStorePort['findByOrgAndClient']>
+		>
+	): Promise<ClientState> {
+		const profile = await this.profiles.findById(clientProfileId);
+		if (!profile || profile.orgId !== orgId || isErasedClientProfile(profile)) {
+			return 'PURGE';
+		}
+		const current =
+			relationship === undefined
+				? await this.relationships.findByOrgAndClient(orgId, clientProfileId)
+				: relationship;
+		return current?.status === RelationshipStatus.Active ? 'ACTIVE' : 'RETIRE';
+	}
+
+	private async leave(
+		orgId: string,
+		clientProfileId: string,
+		state: ClientState,
+		now: Date
+	): Promise<RecomputeResult> {
+		if (state === 'PURGE') {
+			await this.purgeClient(orgId, clientProfileId);
+			return { opened: 0, updated: 0, resolved: 0 };
+		}
+		return this.retire(orgId, clientProfileId, now);
 	}
 
 	/**
@@ -214,7 +283,7 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 		clientProfileId: string,
 		now: Date
 	): Promise<BuiltSources> {
-		const frozen = new Set<SnapshotSource>();
+		const frozen = new Set<string>();
 		const sources: SourceSnapshot[] = [];
 
 		try {
@@ -242,7 +311,9 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 				now
 			);
 			for (const p of portfolios) {
-				if (p.metrics === null) frozen.add(SnapshotSource.B2cShared);
+				if (p.metrics === null) {
+					frozen.add(sourceKeyOf(SnapshotSource.B2cShared, p.portfolioId));
+				}
 				sources.push({
 					source: SnapshotSource.B2cShared,
 					portfolioId: p.portfolioId,
@@ -252,13 +323,13 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 					}),
 				});
 			}
-			const portfolioIds = new Set(portfolios.map((p) => p.portfolioId));
+			const portfolioIds = portfolios.map((p) => p.portfolioId);
 			return { sources, frozen, b2c: { kind: 'shared', portfolioIds } };
 		} catch (error) {
 			if (error instanceof NoActiveConsentError) {
 				return { sources, frozen, b2c: { kind: 'none' } };
 			}
-			frozen.add(SnapshotSource.B2cShared);
+			frozen.add(ALL_SHARED);
 			sources.push({
 				source: SnapshotSource.B2cShared,
 				metrics: null,
@@ -270,13 +341,12 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 
 	/**
 	 * Sem consentimento ativo, todas as linhas B2C saem. Com ele, saem as das
-	 * carteiras que deixaram de ser compartilhadas. Leitura que falhou não
-	 * apaga nada.
+	 * carteiras fora do consentimento atual (inclusive as de leituras que
+	 * falharam). Se nem o consentimento pôde ser lido, nada sai.
 	 */
 	private async dropStaleSharedRows(
 		orgId: string,
 		clientProfileId: string,
-		previous: ClientSnapshot | null,
 		built: BuiltSources
 	): Promise<void> {
 		const { b2c } = built;
@@ -289,24 +359,12 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 			);
 			return;
 		}
-		const stale = new Set(
-			(previous?.sources ?? [])
-				.filter(
-					(s) =>
-						s.source === SnapshotSource.B2cShared &&
-						s.portfolioId !== undefined &&
-						!b2c.portfolioIds.has(s.portfolioId)
-				)
-				.map((s) => s.portfolioId as string)
+		await this.wealth.deleteSourceExcept(
+			orgId,
+			clientProfileId,
+			SnapshotSource.B2cShared,
+			b2c.portfolioIds
 		);
-		for (const portfolioId of stale) {
-			await this.wealth.deleteSource(
-				orgId,
-				clientProfileId,
-				SnapshotSource.B2cShared,
-				portfolioId
-			);
-		}
 	}
 
 	private snapshotOf(
@@ -423,9 +481,12 @@ const isActive = (a: Alert): boolean =>
 	a.status === AlertStatus.Open || a.status === AlertStatus.Snoozed;
 
 const isFrozen = (
-	item: Pick<AlertCandidate, 'source'>,
-	frozen: Set<SnapshotSource>
-): boolean => item.source !== null && frozen.has(item.source);
+	item: Pick<AlertCandidate, 'source' | 'portfolioId'>,
+	frozen: Set<string>
+): boolean =>
+	item.source !== null &&
+	(frozen.has(sourceKeyOf(item.source, item.portfolioId)) ||
+		(item.source === SnapshotSource.B2cShared && frozen.has(ALL_SHARED)));
 
 const sum = (values: number[]): number =>
 	values.reduce((total, v) => total + v, 0);
@@ -450,9 +511,22 @@ function changesOf(current: Alert, patch: Partial<Alert>): Partial<Alert> {
 	const record = current as unknown as Record<string, unknown>;
 	const changed: Record<string, unknown> = {};
 	for (const [key, value] of Object.entries(patch)) {
-		if (JSON.stringify(record[key]) !== JSON.stringify(value)) {
+		if (stableJson(record[key]) !== stableJson(value)) {
 			changed[key] = value;
 		}
 	}
 	return changed as Partial<Alert>;
+}
+
+/** JSON com as chaves dos objetos em ordem: a ordem de gravação não conta. */
+export function stableJson(value: unknown): string | undefined {
+	return JSON.stringify(value, (_key, v: unknown) =>
+		v !== null && typeof v === 'object' && !Array.isArray(v)
+			? Object.fromEntries(
+					Object.entries(v as Record<string, unknown>).sort(([a], [b]) =>
+						a < b ? -1 : a > b ? 1 : 0
+					)
+				)
+			: v
+	);
 }

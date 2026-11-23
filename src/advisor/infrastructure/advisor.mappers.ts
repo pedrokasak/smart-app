@@ -220,6 +220,7 @@ export function toAlert(doc: AdvisorAlertDoc): Alert {
 		clientProfileId: doc.clientProfileId,
 		rule: doc.rule,
 		source: doc.source ?? null,
+		...(doc.portfolioId != null && { portfolioId: doc.portfolioId }),
 		key: doc.key,
 		conditionKey: doc.conditionKey,
 		band: doc.band,

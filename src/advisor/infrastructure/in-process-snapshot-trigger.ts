@@ -42,7 +42,7 @@ export class InProcessSnapshotTrigger implements ClientSnapshotTriggerPort {
 		}
 	}
 
-	/** Resolve quando a fila esvazia e nada está rodando (testes, shutdown). */
+	/** Resolve quando a fila esvazia e nada está rodando (testes). */
 	whenIdle(): Promise<void> {
 		if (this.isIdle()) return Promise.resolve();
 		return new Promise((resolve) => this.idleWaiters.push(resolve));

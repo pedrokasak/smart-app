@@ -74,6 +74,7 @@ export interface AdvisorAlertDoc {
 	clientProfileId: string;
 	rule: AlertRule;
 	source?: SnapshotSource | null;
+	portfolioId?: string | null;
 	key: string;
 	conditionKey: string;
 	band: 1 | 2;
@@ -215,6 +216,7 @@ const alertSchema = new Schema<AdvisorAlertDoc>(
 		clientProfileId: { type: String, required: true },
 		rule: { type: String, enum: Object.values(AlertRule), required: true },
 		source: nullableEnum(Object.values(SnapshotSource)),
+		portfolioId: { type: String },
 		key: { type: String, required: true },
 		conditionKey: { type: String, required: true },
 		band: { type: Number, enum: [1, 2], required: true },

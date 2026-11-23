@@ -39,6 +39,17 @@ export interface WealthDailyStorePort {
 		source: SnapshotSource,
 		portfolioId?: string
 	): Promise<void>;
+	/**
+	 * Apaga as linhas da fonte cujas carteiras não estão em
+	 * `keepPortfolioIds` (lista vazia => todas as da fonte).
+	 */
+	deleteSourceExcept(
+		orgId: string,
+		clientProfileId: string,
+		source: SnapshotSource,
+		keepPortfolioIds: string[]
+	): Promise<void>;
+	/** Todas as linhas do cliente, de qualquer fonte e carteira. */
 	deleteClient(orgId: string, clientProfileId: string): Promise<void>;
 	/**
 	 * Soma por dia, de `from` a `to` (YYYY-MM-DD, inclusivos), crescente.

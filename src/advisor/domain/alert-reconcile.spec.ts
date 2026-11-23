@@ -41,6 +41,27 @@ const alert = (over: Partial<Alert> = {}): Alert => {
 };
 
 describe('reconcileAlerts', () => {
+	it('duas carteiras B2C com o mesmo símbolo são condições distintas', () => {
+		const p1 = candidate({
+			source: SnapshotSource.B2cShared,
+			portfolioId: 'p1',
+		});
+		const p2 = candidate({
+			source: SnapshotSource.B2cShared,
+			portfolioId: 'p2',
+		});
+		const r = reconcileAlerts({
+			candidates: [p1, p2],
+			existing: [
+				alert({ source: SnapshotSource.B2cShared, portfolioId: 'p1' }),
+			],
+			today: TODAY,
+		});
+		expect(r.open).toEqual([p2]);
+		expect(r.update.map((u) => u.id)).toEqual(['a1']);
+		expect(r.resolve).toEqual([]);
+	});
+
 	it('abre candidato sem registro da condição', () => {
 		const c = candidate();
 		const r = reconcileAlerts({ candidates: [c], existing: [], today: TODAY });

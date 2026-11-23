@@ -1543,6 +1543,25 @@ export class InMemoryWealthDailyStore implements WealthDailyStorePort {
 		}
 	}
 
+	async deleteSourceExcept(
+		orgId: string,
+		clientProfileId: string,
+		source: SnapshotSource,
+		keepPortfolioIds: string[]
+	): Promise<void> {
+		const keep = new Set(keepPortfolioIds);
+		for (const [key, row] of this.rows) {
+			if (
+				row.orgId === orgId &&
+				row.clientProfileId === clientProfileId &&
+				row.source === source &&
+				!keep.has(row.portfolioId ?? '')
+			) {
+				this.rows.delete(key);
+			}
+		}
+	}
+
 	async deleteClient(orgId: string, clientProfileId: string): Promise<void> {
 		for (const [key, row] of this.rows) {
 			if (row.orgId === orgId && row.clientProfileId === clientProfileId) {
@@ -1618,6 +1637,7 @@ const IMMUTABLE_ALERT_KEYS = [
 	'orgId',
 	'clientProfileId',
 	'conditionKey',
+	'portfolioId',
 	'createdAt',
 	'updatedAt',
 ] as const;

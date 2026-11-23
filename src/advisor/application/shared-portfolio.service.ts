@@ -1,5 +1,9 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import {
+	SOURCE_METRICS_FAILED,
+	SOURCE_READ_FAILED,
+} from '../domain/attention.entities';
+import {
 	ConsentStatus,
 	ProfileOrigin,
 	RelationshipStatus,
@@ -50,8 +54,6 @@ export interface SharedPortfolioSystemMetrics {
 	metrics: ClientPortfolioMetrics | null;
 	unavailableReason?: string;
 }
-
-export const SHARED_METRICS_FAILED = 'METRICS_FAILED';
 
 /** Janela para achar o último fechamento de um ativo sem histórico. */
 const LAST_CLOSE_LOOKBACK_DAYS = 30;
@@ -129,7 +131,8 @@ export class SharedPortfolioService {
 	 * `ensureCanAccessClient` e sem auditoria, mas com as mesmas checagens de
 	 * relação ACTIVE, consentimento ACTIVE e dono do perfil
 	 * (`NoActiveConsentError` sem elas). Uma carteira que falha volta com
-	 * `metrics: null` e não derruba as outras.
+	 * `metrics: null` e não derruba as outras; se a leitura do B2C falha,
+	 * todas as consentidas voltam assim (`SOURCE_READ_FAILED`).
 	 */
 	async getSharedMetricsForSystem(
 		orgId: string,
@@ -140,7 +143,16 @@ export class SharedPortfolioService {
 			orgId,
 			clientProfileId
 		);
-		const data = await this.source.read(ownerUserId, portfolioIds);
+		let data: SharedPortfolioData[];
+		try {
+			data = await this.source.read(ownerUserId, portfolioIds);
+		} catch {
+			return portfolioIds.map((portfolioId) => ({
+				portfolioId,
+				metrics: null,
+				unavailableReason: SOURCE_READ_FAILED,
+			}));
+		}
 		const byId = new Map(data.map((p) => [p.portfolioId, p]));
 		const asOf = now.toISOString().slice(0, 10);
 
@@ -160,7 +172,7 @@ export class SharedPortfolioService {
 				result.push({
 					portfolioId: id,
 					metrics: null,
-					unavailableReason: SHARED_METRICS_FAILED,
+					unavailableReason: SOURCE_METRICS_FAILED,
 				});
 			}
 		}

@@ -273,11 +273,13 @@ export class InviteService {
 				this.relationships.deleteCreated(relationshipId)
 			);
 		}
-		await this.attempt('purge attention of', profileId, () =>
-			this.attention.purgeClient(ctx.orgId, profileId)
-		);
 		await this.attempt('delete', profileId, () =>
 			this.profiles.deleteById(profileId)
+		);
+		// Depois do perfil: uma recomputação em curso que grave depois disto
+		// relê o perfil, não o acha e purga sozinha.
+		await this.attempt('purge attention of', profileId, () =>
+			this.attention.purgeClient(ctx.orgId, profileId)
 		);
 	}
 

@@ -52,6 +52,22 @@ export class MongoWealthDailyStore implements WealthDailyStorePort {
 			.exec();
 	}
 
+	async deleteSourceExcept(
+		orgId: string,
+		clientProfileId: string,
+		source: SnapshotSource,
+		keepPortfolioIds: string[]
+	): Promise<void> {
+		await this.rows
+			.deleteMany({
+				orgId,
+				clientProfileId,
+				source,
+				portfolioId: { $nin: [...keepPortfolioIds] },
+			})
+			.exec();
+	}
+
 	async deleteClient(orgId: string, clientProfileId: string): Promise<void> {
 		await this.rows.deleteMany({ orgId, clientProfileId }).exec();
 	}

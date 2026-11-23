@@ -54,6 +54,7 @@ import { SharedPortfolioService } from '../shared-portfolio.service';
 import {
 	ClientSnapshotService,
 	SOURCE_METRICS_FAILED,
+	SOURCE_READ_FAILED,
 } from './client-snapshot.service';
 
 jest.mock('src/env', () => ({ jwtSecret: 'test-secret-for-audit-trail' }));
@@ -103,6 +104,9 @@ describe('ClientSnapshotService', () => {
 	let inviteService: InviteService;
 	let consentService: ConsentService;
 	let notifier: InMemoryInviteNotifier;
+	let orgs: InMemoryOrganizationStore;
+	let identity: InMemoryInviteeIdentity;
+	let invites: InMemoryInviteStore;
 	let orgId: string;
 
 	beforeAll(() => {
@@ -120,7 +124,7 @@ describe('ClientSnapshotService', () => {
 		audit = new FakeAuditTrail();
 		const memberships = new InMemoryMembershipStore();
 		const assignments = new InMemoryAssignmentStore();
-		const orgs = new InMemoryOrganizationStore();
+		orgs = new InMemoryOrganizationStore();
 		relationships = new InMemoryRelationshipStore(assignments);
 		profiles = new InMemoryClientProfileStore();
 		consents = new InMemoryConsentStore();
@@ -134,8 +138,8 @@ describe('ClientSnapshotService', () => {
 		contacts = new InMemoryClientContactStore();
 		notifier = new InMemoryInviteNotifier();
 		const benchmarks = new InMemoryBenchmarkSeries();
-		const identity = new InMemoryInviteeIdentity();
-		const invites = new InMemoryInviteStore();
+		identity = new InMemoryInviteeIdentity();
+		invites = new InMemoryInviteStore();
 
 		const org = await orgs.create({
 			name: 'Org A',
@@ -181,6 +185,7 @@ describe('ClientSnapshotService', () => {
 		);
 		service = new ClientSnapshotService(
 			relationships,
+			profiles,
 			transactions,
 			metrics,
 			shared,
@@ -267,10 +272,11 @@ describe('ClientSnapshotService', () => {
 	};
 
 	/** Cliente do B2C com a carteira p1 (100% PETR4) compartilhada. */
-	const sharingClient = async () => {
+	/** Carteira B2C só com PETR4 (100%). */
+	const petrPortfolio = (id: string) =>
 		source.add(INVESTOR, {
-			id: 'p1',
-			name: 'Principal',
+			id,
+			name: `Carteira ${id}`,
 			holdings: [
 				{
 					symbol: 'PETR4',
@@ -294,6 +300,9 @@ describe('ClientSnapshotService', () => {
 				},
 			],
 		});
+
+	const sharingClient = async () => {
+		petrPortfolio('p1');
 		const created = await inviteService.createInvite(
 			{ userId: ADVISOR, orgId },
 			{ email: 'joao@exemplo.com', clientName: 'Joao Silva' }
@@ -644,5 +653,213 @@ describe('ClientSnapshotService', () => {
 		expect(
 			audit.recorded.filter((e) => e.type === CLIENT_ACCESSED_EVENT)
 		).toEqual([]);
+	});
+	/** ConsentService com a purga de verdade (este serviço) atrás da porta. */
+	const erasingConsents = () =>
+		new ConsentService(
+			invites,
+			consents,
+			relationships,
+			new RelationshipService(relationships),
+			profiles,
+			orgs,
+			identity,
+			source,
+			audit,
+			new RecordingSnapshotTrigger(),
+			service
+		);
+
+	/** Segura a próxima leitura do livro até `release`. */
+	const holdLedger = () => {
+		let release!: () => void;
+		const gate = new Promise<void>((r) => (release = r));
+		const original = metrics.computeForSystem.bind(metrics);
+		let started!: () => void;
+		const reached = new Promise<void>((r) => (started = r));
+		jest
+			.spyOn(metrics, 'computeForSystem')
+			.mockImplementationOnce(async (...args) => {
+				started();
+				await gate;
+				return original(...args);
+			});
+		return { release, reached };
+	};
+
+	const expectNothingLeft = async (clientProfileId: string) => {
+		expect(await alertsOf(clientProfileId)).toEqual([]);
+		expect(await snapshots.find(orgId, clientProfileId)).toBeNull();
+		expect(
+			wealth.all.filter((r) => r.clientProfileId === clientProfileId)
+		).toEqual([]);
+		expect(await contacts.find(orgId, clientProfileId)).toBeNull();
+	};
+
+	describe('R13: purge while a recompute is running', () => {
+		it('a recompute that starts before the erasure and finishes after it leaves nothing', async () => {
+			const { clientProfileId } = await sharingClient();
+			await concentratedLedger(clientProfileId);
+			await service.recompute(orgId, clientProfileId, NOW);
+			await contacts.record(orgId, clientProfileId, NOW, ADVISOR);
+			const held = holdLedger();
+
+			const running = service.recompute(orgId, clientProfileId, NOW);
+			await held.reached;
+			await erasingConsents().eraseUser(INVESTOR, 'joao@exemplo.com');
+			held.release();
+			await running;
+
+			await expectNothingLeft(clientProfileId);
+		});
+
+		it('a recompute that writes between the purge and the anonymization is purged by the second pass', async () => {
+			const { clientProfileId } = await sharingClient();
+			await concentratedLedger(clientProfileId);
+			const held = holdLedger();
+			const running = service.recompute(orgId, clientProfileId, NOW);
+			await held.reached;
+			const anonymize = profiles.anonymizeByOwner.bind(profiles);
+			jest
+				.spyOn(profiles, 'anonymizeByOwner')
+				.mockImplementationOnce(async (userId: string) => {
+					// O cálculo termina aqui: perfil ainda sem a marca de apagado.
+					held.release();
+					await running;
+					expect((await alertsOf(clientProfileId)).length).toBeGreaterThan(0);
+					return anonymize(userId);
+				});
+
+			await erasingConsents().eraseUser(INVESTOR, 'joao@exemplo.com');
+
+			await expectNothingLeft(clientProfileId);
+		});
+
+		it('a plain revoke during a recompute only retires: manual alerts stay', async () => {
+			const { clientProfileId, relationshipId } = await sharingClient();
+			await concentratedLedger(clientProfileId);
+			await alerts.insertMany([manualAlert(clientProfileId)]);
+			const held = holdLedger();
+			const running = service.recompute(orgId, clientProfileId, NOW);
+			await held.reached;
+			await erasingConsents().revoke(INVESTOR, relationshipId);
+			held.release();
+			await running;
+
+			const left = await alertsOf(clientProfileId);
+			expect(
+				left.filter((a) => a.status === AlertStatus.Open).map((a) => a.rule)
+			).toEqual([AlertRule.Manual]);
+			expect(await snapshots.find(orgId, clientProfileId)).toBeNull();
+			expect(wealth.all).toEqual([]);
+		});
+
+		it('a profile deleted during the recompute is purged', async () => {
+			const { clientProfileId } = await advisorClient(400);
+			await concentratedLedger(clientProfileId);
+			const held = holdLedger();
+			const running = service.recompute(orgId, clientProfileId, NOW);
+			await held.reached;
+			await profiles.deleteById(clientProfileId);
+			held.release();
+			await running;
+
+			await expectNothingLeft(clientProfileId);
+		});
+	});
+
+	it('R11: two shared portfolios with the same symbol over the limit open two alerts', async () => {
+		petrPortfolio('p2');
+		const { clientProfileId, relationshipId } = await sharingClient();
+		await consentService.changeSharedPortfolios(INVESTOR, relationshipId, [
+			'p1',
+			'p2',
+		]);
+
+		await service.recompute(orgId, clientProfileId, NOW);
+
+		const shared = (await alertsOf(clientProfileId)).filter(
+			(a) => a.source === SnapshotSource.B2cShared
+		);
+		expect(shared.map((a) => [a.rule, a.portfolioId, a.key]).sort()).toEqual(
+			[
+				[AlertRule.Concentration, 'p1', 'PETR4'],
+				[AlertRule.Concentration, 'p2', 'PETR4'],
+			].sort()
+		);
+		expect(shared.map((a) => a.conditionKey).sort()).toEqual([
+			'CONCENTRATION:B2C_SHARED/p1:PETR4',
+			'CONCENTRATION:B2C_SHARED/p2:PETR4',
+		]);
+	});
+
+	describe('R12: B2C rows follow the current consent', () => {
+		const sharedRow = (clientProfileId: string, portfolioId: string) => ({
+			orgId,
+			clientProfileId,
+			date: DAYS[DAYS.length - 3],
+			source: SnapshotSource.B2cShared,
+			portfolioId,
+			totalMinor: 1,
+			verifiedMinor: 1,
+			manualMinor: 0,
+		});
+
+		it('drops rows of portfolios outside the consent, with no help from the previous snapshot', async () => {
+			const { clientProfileId } = await sharingClient();
+			await wealth.upsert(sharedRow(clientProfileId, 'p-old'));
+			expect(await snapshots.find(orgId, clientProfileId)).toBeNull();
+
+			await service.recompute(orgId, clientProfileId, NOW);
+
+			expect(
+				wealth.all
+					.filter((r) => r.source === SnapshotSource.B2cShared)
+					.map((r) => r.portfolioId)
+			).toEqual(['p1']);
+		});
+
+		it('a failed B2C read keeps the rows of consented portfolios and its alerts, drops the rest', async () => {
+			const { clientProfileId } = await sharingClient();
+			await service.recompute(orgId, clientProfileId, NOW);
+			const before = await alertsOf(clientProfileId);
+			await wealth.upsert(sharedRow(clientProfileId, 'p-old'));
+			jest.spyOn(source, 'read').mockRejectedValueOnce(new Error('down'));
+
+			await service.recompute(orgId, clientProfileId, NOW);
+
+			expect(
+				wealth.all
+					.filter((r) => r.source === SnapshotSource.B2cShared)
+					.map((r) => [r.portfolioId, r.date])
+			).toEqual([['p1', TODAY]]);
+			expect(await alertsOf(clientProfileId)).toEqual(before);
+			const snapshot = await snapshots.find(orgId, clientProfileId);
+			expect(
+				snapshot?.sources.find((s) => s.source === SnapshotSource.B2cShared)
+			).toEqual({
+				source: SnapshotSource.B2cShared,
+				portfolioId: 'p1',
+				metrics: null,
+				unavailableReason: SOURCE_READ_FAILED,
+			});
+		});
+	});
+
+	it('Minor 6: an alert stored with another key order is not patched again', async () => {
+		const { clientProfileId } = await advisorClient(400);
+		await concentratedLedger(clientProfileId);
+		await service.recompute(orgId, clientProfileId, NOW);
+		const [alert] = await alertsOf(clientProfileId);
+		const reversed = Object.fromEntries(
+			Object.entries(alert.evidence).reverse()
+		);
+		await alerts.patch(alert.id, { evidence: reversed });
+
+		expect(await service.recompute(orgId, clientProfileId, NOW)).toEqual({
+			opened: 0,
+			updated: 0,
+			resolved: 0,
+		});
 	});
 });

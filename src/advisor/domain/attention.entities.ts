@@ -12,6 +12,11 @@ export interface AlertCandidate {
 	rule: AlertRule;
 	/** `null` nas regras que não pertencem a uma fonte (`NO_CONTACT`). */
 	source: SnapshotSource | null;
+	/**
+	 * Só na carteira compartilhada do B2C: cada carteira é uma fonte própria
+	 * e entra na impressão digital.
+	 */
+	portfolioId?: string;
 	/** Símbolo, classe, `portfolio`, `client` ou, em `MANUAL`, o id do alerta. */
 	key: string;
 	/** 1 = faixa menos grave, 2 = mais grave. */
@@ -29,7 +34,7 @@ export interface Alert extends AlertCandidate {
 	id: string;
 	orgId: string;
 	clientProfileId: string;
-	/** `${rule}:${source ?? '-'}:${key}`. */
+	/** `${rule}:${source ?? '-'}[/portfolioId]:${key}`. */
 	conditionKey: string;
 	status: AlertStatus;
 	createdAt: Date;
@@ -71,5 +76,10 @@ export interface SellWindow {
 }
 
 export const conditionKeyOf = (
-	c: Pick<AlertCandidate, 'rule' | 'source' | 'key'>
-): string => `${c.rule}:${c.source ?? '-'}:${c.key}`;
+	c: Pick<AlertCandidate, 'rule' | 'source' | 'key' | 'portfolioId'>
+): string =>
+	`${c.rule}:${c.source ?? '-'}${c.portfolioId ? `/${c.portfolioId}` : ''}:${c.key}`;
+
+/** Motivos de indisponibilidade de uma fonte, gravados no snapshot. */
+export const SOURCE_METRICS_FAILED = 'METRICS_FAILED';
+export const SOURCE_READ_FAILED = 'SOURCE_READ_FAILED';

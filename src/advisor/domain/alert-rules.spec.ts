@@ -261,6 +261,31 @@ describe('evaluateAlerts', () => {
 			]);
 		});
 
+		it('each shared B2C portfolio is its own source: same symbol, two keys', () => {
+			const shared = (portfolioId: string): SourceSnapshot => ({
+				source: SnapshotSource.B2cShared,
+				portfolioId,
+				metrics: metrics({ positions: [position({ weightPct: 30 })] }),
+			});
+			const list = only(
+				run([shared('p1'), shared('p2')]),
+				AlertRule.Concentration
+			);
+			expect(list.map((c) => c.portfolioId)).toEqual(['p1', 'p2']);
+			expect(list.map(conditionKeyOf)).toEqual([
+				'CONCENTRATION:B2C_SHARED/p1:PETR4',
+				'CONCENTRATION:B2C_SHARED/p2:PETR4',
+			]);
+		});
+
+		it('the advisor ledger carries no portfolioId', () => {
+			const [c] = only(
+				run([source(metrics({ positions: [position({ weightPct: 30 })] }))]),
+				AlertRule.Concentration
+			);
+			expect('portfolioId' in c).toBe(false);
+		});
+
 		it('an unpriced position still fires, with a null close date', () => {
 			expect(
 				conc(40, { priced: false, lastCloseDate: null, change5dPct: null })[0]

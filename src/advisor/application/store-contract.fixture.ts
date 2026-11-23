@@ -2727,6 +2727,7 @@ const newAlert = (
 				rule: base.rule,
 				source: base.source,
 				key: base.key,
+				portfolioId: overrides.portfolioId,
 			}),
 	};
 };
@@ -3030,6 +3031,50 @@ export function describeAdvisorAttentionStoreContract(
 
 				await s.wealth.deleteSource(orgId, clientId, SnapshotSource.B2cShared);
 				expect(await total()).toBe(1000);
+			});
+
+			it('deleteSourceExcept keeps only the listed portfolios of that source', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const other = randomUUID();
+				await s.wealth.upsert(row(orgId, clientId, '2026-11-12'));
+				await s.wealth.upsert(shared(orgId, clientId, '2026-11-12', 'p-1', 10));
+				await s.wealth.upsert(shared(orgId, clientId, '2026-11-12', 'p-2', 20));
+				await s.wealth.upsert(shared(orgId, clientId, '2026-11-13', 'p-3', 40));
+				await s.wealth.upsert(shared(orgId, other, '2026-11-12', 'p-9', 80));
+				const total = async (date: string): Promise<number> =>
+					(await s.wealth.sumByDate(orgId, date, date))[0]?.totalMinor ?? 0;
+
+				await s.wealth.deleteSourceExcept(
+					orgId,
+					clientId,
+					SnapshotSource.B2cShared,
+					['p-2']
+				);
+				expect(await total('2026-11-12')).toBe(1000 + 20 + 80);
+				expect(await total('2026-11-13')).toBe(0);
+
+				await s.wealth.deleteSourceExcept(
+					orgId,
+					clientId,
+					SnapshotSource.B2cShared,
+					[]
+				);
+				expect(await total('2026-11-12')).toBe(1000 + 80);
+			});
+
+			it('deleteClient removes the rows of every source and portfolio of the client', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				await s.wealth.upsert(row(orgId, clientId, '2026-11-12'));
+				await s.wealth.upsert(shared(orgId, clientId, '2026-11-12', 'p-1', 10));
+				await s.wealth.upsert(shared(orgId, clientId, '2026-11-14', 'p-2', 20));
+
+				await s.wealth.deleteClient(orgId, clientId);
+
+				expect(
+					await s.wealth.sumByDate(orgId, '2026-11-01', '2026-11-30')
+				).toEqual([]);
 			});
 
 			it('deleteClient removes every row of that client in that org only', async () => {
@@ -3596,6 +3641,70 @@ export function describeAdvisorAttentionStoreContract(
 				).toEqual([a.id]);
 				expect(
 					await s.alerts.idsByFilter(orgId, { ...open, clientIds: [] }, 10)
+				).toEqual([]);
+			});
+
+			it('keeps portfolioId and puts it in the condition key of a shared portfolio', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const base = {
+					rule: AlertRule.Concentration,
+					source: SnapshotSource.B2cShared,
+					portfolioId: 'p-1',
+					key: 'PETR4',
+				};
+				const [stored] = await s.alerts.insertMany([
+					newAlert(orgId, clientId, {
+						...base,
+						conditionKey: conditionKeyOf(base),
+					}),
+				]);
+				const found = await s.alerts.findById(orgId, stored.id);
+				expect(found?.portfolioId).toBe('p-1');
+				expect(found?.conditionKey).toBe('CONCENTRATION:B2C_SHARED/p-1:PETR4');
+				const [ledger] = await s.alerts.insertMany([
+					newAlert(orgId, clientId, { key: 'VALE3' }),
+				]);
+				expect(
+					'portfolioId' in ((await s.alerts.findById(orgId, ledger.id)) ?? {})
+				).toBe(false);
+			});
+
+			it('deleteByClient removes every alert of the client, whatever status, rule or portfolio', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const at = new Date('2026-11-20T12:00:00Z');
+				const stored = await s.alerts.insertMany([
+					newAlert(orgId, clientId, { key: 'A' }),
+					newAlert(orgId, clientId, { key: 'B' }),
+					newAlert(orgId, clientId, { key: 'C' }),
+					newAlert(orgId, clientId, {
+						rule: AlertRule.Manual,
+						source: null,
+						key: 'manual-1',
+						title: 'Ligar',
+					}),
+					newAlert(orgId, clientId, {
+						source: SnapshotSource.B2cShared,
+						portfolioId: 'p-1',
+						key: 'D',
+					}),
+				]);
+				await s.alerts.resolveMany([stored[0].id], at);
+				await s.alerts.patch(stored[1].id, {
+					status: AlertStatus.Dismissed,
+					dismissReason: 'x',
+					closedAt: at,
+				});
+				await s.alerts.patch(stored[2].id, {
+					status: AlertStatus.Snoozed,
+					snoozedUntil: '2026-12-01',
+				});
+
+				await s.alerts.deleteByClient(orgId, clientId);
+
+				expect(
+					await s.alerts.listForClient(orgId, clientId, new Date(0))
 				).toEqual([]);
 			});
 

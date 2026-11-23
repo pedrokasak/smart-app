@@ -403,7 +403,7 @@ export class ConsentService {
 		const { revoked: byConsent } = await this.revokeAllForUser(userId);
 		const orphans = await this.revokeOwnedRelationships(userId);
 		const userConsents = await this.consents.listByUser(userId);
-		await this.purgeAttentionOfUser(userId, userConsents);
+		const clients = await this.purgeAttentionOfUser(userId, userConsents);
 		const relationshipIds = [
 			...new Set(userConsents.map((c) => c.relationshipId)),
 		];
@@ -412,7 +412,27 @@ export class ConsentService {
 			(await this.invites.deleteByRelationshipIds(relationshipIds)) +
 			(await this.deleteInvitesOf(userId, email));
 		const profiles = await this.profiles.anonymizeByOwner(userId);
+		await this.purgeAgainAfterAnonymizing(clients);
 		return { revoked: byConsent + orphans, consents, invites, profiles };
+	}
+
+	/**
+	 * A recomputation that was running during the first purge may have
+	 * written again before the profiles were anonymized (after that, its own
+	 * re-check purges). Best effort: the profile is already erased, so the
+	 * requested recompute purges anyway if this one fails (ids-only log).
+	 */
+	private async purgeAgainAfterAnonymizing(
+		clients: Array<{ orgId: string; clientProfileId: string }>
+	): Promise<void> {
+		for (const { orgId, clientProfileId } of clients) {
+			try {
+				await this.attention.purgeClient(orgId, clientProfileId);
+			} catch (error) {
+				this.logFailure('purge attention of client', clientProfileId, error);
+			}
+			this.snapshotTrigger.request(orgId, clientProfileId);
+		}
 	}
 
 	/**
@@ -423,7 +443,7 @@ export class ConsentService {
 	private async purgeAttentionOfUser(
 		userId: string,
 		userConsents: Consent[]
-	): Promise<void> {
+	): Promise<Array<{ orgId: string; clientProfileId: string }>> {
 		const clients = new Map<
 			string,
 			{ orgId: string; clientProfileId: string }
@@ -438,6 +458,7 @@ export class ConsentService {
 		for (const { orgId, clientProfileId } of clients.values()) {
 			await this.purgeAttention(orgId, clientProfileId);
 		}
+		return [...clients.values()];
 	}
 
 	/**

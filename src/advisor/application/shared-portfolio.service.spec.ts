@@ -513,6 +513,25 @@ describe('SharedPortfolioService', () => {
 			expect(audit.views).toHaveLength(0);
 		});
 
+		it('a failed B2C read returns every consented portfolio with SOURCE_READ_FAILED', async () => {
+			jest.spyOn(source, 'read').mockRejectedValue(new Error('source down'));
+
+			await expect(
+				service.getSharedMetricsForSystem(ctxA.orgId, clientProfileId)
+			).resolves.toEqual([
+				{
+					portfolioId: 'p1',
+					metrics: null,
+					unavailableReason: 'SOURCE_READ_FAILED',
+				},
+				{
+					portfolioId: 'p2',
+					metrics: null,
+					unavailableReason: 'SOURCE_READ_FAILED',
+				},
+			]);
+		});
+
 		it('turns one failing portfolio into metrics null and keeps the others', async () => {
 			const internals = service as unknown as {
 				metricsOf: (

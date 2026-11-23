@@ -301,11 +301,13 @@ export class ClientDirectoryService {
 				this.relationships.deleteById(relationshipId)
 			);
 		}
-		await this.attempt('purge attention of', clientProfileId, () =>
-			this.attention.purgeClient(ctx.orgId, clientProfileId)
-		);
 		await this.attempt('delete profile', clientProfileId, () =>
 			this.profiles.deleteById(clientProfileId)
+		);
+		// Depois do perfil: uma recomputação em curso que grave depois disto
+		// relê o perfil, não o acha e purga sozinha.
+		await this.attempt('purge attention of', clientProfileId, () =>
+			this.attention.purgeClient(ctx.orgId, clientProfileId)
 		);
 	}
 

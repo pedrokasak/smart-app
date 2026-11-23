@@ -301,16 +301,27 @@ function noContact(
 	];
 }
 
+/** Carteira compartilhada: `portfolioId` logo depois de `source`. */
+function withPortfolio(c: AlertCandidate, portfolioId: string): AlertCandidate {
+	const { rule, source, ...rest } = c;
+	return { rule, source, portfolioId, ...rest };
+}
+
 export function evaluateAlerts(input: EvaluateAlertsInput): AlertCandidate[] {
 	const { snapshot, sells, settings, contactBaseline, today } = input;
 	const out: AlertCandidate[] = [];
 	for (const s of snapshot.sources) {
 		const m = s.metrics;
 		if (m === null) continue;
-		out.push(
+		const fromSource = [
 			...positionRules(s, m, settings, today),
 			...portfolioRules(s, m, settings),
-			...largeSells(s, m, sells, settings)
+			...largeSells(s, m, sells, settings),
+		];
+		out.push(
+			...(s.source === SnapshotSource.B2cShared && s.portfolioId
+				? fromSource.map((c) => withPortfolio(c, s.portfolioId as string))
+				: fromSource)
 		);
 	}
 	out.push(...noContact(contactBaseline, today, settings));
