@@ -46,6 +46,11 @@ import type { InviteStorePort } from './ports/invite.store.port';
 import { ADVISOR_INVITEE_IDENTITY } from './ports/invitee-identity.port';
 import type { InviteeIdentityPort } from './ports/invitee-identity.port';
 import type { OrganizationStorePort } from './ports/organization.store.port';
+import { ADVISOR_RELATIONSHIP_NOTIFIER } from './ports/relationship-notifier.port';
+import type {
+	RelationshipNotifierPort,
+	RelationshipUpdateKind,
+} from './ports/relationship-notifier.port';
 import type { RelationshipStorePort } from './ports/relationship.store.port';
 import { ADVISOR_SHARED_PORTFOLIO_SOURCE } from './ports/shared-portfolio-source.port';
 import type {
@@ -149,7 +154,9 @@ export class ConsentService {
 		@Inject(ADVISOR_SNAPSHOT_TRIGGER)
 		private readonly snapshotTrigger: ClientSnapshotTriggerPort,
 		@Inject(ADVISOR_ATTENTION_PURGE)
-		private readonly attention: ClientAttentionPurgePort
+		private readonly attention: ClientAttentionPurgePort,
+		@Inject(ADVISOR_RELATIONSHIP_NOTIFIER)
+		private readonly notifier: RelationshipNotifierPort
 	) {}
 
 	async previewInvite(userId: string, token: string): Promise<InvitePreview> {
@@ -226,6 +233,7 @@ export class ConsentService {
 			throw error;
 		}
 		this.snapshotTrigger.request(accepted.orgId, accepted.clientProfileId);
+		this.notifyAdvisors(accepted, 'ACCEPTED');
 		await this.proveInviteeEmail(userId, accepted.email);
 		return toGrant(consent, org);
 	}
@@ -259,6 +267,7 @@ export class ConsentService {
 		if (!declined) throw new InviteNotFoundError();
 		await this.relationships.revokePending(declined.relationshipId);
 		await this.recordEnding(INVITE_DECLINED_EVENT, userId, declined);
+		this.notifyAdvisors(declined, 'DECLINED');
 	}
 
 	async listMyGrants(userId: string): Promise<AccessGrant[]> {
@@ -358,6 +367,7 @@ export class ConsentService {
 		// Sem relação ACTIVE, a recomputação resolve os alertas do sistema e
 		// mantém os manuais do assessor.
 		this.snapshotTrigger.request(consent.orgId, consent.clientProfileId);
+		this.notifyAdvisors(consent, 'REVOKED');
 	}
 
 	/**
@@ -782,6 +792,34 @@ export class ConsentService {
 			return 0;
 		}
 		return this.invites.deleteByEmail(normalized);
+	}
+
+	/**
+	 * E-mail aos assessores do cliente, depois que a ação do investidor já
+	 * valeu. Não espera o envio e nunca muda o resultado: uma falha (síncrona
+	 * ou não) registra só a classe do erro.
+	 */
+	private notifyAdvisors(
+		target: { orgId: string; clientProfileId: string },
+		kind: RelationshipUpdateKind
+	): void {
+		const failed = (error: unknown) =>
+			this.logFailure(
+				`notify advisors of ${kind} client`,
+				target.clientProfileId,
+				error
+			);
+		try {
+			void this.notifier
+				.notify({
+					orgId: target.orgId,
+					clientProfileId: target.clientProfileId,
+					kind,
+				})
+				.catch(failed);
+		} catch (error) {
+			failed(error);
+		}
 	}
 
 	private logFailure(step: string, id: string, error: unknown): void {

@@ -39,6 +39,7 @@ import {
 	InMemoryRelationshipStore,
 	InMemorySharedPortfolioSource,
 	RecordingAttentionPurge,
+	RecordingRelationshipNotifier,
 	RecordingSnapshotTrigger,
 } from './in-memory-stores.fixture';
 import { InviteService } from './invite.service';
@@ -80,6 +81,7 @@ describe('ConsentService', () => {
 	let assignments: InMemoryAssignmentStore;
 	let trigger: RecordingSnapshotTrigger;
 	let purge: RecordingAttentionPurge;
+	let relNotifier: RecordingRelationshipNotifier;
 	let ctxA: { userId: string; orgId: string };
 	let ctxB: { userId: string; orgId: string };
 
@@ -149,6 +151,7 @@ describe('ConsentService', () => {
 		);
 		trigger = new RecordingSnapshotTrigger();
 		purge = new RecordingAttentionPurge();
+		relNotifier = new RecordingRelationshipNotifier();
 		service = new ConsentService(
 			invites,
 			consents,
@@ -160,7 +163,8 @@ describe('ConsentService', () => {
 			source,
 			audit,
 			trigger,
-			purge
+			purge,
+			relNotifier
 		);
 	});
 
@@ -1024,6 +1028,115 @@ describe('ConsentService', () => {
 					consentVersion: 1,
 				}),
 			]);
+		});
+	});
+
+	describe('relationship notifications', () => {
+		it('notifies ACCEPTED with the org and client after a successful accept', async () => {
+			const { inv } = await accept();
+
+			expect(relNotifier.sent).toEqual([
+				{
+					orgId: inv.orgId,
+					clientProfileId: inv.clientProfileId,
+					kind: 'ACCEPTED',
+				},
+			]);
+		});
+
+		it('notifies DECLINED after a successful decline', async () => {
+			const inv = await invited();
+
+			await service.declineInvite(INVESTOR, inv.token);
+
+			expect(relNotifier.sent).toEqual([
+				{
+					orgId: inv.orgId,
+					clientProfileId: inv.clientProfileId,
+					kind: 'DECLINED',
+				},
+			]);
+		});
+
+		it('notifies REVOKED after the plain revoke', async () => {
+			const { inv } = await accept();
+			relNotifier.sent.length = 0;
+
+			await service.revoke(INVESTOR, inv.relationshipId);
+
+			expect(relNotifier.sent).toEqual([
+				{
+					orgId: inv.orgId,
+					clientProfileId: inv.clientProfileId,
+					kind: 'REVOKED',
+				},
+			]);
+		});
+
+		it('does not notify when the accept fails', async () => {
+			const inv = await invited();
+
+			await expect(
+				service.acceptInvite(INVESTOR, inv.token, ['nope'])
+			).rejects.toBeDefined();
+			await expect(
+				service.declineInvite(OTHER_INVESTOR, inv.token)
+			).rejects.toBeInstanceOf(InviteNotFoundError);
+			await expect(
+				service.revoke(OTHER_INVESTOR, inv.relationshipId)
+			).rejects.toBeDefined();
+
+			expect(relNotifier.sent).toEqual([]);
+		});
+
+		it('does not notify on account erasure (revokeAllForUser)', async () => {
+			await accept();
+			relNotifier.sent.length = 0;
+
+			await service.revokeAllForUser(INVESTOR);
+
+			expect(relNotifier.sent).toEqual([]);
+		});
+
+		it('a failing notifier never changes the result of accept, decline or revoke', async () => {
+			const error = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+			relNotifier.failNext();
+			const { inv, grant } = await accept();
+			expect(grant.relationshipId).toBe(inv.relationshipId);
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Active);
+
+			relNotifier.failNext();
+			await expect(
+				service.revoke(INVESTOR, inv.relationshipId)
+			).resolves.toBeUndefined();
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Revoked);
+
+			const other = await invited('maria@exemplo.com');
+			identity.set(INVESTOR, {
+				email: 'maria@exemplo.com',
+				emailVerified: true,
+			});
+			relNotifier.failNext();
+			await expect(
+				service.declineInvite(INVESTOR, other.token)
+			).resolves.toBeUndefined();
+
+			await new Promise((resolve) => setImmediate(resolve));
+			const logged = JSON.stringify(error.mock.calls);
+			expect(logged).toContain('Error');
+			expect(logged).not.toContain('exemplo.com');
+			expect(logged).not.toContain('notify failed');
+		});
+
+		it('a notifier that throws synchronously never changes the result', async () => {
+			jest.spyOn(Logger.prototype, 'error').mockImplementation();
+			jest.spyOn(relNotifier, 'notify').mockImplementation(() => {
+				throw new Error('sync boom');
+			});
+
+			const { inv } = await accept();
+
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Active);
 		});
 	});
 

@@ -42,6 +42,7 @@ import {
 	InMemoryTransactionStore,
 	InMemoryWealthDailyStore,
 	RecordingAttentionPurge,
+	RecordingRelationshipNotifier,
 	RecordingSnapshotTrigger,
 } from '../in-memory-stores.fixture';
 import { InviteService } from '../invite.service';
@@ -217,7 +218,8 @@ describe('ClientSnapshotService', () => {
 			source,
 			audit,
 			new RecordingSnapshotTrigger(),
-			new RecordingAttentionPurge()
+			new RecordingAttentionPurge(),
+			new RecordingRelationshipNotifier()
 		);
 	});
 
@@ -701,7 +703,8 @@ describe('ClientSnapshotService', () => {
 			source,
 			audit,
 			new RecordingSnapshotTrigger(),
-			service
+			service,
+			new RecordingRelationshipNotifier()
 		);
 
 	/** Segura a próxima leitura do livro até `release`. */

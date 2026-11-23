@@ -93,6 +93,8 @@ import {
 } from './infrastructure/advisor-team.models';
 import { B2cSharedPortfolioSourceAdapter } from './infrastructure/b2c-shared-portfolio-source.adapter';
 import { EmailInviteNotifierAdapter } from './infrastructure/email-invite-notifier.adapter';
+import { EmailRelationshipNotifier } from './infrastructure/email-relationship-notifier';
+import { ADVISOR_RELATIONSHIP_NOTIFIER } from './application/ports/relationship-notifier.port';
 import { InProcessSnapshotTrigger } from './infrastructure/in-process-snapshot-trigger';
 import {
 	ADVISOR_WEB_URL,
@@ -274,6 +276,11 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		{
 			provide: ADVISOR_MEMBER_INVITE_NOTIFIER,
 			useExisting: EmailMemberInviteNotifierAdapter,
+		},
+		EmailRelationshipNotifier,
+		{
+			provide: ADVISOR_RELATIONSHIP_NOTIFIER,
+			useExisting: EmailRelationshipNotifier,
 		},
 		MongoPortalGrantStore,
 		UserPortalAccountDirectoryAdapter,

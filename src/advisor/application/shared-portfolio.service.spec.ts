@@ -30,6 +30,7 @@ import {
 	InMemoryRelationshipStore,
 	InMemorySharedPortfolioSource,
 	RecordingAttentionPurge,
+	RecordingRelationshipNotifier,
 	RecordingSnapshotTrigger,
 } from './in-memory-stores.fixture';
 import { InviteService } from './invite.service';
@@ -234,7 +235,8 @@ describe('SharedPortfolioService', () => {
 			source,
 			audit,
 			new RecordingSnapshotTrigger(),
-			new RecordingAttentionPurge()
+			new RecordingAttentionPurge(),
+			new RecordingRelationshipNotifier()
 		);
 		service = new SharedPortfolioService(
 			authz,

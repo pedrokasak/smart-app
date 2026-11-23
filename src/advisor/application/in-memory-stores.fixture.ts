@@ -1,6 +1,10 @@
 import { ConflictException } from '@nestjs/common';
 import type { ClientAttentionPurgePort } from './ports/client-attention-purge.port';
 import type { ClientSnapshotTriggerPort } from './ports/client-snapshot-trigger.port';
+import type {
+	RelationshipNotifierPort,
+	RelationshipUpdateInput,
+} from './ports/relationship-notifier.port';
 import { randomUUID } from 'crypto';
 import {
 	AlertSettings,
@@ -1927,5 +1931,23 @@ export class RecordingAttentionPurge implements ClientAttentionPurgePort {
 			throw new Error('purge failed');
 		}
 		this.purged.push(`${orgId}:${clientProfileId}`);
+	}
+}
+
+/** Notifier que só anota os avisos; `failNext` faz o próximo lançar. */
+export class RecordingRelationshipNotifier implements RelationshipNotifierPort {
+	readonly sent: RelationshipUpdateInput[] = [];
+	private failures = 0;
+
+	failNext(times = 1): void {
+		this.failures = times;
+	}
+
+	async notify(input: RelationshipUpdateInput): Promise<void> {
+		if (this.failures > 0) {
+			this.failures -= 1;
+			throw new Error('notify failed');
+		}
+		this.sent.push(input);
 	}
 }

@@ -292,6 +292,58 @@ Se não foi você, fale com suporte@trackerr.com.br.`;
 		await this.sender.send({ to: params.to, subject, html, text });
 	}
 
+	/**
+	 * Aviso ao assessor de que o investidor respondeu ao convite ou revogou o
+	 * acesso. Só traz o nome do escritório e o primeiro nome do cliente, nunca
+	 * valores. O link do portal já vem montado.
+	 */
+	async sendAdvisorRelationshipUpdateEmail(params: {
+		to: string;
+		kind: 'ACCEPTED' | 'DECLINED' | 'REVOKED';
+		orgName: string;
+		clientFirstName: string;
+		portalLink: string;
+	}): Promise<void> {
+		const orgName = singleLine(params.orgName);
+		const client = singleLine(params.clientFirstName) || 'Um cliente';
+		const safeOrg = escapeHtml(orgName);
+		const safeClient = escapeHtml(client);
+		const copy = {
+			ACCEPTED: {
+				subject: `${client} aceitou o convite de ${orgName}`,
+				hero: 'Um cliente aceitou o convite',
+				html: `<strong>${safeClient}</strong> aceitou o convite de <strong>${safeOrg}</strong> e passou a compartilhar a carteira com o escritório.`,
+				text: `${client} aceitou o convite de ${orgName} e passou a compartilhar a carteira com o escritório.`,
+			},
+			DECLINED: {
+				subject: `${client} recusou o convite de ${orgName}`,
+				hero: 'Um cliente recusou o convite',
+				html: `<strong>${safeClient}</strong> recusou o convite de <strong>${safeOrg}</strong>. Nenhuma carteira foi compartilhada.`,
+				text: `${client} recusou o convite de ${orgName}. Nenhuma carteira foi compartilhada.`,
+			},
+			REVOKED: {
+				subject: `${client} encerrou o compartilhamento com ${orgName}`,
+				hero: 'Um cliente encerrou o compartilhamento',
+				html: `<strong>${safeClient}</strong> encerrou o compartilhamento da carteira com <strong>${safeOrg}</strong>. O escritório não tem mais acesso aos dados dessa carteira.`,
+				text: `${client} encerrou o compartilhamento da carteira com ${orgName}. O escritório não tem mais acesso aos dados dessa carteira.`,
+			},
+		}[params.kind];
+
+		const subject = `${copy.subject} — Trackerr Advisor`;
+		const html = this.getBaseTemplate({
+			title: escapeHtml(copy.subject),
+			hero: copy.hero,
+			description: copy.html,
+			ctaLabel: 'Ver meus clientes',
+			ctaUrl: escapeHtml(params.portalLink),
+			footerNote:
+				'Você recebe este aviso porque acompanha este cliente no Trackerr Advisor.',
+		});
+		const text = `${copy.hero} - Trackerr Advisor\n\n${copy.text}\nVer meus clientes: ${params.portalLink}\n\nVocê recebe este aviso porque acompanha este cliente no Trackerr Advisor.`;
+
+		await this.sender.send({ to: params.to, subject, html, text });
+	}
+
 	async sendWelcomeEmail(email: string, firstName?: string): Promise<void> {
 		const dashboardLink = `${this.getAppBaseUrl()}/dashboard`;
 		const safeName = String(firstName || 'Investidor').trim();
