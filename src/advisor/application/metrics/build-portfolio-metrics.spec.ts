@@ -92,7 +92,7 @@ const expectSeriesRefused = (m: ClientPortfolioMetrics): void => {
 	expect(m.risk).toEqual({
 		volatilityAnnualized: null,
 		maxDrawdown: null,
-		drawdownPeakDate: null,
+		currentDrawdown: null,
 		drawdownTroughDate: null,
 		var95: null,
 		unavailable: 'INCONSISTENT_LEDGER',
@@ -568,6 +568,104 @@ describe('buildPortfolioMetrics', () => {
 		expect(JSON.stringify(m)).not.toMatch(
 			/recomend|sugest|deveria|comprar|vender|aportar/i
 		);
+	});
+});
+
+describe('buildPortfolioMetrics short-term change and current drawdown', () => {
+	const closesOf = (days: string[], values: number[]): DailyCloseMinor[] =>
+		days.map((date, i) => ({ date, closeMinor: values[i] }));
+
+	it('reports the 5-session change with sign and the last close date', () => {
+		const days = tradingDays('2025-05-05', 6);
+		const m = build({
+			asOf: days[5],
+			ledger: [tx({ tradeDate: days[0] })],
+			closes: new Map([
+				['PETR4', closesOf(days, [10000, 9900, 9800, 9500, 9000, 8800])],
+			]),
+		});
+
+		expect(m.positions[0].change5dPct).toBe(-12);
+		expect(m.positions[0].lastCloseDate).toBe(days[5]);
+	});
+
+	it('is null with fewer than 6 closes, but keeps the last close date', () => {
+		const days = tradingDays('2025-05-05', 5);
+		const m = build({
+			asOf: days[4],
+			ledger: [tx({ tradeDate: days[0] })],
+			closes: new Map([
+				['PETR4', closesOf(days, [10000, 9900, 9800, 9500, 9000])],
+			]),
+		});
+
+		expect(m.positions[0].change5dPct).toBeNull();
+		expect(m.positions[0].lastCloseDate).toBe(days[4]);
+	});
+
+	it('ignores closes after asOf', () => {
+		const days = tradingDays('2025-05-05', 7);
+		const m = build({
+			asOf: days[5],
+			ledger: [tx({ tradeDate: days[0] })],
+			closes: new Map([
+				['PETR4', closesOf(days, [10000, 9900, 9800, 9500, 9000, 8800, 5000])],
+			]),
+		});
+
+		expect(m.positions[0].change5dPct).toBe(-12);
+		expect(m.positions[0].lastCloseDate).toBe(days[5]);
+	});
+
+	it('is null on both fields for a position without a quote', () => {
+		const m = build({
+			asOf: '2025-06-30',
+			ledger: [tx({ tradeDate: '2025-05-05' })],
+		});
+
+		expect(m.positions[0].priced).toBe(false);
+		expect(m.positions[0].change5dPct).toBeNull();
+		expect(m.positions[0].lastCloseDate).toBeNull();
+	});
+
+	it('is 0 after a drop older than 252 sessions that has recovered', () => {
+		const days = tradingDays('2024-01-02', 330);
+		const values = days.map((_, i) => {
+			if (i < 20) return 10000;
+			if (i < 70) return 8000;
+			if (i < 100) return 8000 + Math.round(((i - 69) / 30) * 2000);
+			return 10000;
+		});
+		const m = build({
+			asOf: days[329],
+			ledger: [tx({ tradeDate: days[0] })],
+			closes: new Map([['PETR4', closesOf(days, values)]]),
+		});
+
+		expect(m.risk.unavailable).toBeNull();
+		expect(m.risk.maxDrawdown).toBeCloseTo(-0.2, 4);
+		expect(m.risk.currentDrawdown).toBe(0);
+	});
+
+	it('is the fall from the last peak: 100 -> 110 -> 99 gives 0.1', () => {
+		const days = tradingDays('2025-05-05', 40);
+		const values = days.map((_, i) =>
+			i < 38 ? 10000 : i === 38 ? 11000 : 9900
+		);
+		const m = build({
+			asOf: days[39],
+			ledger: [tx({ tradeDate: days[0] })],
+			closes: new Map([['PETR4', closesOf(days, values)]]),
+		});
+
+		expect(m.risk.currentDrawdown).toBeCloseTo(0.1, 6);
+	});
+
+	it('is null whenever risk is unavailable', () => {
+		const m = build({ asOf: '2025-06-30', ledger: [] });
+
+		expect(m.risk.unavailable).not.toBeNull();
+		expect(m.risk.currentDrawdown).toBeNull();
 	});
 });
 

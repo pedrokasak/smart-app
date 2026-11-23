@@ -75,6 +75,11 @@ export interface ClientPortfolioMetrics {
 	risk: {
 		volatilityAnnualized: number | null;
 		maxDrawdown: number | null;
+		/**
+		 * Queda de hoje contra o pico dos últimos 252 retornos, fração positiva
+		 * (0,12 = 12% abaixo do pico). `null` quando o risco não está disponível.
+		 */
+		currentDrawdown: number | null;
 		drawdownPeakDate: string | null;
 		drawdownTroughDate: string | null;
 		var95: { pct: number; amountMinor: number; horizonDays: 21 } | null;
@@ -115,6 +120,8 @@ const TOP_POSITIONS = 5;
 const VAR_HORIZON_DAYS = 21;
 const VAR_CONFIDENCE = 0.95;
 const ANNUALIZE_FROM_DAYS = 365;
+const CURRENT_DRAWDOWN_WINDOW = 252;
+const CHANGE_WINDOW_SESSIONS = 5;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
 const toReais = (minor: number): number => minor / 100;
@@ -148,6 +155,48 @@ function lastCloses(
 		}
 	}
 	return last;
+}
+
+/** Fechamentos válidos até `asOf`, em ordem de data. */
+const sortedCloses = (
+	closes: DailyCloseMinor[] | undefined,
+	asOf: string
+): DailyCloseMinor[] =>
+	validCloses(closes, asOf).sort((a, b) => a.date.localeCompare(b.date));
+
+/** Última data de fechamento e variação de 5 pregões, por símbolo. */
+function recentMoves(
+	valued: ValuedPosition[],
+	closes: Map<string, DailyCloseMinor[]>,
+	asOf: string
+): ValuedPosition[] {
+	return valued.map((p) => {
+		const series = sortedCloses(closes.get(p.symbol), asOf);
+		if (series.length === 0) return p;
+		const last = series[series.length - 1];
+		const base = series[series.length - 1 - CHANGE_WINDOW_SESSIONS];
+		return {
+			...p,
+			lastCloseDate: last.date,
+			change5dPct: base
+				? round((last.closeMinor / base.closeMinor - 1) * 100, 4)
+				: null,
+		};
+	});
+}
+
+/** Queda atual contra o pico do valor acumulado nos últimos 252 retornos. */
+function currentDrawdown(returns: DatedReturn[]): number {
+	const window = [...returns]
+		.sort((a, b) => a.date.localeCompare(b.date))
+		.slice(-CURRENT_DRAWDOWN_WINDOW);
+	let level = 1;
+	let peak = 1;
+	for (const point of window) {
+		level *= 1 + point.value;
+		if (level > peak) peak = level;
+	}
+	return level >= peak ? 0 : round(1 - level / peak, 6);
 }
 
 interface SeriesAnalysis {
@@ -289,9 +338,10 @@ export function buildPortfolioMetrics(
 	);
 	const noHistory = new Set(withoutHistory.map((p) => p.symbol));
 	const positions = [...derived.positions, ...withoutHistory];
-	const valued = valuePositions(
-		positions,
-		lastCloses(input.closes, input.asOf)
+	const valued = recentMoves(
+		valuePositions(positions, lastCloses(input.closes, input.asOf)),
+		input.closes,
+		input.asOf
 	);
 	const totalValueMinor = valued.reduce(
 		(sum, p) => sum + p.marketValueMinor,
@@ -366,6 +416,7 @@ export function buildPortfolioMetrics(
 		risk: {
 			volatilityAnnualized: volatility,
 			maxDrawdown: drawdown ? drawdown.maxDrawdown : null,
+			currentDrawdown: measured ? currentDrawdown(series.returns) : null,
 			drawdownPeakDate: drawdown ? drawdown.peakDate : null,
 			drawdownTroughDate: drawdown ? drawdown.troughDate : null,
 			var95:

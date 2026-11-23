@@ -12,6 +12,13 @@ export interface ValuedPosition extends Position {
 	priced: boolean;
 	/** 0-100, sobre o total. */
 	weightPct: number;
+	/**
+	 * Variação do último fechamento contra o de 5 pregões antes, em % com
+	 * sinal. `null` sem cotação ou com menos de 6 fechamentos.
+	 */
+	change5dPct: number | null;
+	/** Data do último fechamento usado; `null` sem cotação. */
+	lastCloseDate: string | null;
 }
 
 export const DEFAULT_LIQUIDITY_DAYS: Partial<Record<AssetClass, number>> = {
@@ -46,6 +53,8 @@ export function valuePositions(
 	return base.map((p) => ({
 		...p,
 		weightPct: pct(p.marketValueMinor, total),
+		change5dPct: null,
+		lastCloseDate: null,
 	}));
 }
 
