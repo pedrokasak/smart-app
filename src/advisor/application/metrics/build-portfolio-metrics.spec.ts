@@ -93,6 +93,7 @@ const expectSeriesRefused = (m: ClientPortfolioMetrics): void => {
 		volatilityAnnualized: null,
 		maxDrawdown: null,
 		currentDrawdown: null,
+		drawdownPeakDate: null,
 		drawdownTroughDate: null,
 		var95: null,
 		unavailable: 'INCONSISTENT_LEDGER',

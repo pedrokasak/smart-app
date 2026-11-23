@@ -174,7 +174,10 @@ function recentMoves(
 		const series = sortedCloses(closes.get(p.symbol), asOf);
 		if (series.length === 0) return p;
 		const last = series[series.length - 1];
-		const base = series[series.length - 1 - CHANGE_WINDOW_SESSIONS];
+		const base =
+			series.length > CHANGE_WINDOW_SESSIONS
+				? series[series.length - 1 - CHANGE_WINDOW_SESSIONS]
+				: undefined;
 		return {
 			...p,
 			lastCloseDate: last.date,
