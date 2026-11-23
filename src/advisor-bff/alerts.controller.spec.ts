@@ -556,6 +556,7 @@ describe('AlertsController', () => {
 				{ action: 'REVIEW', ids },
 				{ action: 'REVIEW', filter: { priorities: ['P9'] } },
 				{ action: 'REVIEW', filter: { assignee: 'bob' } },
+				{ action: 'REVIEW', filter: { statuses: ['HANDLED'] } },
 				{ action: 'SNOOZE', ids: [MISSING], until: 'amanhã' },
 			]) {
 				const res = await t
@@ -578,6 +579,27 @@ describe('AlertsController', () => {
 				reason: 'VALIDATION_FAILED',
 				details: { field: 'ids' },
 			});
+		});
+
+		it('answers 400 VALIDATION_FAILED (never 500) for a null or non-object filter and null ids', async () => {
+			for (const body of [
+				{ action: 'REVIEW', filter: null },
+				{ action: 'REVIEW', ids: null },
+				{ action: 'REVIEW', filter: 'OPEN' },
+				{ action: 'REVIEW', filter: [] },
+			]) {
+				const res = await t
+					.http()
+					.post('/advisor/v1/alerts/bulk')
+					.set(A())
+					.send(body)
+					.expect(400);
+				expect(res.body).toEqual({
+					statusCode: 400,
+					error: 'BAD_REQUEST',
+					reason: 'VALIDATION_FAILED',
+				});
+			}
 		});
 
 		it('answers 400 ASSIGNEE_FILTER_FORBIDDEN to an ADVISOR filtering by assignee', async () => {

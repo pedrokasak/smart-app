@@ -5,10 +5,12 @@ import {
 	ArrayMinSize,
 	IsArray,
 	IsIn,
+	IsObject,
 	IsOptional,
 	IsString,
 	IsUUID,
 	Matches,
+	ValidateIf,
 	ValidateNested,
 } from 'class-validator';
 import type { EmailDraft } from 'src/advisor/application/attention/alert.service';
@@ -46,13 +48,20 @@ const toList = ({ value }: { value: unknown }): unknown => {
 	return parts;
 };
 
+const LIST_DESCRIPTION = 'Lista separada por vírgula ou o parâmetro repetido';
+
+/** O lote só age sobre alertas ativos. */
+const BULK_STATUSES = [AlertStatus.Open, AlertStatus.Snoozed];
+
 const ASSIGNEE_DESCRIPTION =
 	'Só ORG_ADMIN: me, none (sem atribuição) ou o userId de um membro. Para o ADVISOR a fila já vem filtrada e o parâmetro é 400 ASSIGNEE_FILTER_FORBIDDEN';
 
 export class ListAlertsQueryDto extends PageQueryDto {
 	@ApiPropertyOptional({
-		description: `Lista separada por vírgula: ${STATUSES.join(', ')}`,
-		default: 'OPEN',
+		enum: AlertStatus,
+		isArray: true,
+		default: [AlertStatus.Open],
+		description: LIST_DESCRIPTION,
 		example: 'OPEN,SNOOZED',
 	})
 	@IsOptional()
@@ -61,7 +70,9 @@ export class ListAlertsQueryDto extends PageQueryDto {
 	status?: AlertStatus[];
 
 	@ApiPropertyOptional({
-		description: `Lista separada por vírgula: ${PRIORITIES.join(', ')}`,
+		enum: AlertPriority,
+		isArray: true,
+		description: LIST_DESCRIPTION,
 		example: 'P0,P1',
 	})
 	@IsOptional()
@@ -70,7 +81,9 @@ export class ListAlertsQueryDto extends PageQueryDto {
 	priority?: AlertPriority[];
 
 	@ApiPropertyOptional({
-		description: `Lista separada por vírgula: ${RULES.join(', ')}`,
+		enum: AlertRule,
+		isArray: true,
+		description: LIST_DESCRIPTION,
 	})
 	@IsOptional()
 	@Transform(toList)
@@ -142,13 +155,13 @@ export class DismissAlertDto {
 
 export class BulkAlertFilterDto {
 	@ApiPropertyOptional({
-		enum: AlertStatus,
+		enum: BULK_STATUSES,
 		isArray: true,
-		description: 'Só OPEN e SNOOZED alcançam o lote; padrão OPEN',
+		description: 'Só OPEN e SNOOZED (o lote só age sobre ativos); padrão OPEN',
 	})
 	@IsOptional()
 	@IsArray()
-	@IsIn(STATUSES, { each: true })
+	@IsIn(BULK_STATUSES, { each: true })
 	statuses?: AlertStatus[];
 
 	@ApiPropertyOptional({ enum: AlertPriority, isArray: true })
@@ -185,7 +198,8 @@ export class BulkAlertsDto {
 		minItems: 1,
 		maxItems: ALERT_BULK_MAX,
 	})
-	@IsOptional()
+	// `null` não é ausência: valida e dá 400 (IsOptional deixaria passar).
+	@ValidateIf((o: BulkAlertsDto) => o.ids !== undefined)
 	@IsArray()
 	@ArrayMinSize(1)
 	@ArrayMaxSize(ALERT_BULK_MAX)
@@ -196,7 +210,8 @@ export class BulkAlertsDto {
 		type: BulkAlertFilterDto,
 		description: 'Até 500 alertas; acima disso, 400 com details.max',
 	})
-	@IsOptional()
+	@ValidateIf((o: BulkAlertsDto) => o.filter !== undefined)
+	@IsObject()
 	@ValidateNested()
 	@Type(() => BulkAlertFilterDto)
 	filter?: BulkAlertFilterDto;
