@@ -434,6 +434,40 @@ describe('ClientSnapshotService', () => {
 		).toEqual(new Date(NOW.getTime() - DAY_MS));
 	});
 
+	it('R14: a recompute on the wake date reopens a snoozed manual alert', async () => {
+		const { clientProfileId } = await advisorClient(10);
+		const [due] = await alerts.insertMany([
+			{
+				...manualAlert(clientProfileId),
+				status: AlertStatus.Snoozed,
+				snoozedUntil: TODAY,
+			},
+		]);
+		const later = {
+			...manualAlert(clientProfileId),
+			key: 'manual-2',
+			conditionKey: conditionKeyOf({
+				rule: AlertRule.Manual,
+				source: null,
+				key: 'manual-2',
+			}),
+			status: AlertStatus.Snoozed,
+			snoozedUntil: addDay(TODAY),
+		};
+		const [notYet] = await alerts.insertMany([later]);
+
+		const result = await service.recompute(orgId, clientProfileId, NOW);
+
+		expect(result).toEqual({ opened: 0, updated: 1, resolved: 0 });
+		const woken = await alerts.findById(orgId, due.id);
+		expect(woken?.status).toBe(AlertStatus.Open);
+		expect(woken?.snoozedUntil).toBeUndefined();
+		expect(woken?.title).toBe('Ligar');
+		expect((await alerts.findById(orgId, notYet.id))?.status).toBe(
+			AlertStatus.Snoozed
+		);
+	});
+
 	it('recomputing twice changes nothing', async () => {
 		const { clientProfileId } = await advisorClient(400);
 		await concentratedLedger(clientProfileId);

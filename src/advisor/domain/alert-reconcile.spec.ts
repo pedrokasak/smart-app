@@ -252,6 +252,45 @@ describe('reconcileAlerts', () => {
 		expect(r).toEqual({ open: [], update: [], resolve: [] });
 	});
 
+	it('R14: MANUAL adiado acorda na data e não muda mais nada', () => {
+		const manual = (over: Partial<Alert>) =>
+			alert({
+				rule: AlertRule.Manual,
+				source: null,
+				status: AlertStatus.Snoozed,
+				...over,
+			});
+		const r = reconcileAlerts({
+			candidates: [],
+			existing: [
+				manual({ id: 'due', key: 'due', snoozedUntil: TODAY }),
+				manual({ id: 'past', key: 'past', snoozedUntil: '2026-11-01' }),
+				manual({ id: 'later', key: 'later', snoozedUntil: '2026-11-24' }),
+				manual({
+					id: 'open',
+					key: 'open',
+					status: AlertStatus.Open,
+					snoozedUntil: undefined,
+				}),
+			],
+			today: TODAY,
+		});
+		expect(r).toEqual({
+			open: [],
+			resolve: [],
+			update: [
+				{
+					id: 'due',
+					patch: { status: AlertStatus.Open, snoozedUntil: undefined },
+				},
+				{
+					id: 'past',
+					patch: { status: AlertStatus.Open, snoozedUntil: undefined },
+				},
+			],
+		});
+	});
+
 	it('Review Focus 2: SNOOZED banda 1 + candidato banda 2 reabre sem duplicar', () => {
 		const r = reconcileAlerts({
 			candidates: [candidate({ band: 2, priority: AlertPriority.P0 })],

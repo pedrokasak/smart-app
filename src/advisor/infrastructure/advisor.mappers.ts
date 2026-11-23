@@ -245,6 +245,7 @@ export function toAlert(doc: AdvisorAlertDoc): Alert {
 		...(doc.handledByUserId != null && {
 			handledByUserId: doc.handledByUserId,
 		}),
+		...(doc.handledNote != null && { handledNote: doc.handledNote }),
 		...(doc.dismissReason != null && { dismissReason: doc.dismissReason }),
 		...(doc.closedAt != null && { closedAt: doc.closedAt }),
 	};

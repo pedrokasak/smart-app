@@ -279,20 +279,22 @@ export class AlertService {
 			via: input.via,
 		});
 		const now = new Date();
-		const handled = await this.patchActive(id, {
-			status: AlertStatus.Handled,
-			handledVia: input.via,
-			handledByUserId: ctx.userId,
-			closedAt: now,
-			snoozedUntil: undefined,
-			...(note !== undefined ? { note } : {}),
-		});
+		// Antes do alerta: um contato que falha não deixa HANDLED sem "último
+		// contato". Gravar de novo é inofensivo (só avança).
 		await this.contacts.record(
 			ctx.orgId,
 			alert.clientProfileId,
 			now,
 			ctx.userId
 		);
+		const handled = await this.patchActive(id, {
+			status: AlertStatus.Handled,
+			handledVia: input.via,
+			handledByUserId: ctx.userId,
+			closedAt: now,
+			snoozedUntil: undefined,
+			...(note !== undefined ? { handledNote: note } : {}),
+		});
 		if (input.via !== AlertHandledVia.Email) return { alert: handled };
 		const to = await this.emailTo(ctx.orgId, alert.clientProfileId);
 		return {
@@ -393,16 +395,17 @@ export class AlertService {
 			action: input.action,
 			alertIds: eligible.map((a) => a.id),
 		});
-		const results = await inChunks(eligible, (a) =>
-			this.alerts.patch(a.id, patch, ACTIVE)
-		);
-		const affected = results.filter((r): r is Alert => r !== null);
 		if (input.action === 'REVIEW') {
-			const clients = [...new Set(affected.map((a) => a.clientProfileId))];
+			// Antes dos alertas, como em `handle`.
+			const clients = [...new Set(eligible.map((a) => a.clientProfileId))];
 			await inChunks(clients, (clientProfileId) =>
 				this.contacts.record(ctx.orgId, clientProfileId, now, ctx.userId)
 			);
 		}
+		const results = await inChunks(eligible, (a) =>
+			this.alerts.patch(a.id, patch, ACTIVE)
+		);
+		const affected = results.filter((r): r is Alert => r !== null);
 		return {
 			affected: affected.length,
 			skipped: skipped + eligible.length - affected.length,

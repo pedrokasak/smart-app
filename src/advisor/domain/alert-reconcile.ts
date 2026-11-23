@@ -48,6 +48,16 @@ const dedupeCandidates = (
 	return byKey;
 };
 
+const isDueToWake = (alert: Alert, today: string): boolean =>
+	alert.status === AlertStatus.Snoozed &&
+	alert.snoozedUntil !== undefined &&
+	alert.snoozedUntil <= today;
+
+const WAKE_PATCH: Partial<Alert> = {
+	status: AlertStatus.Open,
+	snoozedUntil: undefined,
+};
+
 const updateActive = (
 	alert: Alert,
 	candidate: AlertCandidate,
@@ -69,22 +79,16 @@ const updateActive = (
 		dataAsOf: candidate.dataAsOf,
 		lowConfidence: candidate.lowConfidence,
 	};
-	if (
-		alert.status === AlertStatus.Snoozed &&
-		alert.snoozedUntil !== undefined &&
-		alert.snoozedUntil <= today
-	) {
-		patch.status = AlertStatus.Open;
-		patch.snoozedUntil = undefined;
-	}
+	if (isDueToWake(alert, today)) Object.assign(patch, WAKE_PATCH);
 	return patch;
 };
 
 /**
  * Decide, a cada recomputação, quais alertas abrir, atualizar ou resolver.
  * Uma condição tem no máximo um alerta ativo; depois de tratada ou
- * descartada, só reabre quando a banda piora. Alertas `MANUAL` não são
- * tocados.
+ * descartada, só reabre quando a banda piora. Um alerta `MANUAL` nunca é
+ * resolvido nem atualizado; só acorda (R14): adiado com `snoozedUntil` até
+ * hoje volta a OPEN.
  */
 export const reconcileAlerts = ({
 	candidates,
@@ -97,6 +101,12 @@ export const reconcileAlerts = ({
 		(a) => a.conditionKey
 	);
 	const candidateByKey = dedupeCandidates(candidates);
+
+	for (const alert of existing) {
+		if (alert.rule === AlertRule.Manual && isDueToWake(alert, today)) {
+			result.update.push({ id: alert.id, patch: { ...WAKE_PATCH } });
+		}
+	}
 
 	for (const [conditionKey, alerts] of byCondition) {
 		const active = alerts

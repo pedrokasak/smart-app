@@ -3280,6 +3280,28 @@ export function describeAdvisorAttentionStoreContract(
 				expect(await s.alerts.patch(randomUUID(), { note: 'x' })).toBeNull();
 			});
 
+			it('R15: handledNote is stored next to the creation note, both survive', async () => {
+				const orgId = randomUUID();
+				const [alert] = await s.alerts.insertMany([
+					newAlert(orgId, randomUUID(), { note: 'nota da criação' }),
+				]);
+
+				const handled = await s.alerts.patch(
+					alert.id,
+					{ status: AlertStatus.Handled, handledNote: 'nota do tratamento' },
+					[AlertStatus.Open]
+				);
+
+				expect(handled).toMatchObject({
+					note: 'nota da criação',
+					handledNote: 'nota do tratamento',
+				});
+				expect(await s.alerts.findById(orgId, alert.id)).toMatchObject({
+					note: 'nota da criação',
+					handledNote: 'nota do tratamento',
+				});
+			});
+
 			it('concurrent patches with the same expectedStatus: exactly one wins', async () => {
 				const [alert] = await s.alerts.insertMany([
 					newAlert(randomUUID(), randomUUID()),

@@ -100,6 +100,7 @@ export interface AdvisorAlertDoc {
 	snoozedUntil?: string;
 	handledVia?: AlertHandledVia;
 	handledByUserId?: string;
+	handledNote?: string;
 	dismissReason?: string;
 	closedAt?: Date;
 	createdAt: Date;
@@ -251,6 +252,7 @@ const alertSchema = new Schema<AdvisorAlertDoc>(
 		snoozedUntil: isoDate,
 		handledVia: { type: String, enum: Object.values(AlertHandledVia) },
 		handledByUserId: { type: String },
+		handledNote: { type: String },
 		dismissReason: { type: String },
 		closedAt: { type: Date },
 	},

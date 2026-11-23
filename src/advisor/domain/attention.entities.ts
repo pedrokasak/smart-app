@@ -46,6 +46,8 @@ export interface Alert extends AlertCandidate {
 	snoozedUntil?: string;
 	handledVia?: AlertHandledVia;
 	handledByUserId?: string;
+	/** Nota de quem tratou; não substitui a `note` da criação (R15). */
+	handledNote?: string;
 	dismissReason?: string;
 	closedAt?: Date;
 }

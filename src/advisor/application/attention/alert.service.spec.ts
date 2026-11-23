@@ -514,9 +514,10 @@ describe('AlertService', () => {
 				status: AlertStatus.Handled,
 				handledVia: AlertHandledVia.Reviewed,
 				handledByUserId: ADVISOR,
-				note: 'Conversado',
+				handledNote: 'Conversado',
 				closedAt: NOW,
 			});
+			expect(result.alert.note).toBeUndefined();
 			expect(await contacts.find(orgId, mine.clientProfileId)).toEqual(NOW);
 			const [handled] = audit.ofType(ALERT_HANDLED_EVENT);
 			expect(handled.payload).toEqual({
@@ -527,6 +528,36 @@ describe('AlertService', () => {
 				priority: AlertPriority.P1,
 				via: AlertHandledVia.Reviewed,
 			});
+		});
+
+		it('R15: handling a MANUAL alert keeps the creation note', async () => {
+			const manual = await service.create(admin(), {
+				clientProfileId: mine.clientProfileId,
+				title: 'Ligar',
+				priority: AlertPriority.P2,
+				note: 'Nota da criação',
+			});
+			const { alert: handled } = await service.handle(admin(), manual.id, {
+				via: AlertHandledVia.Reviewed,
+				note: 'Nota do tratamento',
+			});
+			expect(handled).toMatchObject({
+				note: 'Nota da criação',
+				handledNote: 'Nota do tratamento',
+			});
+		});
+
+		it('M2: a failed contact write leaves the alert active', async () => {
+			const alert = await seed(ruleAlert(mine.clientProfileId));
+			jest
+				.spyOn(contacts, 'record')
+				.mockRejectedValueOnce(new Error('contact down'));
+			await expect(
+				service.handle(admin(), alert.id, { via: AlertHandledVia.Reviewed })
+			).rejects.toThrow('contact down');
+			expect((await alerts.findById(orgId, alert.id))?.status).toBe(
+				AlertStatus.Open
+			);
 		});
 
 		it('handles a SNOOZED alert and clears snoozedUntil', async () => {
@@ -834,6 +865,19 @@ describe('AlertService', () => {
 				action: 'REVIEW',
 				alertIds: [a.id, b.id],
 			});
+		});
+
+		it('M2: a failed contact write in a REVIEW bulk changes no alert', async () => {
+			const a = await seed(ruleAlert(mine.clientProfileId));
+			jest
+				.spyOn(contacts, 'record')
+				.mockRejectedValueOnce(new Error('contact down'));
+			await expect(
+				service.bulk(admin(), { action: 'REVIEW', ids: [a.id] })
+			).rejects.toThrow('contact down');
+			expect((await alerts.findById(orgId, a.id))?.status).toBe(
+				AlertStatus.Open
+			);
 		});
 
 		it('SNOOZE by filter covers only what the member sees', async () => {
