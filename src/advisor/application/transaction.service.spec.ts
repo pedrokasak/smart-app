@@ -19,6 +19,7 @@ import {
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
 	InMemoryTransactionStore,
+	RecordingSnapshotTrigger,
 } from './in-memory-stores.fixture';
 import { RelationshipService } from './relationship.service';
 import {
@@ -60,6 +61,7 @@ describe('TransactionService', () => {
 	let audit: FakeAuditTrail;
 	let assignments: InMemoryAssignmentStore;
 	let service: TransactionService;
+	let trigger: RecordingSnapshotTrigger;
 
 	beforeEach(async () => {
 		const memberships = new InMemoryMembershipStore();
@@ -76,7 +78,8 @@ describe('TransactionService', () => {
 			assignments,
 			audit
 		);
-		service = new TransactionService(authz, transactions);
+		trigger = new RecordingSnapshotTrigger();
+		service = new TransactionService(authz, transactions, trigger);
 		await memberships.create({ userId, orgId: 'orgA', role: OrgRole.Advisor });
 		profiles.seed({
 			id: 'clientA',
@@ -103,6 +106,21 @@ describe('TransactionService', () => {
 	});
 
 	const stored = () => transactions.listByClient('orgA', 'clientA');
+
+	describe('snapshot trigger', () => {
+		it('asks for a recompute after adding and after removing, never on a refused write', async () => {
+			const tx = await service.addManual(ctx, 'clientA', buy());
+			expect(trigger.requests).toEqual(['orgA:clientA']);
+
+			await service
+				.addManual(ctx, 'clientA', buy({ quantity: -1 }))
+				.catch(() => undefined);
+			expect(trigger.requests).toHaveLength(1);
+
+			await service.removeManual(ctx, 'clientA', tx.id);
+			expect(trigger.requests).toEqual(['orgA:clientA', 'orgA:clientA']);
+		});
+	});
 
 	describe('addManual', () => {
 		it('stores a MANUAL entry from ctx and audits EDIT_POSITION', async () => {

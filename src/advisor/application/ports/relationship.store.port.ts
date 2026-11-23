@@ -19,6 +19,8 @@ export interface RelationshipStorePort {
 		relationship: Omit<AdvisoryRelationship, 'id'>
 	): Promise<AdvisoryRelationship>;
 	findById(id: string): Promise<AdvisoryRelationship | null>;
+	/** Quando a relação foi criada (início do vínculo); null se não existe. */
+	findCreatedAt(id: string): Promise<Date | null>;
 	/**
 	 * Devolve a relação mais relevante entre a organização e o perfil do
 	 * cliente, independente do status: prefere a ACTIVE; sem ACTIVE, a mais

@@ -1,4 +1,6 @@
 import { ConflictException } from '@nestjs/common';
+import type { ClientAttentionPurgePort } from './ports/client-attention-purge.port';
+import type { ClientSnapshotTriggerPort } from './ports/client-snapshot-trigger.port';
 import { randomUUID } from 'crypto';
 import {
 	AlertSettings,
@@ -296,6 +298,16 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 
 	async findById(id: string): Promise<AdvisoryRelationship | null> {
 		return this.items.get(id) ?? null;
+	}
+
+	async findCreatedAt(id: string): Promise<Date | null> {
+		const at = this.createdAt.get(id);
+		return at ? new Date(at) : null;
+	}
+
+	/** Só para testes: muda a data de criação (relação antiga). */
+	setCreatedAt(id: string, at: Date): void {
+		if (this.createdAt.has(id)) this.createdAt.set(id, new Date(at));
 	}
 
 	async findByOrgAndClient(
@@ -1496,6 +1508,11 @@ export class InMemoryClientSnapshotStore implements ClientSnapshotStorePort {
 export class InMemoryWealthDailyStore implements WealthDailyStorePort {
 	private readonly rows = new Map<string, WealthDailyRow>();
 
+	/** Só para testes: todas as linhas gravadas. */
+	get all(): WealthDailyRow[] {
+		return [...this.rows.values()].map((r) => ({ ...r }));
+	}
+
 	async upsert(row: WealthDailyRow): Promise<void> {
 		assertWealthRow(row);
 		const key = JSON.stringify([
@@ -1863,5 +1880,32 @@ export class InMemoryClientContactStore implements ClientContactStorePort {
 
 	async deleteByClient(orgId: string, clientProfileId: string): Promise<void> {
 		this.items.delete(this.key(orgId, clientProfileId));
+	}
+}
+
+/** Gatilho que só anota os pedidos (`orgId:clientProfileId`). */
+export class RecordingSnapshotTrigger implements ClientSnapshotTriggerPort {
+	readonly requests: string[] = [];
+
+	request(orgId: string, clientProfileId: string): void {
+		this.requests.push(`${orgId}:${clientProfileId}`);
+	}
+}
+
+/** Purga que só anota os pedidos; `failNext` faz a próxima lançar. */
+export class RecordingAttentionPurge implements ClientAttentionPurgePort {
+	readonly purged: string[] = [];
+	private failures = 0;
+
+	failNext(times = 1): void {
+		this.failures = times;
+	}
+
+	async purgeClient(orgId: string, clientProfileId: string): Promise<void> {
+		if (this.failures > 0) {
+			this.failures -= 1;
+			throw new Error('purge failed');
+		}
+		this.purged.push(`${orgId}:${clientProfileId}`);
 	}
 }

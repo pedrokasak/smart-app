@@ -13,6 +13,7 @@ import {
 	InMemoryClientProfileStore,
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
+	RecordingSnapshotTrigger,
 } from './in-memory-stores.fixture';
 import { RelationshipService } from './relationship.service';
 
@@ -30,6 +31,7 @@ describe('AllocationTargetService', () => {
 	const ctx = { userId: 'user-1', orgId: 'orgA' };
 	let store: InMemoryAllocationTargetStore;
 	let service: AllocationTargetService;
+	let trigger: RecordingSnapshotTrigger;
 
 	beforeEach(async () => {
 		const memberships = new InMemoryMembershipStore();
@@ -45,7 +47,8 @@ describe('AllocationTargetService', () => {
 			assignments,
 			new FakeAuditTrail()
 		);
-		service = new AllocationTargetService(authz, store);
+		trigger = new RecordingSnapshotTrigger();
+		service = new AllocationTargetService(authz, store, trigger);
 		await memberships.create({
 			userId: 'user-1',
 			orgId: 'orgA',
@@ -66,6 +69,16 @@ describe('AllocationTargetService', () => {
 		await rel.create('orgA', 'clientA');
 		await rel.create('orgB', 'clientB');
 		await assignments.assign('orgA', 'clientA', 'user-1', 'user-1');
+	});
+
+	it('asks for a recompute after saving a target, not after a refused one', async () => {
+		await service
+			.setTarget(ctx, 'clientA', { [AssetClass.Stock]: 50 })
+			.catch(() => undefined);
+		expect(trigger.requests).toEqual([]);
+
+		await service.setTarget(ctx, 'clientA', { [AssetClass.Stock]: 100 });
+		expect(trigger.requests).toEqual(['orgA:clientA']);
 	});
 
 	it('stores a valid target with identity from ctx', async () => {

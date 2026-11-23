@@ -7,10 +7,12 @@ import {
 	ADVISOR_ASSIGNMENT_STORE,
 	ADVISOR_MEMBERSHIP_STORE,
 	ADVISOR_RELATIONSHIP_STORE,
+	ADVISOR_SNAPSHOT_TRIGGER,
 } from './advisor.tokens';
 import { ClientNotAccessibleError } from './access-errors';
 import { AccessContext, AuthorizationService } from './authorization.service';
 import type { AssignmentStorePort } from './ports/assignment.store.port';
+import type { ClientSnapshotTriggerPort } from './ports/client-snapshot-trigger.port';
 import type { MembershipStorePort } from './ports/membership.store.port';
 import { ADVISOR_PORTAL_ACCOUNT_DIRECTORY } from './ports/portal-account-directory.port';
 import type { PortalAccountDirectoryPort } from './ports/portal-account-directory.port';
@@ -42,7 +44,9 @@ export class AssignmentService {
 		private readonly relationships: RelationshipStorePort,
 		@Inject(ADVISOR_PORTAL_ACCOUNT_DIRECTORY)
 		private readonly accounts: PortalAccountDirectoryPort,
-		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail
+		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail,
+		@Inject(ADVISOR_SNAPSHOT_TRIGGER)
+		private readonly snapshotTrigger: ClientSnapshotTriggerPort
 	) {}
 
 	async assign(
@@ -67,6 +71,7 @@ export class AssignmentService {
 				.catch(() => undefined);
 			throw error;
 		}
+		this.snapshotTrigger.request(ctx.orgId, clientProfileId);
 	}
 
 	async unassign(
@@ -89,6 +94,7 @@ export class AssignmentService {
 				.catch(() => undefined);
 			throw error;
 		}
+		this.snapshotTrigger.request(ctx.orgId, clientProfileId);
 	}
 
 	async listAssignees(

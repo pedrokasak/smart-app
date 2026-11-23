@@ -5,6 +5,7 @@ import request from 'supertest';
 import {
 	ADVISOR_ALLOCATION_TARGET_STORE,
 	ADVISOR_ASSIGNMENT_STORE,
+	ADVISOR_ATTENTION_PURGE,
 	ADVISOR_BENCHMARK_SERIES,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_CONSENT_STORE,
@@ -12,6 +13,7 @@ import {
 	ADVISOR_MEMBERSHIP_STORE,
 	ADVISOR_PRICE_HISTORY,
 	ADVISOR_RELATIONSHIP_STORE,
+	ADVISOR_SNAPSHOT_TRIGGER,
 	ADVISOR_TRANSACTION_STORE,
 } from 'src/advisor/application/advisor.tokens';
 import { AllocationTargetService } from 'src/advisor/application/allocation-target.service';
@@ -33,6 +35,8 @@ import {
 	InMemoryRelationshipStore,
 	InMemorySharedPortfolioSource,
 	InMemoryTransactionStore,
+	RecordingAttentionPurge,
+	RecordingSnapshotTrigger,
 } from 'src/advisor/application/in-memory-stores.fixture';
 import { MembershipService } from 'src/advisor/application/membership.service';
 import { PortfolioMetricsService } from 'src/advisor/application/metrics/portfolio-metrics.service';
@@ -186,6 +190,14 @@ describe('ClientsController', () => {
 				{ provide: ADVISOR_CLIENT_PROFILE_STORE, useValue: profiles },
 				{ provide: ADVISOR_INVITE_STORE, useValue: new InMemoryInviteStore() },
 				{ provide: ADVISOR_TRANSACTION_STORE, useValue: ledger },
+				{
+					provide: ADVISOR_SNAPSHOT_TRIGGER,
+					useValue: new RecordingSnapshotTrigger(),
+				},
+				{
+					provide: ADVISOR_ATTENTION_PURGE,
+					useValue: new RecordingAttentionPurge(),
+				},
 				{ provide: ADVISOR_ALLOCATION_TARGET_STORE, useValue: targets },
 				{ provide: ADVISOR_CONSENT_STORE, useValue: consents },
 				{ provide: ADVISOR_SHARED_PORTFOLIO_SOURCE, useValue: source },

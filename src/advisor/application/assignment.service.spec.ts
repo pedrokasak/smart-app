@@ -15,6 +15,7 @@ import {
 	InMemoryOrganizationStore,
 	InMemoryPortalAccountDirectory,
 	InMemoryRelationshipStore,
+	RecordingSnapshotTrigger,
 } from './in-memory-stores.fixture';
 import { MemberNotFoundError } from './team-errors';
 
@@ -47,6 +48,7 @@ describe('AssignmentService', () => {
 	let directory: InMemoryPortalAccountDirectory;
 	let audit: FakeAuditTrail;
 	let service: AssignmentService;
+	let trigger: RecordingSnapshotTrigger;
 	let orgId: string;
 	let adminCtx: { userId: string; orgId: string };
 
@@ -85,7 +87,8 @@ describe('AssignmentService', () => {
 			memberships,
 			relationships,
 			directory,
-			audit
+			audit,
+			(trigger = new RecordingSnapshotTrigger())
 		);
 	});
 
@@ -102,6 +105,25 @@ describe('AssignmentService', () => {
 				subject: CLIENT,
 				payload: { orgId, userId: ADVISOR },
 			});
+		});
+
+		it('pede a recomputação só quando atribui ou desatribui de fato', async () => {
+			await service.assign(adminCtx, CLIENT, ADVISOR);
+			await service.assign(adminCtx, CLIENT, ADVISOR);
+			expect(trigger.requests).toEqual([`${orgId}:${CLIENT}`]);
+
+			await service.unassign(adminCtx, CLIENT, ADVISOR);
+			await service.unassign(adminCtx, CLIENT, ADVISOR);
+			expect(trigger.requests).toEqual([
+				`${orgId}:${CLIENT}`,
+				`${orgId}:${CLIENT}`,
+			]);
+		});
+
+		it('auditoria que falha desfaz e não pede recomputação', async () => {
+			audit.failWith = new Error('audit down');
+			await expect(service.assign(adminCtx, CLIENT, ADVISOR)).rejects.toThrow();
+			expect(trigger.requests).toEqual([]);
 		});
 
 		it('é idempotente: repetir não muda nada nem audita', async () => {

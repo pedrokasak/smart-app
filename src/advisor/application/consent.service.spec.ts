@@ -11,6 +11,7 @@ import {
 	ConsentStatus,
 	InviteStatus,
 	OrgRole,
+	ProfileOrigin,
 	RelationshipStatus,
 } from '../domain/enums';
 import { ERASED_CLIENT_NAME } from '../domain/entities';
@@ -37,6 +38,8 @@ import {
 	InMemoryOrganizationStore,
 	InMemoryRelationshipStore,
 	InMemorySharedPortfolioSource,
+	RecordingAttentionPurge,
+	RecordingSnapshotTrigger,
 } from './in-memory-stores.fixture';
 import { InviteService } from './invite.service';
 import { RelationshipService } from './relationship.service';
@@ -75,6 +78,8 @@ describe('ConsentService', () => {
 	let inviteService: InviteService;
 	let service: ConsentService;
 	let assignments: InMemoryAssignmentStore;
+	let trigger: RecordingSnapshotTrigger;
+	let purge: RecordingAttentionPurge;
 	let ctxA: { userId: string; orgId: string };
 	let ctxB: { userId: string; orgId: string };
 
@@ -139,8 +144,11 @@ describe('ConsentService', () => {
 			profiles,
 			notifier,
 			assignments,
-			audit
+			audit,
+			new RecordingAttentionPurge()
 		);
+		trigger = new RecordingSnapshotTrigger();
+		purge = new RecordingAttentionPurge();
 		service = new ConsentService(
 			invites,
 			consents,
@@ -150,7 +158,9 @@ describe('ConsentService', () => {
 			orgs,
 			identity,
 			source,
-			audit
+			audit,
+			trigger,
+			purge
 		);
 	});
 
@@ -208,6 +218,103 @@ describe('ConsentService', () => {
 		const grant = await service.acceptInvite(INVESTOR, inv.token, portfolioIds);
 		return { inv, grant };
 	};
+
+	describe('attention read model', () => {
+		const keyOf = (inv: Invited) => `${inv.orgId}:${inv.clientProfileId}`;
+
+		it('asks for a recompute after accept, scope change and revoke, without purging', async () => {
+			const { inv, grant } = await accept(['p1']);
+			expect(trigger.requests).toEqual([keyOf(inv)]);
+
+			await service.changeSharedPortfolios(INVESTOR, grant.relationshipId, [
+				'p1',
+				'p2',
+			]);
+			expect(trigger.requests).toEqual([keyOf(inv), keyOf(inv)]);
+
+			await service.revoke(INVESTOR, grant.relationshipId);
+			expect(trigger.requests).toEqual([keyOf(inv), keyOf(inv), keyOf(inv)]);
+			expect(purge.purged).toEqual([]);
+		});
+
+		it('does not ask for a recompute when the accept fails', async () => {
+			const inv = await invited();
+			audit.failWith = new Error('audit down');
+			await expect(
+				service.acceptInvite(INVESTOR, inv.token, ['p1'])
+			).rejects.toThrow();
+			expect(trigger.requests).toEqual([]);
+		});
+
+		it('revokeAllForUser purges each ended link before returning', async () => {
+			const { inv } = await accept(['p1']);
+			const fromB = await invited('joao@exemplo.com', ctxB);
+			await service.acceptInvite(INVESTOR, fromB.token, ['p2']);
+
+			await service.revokeAllForUser(INVESTOR);
+
+			expect(purge.purged.sort()).toEqual([keyOf(inv), keyOf(fromB)].sort());
+		});
+
+		it('revokeAllForUser rethrows a failed purge so the erasure is retried', async () => {
+			await accept(['p1']);
+			purge.failNext();
+			const logged = jest
+				.spyOn(Logger.prototype, 'error')
+				.mockImplementation(() => undefined);
+
+			await expect(service.revokeAllForUser(INVESTOR)).rejects.toThrow(
+				'purge failed'
+			);
+			logged.mockRestore();
+		});
+
+		it('eraseUser purges every client of the user, owned profiles without consent included', async () => {
+			const { inv } = await accept(['p1']);
+			profiles.seed({
+				id: 'orphan',
+				orgId: ctxB.orgId,
+				name: 'Joao',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: INVESTOR,
+			});
+			await relationships.create({
+				orgId: ctxB.orgId,
+				clientProfileId: 'orphan',
+				status: RelationshipStatus.Active,
+			});
+
+			await service.eraseUser(INVESTOR, 'joao@exemplo.com');
+
+			expect(new Set(purge.purged)).toEqual(
+				new Set([keyOf(inv), `${ctxB.orgId}:orphan`])
+			);
+		});
+
+		it('eraseUser stops before deleting consents when a purge fails', async () => {
+			await accept(['p1']);
+			profiles.seed({
+				id: 'orphan',
+				orgId: ctxB.orgId,
+				name: 'Joao',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: INVESTOR,
+			});
+			// revokeAllForUser purges the consented client; the orphan fails.
+			const original = purge.purgeClient.bind(purge);
+			jest
+				.spyOn(purge, 'purgeClient')
+				.mockImplementation(async (orgId: string, clientId: string) => {
+					if (clientId === 'orphan') throw new Error('purge failed');
+					return original(orgId, clientId);
+				});
+
+			await expect(
+				service.eraseUser(INVESTOR, 'joao@exemplo.com')
+			).rejects.toThrow('purge failed');
+			expect(await consents.listByUser(INVESTOR)).toHaveLength(1);
+		});
+	});
 
 	describe('previewInvite', () => {
 		it('shows the org, the masked e-mail and the user portfolios without changing anything', async () => {

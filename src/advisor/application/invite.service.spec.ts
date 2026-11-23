@@ -22,6 +22,7 @@ import {
 	InMemoryMembershipStore,
 	InMemoryOrganizationStore,
 	InMemoryRelationshipStore,
+	RecordingAttentionPurge,
 } from './in-memory-stores.fixture';
 import {
 	INVITE_CREATED_EVENT,
@@ -54,6 +55,7 @@ describe('InviteService', () => {
 	let notifier: InMemoryInviteNotifier;
 	let audit: FakeAuditTrail;
 	let service: InviteService;
+	let purge: RecordingAttentionPurge;
 	let orgAId: string;
 	let ctxA: { userId: string; orgId: string };
 	let ctxB: { userId: string; orgId: string };
@@ -102,7 +104,8 @@ describe('InviteService', () => {
 			profiles,
 			notifier,
 			assignments,
-			audit
+			audit,
+			(purge = new RecordingAttentionPurge())
 		);
 	});
 
@@ -301,6 +304,13 @@ describe('InviteService', () => {
 			const json = JSON.stringify(event.payload);
 			expect(json).not.toContain('joao');
 			expect(json).not.toContain('Silva');
+		});
+
+		it('purges the attention read model of the undone profile', async () => {
+			audit.failWith = new Error('audit down');
+			await expect(create()).rejects.toThrow('audit down');
+			expect(purge.purged).toHaveLength(1);
+			expect(purge.purged[0]).toMatch(new RegExp(`^${ctxA.orgId}:`));
 		});
 
 		it('cleans up when the audit fails and lets a retry succeed', async () => {

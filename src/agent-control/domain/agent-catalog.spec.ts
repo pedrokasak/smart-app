@@ -2,6 +2,15 @@ import { CronTime } from 'cron';
 import { AGENT_DEFINITIONS, findAgentDefinition } from './agent-catalog';
 
 describe('AGENT_DEFINITIONS', () => {
+	it('tem o job de atenção do Advisor, ligado por padrão', () => {
+		expect(findAgentDefinition('advisor-attention')).toMatchObject({
+			kind: 'data_job',
+			criticality: 'toggleable',
+			defaultEnabled: true,
+			schedule: 'dias úteis, 20h00',
+		});
+	});
+
 	it('tem ids únicos', () => {
 		const ids = AGENT_DEFINITIONS.map((definition) => definition.id);
 		expect(new Set(ids).size).toBe(ids.length);

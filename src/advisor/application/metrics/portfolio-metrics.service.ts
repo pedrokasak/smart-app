@@ -44,12 +44,31 @@ export class PortfolioMetricsService {
 			clientProfileId,
 			'VIEW_PORTFOLIO'
 		);
+		return this.compute(ctx.orgId, clientProfileId, new Date());
+	}
 
+	/**
+	 * Caminho de sistema (job de atenção): o mesmo cálculo, sem autorização
+	 * e sem auditoria. Não é um acesso de assessor; nunca exponha por rota.
+	 */
+	async computeForSystem(
+		orgId: string,
+		clientProfileId: string,
+		now: Date = new Date()
+	): Promise<ClientPortfolioMetrics> {
+		return this.compute(orgId, clientProfileId, now);
+	}
+
+	private async compute(
+		orgId: string,
+		clientProfileId: string,
+		now: Date
+	): Promise<ClientPortfolioMetrics> {
 		const [ledger, target] = await Promise.all([
-			this.transactions.listByClient(ctx.orgId, clientProfileId),
-			this.targets.find(ctx.orgId, clientProfileId),
+			this.transactions.listByClient(orgId, clientProfileId),
+			this.targets.find(orgId, clientProfileId),
 		]);
-		const asOf = new Date().toISOString().slice(0, 10);
+		const asOf = now.toISOString().slice(0, 10);
 
 		const closes =
 			ledger.length === 0

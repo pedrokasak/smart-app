@@ -65,6 +65,14 @@ export class MongoRelationshipStore implements RelationshipStorePort {
 		return doc ? toRelationship(doc) : null;
 	}
 
+	async findCreatedAt(id: string): Promise<Date | null> {
+		const doc = await this.relationships
+			.findById(id, { createdAt: 1 })
+			.lean<Pick<AdvisorRelationshipDoc, 'createdAt'>>()
+			.exec();
+		return doc?.createdAt ? new Date(doc.createdAt) : null;
+	}
+
 	async findByOrgAndClient(
 		orgId: string,
 		clientProfileId: string

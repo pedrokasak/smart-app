@@ -15,6 +15,7 @@ import {
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
 	InMemoryTransactionStore,
+	RecordingSnapshotTrigger,
 } from '../in-memory-stores.fixture';
 import {
 	DuplicateImportError,
@@ -50,6 +51,7 @@ describe('CsvImportService', () => {
 	let rel: RelationshipService;
 	let manual: TransactionService;
 	let service: CsvImportService;
+	let trigger: RecordingSnapshotTrigger;
 
 	beforeEach(async () => {
 		const memberships = new InMemoryMembershipStore();
@@ -65,8 +67,13 @@ describe('CsvImportService', () => {
 			assignments,
 			new FakeAuditTrail()
 		);
-		service = new CsvImportService(authz, transactions);
-		manual = new TransactionService(authz, transactions);
+		trigger = new RecordingSnapshotTrigger();
+		service = new CsvImportService(authz, transactions, trigger);
+		manual = new TransactionService(
+			authz,
+			transactions,
+			new RecordingSnapshotTrigger()
+		);
 		await memberships.create({ userId, orgId: 'orgA', role: OrgRole.Advisor });
 		profiles.seed({
 			id: 'clientA',
@@ -112,6 +119,17 @@ describe('CsvImportService', () => {
 				createdByUserId: userId,
 			});
 		}
+	});
+
+	it('asks for a recompute after a completed import and after a revert, not on a refused file', async () => {
+		const { importBatchId } = await service.importCsv(ctx, 'clientA', THREE);
+		expect(trigger.requests).toEqual(['orgA:clientA']);
+
+		await service.importCsv(ctx, 'clientA', THREE).catch(() => undefined);
+		expect(trigger.requests).toHaveLength(1);
+
+		await service.revertImport(ctx, 'clientA', importBatchId);
+		expect(trigger.requests).toEqual(['orgA:clientA', 'orgA:clientA']);
 	});
 
 	it('rejects the same text twice and keeps the ledger at 3', async () => {

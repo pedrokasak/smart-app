@@ -23,12 +23,14 @@ import { InviteStatus, OrgRole, ProfileOrigin } from '../domain/enums';
 import { ClientInvite } from '../domain/consent.entities';
 import {
 	ADVISOR_ASSIGNMENT_STORE,
+	ADVISOR_ATTENTION_PURGE,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_INVITE_STORE,
 	ADVISOR_ORG_STORE,
 } from './advisor.tokens';
 import { AccessContext, AuthorizationService } from './authorization.service';
 import type { AssignmentStorePort } from './ports/assignment.store.port';
+import type { ClientAttentionPurgePort } from './ports/client-attention-purge.port';
 import type { ClientProfileStorePort } from './ports/client-profile.store.port';
 import { ADVISOR_INVITE_NOTIFIER } from './ports/invite-notifier.port';
 import type { InviteNotifierPort } from './ports/invite-notifier.port';
@@ -74,7 +76,9 @@ export class InviteService {
 		private readonly notifier: InviteNotifierPort,
 		@Inject(ADVISOR_ASSIGNMENT_STORE)
 		private readonly assignments: AssignmentStorePort,
-		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail
+		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail,
+		@Inject(ADVISOR_ATTENTION_PURGE)
+		private readonly attention: ClientAttentionPurgePort
 	) {}
 
 	async createInvite(
@@ -269,6 +273,9 @@ export class InviteService {
 				this.relationships.deleteCreated(relationshipId)
 			);
 		}
+		await this.attempt('purge attention of', profileId, () =>
+			this.attention.purgeClient(ctx.orgId, profileId)
+		);
 		await this.attempt('delete', profileId, () =>
 			this.profiles.deleteById(profileId)
 		);

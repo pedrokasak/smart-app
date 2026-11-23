@@ -29,6 +29,8 @@ import {
 	InMemoryPriceHistory,
 	InMemoryRelationshipStore,
 	InMemorySharedPortfolioSource,
+	RecordingAttentionPurge,
+	RecordingSnapshotTrigger,
 } from './in-memory-stores.fixture';
 import { InviteService } from './invite.service';
 import { isTradingDay } from './metrics/portfolio-math';
@@ -218,7 +220,8 @@ describe('SharedPortfolioService', () => {
 			profiles,
 			notifier,
 			assignments,
-			audit
+			audit,
+			new RecordingAttentionPurge()
 		);
 		consentService = new ConsentService(
 			invites,
@@ -229,7 +232,9 @@ describe('SharedPortfolioService', () => {
 			orgs,
 			identity,
 			source,
-			audit
+			audit,
+			new RecordingSnapshotTrigger(),
+			new RecordingAttentionPurge()
 		);
 		service = new SharedPortfolioService(
 			authz,
@@ -458,6 +463,83 @@ describe('SharedPortfolioService', () => {
 
 				await expectRefusedWithoutSource();
 			}
+		});
+	});
+
+	describe('getSharedMetricsForSystem', () => {
+		it('computes the same metrics with no user context and no audit', async () => {
+			const authorize = jest.spyOn(
+				AuthorizationService.prototype,
+				'ensureCanAccessClient'
+			);
+			const viaAdvisor = await service.getSharedMetrics(ctxA, clientProfileId);
+			audit.recorded.length = 0;
+			authorize.mockClear();
+
+			const viaSystem = await service.getSharedMetricsForSystem(
+				ctxA.orgId,
+				clientProfileId
+			);
+
+			expect(viaSystem).toEqual(
+				viaAdvisor.map((p) => ({
+					portfolioId: p.portfolioId,
+					metrics: p.metrics,
+				}))
+			);
+			expect(audit.recorded).toHaveLength(0);
+			expect(authorize).not.toHaveBeenCalled();
+		});
+
+		it('keeps the consent checks: revoked, other org and inactive relationship are refused', async () => {
+			await expect(
+				service.getSharedMetricsForSystem(ctxB.orgId, clientProfileId)
+			).rejects.toBeInstanceOf(NoActiveConsentError);
+
+			const relationship = await relationships.findById(relationshipId);
+			await relationships.save({
+				...relationship,
+				status: RelationshipStatus.Pending,
+			});
+			await expect(
+				service.getSharedMetricsForSystem(ctxA.orgId, clientProfileId)
+			).rejects.toBeInstanceOf(NoActiveConsentError);
+			await relationships.save(relationship);
+
+			await consentService.revoke(INVESTOR, relationshipId);
+			await expect(
+				service.getSharedMetricsForSystem(ctxA.orgId, clientProfileId)
+			).rejects.toBeInstanceOf(NoActiveConsentError);
+			expect(audit.views).toHaveLength(0);
+		});
+
+		it('turns one failing portfolio into metrics null and keeps the others', async () => {
+			const internals = service as unknown as {
+				metricsOf: (
+					portfolio: { portfolioId: string },
+					...rest: unknown[]
+				) => Promise<unknown>;
+			};
+			const original = internals.metricsOf.bind(service);
+			jest
+				.spyOn(internals, 'metricsOf')
+				.mockImplementation(async (portfolio, ...rest) => {
+					if (portfolio.portfolioId === 'p2') throw new Error('boom');
+					return original(portfolio, ...rest);
+				});
+
+			const result = await service.getSharedMetricsForSystem(
+				ctxA.orgId,
+				clientProfileId
+			);
+
+			expect(result.map((p) => p.portfolioId)).toEqual(['p1', 'p2']);
+			expect(result[0].metrics).not.toBeNull();
+			expect(result[1]).toEqual({
+				portfolioId: 'p2',
+				metrics: null,
+				unavailableReason: 'METRICS_FAILED',
+			});
 		});
 	});
 

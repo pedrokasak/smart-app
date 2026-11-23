@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import {
 	ADVISOR_ASSIGNMENT_STORE,
+	ADVISOR_ATTENTION_PURGE,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_INVITE_STORE,
 	ADVISOR_MEMBERSHIP_STORE,
@@ -22,6 +23,7 @@ import {
 	InMemoryMembershipStore,
 	InMemoryOrganizationStore,
 	InMemoryRelationshipStore,
+	RecordingAttentionPurge,
 } from 'src/advisor/application/in-memory-stores.fixture';
 import { InviteService } from 'src/advisor/application/invite.service';
 import { MembershipService } from 'src/advisor/application/membership.service';
@@ -127,6 +129,10 @@ describe('InvitesController', () => {
 				},
 				{ provide: ADVISOR_INVITE_STORE, useValue: new InMemoryInviteStore() },
 				{ provide: ADVISOR_INVITE_NOTIFIER, useValue: notifier },
+				{
+					provide: ADVISOR_ATTENTION_PURGE,
+					useValue: new RecordingAttentionPurge(),
+				},
 				{ provide: AUDIT_TRAIL, useValue: { record } },
 				{ provide: PortalAccessService, useValue: { hasAccess } },
 				{

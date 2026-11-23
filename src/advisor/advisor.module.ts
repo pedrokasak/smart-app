@@ -12,6 +12,7 @@ import {
 	ADVISOR_ALERT_STORE,
 	ADVISOR_ALLOCATION_TARGET_STORE,
 	ADVISOR_ASSIGNMENT_STORE,
+	ADVISOR_ATTENTION_PURGE,
 	ADVISOR_BENCHMARK_SERIES,
 	ADVISOR_CLIENT_CONTACT_STORE,
 	ADVISOR_CLIENT_PROFILE_STORE,
@@ -24,9 +25,12 @@ import {
 	ADVISOR_PORTAL_GRANT_STORE,
 	ADVISOR_PRICE_HISTORY,
 	ADVISOR_RELATIONSHIP_STORE,
+	ADVISOR_SNAPSHOT_TRIGGER,
 	ADVISOR_TRANSACTION_STORE,
 	ADVISOR_WEALTH_DAILY_STORE,
 } from './application/advisor.tokens';
+import { AttentionScheduler } from './application/attention/attention.scheduler';
+import { ClientSnapshotService } from './application/attention/client-snapshot.service';
 import { AllocationTargetService } from './application/allocation-target.service';
 import { AuthorizationService } from './application/authorization.service';
 import { ClientDirectoryService } from './application/client-directory.service';
@@ -86,6 +90,7 @@ import {
 } from './infrastructure/advisor-team.models';
 import { B2cSharedPortfolioSourceAdapter } from './infrastructure/b2c-shared-portfolio-source.adapter';
 import { EmailInviteNotifierAdapter } from './infrastructure/email-invite-notifier.adapter';
+import { InProcessSnapshotTrigger } from './infrastructure/in-process-snapshot-trigger';
 import {
 	ADVISOR_WEB_URL,
 	EmailMemberInviteNotifierAdapter,
@@ -291,6 +296,14 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		AssignmentService,
 		ConsentService,
 		SharedPortfolioService,
+		ClientSnapshotService,
+		{ provide: ADVISOR_ATTENTION_PURGE, useExisting: ClientSnapshotService },
+		InProcessSnapshotTrigger,
+		{
+			provide: ADVISOR_SNAPSHOT_TRIGGER,
+			useExisting: InProcessSnapshotTrigger,
+		},
+		AttentionScheduler,
 		OrgContextGuard,
 	],
 	exports: [

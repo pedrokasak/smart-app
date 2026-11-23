@@ -30,13 +30,17 @@ import {
 	validatePortfolioSelection,
 } from '../domain/invite-rules';
 import {
+	ADVISOR_ATTENTION_PURGE,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_CONSENT_STORE,
 	ADVISOR_INVITE_STORE,
 	ADVISOR_ORG_STORE,
 	ADVISOR_RELATIONSHIP_STORE,
+	ADVISOR_SNAPSHOT_TRIGGER,
 } from './advisor.tokens';
+import type { ClientAttentionPurgePort } from './ports/client-attention-purge.port';
 import type { ClientProfileStorePort } from './ports/client-profile.store.port';
+import type { ClientSnapshotTriggerPort } from './ports/client-snapshot-trigger.port';
 import type { ConsentStorePort } from './ports/consent.store.port';
 import type { InviteStorePort } from './ports/invite.store.port';
 import { ADVISOR_INVITEE_IDENTITY } from './ports/invitee-identity.port';
@@ -141,7 +145,11 @@ export class ConsentService {
 		private readonly identity: InviteeIdentityPort,
 		@Inject(ADVISOR_SHARED_PORTFOLIO_SOURCE)
 		private readonly portfolios: SharedPortfolioSourcePort,
-		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail
+		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail,
+		@Inject(ADVISOR_SNAPSHOT_TRIGGER)
+		private readonly snapshotTrigger: ClientSnapshotTriggerPort,
+		@Inject(ADVISOR_ATTENTION_PURGE)
+		private readonly attention: ClientAttentionPurgePort
 	) {}
 
 	async previewInvite(userId: string, token: string): Promise<InvitePreview> {
@@ -217,6 +225,7 @@ export class ConsentService {
 			await this.undoAccept(accepted, userId, consent, audited);
 			throw error;
 		}
+		this.snapshotTrigger.request(accepted.orgId, accepted.clientProfileId);
 		await this.proveInviteeEmail(userId, accepted.email);
 		return toGrant(consent, org);
 	}
@@ -331,6 +340,7 @@ export class ConsentService {
 			}
 			throw new NotFoundException('Advisory relationship not found');
 		}
+		this.snapshotTrigger.request(consent.orgId, consent.clientProfileId);
 		return toGrant(consent, org);
 	}
 
@@ -345,9 +355,16 @@ export class ConsentService {
 			anyRelationshipStatus: true,
 		});
 		await this.endLink(userId, consent);
+		// Sem relação ACTIVE, a recomputação resolve os alertas do sistema e
+		// mantém os manuais do assessor.
+		this.snapshotTrigger.request(consent.orgId, consent.clientProfileId);
 	}
 
-	/** LGPD: ends every active link of the user. Used by account erasure. */
+	/**
+	 * LGPD: ends every active link of the user and purges the advisor's
+	 * attention read model of each client right away (not on the daily job).
+	 * Used by account erasure.
+	 */
 	async revokeAllForUser(userId: string): Promise<{ revoked: number }> {
 		const active = await this.consents.listActiveByUser(userId);
 		let revoked = 0;
@@ -357,6 +374,7 @@ export class ConsentService {
 		for (const consent of active) {
 			try {
 				if (await this.endLink(userId, consent)) revoked += 1;
+				await this.purgeAttention(consent.orgId, consent.clientProfileId);
 			} catch (error) {
 				this.logFailure('revoke link', consent.relationshipId, error);
 				firstError ??= error;
@@ -384,10 +402,10 @@ export class ConsentService {
 	): Promise<UserErasure> {
 		const { revoked: byConsent } = await this.revokeAllForUser(userId);
 		const orphans = await this.revokeOwnedRelationships(userId);
+		const userConsents = await this.consents.listByUser(userId);
+		await this.purgeAttentionOfUser(userId, userConsents);
 		const relationshipIds = [
-			...new Set(
-				(await this.consents.listByUser(userId)).map((c) => c.relationshipId)
-			),
+			...new Set(userConsents.map((c) => c.relationshipId)),
 		];
 		const consents = await this.consents.deleteByUser(userId);
 		const invites =
@@ -395,6 +413,44 @@ export class ConsentService {
 			(await this.deleteInvitesOf(userId, email));
 		const profiles = await this.profiles.anonymizeByOwner(userId);
 		return { revoked: byConsent + orphans, consents, invites, profiles };
+	}
+
+	/**
+	 * LGPD: purges the attention read model of every client of the user: the
+	 * ones of any consent version and the profiles the user owns. Runs before
+	 * the consents are deleted, so a failure aborts and a retry finds them.
+	 */
+	private async purgeAttentionOfUser(
+		userId: string,
+		userConsents: Consent[]
+	): Promise<void> {
+		const clients = new Map<
+			string,
+			{ orgId: string; clientProfileId: string }
+		>();
+		const add = (orgId: string, clientProfileId: string) =>
+			clients.set(`${orgId}:${clientProfileId}`, { orgId, clientProfileId });
+		for (const c of userConsents) add(c.orgId, c.clientProfileId);
+		for (const id of await this.profiles.listIdsByOwner(userId)) {
+			const profile = await this.profiles.findById(id);
+			if (profile) add(profile.orgId, profile.id);
+		}
+		for (const { orgId, clientProfileId } of clients.values()) {
+			await this.purgeAttention(orgId, clientProfileId);
+		}
+	}
+
+	/**
+	 * Synchronous purge, then a recompute request: a recompute already in
+	 * flight could write the snapshot back after the purge, and the next one
+	 * (no ACTIVE relationship) removes it again.
+	 */
+	private async purgeAttention(
+		orgId: string,
+		clientProfileId: string
+	): Promise<void> {
+		await this.attention.purgeClient(orgId, clientProfileId);
+		this.snapshotTrigger.request(orgId, clientProfileId);
 	}
 
 	/** LGPD export: every consent version of the user, any status. */

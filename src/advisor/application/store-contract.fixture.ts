@@ -2531,6 +2531,23 @@ export function describeAdvisorTeamStoreContract(
 				status = RelationshipStatus.Active
 			) => s.relationships.create({ orgId, clientProfileId, status });
 
+			it('findCreatedAt returns the creation instant, kept by later saves, and null for an unknown id', async () => {
+				const before = Date.now();
+				const created = await relationInOrg(randomUUID(), randomUUID());
+				const at = await s.relationships.findCreatedAt(created.id);
+				expect(at).toBeInstanceOf(Date);
+				expect(at!.getTime()).toBeGreaterThanOrEqual(before - 1000);
+				expect(at!.getTime()).toBeLessThanOrEqual(Date.now() + 1000);
+
+				await tick();
+				await s.relationships.save({
+					...created,
+					status: RelationshipStatus.Revoked,
+				});
+				expect(await s.relationships.findCreatedAt(created.id)).toEqual(at);
+				expect(await s.relationships.findCreatedAt(randomUUID())).toBeNull();
+			});
+
 			it('listUnassignedByOrg drops profiles with any assignment, keeps the rest in listByOrg order', async () => {
 				const orgId = randomUUID();
 				const clients = [1, 2, 3, 4].map(() => randomUUID());
