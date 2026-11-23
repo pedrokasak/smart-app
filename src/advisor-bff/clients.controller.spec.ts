@@ -3,8 +3,10 @@ import { JwtModule, JwtService } from '@nestjs/jwt';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import {
+	ADVISOR_ALERT_STORE,
 	ADVISOR_ALLOCATION_TARGET_STORE,
 	ADVISOR_ASSIGNMENT_STORE,
+	ADVISOR_CLIENT_CONTACT_STORE,
 	ADVISOR_ATTENTION_PURGE,
 	ADVISOR_BENCHMARK_SERIES,
 	ADVISOR_CLIENT_PROFILE_STORE,
@@ -18,14 +20,17 @@ import {
 } from 'src/advisor/application/advisor.tokens';
 import { AllocationTargetService } from 'src/advisor/application/allocation-target.service';
 import { AssignmentService } from 'src/advisor/application/assignment.service';
+import { AlertService } from 'src/advisor/application/attention/alert.service';
 import { AuthorizationService } from 'src/advisor/application/authorization.service';
 import { ClientDirectoryService } from 'src/advisor/application/client-directory.service';
 import { ClientProfileService } from 'src/advisor/application/client-profile.service';
 import { CsvImportService } from 'src/advisor/application/csv/csv-import.service';
 import {
+	InMemoryAlertStore,
 	InMemoryAllocationTargetStore,
 	InMemoryAssignmentStore,
 	InMemoryBenchmarkSeries,
+	InMemoryClientContactStore,
 	InMemoryClientProfileStore,
 	InMemoryConsentStore,
 	InMemoryInviteStore,
@@ -47,7 +52,11 @@ import { ADVISOR_SHARED_PORTFOLIO_SOURCE } from 'src/advisor/application/ports/s
 import { RelationshipService } from 'src/advisor/application/relationship.service';
 import { SharedPortfolioService } from 'src/advisor/application/shared-portfolio.service';
 import { TransactionService } from 'src/advisor/application/transaction.service';
+import { conditionKeyOf } from 'src/advisor/domain/attention.entities';
 import {
+	AlertPriority,
+	AlertRule,
+	AlertStatus,
 	OrgRole,
 	ProfileOrigin,
 	RelationshipStatus,
@@ -91,6 +100,8 @@ describe('ClientsController', () => {
 	let consents: InMemoryConsentStore;
 	let source: InMemorySharedPortfolioSource;
 	let imports: CsvImportService;
+	let alerts: InMemoryAlertStore;
+	let contacts: InMemoryClientContactStore;
 	const hasAccess = jest.fn();
 
 	const bearer = (userId: string) =>
@@ -154,6 +165,8 @@ describe('ClientsController', () => {
 		targets = new InMemoryAllocationTargetStore();
 		consents = new InMemoryConsentStore();
 		source = new InMemorySharedPortfolioSource();
+		alerts = new InMemoryAlertStore();
+		contacts = new InMemoryClientContactStore();
 		await memberships.create({
 			userId: 'u1',
 			orgId: ORG_A,
@@ -183,6 +196,9 @@ describe('ClientsController', () => {
 				SharedPortfolioService,
 				AssignmentService,
 				WealthSummaryAssembler,
+				AlertService,
+				{ provide: ADVISOR_ALERT_STORE, useValue: alerts },
+				{ provide: ADVISOR_CLIENT_CONTACT_STORE, useValue: contacts },
 				{ provide: ADVISOR_MEMBERSHIP_STORE, useValue: memberships },
 				{ provide: ADVISOR_ASSIGNMENT_STORE, useValue: assignments },
 				{ provide: ADVISOR_PORTAL_ACCOUNT_DIRECTORY, useValue: accounts },
@@ -1116,6 +1132,65 @@ describe('ClientsController', () => {
 				.expect(400);
 			expect(malformed.body.reason).toBe('VALIDATION_FAILED');
 			await http().get('/advisor/v1/clients').set(advisor()).expect(200);
+		});
+	});
+
+	describe('reviewed', () => {
+		const noContact = (clientProfileId: string, orgId = ORG_A) => {
+			const base = { rule: AlertRule.NoContact, source: null, key: 'client' };
+			return {
+				...base,
+				band: 1 as const,
+				priority: AlertPriority.P3,
+				messageKey: 'advisor.alert.no_contact',
+				params: { days: 120 },
+				evidence: {},
+				dataAsOf: '2025-06-16',
+				provenance: null,
+				lowConfidence: false,
+				orgId,
+				clientProfileId,
+				conditionKey: conditionKeyOf(base),
+				status: AlertStatus.Open,
+			};
+		};
+
+		it('records the contact and closes the open NO_CONTACT with 204', async () => {
+			const client = await newClient(A());
+			const [alert] = await alerts.insertMany([noContact(client)]);
+
+			await http()
+				.post(`/advisor/v1/clients/${client}/reviewed`)
+				.set(A())
+				.expect(204)
+				.expect('');
+
+			expect(await alerts.findById(ORG_A, alert.id)).toMatchObject({
+				status: AlertStatus.Handled,
+				handledVia: 'REVIEWED',
+			});
+			expect(await contacts.find(ORG_A, client)).toEqual(expect.any(Date));
+		});
+
+		it('answers 404 for a client of another org or unknown, 400 for a bad id, 403 without x-org-id', async () => {
+			const other = await newClient(as('u2', ORG_B));
+			for (const id of [other, MISSING]) {
+				const res = await http()
+					.post(`/advisor/v1/clients/${id}/reviewed`)
+					.set(A())
+					.expect(404);
+				expect(res.body).toEqual({ statusCode: 404, error: 'NOT_FOUND' });
+			}
+			expect(await contacts.find(ORG_B, other)).toBeNull();
+			await http()
+				.post('/advisor/v1/clients/not-a-uuid/reviewed')
+				.set(A())
+				.expect(400);
+			const res = await http()
+				.post(`/advisor/v1/clients/${other}/reviewed`)
+				.set(as('u1'))
+				.expect(403);
+			expect(res.body.reason).toBe('ORG_HEADER_REQUIRED');
 		});
 	});
 });

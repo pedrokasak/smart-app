@@ -1,7 +1,10 @@
 import { AdvisorModule } from 'src/advisor/advisor.module';
 import { AppModule } from 'src/app.module';
 import { AdvisorBffModule } from './advisor-bff.module';
+import { AlertSettingsController } from './alert-settings.controller';
+import { AlertsController } from './alerts.controller';
 import { ClientsController } from './clients.controller';
+import { DashboardController } from './dashboard.controller';
 import { InvitesController } from './invites.controller';
 import { OrganizationsController } from './organizations.controller';
 
@@ -21,6 +24,20 @@ describe('AdvisorBffModule wiring', () => {
 		expect(controllers).toContain(OrganizationsController);
 		expect(controllers).toContain(ClientsController);
 		expect(controllers).toContain(InvitesController);
+	});
+
+	it('registers the dashboard, alerts and alert settings controllers', () => {
+		const controllers: unknown[] = Reflect.getMetadata(
+			'controllers',
+			AdvisorBffModule
+		);
+		expect(controllers).toEqual(
+			expect.arrayContaining([
+				DashboardController,
+				AlertsController,
+				AlertSettingsController,
+			])
+		);
 	});
 
 	it('is not imported back by AdvisorModule (no cycle)', () => {

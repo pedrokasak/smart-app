@@ -485,6 +485,8 @@ describe('EndpointRateLimitMiddleware', () => {
 			['POST', '/advisor/v1/me/member-invites/accept/', 5],
 			['POST', '/advisor/v1/me/member-invites/decline', 5],
 			['POST', '/advisor/v1/me/member-invites/decline/', 5],
+			['POST', '/advisor/v1/alerts/bulk', 20],
+			['POST', '/advisor/v1/alerts/bulk/', 20],
 		])('%s %s allows %i per account', async (method, path, limit) => {
 			const middleware = new EndpointRateLimitMiddleware(undefined, jwt);
 			const ana = token('ana');

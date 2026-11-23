@@ -11,6 +11,12 @@ import {
 } from '@nestjs/common';
 import type { Response } from 'express';
 import { ClientNotAccessibleError } from 'src/advisor/application/access-errors';
+import {
+	AlertNotFoundError,
+	BulkLimitExceededError,
+	InvalidAlertInputError,
+	InvalidAlertSettingsError,
+} from 'src/advisor/application/attention/attention-errors';
 import { InvalidInviteError } from 'src/advisor/application/invite.service';
 import { InvalidCursorError } from 'src/advisor/application/ports/store-errors';
 import { NoActiveConsentError } from 'src/advisor/application/shared-portfolio.service';
@@ -22,8 +28,8 @@ const UPPER_SNAKE = /^[A-Z0-9_]+$/;
 
 /**
  * Único ponto que traduz erro em resposta no BFF: `{ statusCode, error,
- * reason?, details? }`. Cliente, convite ou lote inexistente ou de outra org
- * vira o mesmo 404 (não revela existência). Erro desconhecido vira 500 sem
+ * reason?, details? }`. Cliente, convite, lote ou alerta inexistente ou de
+ * outra org vira o mesmo 404 (não revela existência). Erro desconhecido vira 500 sem
  * mensagem nem stack; o detalhe só vai para o log.
  */
 @Catch()
@@ -41,10 +47,22 @@ export class AdvisorBffExceptionFilter implements ExceptionFilter {
 		// o cliente chegou a compartilhar algo. Vem antes do HttpException.
 		if (
 			exception instanceof ClientNotAccessibleError ||
+			exception instanceof AlertNotFoundError ||
 			exception instanceof NotFoundException ||
 			exception instanceof NoActiveConsentError
 		) {
 			return { statusCode: HttpStatus.NOT_FOUND, error: 'NOT_FOUND' };
+		}
+		// Entrada recusada pelo motor de atenção: o mesmo VALIDATION_FAILED do
+		// ValidationPipe, com o campo (ou o teto do lote) em `details`.
+		if (
+			exception instanceof InvalidAlertInputError ||
+			exception instanceof InvalidAlertSettingsError
+		) {
+			return this.validationFailed({ field: exception.field });
+		}
+		if (exception instanceof BulkLimitExceededError) {
+			return this.validationFailed({ max: exception.max });
 		}
 		if (exception instanceof InvalidCursorError) {
 			return {
@@ -71,6 +89,15 @@ export class AdvisorBffExceptionFilter implements ExceptionFilter {
 		return {
 			statusCode: HttpStatus.INTERNAL_SERVER_ERROR,
 			error: 'INTERNAL_SERVER_ERROR',
+		};
+	}
+
+	private validationFailed(details: Record<string, unknown>): ErrorBody {
+		return {
+			statusCode: HttpStatus.BAD_REQUEST,
+			error: 'BAD_REQUEST',
+			reason: 'VALIDATION_FAILED',
+			details,
 		};
 	}
 
