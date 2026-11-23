@@ -663,6 +663,10 @@ describeMongo('advisor mongo stores', () => {
 			expect(alertIndexes).toEqual(
 				expect.arrayContaining([
 					expect.objectContaining({
+						name: 'advisor_alert_client',
+						key: { orgId: 1, clientProfileId: 1, createdAt: 1 },
+					}),
+					expect.objectContaining({
 						name: 'advisor_alert_queue',
 						key: { orgId: 1, status: 1, priorityRank: 1, createdAt: 1 },
 					}),

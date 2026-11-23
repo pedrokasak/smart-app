@@ -1,4 +1,5 @@
 import { SnapshotSource } from '../../domain/enums';
+import { InvalidWealthRowError } from './store-errors';
 
 export interface WealthDailyRow {
 	orgId: string;
@@ -55,4 +56,18 @@ export interface WealthDailyStorePort {
 		date: string,
 		clientIds?: string[]
 	): Promise<string[]>;
+}
+
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+
+/** Valida `date` e `source` antes de gravar; lança `InvalidWealthRowError`. */
+export function assertWealthRow(
+	row: Pick<WealthDailyRow, 'date' | 'source'>
+): void {
+	if (
+		!ISO_DATE.test(row.date) ||
+		!Object.values(SnapshotSource).includes(row.source)
+	) {
+		throw new InvalidWealthRowError();
+	}
 }

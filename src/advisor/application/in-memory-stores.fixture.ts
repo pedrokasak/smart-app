@@ -59,6 +59,7 @@ import { AllocationTargetStorePort } from './ports/allocation-target.store.port'
 import { ClientContactStorePort } from './ports/client-contact.store.port';
 import { ClientSnapshotStorePort } from './ports/client-snapshot.store.port';
 import {
+	assertWealthRow,
 	WealthDailyRow,
 	WealthDailyStorePort,
 	WealthDailySum,
@@ -1496,6 +1497,7 @@ export class InMemoryWealthDailyStore implements WealthDailyStorePort {
 	private readonly rows = new Map<string, WealthDailyRow>();
 
 	async upsert(row: WealthDailyRow): Promise<void> {
+		assertWealthRow(row);
 		const key = JSON.stringify([
 			row.orgId,
 			row.clientProfileId,

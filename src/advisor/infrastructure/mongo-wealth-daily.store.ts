@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { FilterQuery, Model } from 'mongoose';
 import {
+	assertWealthRow,
 	WealthDailyRow,
 	WealthDailyStorePort,
 	WealthDailySum,
@@ -22,6 +23,7 @@ export class MongoWealthDailyStore implements WealthDailyStorePort {
 
 	/** Sem carteira (livro do assessor) a chave usa `''`, não a ausência. */
 	async upsert(row: WealthDailyRow): Promise<void> {
+		assertWealthRow(row);
 		const { totalMinor, verifiedMinor, manualMinor, portfolioId, ...key } = row;
 		await retryOnDuplicateKey(() =>
 			this.rows

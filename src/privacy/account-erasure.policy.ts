@@ -123,10 +123,9 @@ export const MODULE_ERASED_COLLECTIONS: ReadonlyArray<ModuleErasedCollection> =
 			ownerField: 'clientProfileId',
 			effect: 'delete',
 		},
-		// `AdvisorAlertSettings` é da organização (limites e data de ligação do
-		// motor) e não guarda dado de cliente: entra só para ficar classificada.
-		// Nada a apagar por cliente; segue o ciclo de vida da organização.
-		{ model: 'AdvisorAlertSettings', ownerField: 'orgId', effect: 'delete' },
+		// `AdvisorAlertSettings` (limites e data de ligação do motor) é dado da
+		// organização, não de pessoa: fica fora da política, como
+		// `AdvisorOrganization`. Nada a apagar aqui.
 	];
 
 export const RETAINED_COLLECTIONS: ReadonlyArray<RetainedCollection> = [

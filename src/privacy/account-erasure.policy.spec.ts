@@ -3,7 +3,6 @@ import { join } from 'path';
 import mongoose from 'mongoose';
 import {
 	ADVISOR_ALERT_MODEL,
-	ADVISOR_ALERT_SETTINGS_MODEL,
 	ADVISOR_CLIENT_CONTACT_MODEL,
 	ADVISOR_CLIENT_SNAPSHOT_MODEL,
 	ADVISOR_WEALTH_DAILY_MODEL,
@@ -101,7 +100,6 @@ describe('Política de exclusão de conta (TRA-127)', () => {
 			ADVISOR_CLIENT_SNAPSHOT_MODEL,
 			ADVISOR_WEALTH_DAILY_MODEL,
 			ADVISOR_ALERT_MODEL,
-			ADVISOR_ALERT_SETTINGS_MODEL,
 			ADVISOR_CLIENT_CONTACT_MODEL,
 		]) {
 			expect(classified.has(model)).toBe(true);
@@ -123,7 +121,6 @@ describe('Política de exclusão de conta (TRA-127)', () => {
 			[ADVISOR_WEALTH_DAILY_MODEL, 'clientProfileId'],
 			[ADVISOR_ALERT_MODEL, 'clientProfileId'],
 			[ADVISOR_CLIENT_CONTACT_MODEL, 'clientProfileId'],
-			[ADVISOR_ALERT_SETTINGS_MODEL, 'orgId'],
 		]);
 	});
 });

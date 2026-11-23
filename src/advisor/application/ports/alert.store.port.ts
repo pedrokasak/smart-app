@@ -46,6 +46,8 @@ export interface AlertStorePort {
 	 * Atômico. Com `expectedStatus`, só aplica se o status atual estiver na
 	 * lista; senão (ou se o id não existe) devolve null. Chave presente com
 	 * valor `undefined` remove o campo. Mudar `priority` atualiza o rank.
+	 * Não use para reativar um alerta fechado: se outro ativo tem a mesma
+	 * `conditionKey`, o Mongo lança E11000 (o store em memória não).
 	 * `id`, `orgId`, `clientProfileId`, `conditionKey` e datas de registro não
 	 * mudam por aqui.
 	 */

@@ -60,6 +60,7 @@ import {
 	DuplicateOrganizationOwnerError,
 	DuplicatePendingMemberInviteError,
 	InvalidCursorError,
+	InvalidWealthRowError,
 } from './ports/store-errors';
 import {
 	DuplicateImportError,
@@ -2896,6 +2897,26 @@ export function describeAdvisorAttentionStoreContract(
 						clients: 1,
 					},
 				]);
+			});
+
+			it('upsert rejects a malformed date or an unknown source and writes nothing', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+
+				await expect(
+					s.wealth.upsert(row(orgId, clientId, '2026-1-5'))
+				).rejects.toBeInstanceOf(InvalidWealthRowError);
+				await expect(
+					s.wealth.upsert(
+						row(orgId, clientId, '2026-11-12', {
+							source: 'NOPE' as SnapshotSource,
+						})
+					)
+				).rejects.toBeInstanceOf(InvalidWealthRowError);
+
+				expect(
+					await s.wealth.sumByDate(orgId, '2000-01-01', '2100-01-01')
+				).toEqual([]);
 			});
 
 			it('sumByDate adds sources and clients per day, counts distinct clients, bounds are inclusive and sorted', async () => {

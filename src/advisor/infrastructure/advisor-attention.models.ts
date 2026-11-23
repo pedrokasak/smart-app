@@ -32,6 +32,7 @@ export const WEALTH_DAILY_ORG_DATE_INDEX = 'advisor_wealth_daily_org_date';
 export const WEALTH_DAILY_TTL_INDEX = 'advisor_wealth_daily_ttl';
 /** Uma condição ativa (OPEN/SNOOZED) por cliente; conferido no erro 11000. */
 export const ALERT_ACTIVE_CONDITION_INDEX = 'advisor_alert_active_condition';
+export const ALERT_CLIENT_INDEX = 'advisor_alert_client';
 export const ALERT_QUEUE_INDEX = 'advisor_alert_queue';
 export const ALERT_SETTINGS_ORG_INDEX = 'advisor_alert_settings_org';
 export const CLIENT_CONTACT_CLIENT_INDEX = 'advisor_client_contact_client';
@@ -263,6 +264,11 @@ alertSchema.index(
 	}
 );
 // A fila: status e prioridade da organização, do mais grave ao mais novo.
+// `listForClient` e `deleteByClient`: os alertas de um cliente.
+alertSchema.index(
+	{ orgId: 1, clientProfileId: 1, createdAt: 1 },
+	{ name: ALERT_CLIENT_INDEX }
+);
 alertSchema.index(
 	{ orgId: 1, status: 1, priorityRank: 1, createdAt: 1 },
 	{ name: ALERT_QUEUE_INDEX }

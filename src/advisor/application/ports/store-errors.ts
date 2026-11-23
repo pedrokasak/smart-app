@@ -29,3 +29,11 @@ export class DuplicatePendingMemberInviteError extends Error {
 		this.name = 'DuplicatePendingMemberInviteError';
 	}
 }
+
+/** A linha da série diária tem `date` fora de YYYY-MM-DD ou `source` inválida. */
+export class InvalidWealthRowError extends Error {
+	constructor() {
+		super('Invalid wealth daily row');
+		this.name = 'InvalidWealthRowError';
+	}
+}
