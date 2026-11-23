@@ -9,4 +9,13 @@ export interface OrganizationStorePort {
 	findById(id: string): Promise<Organization | null>;
 	/** Remove a organização (compensação de uma criação incompleta). */
 	delete(id: string): Promise<void>;
+	/**
+	 * Ids das organizações em ordem crescente, por páginas (o job diário
+	 * percorre todas). `cursor` opaco; inválido lança `InvalidCursorError`.
+	 * `limit` é limitado a 1..1000.
+	 */
+	listIds(
+		cursor: string | undefined,
+		limit: number
+	): Promise<{ ids: string[]; nextCursor: string | null }>;
 }

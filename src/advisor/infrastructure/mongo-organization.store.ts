@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectModel } from '@nestjs/mongoose';
 import { Model } from 'mongoose';
+import { decodeIdCursor, encodeIdCursor } from '../application/id-cursor';
 import { DuplicateOrganizationOwnerError } from '../application/ports/store-errors';
 import { OrganizationStorePort } from '../application/ports/organization.store.port';
 import { Organization } from '../domain/entities';
@@ -35,6 +36,27 @@ export class MongoOrganizationStore implements OrganizationStorePort {
 
 	async delete(id: string): Promise<void> {
 		await this.orgs.deleteOne({ _id: id }).exec();
+	}
+
+	async listIds(
+		cursor: string | undefined,
+		limit: number
+	): Promise<{ ids: string[]; nextCursor: string | null }> {
+		const after = cursor === undefined ? null : decodeIdCursor(cursor);
+		const size = Math.min(Math.max(Math.trunc(limit) || 1, 1), 1000);
+		const docs = await this.orgs
+			.find(after === null ? {} : { _id: { $gt: after } })
+			.select({ _id: 1 })
+			.sort({ _id: 1 })
+			.limit(size + 1)
+			.lean<Array<{ _id: string }>>()
+			.exec();
+		const ids = docs.slice(0, size).map((d) => d._id);
+		return {
+			ids,
+			nextCursor:
+				docs.length > size ? encodeIdCursor(ids[ids.length - 1]) : null,
+		};
 	}
 
 	async findById(id: string): Promise<Organization | null> {

@@ -26,3 +26,22 @@ export function isDuplicateOnIndex(
 		keys.length === keyFields.length && keyFields.every((f) => f in pattern)
 	);
 }
+
+/** Qualquer E11000, sem olhar o índice. */
+export const isDuplicateKey = (error: unknown): boolean =>
+	(error as { code?: number } | null)?.code === DUPLICATE_KEY;
+
+/**
+ * Upsert contra um índice único: dois primeiros upserts concorrentes batem
+ * no índice; o perdedor repete uma vez e cai no caminho de update.
+ */
+export async function retryOnDuplicateKey<T>(
+	run: () => Promise<T>
+): Promise<T> {
+	try {
+		return await run();
+	} catch (error) {
+		if (!isDuplicateKey(error)) throw error;
+		return run();
+	}
+}

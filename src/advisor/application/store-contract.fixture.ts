@@ -1,25 +1,49 @@
 import { ConflictException } from '@nestjs/common';
 import { randomUUID } from 'crypto';
+import {
+	AlertSettings,
+	DEFAULT_ALERT_SETTINGS,
+} from '../domain/alert-settings';
+import {
+	Alert,
+	ClientSnapshot,
+	conditionKeyOf,
+} from '../domain/attention.entities';
 import { ClientInvite, Consent } from '../domain/consent.entities';
 import {
 	AdvisorType,
+	AlertHandledVia,
+	AlertPriority,
+	AlertRule,
+	AlertStatus,
 	AssetClass,
 	ConsentStatus,
 	InviteStatus,
 	MemberInviteStatus,
 	OrgRole,
+	PortfolioProvenance,
 	ProfileOrigin,
 	Provenance,
 	RelationshipStatus,
+	SnapshotSource,
 	TransactionSide,
 	TransactionSource,
 } from '../domain/enums';
 import { ERASED_CLIENT_NAME } from '../domain/entities';
 import { MemberInvite } from '../domain/team.entities';
 import { NewTransaction } from '../domain/portfolio.entities';
+import type { ClientPortfolioMetrics } from './metrics/build-portfolio-metrics';
+import { AlertSettingsStorePort } from './ports/alert-settings.store.port';
+import {
+	AlertFilter,
+	AlertStorePort,
+	NewAlert,
+} from './ports/alert.store.port';
 import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
 import { AssignmentStorePort } from './ports/assignment.store.port';
+import { ClientContactStorePort } from './ports/client-contact.store.port';
 import { ClientProfileStorePort } from './ports/client-profile.store.port';
+import { ClientSnapshotStorePort } from './ports/client-snapshot.store.port';
 import { ConsentStorePort } from './ports/consent.store.port';
 import { InviteStorePort } from './ports/invite.store.port';
 import { MemberInviteStorePort } from './ports/member-invite.store.port';
@@ -27,6 +51,10 @@ import { MembershipStorePort } from './ports/membership.store.port';
 import { OrganizationStorePort } from './ports/organization.store.port';
 import { PortalGrantStorePort } from './ports/portal-grant.store.port';
 import { RelationshipStorePort } from './ports/relationship.store.port';
+import {
+	WealthDailyRow,
+	WealthDailyStorePort,
+} from './ports/wealth-daily.store.port';
 import {
 	DuplicateMembershipError,
 	DuplicateOrganizationOwnerError,
@@ -74,6 +102,41 @@ export function describeAdvisorStoreContract(
 			expect(await s.orgs.findById(randomUUID())).toBeNull();
 			expect(await s.orgs.findById('not-an-object-id')).toBeNull();
 			expect(await s.orgs.findById('')).toBeNull();
+		});
+
+		it('organization: listIds pages every id once, in ascending order, with a stable cursor', async () => {
+			const created = await Promise.all(
+				Array.from({ length: 5 }, (_, i) =>
+					s.orgs.create({
+						name: `Paged ${i}`,
+						advisorType: AdvisorType.Assessor,
+					})
+				)
+			);
+
+			const seen: string[] = [];
+			let cursor: string | undefined;
+			let guard = 0;
+			do {
+				const page = await s.orgs.listIds(cursor, 2);
+				expect(page.ids.length).toBeLessThanOrEqual(2);
+				seen.push(...page.ids);
+				cursor = page.nextCursor ?? undefined;
+				guard += 1;
+			} while (cursor && guard < 1000);
+
+			expect(new Set(seen).size).toBe(seen.length);
+			expect([...seen].sort()).toEqual(seen);
+			for (const org of created) expect(seen).toContain(org.id);
+		});
+
+		it('organization: listIds rejects a malformed cursor', async () => {
+			await expect(
+				s.orgs.listIds('!!not-a-cursor!!', 10)
+			).rejects.toBeInstanceOf(InvalidCursorError);
+			await expect(
+				s.orgs.listIds(Buffer.from('{"x":1}').toString('base64url'), 10)
+			).rejects.toBeInstanceOf(InvalidCursorError);
 		});
 
 		it('membership: create/findByUserAndOrg round trip; unknown gives null', async () => {
@@ -986,6 +1049,40 @@ export function describeAdvisorConsentStoreContract(
 
 			expect(pending.map((i) => i.id)).toEqual([newer.id, older.id]);
 			expect(await s.invites.listPendingByOrg(randomUUID(), now)).toEqual([]);
+		});
+
+		it('invite: findAcceptedByRelationship returns the most recently accepted invite of that relationship only', async () => {
+			const relationshipId = randomUUID();
+			expect(await s.invites.findAcceptedByRelationship(relationshipId)).toBe(
+				null
+			);
+			const pending = await s.invites.create(newInvite({ relationshipId }));
+			expect(await s.invites.findAcceptedByRelationship(relationshipId)).toBe(
+				null
+			);
+			const first = await s.invites.create(newInvite({ relationshipId }));
+			const second = await s.invites.create(newInvite({ relationshipId }));
+			const other = await s.invites.create(newInvite());
+			await s.invites.transition(
+				first.id,
+				InviteStatus.Accepted,
+				new Date('2030-02-01T00:00:00Z')
+			);
+			await s.invites.transition(
+				second.id,
+				InviteStatus.Accepted,
+				new Date('2030-03-01T00:00:00Z')
+			);
+			await s.invites.transition(
+				other.id,
+				InviteStatus.Accepted,
+				new Date('2030-04-01T00:00:00Z')
+			);
+
+			const found = await s.invites.findAcceptedByRelationship(relationshipId);
+			expect(found?.id).toBe(second.id);
+			expect(found?.status).toBe(InviteStatus.Accepted);
+			expect(found?.id).not.toBe(pending.id);
 		});
 
 		it('invite: deleteByEmail removes only that e-mail and returns the count', async () => {
@@ -2532,6 +2629,1115 @@ export function describeAdvisorTeamStoreContract(
 				await s.profiles.deleteById(profile.id);
 				await s.profiles.deleteById(randomUUID());
 				expect(await s.profiles.findById(profile.id)).toBeNull();
+			});
+		});
+	});
+}
+
+export interface AdvisorAttentionStores {
+	snapshots: ClientSnapshotStorePort;
+	wealth: WealthDailyStorePort;
+	alerts: AlertStorePort;
+	settings: AlertSettingsStorePort;
+	contacts: ClientContactStorePort;
+}
+
+const newSnapshot = (
+	orgId: string,
+	clientProfileId: string,
+	overrides: Partial<ClientSnapshot> = {}
+): ClientSnapshot => ({
+	orgId,
+	clientProfileId,
+	asOf: '2026-11-20',
+	sources: [
+		{
+			source: SnapshotSource.AdvisorLedger,
+			metrics: {
+				asOf: '2026-11-20',
+				currency: 'BRL',
+				provenance: PortfolioProvenance.Manual,
+				totalValueMinor: 150000,
+				positions: [],
+				concentration: { hhi: null, effectiveAssets: null, top: [] },
+				allocation: { current: {}, target: null, driftPp: null },
+			} as unknown as ClientPortfolioMetrics,
+		},
+		{
+			source: SnapshotSource.B2cShared,
+			portfolioId: 'p-1',
+			metrics: null,
+			unavailableReason: 'NO_TRANSACTIONS',
+		},
+	],
+	totalMinor: 150000,
+	verifiedMinor: 0,
+	manualMinor: 150000,
+	relationshipStartedAt: new Date('2026-01-05T00:00:00Z'),
+	lastContactAt: null,
+	computedAt: new Date('2026-11-20T21:00:00Z'),
+	...overrides,
+});
+
+const newAlert = (
+	orgId: string,
+	clientProfileId: string,
+	overrides: Partial<NewAlert> = {}
+): NewAlert => {
+	const base = {
+		rule: AlertRule.Concentration,
+		source: SnapshotSource.AdvisorLedger,
+		key: 'PETR4',
+		band: 1 as const,
+		priority: AlertPriority.P2,
+		messageKey: 'advisor.alert.concentration',
+		params: { symbol: 'PETR4', pct: 31 },
+		evidence: { pct: 31, threshold: 25 },
+		dataAsOf: '2026-11-20',
+		provenance: PortfolioProvenance.Manual,
+		lowConfidence: false,
+		orgId,
+		clientProfileId,
+		status: AlertStatus.Open,
+		...overrides,
+	};
+	return {
+		...base,
+		conditionKey:
+			overrides.conditionKey ??
+			conditionKeyOf({
+				rule: base.rule,
+				source: base.source,
+				key: base.key,
+			}),
+	};
+};
+
+/** Alerta de condição distinta, para testes que precisam de vários. */
+const withKey = (
+	orgId: string,
+	clientProfileId: string,
+	key: string,
+	overrides: Partial<NewAlert> = {}
+): NewAlert =>
+	newAlert(orgId, clientProfileId, {
+		key,
+		conditionKey: `k:${key}`,
+		...overrides,
+	});
+
+const idsOf = (alerts: Array<{ id: string }>): string[] =>
+	alerts.map((a) => a.id);
+
+const ZERO_COUNTS = { P0: 0, P1: 0, P2: 0, P3: 0 };
+
+/**
+ * Suíte de contrato dos ports do read model do motor de atenção (P3b):
+ * snapshot, série diária, alertas, limites e último contato. Ids aleatórios
+ * por teste; não assume coleção vazia.
+ */
+export function describeAdvisorAttentionStoreContract(
+	name: string,
+	makeStores: () => AdvisorAttentionStores
+): void {
+	describe(`${name} - advisor attention store contract`, () => {
+		let s: AdvisorAttentionStores;
+		beforeEach(() => {
+			s = makeStores();
+		});
+
+		describe('client snapshots', () => {
+			it('upsert/find round trip keeps the Mixed metrics, null contact and dates', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const snapshot = newSnapshot(orgId, clientId);
+
+				await s.snapshots.upsert(snapshot);
+
+				expect(await s.snapshots.find(orgId, clientId)).toEqual(snapshot);
+				expect(await s.snapshots.find(orgId, randomUUID())).toBeNull();
+				expect(await s.snapshots.find(randomUUID(), clientId)).toBeNull();
+			});
+
+			it('upsert replaces the single snapshot of (org, client)', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				await s.snapshots.upsert(newSnapshot(orgId, clientId));
+				const later = newSnapshot(orgId, clientId, {
+					asOf: '2026-11-21',
+					totalMinor: 99,
+					verifiedMinor: 99,
+					manualMinor: 0,
+					lastContactAt: new Date('2026-11-01T00:00:00Z'),
+					sources: [],
+				});
+
+				await s.snapshots.upsert(later);
+
+				expect(await s.snapshots.find(orgId, clientId)).toEqual(later);
+				expect(await s.snapshots.listByOrg(orgId)).toHaveLength(1);
+			});
+
+			it('concurrent first upserts of the same client leave one snapshot', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+
+				await Promise.all(
+					Array.from({ length: 6 }, (_, i) =>
+						s.snapshots.upsert(newSnapshot(orgId, clientId, { totalMinor: i }))
+					)
+				);
+
+				expect(await s.snapshots.listByOrg(orgId)).toHaveLength(1);
+			});
+
+			it('listByOrg is scoped to the org, ordered by client id, and honours clientIds', async () => {
+				const orgId = randomUUID();
+				const ids = [randomUUID(), randomUUID(), randomUUID()].sort();
+				for (const id of [ids[2], ids[0], ids[1]]) {
+					await s.snapshots.upsert(newSnapshot(orgId, id));
+				}
+				await s.snapshots.upsert(newSnapshot(randomUUID(), ids[0]));
+
+				expect(
+					(await s.snapshots.listByOrg(orgId)).map((x) => x.clientProfileId)
+				).toEqual(ids);
+				expect(
+					(await s.snapshots.listByOrg(orgId, [ids[2], ids[0]])).map(
+						(x) => x.clientProfileId
+					)
+				).toEqual([ids[0], ids[2]]);
+				expect(await s.snapshots.listByOrg(orgId, [])).toEqual([]);
+			});
+
+			it('delete removes only that client in that org', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const otherId = randomUUID();
+				const otherOrg = randomUUID();
+				await s.snapshots.upsert(newSnapshot(orgId, clientId));
+				await s.snapshots.upsert(newSnapshot(orgId, otherId));
+				await s.snapshots.upsert(newSnapshot(otherOrg, clientId));
+
+				await s.snapshots.delete(orgId, clientId);
+				await s.snapshots.delete(orgId, clientId);
+
+				expect(await s.snapshots.find(orgId, clientId)).toBeNull();
+				expect(await s.snapshots.find(orgId, otherId)).not.toBeNull();
+				expect(await s.snapshots.find(otherOrg, clientId)).not.toBeNull();
+			});
+		});
+
+		describe('wealth daily', () => {
+			const row = (
+				orgId: string,
+				clientProfileId: string,
+				date: string,
+				overrides: Partial<WealthDailyRow> = {}
+			): WealthDailyRow => ({
+				orgId,
+				clientProfileId,
+				date,
+				source: SnapshotSource.AdvisorLedger,
+				totalMinor: 1000,
+				verifiedMinor: 400,
+				manualMinor: 600,
+				...overrides,
+			});
+			const shared = (
+				orgId: string,
+				clientId: string,
+				date: string,
+				portfolioId: string,
+				totalMinor: number
+			): WealthDailyRow =>
+				row(orgId, clientId, date, {
+					source: SnapshotSource.B2cShared,
+					portfolioId,
+					totalMinor,
+					verifiedMinor: totalMinor,
+					manualMinor: 0,
+				});
+
+			it('upsert keeps one row per (client, date, source, portfolio); the last value wins', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				await s.wealth.upsert(row(orgId, clientId, '2026-11-10'));
+				await s.wealth.upsert(
+					row(orgId, clientId, '2026-11-10', {
+						totalMinor: 2000,
+						verifiedMinor: 0,
+						manualMinor: 2000,
+					})
+				);
+				await Promise.all(
+					Array.from({ length: 5 }, () =>
+						s.wealth.upsert(
+							row(orgId, clientId, '2026-11-11', { totalMinor: 7 })
+						)
+					)
+				);
+
+				expect(
+					await s.wealth.sumByDate(orgId, '2026-11-01', '2026-11-30')
+				).toEqual([
+					{
+						date: '2026-11-10',
+						totalMinor: 2000,
+						verifiedMinor: 0,
+						manualMinor: 2000,
+						clients: 1,
+					},
+					{
+						date: '2026-11-11',
+						totalMinor: 7,
+						verifiedMinor: 400,
+						manualMinor: 600,
+						clients: 1,
+					},
+				]);
+			});
+
+			it('sumByDate adds sources and clients per day, counts distinct clients, bounds are inclusive and sorted', async () => {
+				const orgId = randomUUID();
+				const a = randomUUID();
+				const b = randomUUID();
+				await s.wealth.upsert(row(orgId, a, '2026-11-12'));
+				await s.wealth.upsert(shared(orgId, a, '2026-11-12', 'p-1', 500));
+				await s.wealth.upsert(shared(orgId, a, '2026-11-12', 'p-2', 100));
+				await s.wealth.upsert(row(orgId, b, '2026-11-12'));
+				await s.wealth.upsert(row(orgId, a, '2026-11-10'));
+				await s.wealth.upsert(row(orgId, a, '2026-11-09'));
+				await s.wealth.upsert(row(orgId, a, '2026-11-13'));
+				await s.wealth.upsert(row(randomUUID(), a, '2026-11-12'));
+
+				const sums = await s.wealth.sumByDate(
+					orgId,
+					'2026-11-10',
+					'2026-11-12'
+				);
+
+				expect(sums.map((x) => x.date)).toEqual(['2026-11-10', '2026-11-12']);
+				expect(sums[1]).toEqual({
+					date: '2026-11-12',
+					totalMinor: 1000 + 500 + 100 + 1000,
+					verifiedMinor: 400 + 500 + 100 + 400,
+					manualMinor: 600 + 0 + 0 + 600,
+					clients: 2,
+				});
+			});
+
+			it('sumByDate sums only the given clientIds (empty list gives nothing)', async () => {
+				const orgId = randomUUID();
+				const a = randomUUID();
+				const b = randomUUID();
+				await s.wealth.upsert(row(orgId, a, '2026-11-12'));
+				await s.wealth.upsert(row(orgId, b, '2026-11-12', { totalMinor: 50 }));
+
+				expect(
+					await s.wealth.sumByDate(orgId, '2026-11-12', '2026-11-12', [b])
+				).toEqual([
+					{
+						date: '2026-11-12',
+						totalMinor: 50,
+						verifiedMinor: 400,
+						manualMinor: 600,
+						clients: 1,
+					},
+				]);
+				expect(
+					await s.wealth.sumByDate(orgId, '2026-11-12', '2026-11-12', [])
+				).toEqual([]);
+			});
+
+			it('clientIdsOn lists distinct clients of that day, optionally restricted', async () => {
+				const orgId = randomUUID();
+				const a = randomUUID();
+				const b = randomUUID();
+				const c = randomUUID();
+				await s.wealth.upsert(row(orgId, a, '2026-11-12'));
+				await s.wealth.upsert(shared(orgId, a, '2026-11-12', 'p-1', 10));
+				await s.wealth.upsert(row(orgId, b, '2026-11-12'));
+				await s.wealth.upsert(row(orgId, c, '2026-11-13'));
+
+				expect(
+					(await s.wealth.clientIdsOn(orgId, '2026-11-12')).sort()
+				).toEqual([a, b].sort());
+				expect(await s.wealth.clientIdsOn(orgId, '2026-11-12', [b, c])).toEqual(
+					[b]
+				);
+				expect(await s.wealth.clientIdsOn(orgId, '2026-11-12', [])).toEqual([]);
+				expect(await s.wealth.clientIdsOn(randomUUID(), '2026-11-12')).toEqual(
+					[]
+				);
+			});
+
+			it('deleteSource removes one portfolio, or the whole source when none is given', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				await s.wealth.upsert(row(orgId, clientId, '2026-11-12'));
+				await s.wealth.upsert(shared(orgId, clientId, '2026-11-12', 'p-1', 10));
+				await s.wealth.upsert(shared(orgId, clientId, '2026-11-12', 'p-2', 20));
+				const total = async (): Promise<number> =>
+					(await s.wealth.sumByDate(orgId, '2026-11-12', '2026-11-12'))[0]
+						.totalMinor;
+
+				await s.wealth.deleteSource(
+					orgId,
+					clientId,
+					SnapshotSource.B2cShared,
+					'p-1'
+				);
+				expect(await total()).toBe(1000 + 20);
+
+				await s.wealth.deleteSource(orgId, clientId, SnapshotSource.B2cShared);
+				expect(await total()).toBe(1000);
+			});
+
+			it('deleteClient removes every row of that client in that org only', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const other = randomUUID();
+				const otherOrg = randomUUID();
+				await s.wealth.upsert(row(orgId, clientId, '2026-11-12'));
+				await s.wealth.upsert(row(orgId, clientId, '2026-11-13'));
+				await s.wealth.upsert(row(orgId, other, '2026-11-12'));
+				await s.wealth.upsert(row(otherOrg, clientId, '2026-11-12'));
+
+				await s.wealth.deleteClient(orgId, clientId);
+
+				expect(await s.wealth.clientIdsOn(orgId, '2026-11-12')).toEqual([
+					other,
+				]);
+				expect(await s.wealth.clientIdsOn(orgId, '2026-11-13')).toEqual([]);
+				expect(await s.wealth.clientIdsOn(otherOrg, '2026-11-12')).toEqual([
+					clientId,
+				]);
+			});
+		});
+
+		describe('alerts', () => {
+			it('insertMany returns the stored alerts with ids, dates and no stored rank', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const input = newAlert(orgId, clientId);
+
+				const [stored] = await s.alerts.insertMany([input]);
+
+				expect(stored).toMatchObject(input);
+				expect(stored.id).toBeTruthy();
+				expect(stored.createdAt).toBeInstanceOf(Date);
+				expect(stored.updatedAt).toBeInstanceOf(Date);
+				expect(stored).not.toHaveProperty('priorityRank');
+				expect(await s.alerts.findById(orgId, stored.id)).toEqual(stored);
+				expect(await s.alerts.findById(randomUUID(), stored.id)).toBeNull();
+				expect(await s.alerts.findById(orgId, randomUUID())).toBeNull();
+				expect(await s.alerts.insertMany([])).toEqual([]);
+			});
+
+			it('keeps null source/provenance and the optional manual fields', async () => {
+				const orgId = randomUUID();
+				const manual = newAlert(orgId, randomUUID(), {
+					rule: AlertRule.Manual,
+					source: null,
+					key: 'x',
+					conditionKey: 'MANUAL:-:x',
+					provenance: null,
+					title: 'Ligar',
+					note: 'Rever meta',
+					dueDate: '2026-12-01',
+					createdByUserId: 'u1',
+				});
+
+				const [stored] = await s.alerts.insertMany([manual]);
+
+				expect(stored.source).toBeNull();
+				expect(stored.provenance).toBeNull();
+				expect(stored.dueDate).toBe('2026-12-01');
+				expect(await s.alerts.findById(orgId, stored.id)).toEqual(stored);
+			});
+
+			it('a second insertMany with the same active conditionKey does not duplicate', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const first = await s.alerts.insertMany([newAlert(orgId, clientId)]);
+				const fresh = withKey(orgId, clientId, 'VALE3');
+
+				const second = await s.alerts.insertMany([
+					newAlert(orgId, clientId),
+					fresh,
+					fresh,
+				]);
+
+				expect(first).toHaveLength(1);
+				expect(second.map((a) => a.conditionKey)).toEqual([fresh.conditionKey]);
+				expect(
+					await s.alerts.listForClient(orgId, clientId, new Date('2000-01-01'))
+				).toHaveLength(2);
+			});
+
+			it('the same conditionKey is independent across clients and orgs', async () => {
+				const orgId = randomUUID();
+
+				const stored = await s.alerts.insertMany([
+					newAlert(orgId, randomUUID()),
+					newAlert(orgId, randomUUID()),
+					newAlert(randomUUID(), randomUUID()),
+				]);
+
+				expect(stored).toHaveLength(3);
+			});
+
+			it('a closed alert frees its conditionKey; a snoozed one still blocks it', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const [first] = await s.alerts.insertMany([newAlert(orgId, clientId)]);
+				await s.alerts.patch(first.id, {
+					status: AlertStatus.Snoozed,
+					snoozedUntil: '2026-12-31',
+				});
+				expect(
+					await s.alerts.insertMany([newAlert(orgId, clientId)])
+				).toHaveLength(0);
+
+				await s.alerts.patch(first.id, { status: AlertStatus.Handled });
+				const reopened = await s.alerts.insertMany([newAlert(orgId, clientId)]);
+
+				expect(reopened).toHaveLength(1);
+				expect(reopened[0].id).not.toBe(first.id);
+			});
+
+			it('listForClient returns active alerts of any age plus closed ones touched since the date, oldest first, per client', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const [old] = await s.alerts.insertMany([
+					withKey(orgId, clientId, 'A'),
+				]);
+				await tick();
+				const [closed] = await s.alerts.insertMany([
+					withKey(orgId, clientId, 'B'),
+				]);
+				await s.alerts.patch(closed.id, {
+					status: AlertStatus.Dismissed,
+					closedAt: new Date(),
+				});
+				await s.alerts.insertMany([newAlert(orgId, randomUUID())]);
+
+				const wide = await s.alerts.listForClient(
+					orgId,
+					clientId,
+					new Date('2000-01-01')
+				);
+				const future = await s.alerts.listForClient(
+					orgId,
+					clientId,
+					new Date(Date.now() + 60_000)
+				);
+
+				expect(idsOf(wide)).toEqual([old.id, closed.id]);
+				expect(idsOf(future)).toEqual([old.id]);
+			});
+
+			it('patch applies the fields, bumps updatedAt and keeps the identity fields', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const [alert] = await s.alerts.insertMany([newAlert(orgId, clientId)]);
+				await tick();
+
+				const patched = await s.alerts.patch(alert.id, {
+					status: AlertStatus.Handled,
+					handledVia: AlertHandledVia.Email,
+					handledByUserId: 'u9',
+					closedAt: new Date('2026-11-21T10:00:00Z'),
+					evidence: { pct: 40 },
+					orgId: 'hacked',
+					conditionKey: 'hacked',
+				} as Partial<Alert>);
+
+				expect(patched).toMatchObject({
+					id: alert.id,
+					orgId,
+					clientProfileId: clientId,
+					conditionKey: alert.conditionKey,
+					status: AlertStatus.Handled,
+					handledVia: AlertHandledVia.Email,
+					handledByUserId: 'u9',
+					evidence: { pct: 40 },
+				});
+				expect(patched?.closedAt).toEqual(new Date('2026-11-21T10:00:00Z'));
+				expect(patched?.createdAt).toEqual(alert.createdAt);
+				expect(patched?.updatedAt.getTime()).toBeGreaterThan(
+					alert.updatedAt.getTime()
+				);
+				expect(await s.alerts.findById(orgId, alert.id)).toEqual(patched);
+			});
+
+			it('patch with a wrong expectedStatus returns null and changes nothing; a right one applies', async () => {
+				const orgId = randomUUID();
+				const [alert] = await s.alerts.insertMany([
+					newAlert(orgId, randomUUID()),
+				]);
+
+				expect(
+					await s.alerts.patch(alert.id, { status: AlertStatus.Dismissed }, [
+						AlertStatus.Snoozed,
+						AlertStatus.Handled,
+					])
+				).toBeNull();
+				expect((await s.alerts.findById(orgId, alert.id))?.status).toBe(
+					AlertStatus.Open
+				);
+
+				const ok = await s.alerts.patch(
+					alert.id,
+					{ status: AlertStatus.Dismissed, dismissReason: 'ruído' },
+					[AlertStatus.Open]
+				);
+				expect(ok?.status).toBe(AlertStatus.Dismissed);
+				expect(await s.alerts.patch(randomUUID(), { note: 'x' })).toBeNull();
+			});
+
+			it('concurrent patches with the same expectedStatus: exactly one wins', async () => {
+				const [alert] = await s.alerts.insertMany([
+					newAlert(randomUUID(), randomUUID()),
+				]);
+
+				const results = await Promise.all(
+					[AlertStatus.Handled, AlertStatus.Dismissed, AlertStatus.Snoozed].map(
+						(status) => s.alerts.patch(alert.id, { status }, [AlertStatus.Open])
+					)
+				);
+
+				expect(results.filter((r) => r !== null)).toHaveLength(1);
+			});
+
+			it('patch turns a key present with value undefined into a removed field', async () => {
+				const orgId = randomUUID();
+				const [alert] = await s.alerts.insertMany([
+					newAlert(orgId, randomUUID(), { dueDate: '2026-12-01' }),
+				]);
+				await s.alerts.patch(alert.id, {
+					status: AlertStatus.Snoozed,
+					snoozedUntil: '2026-12-10',
+				});
+
+				const cleared = await s.alerts.patch(alert.id, {
+					status: AlertStatus.Open,
+					snoozedUntil: undefined,
+				});
+
+				expect(cleared?.status).toBe(AlertStatus.Open);
+				expect(cleared).not.toHaveProperty('snoozedUntil');
+				expect(cleared?.dueDate).toBe('2026-12-01');
+				expect(await s.alerts.findById(orgId, alert.id)).not.toHaveProperty(
+					'snoozedUntil'
+				);
+			});
+
+			it('a patch that changes priority moves the alert in the queue (rank follows priority)', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const [p2, p3] = await s.alerts.insertMany([
+					withKey(orgId, clientId, 'A', { priority: AlertPriority.P2 }),
+					withKey(orgId, clientId, 'B', { priority: AlertPriority.P3 }),
+				]);
+
+				await s.alerts.patch(p3.id, { priority: AlertPriority.P0 });
+
+				const page = await s.alerts.list(orgId, {
+					statuses: [AlertStatus.Open],
+					limit: 10,
+				});
+				expect(idsOf(page.items)).toEqual([p3.id, p2.id]);
+				expect(page.items[0].priority).toBe(AlertPriority.P0);
+			});
+
+			it('resolveMany resolves only active alerts, counts them and stamps closedAt', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const [a, b, c] = await s.alerts.insertMany([
+					withKey(orgId, clientId, 'A'),
+					withKey(orgId, clientId, 'B'),
+					withKey(orgId, clientId, 'C'),
+				]);
+				await s.alerts.patch(b.id, {
+					status: AlertStatus.Snoozed,
+					snoozedUntil: '2026-12-31',
+				});
+				await s.alerts.patch(c.id, { status: AlertStatus.Dismissed });
+				const at = new Date('2026-11-22T12:00:00Z');
+
+				const count = await s.alerts.resolveMany(
+					[a.id, b.id, c.id, randomUUID()],
+					at
+				);
+
+				expect(count).toBe(2);
+				const resolved = await s.alerts.findById(orgId, a.id);
+				expect(resolved?.status).toBe(AlertStatus.Resolved);
+				expect(resolved?.closedAt).toEqual(at);
+				expect((await s.alerts.findById(orgId, c.id))?.status).toBe(
+					AlertStatus.Dismissed
+				);
+				expect(await s.alerts.resolveMany([], at)).toBe(0);
+				expect(await s.alerts.resolveMany([a.id], at)).toBe(0);
+				expect(
+					await s.alerts.insertMany([withKey(orgId, clientId, 'A')])
+				).toHaveLength(1);
+			});
+
+			describe('list', () => {
+				const seed = async (orgId: string) => {
+					const clientId = randomUUID();
+					const insert = async (
+						key: string,
+						priority: AlertPriority,
+						dueDate?: string
+					) => {
+						const [stored] = await s.alerts.insertMany([
+							withKey(orgId, clientId, key, {
+								priority,
+								...(dueDate ? { dueDate } : {}),
+							}),
+						]);
+						await tick();
+						return stored;
+					};
+					const p1 = await insert('p1', AlertPriority.P1);
+					const p0NoDue = await insert('p0nd', AlertPriority.P0);
+					const p0Late = await insert('p0late', AlertPriority.P0, '2026-12-20');
+					const p0Soon = await insert('p0soon', AlertPriority.P0, '2026-12-05');
+					const p0NoDueNewer = await insert('p0nd2', AlertPriority.P0);
+					return {
+						clientId,
+						ordered: [p0Soon.id, p0Late.id, p0NoDueNewer.id, p0NoDue.id, p1.id],
+					};
+				};
+
+				it('orders by priority rank, due date (no due last), newest first, id', async () => {
+					const orgId = randomUUID();
+					const { ordered } = await seed(orgId);
+
+					const page = await s.alerts.list(orgId, {
+						statuses: [AlertStatus.Open],
+						limit: 50,
+					});
+
+					expect(idsOf(page.items)).toEqual(ordered);
+					expect(page.nextCursor).toBeNull();
+				});
+
+				it('pages with a stable opaque cursor, even when newer alerts arrive between pages', async () => {
+					const orgId = randomUUID();
+					const { clientId, ordered } = await seed(orgId);
+
+					const first = await s.alerts.list(orgId, {
+						statuses: [AlertStatus.Open],
+						limit: 2,
+					});
+					expect(idsOf(first.items)).toEqual(ordered.slice(0, 2));
+					expect(first.nextCursor).toEqual(expect.any(String));
+
+					await tick();
+					await s.alerts.insertMany([
+						withKey(orgId, clientId, 'late', {
+							priority: AlertPriority.P0,
+							dueDate: '2026-12-01',
+						}),
+					]);
+
+					const second = await s.alerts.list(orgId, {
+						statuses: [AlertStatus.Open],
+						limit: 2,
+						cursor: first.nextCursor as string,
+					});
+					expect(idsOf(second.items)).toEqual(ordered.slice(2, 4));
+					const third = await s.alerts.list(orgId, {
+						statuses: [AlertStatus.Open],
+						limit: 2,
+						cursor: second.nextCursor as string,
+					});
+					expect(idsOf(third.items)).toEqual(ordered.slice(4));
+					expect(third.nextCursor).toBeNull();
+				});
+
+				it('rejects a cursor that is not ours', async () => {
+					const orgId = randomUUID();
+					for (const cursor of [
+						'%%%',
+						Buffer.from('{"r":9,"d":"x","c":"2026-01-01","i":"i"}').toString(
+							'base64url'
+						),
+						Buffer.from('{"r":0,"d":"x","c":"nope","i":"i"}').toString(
+							'base64url'
+						),
+					]) {
+						await expect(
+							s.alerts.list(orgId, {
+								statuses: [AlertStatus.Open],
+								limit: 5,
+								cursor,
+							})
+						).rejects.toBeInstanceOf(InvalidCursorError);
+					}
+				});
+
+				it('filters by status, priority, rule and clientIds, scoped to the org', async () => {
+					const orgId = randomUUID();
+					const clientA = randomUUID();
+					const clientB = randomUUID();
+					const [a, b, c] = await s.alerts.insertMany([
+						withKey(orgId, clientA, 'A', {
+							priority: AlertPriority.P0,
+							rule: AlertRule.PositionDrop,
+						}),
+						withKey(orgId, clientB, 'B', {
+							priority: AlertPriority.P1,
+							rule: AlertRule.TargetDrift,
+						}),
+						withKey(orgId, clientB, 'C', {
+							priority: AlertPriority.P2,
+							rule: AlertRule.Concentration,
+						}),
+					]);
+					await s.alerts.insertMany([newAlert(randomUUID(), clientA)]);
+					await s.alerts.patch(c.id, {
+						status: AlertStatus.Snoozed,
+						snoozedUntil: '2026-12-31',
+					});
+					const list = async (q: Partial<AlertFilter>): Promise<string[]> =>
+						idsOf(
+							(
+								await s.alerts.list(orgId, {
+									statuses: [AlertStatus.Open, AlertStatus.Snoozed],
+									limit: 50,
+									...q,
+								})
+							).items
+						);
+
+					expect(await list({})).toEqual([a.id, b.id, c.id]);
+					expect(await list({ statuses: [AlertStatus.Snoozed] })).toEqual([
+						c.id,
+					]);
+					expect(
+						await list({ priorities: [AlertPriority.P1, AlertPriority.P2] })
+					).toEqual([b.id, c.id]);
+					expect(await list({ rules: [AlertRule.PositionDrop] })).toEqual([
+						a.id,
+					]);
+					expect(await list({ clientIds: [clientB] })).toEqual([b.id, c.id]);
+					expect(await list({ clientIds: [] })).toEqual([]);
+				});
+
+				it('clamps the page size to at least one item', async () => {
+					const orgId = randomUUID();
+					await s.alerts.insertMany([
+						newAlert(orgId, randomUUID()),
+						newAlert(orgId, randomUUID()),
+					]);
+
+					const page = await s.alerts.list(orgId, {
+						statuses: [AlertStatus.Open],
+						limit: 0,
+					});
+
+					expect(page.items).toHaveLength(1);
+					expect(page.nextCursor).not.toBeNull();
+				});
+			});
+
+			it('countOpenByPriority counts OPEN only, zero-filled, restricted by clientIds', async () => {
+				const orgId = randomUUID();
+				const clientA = randomUUID();
+				const clientB = randomUUID();
+				const [, , snoozed] = await s.alerts.insertMany([
+					withKey(orgId, clientA, 'A', { priority: AlertPriority.P0 }),
+					withKey(orgId, clientB, 'B', { priority: AlertPriority.P0 }),
+					withKey(orgId, clientB, 'C', { priority: AlertPriority.P2 }),
+					withKey(orgId, clientB, 'D', { priority: AlertPriority.P2 }),
+				]);
+				await s.alerts.patch(snoozed.id, {
+					status: AlertStatus.Snoozed,
+					snoozedUntil: '2026-12-31',
+				});
+
+				expect(await s.alerts.countOpenByPriority(orgId)).toEqual({
+					...ZERO_COUNTS,
+					P0: 2,
+					P2: 1,
+				});
+				expect(await s.alerts.countOpenByPriority(orgId, [clientA])).toEqual({
+					...ZERO_COUNTS,
+					P0: 1,
+				});
+				expect(await s.alerts.countOpenByPriority(orgId, [])).toEqual(
+					ZERO_COUNTS
+				);
+				expect(await s.alerts.countOpenByPriority(randomUUID())).toEqual(
+					ZERO_COUNTS
+				);
+			});
+
+			it('listDeadlines returns manual due dates and snooze ends in the window, nearest first', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const manual = (key: string, dueDate: string): NewAlert =>
+					newAlert(orgId, clientId, {
+						rule: AlertRule.Manual,
+						source: null,
+						key,
+						conditionKey: `MANUAL:-:${key}`,
+						provenance: null,
+						dueDate,
+						title: key,
+					});
+				const [m10, m05, mOut, , snoozedIn, snoozedOut, closed] =
+					await s.alerts.insertMany([
+						manual('m10', '2026-12-10'),
+						manual('m05', '2026-12-05'),
+						manual('mOut', '2027-02-01'),
+						withKey(orgId, clientId, 'plain'),
+						withKey(orgId, clientId, 'sIn'),
+						withKey(orgId, clientId, 'sOut'),
+						manual('closed', '2026-12-06'),
+					]);
+				await s.alerts.patch(snoozedIn.id, {
+					status: AlertStatus.Snoozed,
+					snoozedUntil: '2026-12-07',
+				});
+				await s.alerts.patch(snoozedOut.id, {
+					status: AlertStatus.Snoozed,
+					snoozedUntil: '2027-03-01',
+				});
+				await s.alerts.patch(closed.id, { status: AlertStatus.Handled });
+
+				const rows = await s.alerts.listDeadlines(
+					orgId,
+					'2026-12-01',
+					'2026-12-14'
+				);
+
+				expect(idsOf(rows)).toEqual([m05.id, snoozedIn.id, m10.id]);
+				expect(idsOf(rows)).not.toContain(mOut.id);
+				expect(
+					await s.alerts.listDeadlines(orgId, '2026-12-01', '2026-12-14', [
+						randomUUID(),
+					])
+				).toEqual([]);
+				expect(
+					await s.alerts.listDeadlines(orgId, '2026-12-01', '2026-12-14', [])
+				).toEqual([]);
+			});
+
+			it('idsByFilter follows the list order, honours the filter and caps at max', async () => {
+				const orgId = randomUUID();
+				const [a, b, c] = await s.alerts.insertMany([
+					withKey(orgId, randomUUID(), 'A', { priority: AlertPriority.P2 }),
+					withKey(orgId, randomUUID(), 'B', { priority: AlertPriority.P0 }),
+					withKey(orgId, randomUUID(), 'C', { priority: AlertPriority.P1 }),
+				]);
+				await s.alerts.insertMany([newAlert(randomUUID(), randomUUID())]);
+				const open = { statuses: [AlertStatus.Open] };
+
+				expect(await s.alerts.idsByFilter(orgId, open, 10)).toEqual([
+					b.id,
+					c.id,
+					a.id,
+				]);
+				expect(await s.alerts.idsByFilter(orgId, open, 2)).toEqual([
+					b.id,
+					c.id,
+				]);
+				expect(
+					await s.alerts.idsByFilter(
+						orgId,
+						{ ...open, priorities: [AlertPriority.P2] },
+						10
+					)
+				).toEqual([a.id]);
+				expect(
+					await s.alerts.idsByFilter(orgId, { ...open, clientIds: [] }, 10)
+				).toEqual([]);
+			});
+
+			it('deleteByClient removes that client in that org only', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const [a, b] = await s.alerts.insertMany([
+					newAlert(orgId, clientId),
+					newAlert(orgId, randomUUID()),
+				]);
+				const [elsewhere] = await s.alerts.insertMany([
+					newAlert(randomUUID(), clientId),
+				]);
+
+				await s.alerts.deleteByClient(orgId, clientId);
+
+				expect(await s.alerts.findById(orgId, a.id)).toBeNull();
+				expect(await s.alerts.findById(orgId, b.id)).not.toBeNull();
+				expect(
+					await s.alerts.findById(elsewhere.orgId, elsewhere.id)
+				).not.toBeNull();
+			});
+		});
+
+		describe('alert settings', () => {
+			const custom: AlertSettings = {
+				...DEFAULT_ALERT_SETTINGS,
+				noContactDays: [30, 60],
+				largeSellsPct: 15,
+			};
+
+			it('find is null until something is stored', async () => {
+				expect(await s.settings.find(randomUUID())).toBeNull();
+			});
+
+			it('ensureEngineEnabled creates the record with default limits and returns the stored date, idempotently', async () => {
+				const orgId = randomUUID();
+				const first = new Date('2026-11-01T10:00:00Z');
+
+				const a = await s.settings.ensureEngineEnabled(orgId, first);
+				const b = await s.settings.ensureEngineEnabled(
+					orgId,
+					new Date('2026-11-09T10:00:00Z')
+				);
+
+				expect(a).toEqual(first);
+				expect(b).toEqual(first);
+				expect(await s.settings.find(orgId)).toEqual({
+					settings: DEFAULT_ALERT_SETTINGS,
+					engineEnabledAt: first,
+				});
+			});
+
+			it('concurrent ensureEngineEnabled calls all return the same date', async () => {
+				const orgId = randomUUID();
+				const dates = Array.from(
+					{ length: 6 },
+					(_, i) => new Date(Date.UTC(2026, 10, 1 + i))
+				);
+
+				const results = await Promise.all(
+					dates.map((d) => s.settings.ensureEngineEnabled(orgId, d))
+				);
+
+				expect(new Set(results.map((d) => d.getTime())).size).toBe(1);
+				expect((await s.settings.find(orgId))?.engineEnabledAt).toEqual(
+					results[0]
+				);
+			});
+
+			it('upsertSettings stores the whole set and keeps engineEnabledAt', async () => {
+				const orgId = randomUUID();
+				const enabledAt = new Date('2026-11-01T10:00:00Z');
+				await s.settings.ensureEngineEnabled(orgId, enabledAt);
+
+				const saved = await s.settings.upsertSettings(orgId, custom, 'u1');
+				const found = await s.settings.find(orgId);
+
+				expect(saved).toEqual(found);
+				expect(found).toMatchObject({
+					settings: custom,
+					engineEnabledAt: enabledAt,
+					updatedByUserId: 'u1',
+				});
+				expect(found?.updatedAt).toBeInstanceOf(Date);
+
+				await s.settings.upsertSettings(orgId, DEFAULT_ALERT_SETTINGS, 'u2');
+				expect(await s.settings.find(orgId)).toMatchObject({
+					settings: DEFAULT_ALERT_SETTINGS,
+					engineEnabledAt: enabledAt,
+					updatedByUserId: 'u2',
+				});
+			});
+
+			it('upsertSettings on an org without a record creates it, and a later ensure keeps that date', async () => {
+				const orgId = randomUUID();
+
+				await s.settings.upsertSettings(orgId, custom, 'u1');
+				const stored = await s.settings.find(orgId);
+				const ensured = await s.settings.ensureEngineEnabled(
+					orgId,
+					new Date('2030-01-01T00:00:00Z')
+				);
+
+				expect(stored?.settings).toEqual(custom);
+				expect(ensured).toEqual(stored?.engineEnabledAt);
+			});
+
+			it('isolates organizations', async () => {
+				await s.settings.upsertSettings(randomUUID(), custom, 'u1');
+
+				expect(await s.settings.find(randomUUID())).toBeNull();
+			});
+		});
+
+		describe('client contacts', () => {
+			it('record/find round trip; unknown is null', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const at = new Date('2026-11-10T12:00:00Z');
+
+				await s.contacts.record(orgId, clientId, at, 'u1');
+
+				expect(await s.contacts.find(orgId, clientId)).toEqual(at);
+				expect(await s.contacts.find(orgId, randomUUID())).toBeNull();
+				expect(await s.contacts.find(randomUUID(), clientId)).toBeNull();
+			});
+
+			it('keeps only the most recent contact', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const t2 = new Date('2026-11-12T12:00:00Z');
+
+				await s.contacts.record(
+					orgId,
+					clientId,
+					new Date('2026-11-10T12:00:00Z'),
+					'u1'
+				);
+				await s.contacts.record(orgId, clientId, t2, 'u1');
+				await s.contacts.record(
+					orgId,
+					clientId,
+					new Date('2026-11-01T12:00:00Z'),
+					'u1'
+				);
+
+				expect(await s.contacts.find(orgId, clientId)).toEqual(t2);
+			});
+
+			it('concurrent records leave the latest', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const times = Array.from(
+					{ length: 6 },
+					(_, i) => new Date(Date.UTC(2026, 10, 1 + i))
+				);
+
+				await Promise.all(
+					times.map((t) => s.contacts.record(orgId, clientId, t, 'u1'))
+				);
+
+				expect(await s.contacts.find(orgId, clientId)).toEqual(times[5]);
+			});
+
+			it('deleteByClient removes that client only', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const other = randomUUID();
+				const otherOrg = randomUUID();
+				const at = new Date('2026-11-10T12:00:00Z');
+				await s.contacts.record(orgId, clientId, at, 'u1');
+				await s.contacts.record(orgId, other, at, 'u1');
+				await s.contacts.record(otherOrg, clientId, at, 'u1');
+
+				await s.contacts.deleteByClient(orgId, clientId);
+
+				expect(await s.contacts.find(orgId, clientId)).toBeNull();
+				expect(await s.contacts.find(orgId, other)).toEqual(at);
+				expect(await s.contacts.find(otherOrg, clientId)).toEqual(at);
 			});
 		});
 	});

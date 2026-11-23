@@ -104,6 +104,29 @@ export const MODULE_ERASED_COLLECTIONS: ReadonlyArray<ModuleErasedCollection> =
 		},
 		{ model: 'AdvisorMemberInvite', ownerField: 'email', effect: 'delete' },
 		{ model: 'AdvisorPortalGrant', ownerField: 'userId', effect: 'delete' },
+		// Read model do motor de atenção (P3b). Dado do cliente da organização,
+		// sem id do titular: o módulo apaga por cliente (`delete`, `deleteClient`,
+		// `deleteByClient`) quando o vínculo acaba ou a conta é excluída.
+		{
+			model: 'AdvisorClientSnapshot',
+			ownerField: 'clientProfileId',
+			effect: 'delete',
+		},
+		{
+			model: 'AdvisorWealthDaily',
+			ownerField: 'clientProfileId',
+			effect: 'delete',
+		},
+		{ model: 'AdvisorAlert', ownerField: 'clientProfileId', effect: 'delete' },
+		{
+			model: 'AdvisorClientContact',
+			ownerField: 'clientProfileId',
+			effect: 'delete',
+		},
+		// `AdvisorAlertSettings` é da organização (limites e data de ligação do
+		// motor) e não guarda dado de cliente: entra só para ficar classificada.
+		// Nada a apagar por cliente; segue o ciclo de vida da organização.
+		{ model: 'AdvisorAlertSettings', ownerField: 'orgId', effect: 'delete' },
 	];
 
 export const RETAINED_COLLECTIONS: ReadonlyArray<RetainedCollection> = [

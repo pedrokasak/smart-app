@@ -8,10 +8,14 @@ import { PortfolioSharingReadModule } from 'src/portfolio/sharing/portfolio-shar
 import { SubscriptionModule } from 'src/subscription/subscription.module';
 import { UsersModule } from 'src/users/users.module';
 import {
+	ADVISOR_ALERT_SETTINGS_STORE,
+	ADVISOR_ALERT_STORE,
 	ADVISOR_ALLOCATION_TARGET_STORE,
 	ADVISOR_ASSIGNMENT_STORE,
 	ADVISOR_BENCHMARK_SERIES,
+	ADVISOR_CLIENT_CONTACT_STORE,
 	ADVISOR_CLIENT_PROFILE_STORE,
+	ADVISOR_CLIENT_SNAPSHOT_STORE,
 	ADVISOR_CONSENT_STORE,
 	ADVISOR_INVITE_STORE,
 	ADVISOR_MEMBER_INVITE_STORE,
@@ -21,6 +25,7 @@ import {
 	ADVISOR_PRICE_HISTORY,
 	ADVISOR_RELATIONSHIP_STORE,
 	ADVISOR_TRANSACTION_STORE,
+	ADVISOR_WEALTH_DAILY_STORE,
 } from './application/advisor.tokens';
 import { AllocationTargetService } from './application/allocation-target.service';
 import { AuthorizationService } from './application/authorization.service';
@@ -52,6 +57,14 @@ import {
 	advisorSchemas,
 } from './infrastructure/advisor.models';
 import {
+	ADVISOR_ALERT_MODEL,
+	ADVISOR_ALERT_SETTINGS_MODEL,
+	ADVISOR_CLIENT_CONTACT_MODEL,
+	ADVISOR_CLIENT_SNAPSHOT_MODEL,
+	ADVISOR_WEALTH_DAILY_MODEL,
+	advisorAttentionSchemas,
+} from './infrastructure/advisor-attention.models';
+import {
 	ADVISOR_ALLOCATION_TARGET_MODEL,
 	ADVISOR_IMPORT_BATCH_MODEL,
 	ADVISOR_TRANSACTION_MODEL,
@@ -79,7 +92,12 @@ import {
 } from './infrastructure/email-member-invite-notifier.adapter';
 import { MacroBenchmarkSeriesAdapter } from './infrastructure/macro-benchmark-series.adapter';
 import { MarketPriceHistoryAdapter } from './infrastructure/market-price-history.adapter';
+import { MongoAlertSettingsStore } from './infrastructure/mongo-alert-settings.store';
+import { MongoAlertStore } from './infrastructure/mongo-alert.store';
 import { MongoAllocationTargetStore } from './infrastructure/mongo-allocation-target.store';
+import { MongoClientContactStore } from './infrastructure/mongo-client-contact.store';
+import { MongoClientSnapshotStore } from './infrastructure/mongo-client-snapshot.store';
+import { MongoWealthDailyStore } from './infrastructure/mongo-wealth-daily.store';
 import { MongoAssignmentStore } from './infrastructure/mongo-assignment.store';
 import { MongoClientProfileStore } from './infrastructure/mongo-client-profile.store';
 import { MongoConsentStore } from './infrastructure/mongo-consent.store';
@@ -126,6 +144,23 @@ import { OrgContextGuard } from './interface/org-context.guard';
 			{
 				name: ADVISOR_ALLOCATION_TARGET_MODEL,
 				schema: advisorPortfolioSchemas.allocationTarget,
+			},
+			{
+				name: ADVISOR_CLIENT_SNAPSHOT_MODEL,
+				schema: advisorAttentionSchemas.clientSnapshot,
+			},
+			{
+				name: ADVISOR_WEALTH_DAILY_MODEL,
+				schema: advisorAttentionSchemas.wealthDaily,
+			},
+			{ name: ADVISOR_ALERT_MODEL, schema: advisorAttentionSchemas.alert },
+			{
+				name: ADVISOR_ALERT_SETTINGS_MODEL,
+				schema: advisorAttentionSchemas.alertSettings,
+			},
+			{
+				name: ADVISOR_CLIENT_CONTACT_MODEL,
+				schema: advisorAttentionSchemas.clientContact,
 			},
 			{
 				name: ADVISOR_CLIENT_INVITE_MODEL,
@@ -179,6 +214,25 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		{
 			provide: ADVISOR_BENCHMARK_SERIES,
 			useExisting: MacroBenchmarkSeriesAdapter,
+		},
+		MongoClientSnapshotStore,
+		MongoWealthDailyStore,
+		MongoAlertStore,
+		MongoAlertSettingsStore,
+		MongoClientContactStore,
+		{
+			provide: ADVISOR_CLIENT_SNAPSHOT_STORE,
+			useExisting: MongoClientSnapshotStore,
+		},
+		{ provide: ADVISOR_WEALTH_DAILY_STORE, useExisting: MongoWealthDailyStore },
+		{ provide: ADVISOR_ALERT_STORE, useExisting: MongoAlertStore },
+		{
+			provide: ADVISOR_ALERT_SETTINGS_STORE,
+			useExisting: MongoAlertSettingsStore,
+		},
+		{
+			provide: ADVISOR_CLIENT_CONTACT_STORE,
+			useExisting: MongoClientContactStore,
 		},
 		MongoInviteStore,
 		MongoConsentStore,
