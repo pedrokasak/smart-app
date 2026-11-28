@@ -13,8 +13,12 @@ import {
 } from '../../domain/enums';
 import { NewTransaction } from '../../domain/portfolio.entities';
 import { findOversell } from '../../domain/positions';
-import { ADVISOR_TRANSACTION_STORE } from '../advisor.tokens';
+import {
+	ADVISOR_SNAPSHOT_TRIGGER,
+	ADVISOR_TRANSACTION_STORE,
+} from '../advisor.tokens';
 import { AccessContext, AuthorizationService } from '../authorization.service';
+import type { ClientSnapshotTriggerPort } from '../ports/client-snapshot-trigger.port';
 import { OversellError } from '../transaction.service';
 import {
 	DuplicateImportError,
@@ -45,7 +49,9 @@ export class CsvImportService {
 	constructor(
 		private readonly authorization: AuthorizationService,
 		@Inject(ADVISOR_TRANSACTION_STORE)
-		private readonly transactions: TransactionStorePort
+		private readonly transactions: TransactionStorePort,
+		@Inject(ADVISOR_SNAPSHOT_TRIGGER)
+		private readonly snapshotTrigger: ClientSnapshotTriggerPort
 	) {}
 
 	async importCsv(
@@ -126,6 +132,7 @@ export class CsvImportService {
 			clientProfileId,
 			importBatchId
 		);
+		this.snapshotTrigger.request(ctx.orgId, clientProfileId);
 		return { importBatchId, imported: items.length };
 	}
 
@@ -163,6 +170,7 @@ export class CsvImportService {
 			clientProfileId,
 			importBatchId
 		);
+		this.snapshotTrigger.request(ctx.orgId, clientProfileId);
 		return { removed: removed.length };
 	}
 

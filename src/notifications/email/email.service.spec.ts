@@ -548,3 +548,90 @@ describe('EmailService.sendAdvisorTeamInviteEmail', () => {
 		expect(logged).not.toContain('assessor@example.com');
 	});
 });
+
+describe('EmailService.sendAdvisorRelationshipUpdateEmail', () => {
+	const portalLink = 'https://assessor.trackerr.com.br/clientes';
+
+	function buildService() {
+		const sender: EmailSender = {
+			send: jest.fn().mockResolvedValue(undefined),
+		};
+		return { service: new EmailService(sender), sender };
+	}
+
+	const sent = (sender: EmailSender) =>
+		(sender.send as jest.Mock).mock.calls[0][0];
+
+	const send = (
+		service: EmailService,
+		over: Partial<{
+			kind: 'ACCEPTED' | 'DECLINED' | 'REVOKED';
+			orgName: string;
+			clientFirstName: string;
+		}> = {}
+	) =>
+		service.sendAdvisorRelationshipUpdateEmail({
+			to: 'assessor@example.com',
+			kind: 'ACCEPTED',
+			orgName: 'Acme',
+			clientFirstName: 'Joao',
+			portalLink,
+			...over,
+		});
+
+	afterEach(() => {
+		jest.restoreAllMocks();
+	});
+
+	it.each([
+		['ACCEPTED', 'Joao aceitou o convite de Acme'],
+		['DECLINED', 'Joao recusou o convite de Acme'],
+		['REVOKED', 'Joao encerrou o compartilhamento com Acme'],
+	] as const)(
+		'%s: assunto e corpo em pt-BR com o link /clientes e sem valores',
+		async (kind, subjectStart) => {
+			const { service, sender } = buildService();
+
+			await send(service, { kind });
+
+			expect(sender.send).toHaveBeenCalledTimes(1);
+			const payload = sent(sender);
+			expect(payload.to).toBe('assessor@example.com');
+			expect(payload.subject).toBe(`${subjectStart} — Trackerr Advisor`);
+			expect(payload.html).toContain(`href="${portalLink}"`);
+			expect(payload.text).toContain(portalLink);
+			for (const field of [payload.subject, payload.html, payload.text]) {
+				expect(field).not.toMatch(/R\$|\d+[.,]\d{2}/);
+			}
+		}
+	);
+
+	it('escapa e limpa o nome do cliente e da organização', async () => {
+		const { service, sender } = buildService();
+
+		await send(service, {
+			orgName: '<b>Acme</b>\r\nBcc: x@evil.test',
+			clientFirstName: '<i>Joao</i>',
+		});
+
+		const payload = sent(sender);
+		expect(payload.html).toContain('&lt;b&gt;Acme&lt;/b&gt;');
+		expect(payload.html).toContain('&lt;i&gt;Joao&lt;/i&gt;');
+		expect(payload.html).not.toContain('<b>Acme</b>');
+		expect(payload.subject).not.toMatch(/[\r\n]/);
+	});
+
+	it('propaga a falha do envio e nunca registra o e-mail em log', async () => {
+		const spies = (['log', 'warn', 'error', 'debug', 'verbose'] as const).map(
+			(level) => jest.spyOn(Logger.prototype, level).mockImplementation()
+		);
+		const { service, sender } = buildService();
+		(sender.send as jest.Mock).mockRejectedValue(new Error('provider down'));
+
+		await expect(send(service)).rejects.toThrow('provider down');
+
+		expect(JSON.stringify(spies.flatMap((s) => s.mock.calls))).not.toContain(
+			'assessor@example.com'
+		);
+	});
+});

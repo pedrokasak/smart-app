@@ -1,5 +1,16 @@
 import { ConflictException } from '@nestjs/common';
+import type { ClientAttentionPurgePort } from './ports/client-attention-purge.port';
+import type { ClientSnapshotTriggerPort } from './ports/client-snapshot-trigger.port';
+import type {
+	RelationshipNotifierPort,
+	RelationshipUpdateInput,
+} from './ports/relationship-notifier.port';
 import { randomUUID } from 'crypto';
+import {
+	AlertSettings,
+	DEFAULT_ALERT_SETTINGS,
+} from '../domain/alert-settings';
+import { Alert, ClientSnapshot } from '../domain/attention.entities';
 import { ClientInvite, Consent } from '../domain/consent.entities';
 import {
 	AdvisoryRelationship,
@@ -9,6 +20,8 @@ import {
 	Organization,
 } from '../domain/entities';
 import {
+	AlertPriority,
+	AlertStatus,
 	AssetClass,
 	ConsentStatus,
 	ImportBatchStatus,
@@ -17,6 +30,7 @@ import {
 	OrgRole,
 	ProfileOrigin,
 	RelationshipStatus,
+	SnapshotSource,
 } from '../domain/enums';
 import {
 	AllocationTarget,
@@ -25,7 +39,37 @@ import {
 } from '../domain/portfolio.entities';
 import { PortalGrant } from '../domain/portal-access';
 import { ClientAssignment, MemberInvite } from '../domain/team.entities';
+import { sortDeadlines } from './alert-deadline';
+import {
+	alertCursorOf,
+	clampAlertPageSize,
+	compareAlertCursor,
+	decodeAlertCursor,
+	encodeAlertCursor,
+} from './alert-cursor';
+import { decodeIdCursor, encodeIdCursor } from './id-cursor';
+import {
+	AlertSettingsStorePort,
+	StoredAlertSettings,
+} from './ports/alert-settings.store.port';
+import {
+	ALERT_IDS_BY_FILTER_MAX,
+	AlertFilter,
+	AlertListQuery,
+	AlertPage,
+	AlertStorePort,
+	NewAlert,
+	OpenAlertCounts,
+} from './ports/alert.store.port';
 import { AllocationTargetStorePort } from './ports/allocation-target.store.port';
+import { ClientContactStorePort } from './ports/client-contact.store.port';
+import { ClientSnapshotStorePort } from './ports/client-snapshot.store.port';
+import {
+	assertWealthRow,
+	WealthDailyRow,
+	WealthDailyStorePort,
+	WealthDailySum,
+} from './ports/wealth-daily.store.port';
 import {
 	AssignedClientsPage,
 	AssignResult,
@@ -110,6 +154,23 @@ export class InMemoryOrganizationStore implements OrganizationStorePort {
 
 	async delete(id: string): Promise<void> {
 		this.items.delete(id);
+	}
+
+	async listIds(
+		cursor: string | undefined,
+		limit: number
+	): Promise<{ ids: string[]; nextCursor: string | null }> {
+		const after = cursor === undefined ? null : decodeIdCursor(cursor);
+		const size = Math.min(Math.max(Math.trunc(limit) || 1, 1), 1000);
+		const rest = [...this.items.keys()]
+			.sort()
+			.filter((id) => after === null || id > after);
+		const ids = rest.slice(0, size);
+		return {
+			ids,
+			nextCursor:
+				rest.length > size ? encodeIdCursor(ids[ids.length - 1]) : null,
+		};
 	}
 }
 
@@ -241,6 +302,16 @@ export class InMemoryRelationshipStore implements RelationshipStorePort {
 
 	async findById(id: string): Promise<AdvisoryRelationship | null> {
 		return this.items.get(id) ?? null;
+	}
+
+	async findCreatedAt(id: string): Promise<Date | null> {
+		const at = this.createdAt.get(id);
+		return at ? new Date(at) : null;
+	}
+
+	/** Só para testes: muda a data de criação (relação antiga). */
+	setCreatedAt(id: string, at: Date): void {
+		if (this.createdAt.has(id)) this.createdAt.set(id, new Date(at));
 	}
 
 	async findByOrgAndClient(
@@ -779,6 +850,21 @@ export class InMemoryInviteStore implements InviteStorePort {
 		};
 		this.items.set(id, updated);
 		return { ...updated };
+	}
+
+	async findAcceptedByRelationship(
+		relationshipId: string
+	): Promise<ClientInvite | null> {
+		const stamp = (i: ClientInvite): number =>
+			(i.respondedAt ?? i.createdAt).getTime();
+		const [latest] = [...this.items.values()]
+			.filter(
+				(i) =>
+					i.relationshipId === relationshipId &&
+					i.status === InviteStatus.Accepted
+			)
+			.sort((a, b) => stamp(b) - stamp(a));
+		return latest ? { ...latest } : null;
 	}
 
 	async deleteByEmail(email: string): Promise<number> {
@@ -1355,5 +1441,540 @@ export class InMemoryMemberInviteStore implements MemberInviteStorePort {
 			}
 		}
 		return removed;
+	}
+}
+
+/**
+ * Cópia profunda de dados simples (objetos, listas, datas). Não usa
+ * `structuredClone`: sob o jest ele devolve `Date` de outro realm, que falha
+ * em `instanceof Date`.
+ */
+const copy = <T>(value: T): T => {
+	if (value instanceof Date) return new Date(value.getTime()) as T;
+	if (Array.isArray(value)) return value.map((v) => copy(v)) as T;
+	if (value !== null && typeof value === 'object') {
+		return Object.fromEntries(
+			Object.entries(value).map(([k, v]) => [k, copy(v)])
+		) as T;
+	}
+	return value;
+};
+
+/** Sem filtro por clientes: `undefined`; lista vazia não casa ninguém. */
+const inClients = (clientIds: string[] | undefined, id: string): boolean =>
+	clientIds === undefined || clientIds.includes(id);
+
+export class InMemoryClientSnapshotStore implements ClientSnapshotStorePort {
+	private readonly items = new Map<string, ClientSnapshot>();
+
+	private key(orgId: string, clientProfileId: string): string {
+		return JSON.stringify([orgId, clientProfileId]);
+	}
+
+	async upsert(snapshot: ClientSnapshot): Promise<void> {
+		this.items.set(
+			this.key(snapshot.orgId, snapshot.clientProfileId),
+			copy(snapshot)
+		);
+	}
+
+	async find(
+		orgId: string,
+		clientProfileId: string
+	): Promise<ClientSnapshot | null> {
+		const found = this.items.get(this.key(orgId, clientProfileId));
+		return found ? copy(found) : null;
+	}
+
+	async listByOrg(
+		orgId: string,
+		clientIds?: string[]
+	): Promise<ClientSnapshot[]> {
+		return [...this.items.values()]
+			.filter(
+				(s) => s.orgId === orgId && inClients(clientIds, s.clientProfileId)
+			)
+			.sort((a, b) =>
+				a.clientProfileId < b.clientProfileId
+					? -1
+					: a.clientProfileId > b.clientProfileId
+						? 1
+						: 0
+			)
+			.map(copy);
+	}
+
+	async listClientIds(orgId: string): Promise<string[]> {
+		return [...this.items.values()]
+			.filter((s) => s.orgId === orgId)
+			.map((s) => s.clientProfileId)
+			.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+	}
+
+	async delete(orgId: string, clientProfileId: string): Promise<void> {
+		this.items.delete(this.key(orgId, clientProfileId));
+	}
+}
+
+export class InMemoryWealthDailyStore implements WealthDailyStorePort {
+	private readonly rows = new Map<string, WealthDailyRow>();
+
+	/** Só para testes: todas as linhas gravadas. */
+	get all(): WealthDailyRow[] {
+		return [...this.rows.values()].map((r) => ({ ...r }));
+	}
+
+	async upsert(row: WealthDailyRow): Promise<void> {
+		assertWealthRow(row);
+		const key = JSON.stringify([
+			row.orgId,
+			row.clientProfileId,
+			row.date,
+			row.source,
+			row.portfolioId ?? '',
+		]);
+		this.rows.set(key, { ...row });
+	}
+
+	async deleteSource(
+		orgId: string,
+		clientProfileId: string,
+		source: SnapshotSource,
+		portfolioId?: string
+	): Promise<void> {
+		for (const [key, row] of this.rows) {
+			if (
+				row.orgId === orgId &&
+				row.clientProfileId === clientProfileId &&
+				row.source === source &&
+				(portfolioId === undefined || row.portfolioId === portfolioId)
+			) {
+				this.rows.delete(key);
+			}
+		}
+	}
+
+	async deleteSourceExcept(
+		orgId: string,
+		clientProfileId: string,
+		source: SnapshotSource,
+		keepPortfolioIds: string[]
+	): Promise<void> {
+		const keep = new Set(keepPortfolioIds);
+		for (const [key, row] of this.rows) {
+			if (
+				row.orgId === orgId &&
+				row.clientProfileId === clientProfileId &&
+				row.source === source &&
+				!keep.has(row.portfolioId ?? '')
+			) {
+				this.rows.delete(key);
+			}
+		}
+	}
+
+	async deleteClient(orgId: string, clientProfileId: string): Promise<void> {
+		for (const [key, row] of this.rows) {
+			if (row.orgId === orgId && row.clientProfileId === clientProfileId) {
+				this.rows.delete(key);
+			}
+		}
+	}
+
+	async sumByDate(
+		orgId: string,
+		from: string,
+		to: string,
+		clientIds?: string[]
+	): Promise<WealthDailySum[]> {
+		const byDate = new Map<
+			string,
+			Omit<WealthDailySum, 'clients'> & { clientSet: Set<string> }
+		>();
+		for (const row of this.rows.values()) {
+			if (
+				row.orgId !== orgId ||
+				row.date < from ||
+				row.date > to ||
+				!inClients(clientIds, row.clientProfileId)
+			) {
+				continue;
+			}
+			const day = byDate.get(row.date) ?? {
+				date: row.date,
+				totalMinor: 0,
+				verifiedMinor: 0,
+				manualMinor: 0,
+				clientSet: new Set<string>(),
+			};
+			day.totalMinor += row.totalMinor;
+			day.verifiedMinor += row.verifiedMinor;
+			day.manualMinor += row.manualMinor;
+			day.clientSet.add(row.clientProfileId);
+			byDate.set(row.date, day);
+		}
+		return [...byDate.values()]
+			.sort((a, b) => (a.date < b.date ? -1 : 1))
+			.map(({ clientSet, ...rest }) => ({ ...rest, clients: clientSet.size }));
+	}
+
+	async clientIdsOn(
+		orgId: string,
+		date: string,
+		clientIds?: string[]
+	): Promise<string[]> {
+		const ids = new Set<string>();
+		for (const row of this.rows.values()) {
+			if (
+				row.orgId === orgId &&
+				row.date === date &&
+				inClients(clientIds, row.clientProfileId)
+			) {
+				ids.add(row.clientProfileId);
+			}
+		}
+		return [...ids];
+	}
+}
+
+const ACTIVE_ALERT_STATUSES: AlertStatus[] = [
+	AlertStatus.Open,
+	AlertStatus.Snoozed,
+];
+
+/** Campos que o `patch` nunca altera. */
+const IMMUTABLE_ALERT_KEYS = [
+	'id',
+	'orgId',
+	'clientProfileId',
+	'conditionKey',
+	'portfolioId',
+	'createdAt',
+	'updatedAt',
+] as const;
+
+export class InMemoryAlertStore implements AlertStorePort {
+	private readonly items = new Map<string, Alert>();
+	private lastStampMs = 0;
+
+	/** Relógio estritamente crescente: `createdAt` distintos como no Mongo. */
+	private nextStamp(): Date {
+		this.lastStampMs = Math.max(Date.now(), this.lastStampMs + 1);
+		return new Date(this.lastStampMs);
+	}
+
+	private hasActive(a: NewAlert): boolean {
+		return [...this.items.values()].some(
+			(x) =>
+				x.orgId === a.orgId &&
+				x.clientProfileId === a.clientProfileId &&
+				x.conditionKey === a.conditionKey &&
+				ACTIVE_ALERT_STATUSES.includes(x.status)
+		);
+	}
+
+	async insertMany(alerts: NewAlert[]): Promise<Alert[]> {
+		const stored: Alert[] = [];
+		for (const input of alerts) {
+			if (
+				ACTIVE_ALERT_STATUSES.includes(input.status) &&
+				this.hasActive(input)
+			) {
+				continue;
+			}
+			const stamp = this.nextStamp();
+			const alert: Alert = {
+				...copy(input),
+				id: input.id ?? randomUUID(),
+				createdAt: stamp,
+				updatedAt: stamp,
+			};
+			this.items.set(alert.id, alert);
+			stored.push(copy(alert));
+		}
+		return stored;
+	}
+
+	async listForClient(
+		orgId: string,
+		clientProfileId: string,
+		since: Date
+	): Promise<Alert[]> {
+		return [...this.items.values()]
+			.filter(
+				(a) =>
+					a.orgId === orgId &&
+					a.clientProfileId === clientProfileId &&
+					(ACTIVE_ALERT_STATUSES.includes(a.status) ||
+						a.updatedAt.getTime() >= since.getTime())
+			)
+			.sort(
+				(a, b) =>
+					a.createdAt.getTime() - b.createdAt.getTime() ||
+					(a.id < b.id ? -1 : 1)
+			)
+			.map(copy);
+	}
+
+	async patch(
+		id: string,
+		patch: Partial<Alert>,
+		expectedStatus?: AlertStatus[]
+	): Promise<Alert | null> {
+		const current = this.items.get(id);
+		if (!current) return null;
+		if (expectedStatus && !expectedStatus.includes(current.status)) {
+			return null;
+		}
+		const next: Alert = { ...current };
+		const target = next as unknown as Record<string, unknown>;
+		for (const [key, value] of Object.entries(patch)) {
+			if ((IMMUTABLE_ALERT_KEYS as readonly string[]).includes(key)) continue;
+			if (value === undefined) delete target[key];
+			else target[key] = copy(value);
+		}
+		next.updatedAt = new Date(
+			Math.max(Date.now(), current.updatedAt.getTime() + 1)
+		);
+		this.items.set(id, next);
+		return copy(next);
+	}
+
+	async resolveMany(ids: string[], at: Date): Promise<number> {
+		let resolved = 0;
+		for (const id of ids) {
+			const current = this.items.get(id);
+			if (!current || !ACTIVE_ALERT_STATUSES.includes(current.status)) {
+				continue;
+			}
+			this.items.set(id, {
+				...current,
+				status: AlertStatus.Resolved,
+				closedAt: at,
+				updatedAt: new Date(
+					Math.max(Date.now(), current.updatedAt.getTime() + 1)
+				),
+			});
+			resolved += 1;
+		}
+		return resolved;
+	}
+
+	async findById(orgId: string, id: string): Promise<Alert | null> {
+		const found = this.items.get(id);
+		return found && found.orgId === orgId ? copy(found) : null;
+	}
+
+	private matching(orgId: string, q: AlertFilter): Alert[] {
+		return [...this.items.values()]
+			.filter(
+				(a) =>
+					a.orgId === orgId &&
+					q.statuses.includes(a.status) &&
+					inClients(q.clientIds, a.clientProfileId) &&
+					(q.priorities === undefined || q.priorities.includes(a.priority)) &&
+					(q.rules === undefined || q.rules.includes(a.rule))
+			)
+			.sort((a, b) => compareAlertCursor(alertCursorOf(a), alertCursorOf(b)));
+	}
+
+	async list(orgId: string, q: AlertListQuery): Promise<AlertPage> {
+		const limit = clampAlertPageSize(q.limit);
+		const after = q.cursor ? decodeAlertCursor(q.cursor) : null;
+		const rest = this.matching(orgId, q).filter(
+			(a) => !after || compareAlertCursor(alertCursorOf(a), after) > 0
+		);
+		const items = rest.slice(0, limit);
+		const last = items[items.length - 1];
+		return {
+			items: items.map(copy),
+			nextCursor:
+				rest.length > limit && last
+					? encodeAlertCursor(alertCursorOf(last))
+					: null,
+		};
+	}
+
+	async countOpenByPriority(
+		orgId: string,
+		clientIds?: string[]
+	): Promise<OpenAlertCounts> {
+		const counts: OpenAlertCounts = {
+			[AlertPriority.P0]: 0,
+			[AlertPriority.P1]: 0,
+			[AlertPriority.P2]: 0,
+			[AlertPriority.P3]: 0,
+		};
+		for (const a of this.matching(orgId, {
+			statuses: [AlertStatus.Open],
+			clientIds,
+		})) {
+			counts[a.priority] += 1;
+		}
+		return counts;
+	}
+
+	async listDeadlines(
+		orgId: string,
+		from: string,
+		to: string,
+		clientIds?: string[]
+	): Promise<Alert[]> {
+		const candidates = [...this.items.values()].filter(
+			(a) => a.orgId === orgId && inClients(clientIds, a.clientProfileId)
+		);
+		return sortDeadlines(candidates, from, to).map(copy);
+	}
+
+	async idsByFilter(
+		orgId: string,
+		q: AlertFilter,
+		max: number
+	): Promise<string[]> {
+		const cap = Math.min(
+			Math.max(Math.trunc(max) || 0, 0),
+			ALERT_IDS_BY_FILTER_MAX
+		);
+		return this.matching(orgId, q)
+			.slice(0, cap)
+			.map((a) => a.id);
+	}
+
+	async deleteByClient(orgId: string, clientProfileId: string): Promise<void> {
+		for (const [id, a] of this.items) {
+			if (a.orgId === orgId && a.clientProfileId === clientProfileId) {
+				this.items.delete(id);
+			}
+		}
+	}
+
+	async deleteSharedExcept(
+		orgId: string,
+		clientProfileId: string,
+		portfolioIds: string[]
+	): Promise<number> {
+		let deleted = 0;
+		for (const [id, a] of this.items) {
+			if (
+				a.orgId === orgId &&
+				a.clientProfileId === clientProfileId &&
+				a.source === SnapshotSource.B2cShared &&
+				!(a.portfolioId !== undefined && portfolioIds.includes(a.portfolioId))
+			) {
+				this.items.delete(id);
+				deleted += 1;
+			}
+		}
+		return deleted;
+	}
+}
+
+export class InMemoryAlertSettingsStore implements AlertSettingsStorePort {
+	private readonly items = new Map<string, StoredAlertSettings>();
+
+	async find(orgId: string): Promise<StoredAlertSettings | null> {
+		const found = this.items.get(orgId);
+		return found ? copy(found) : null;
+	}
+
+	async upsertSettings(
+		orgId: string,
+		settings: AlertSettings,
+		userId: string
+	): Promise<StoredAlertSettings> {
+		const current = this.items.get(orgId);
+		const saved: StoredAlertSettings = {
+			settings: copy(settings),
+			engineEnabledAt: current?.engineEnabledAt ?? new Date(),
+			updatedByUserId: userId,
+			updatedAt: new Date(),
+		};
+		this.items.set(orgId, saved);
+		return copy(saved);
+	}
+
+	async ensureEngineEnabled(orgId: string, at: Date): Promise<Date> {
+		const current = this.items.get(orgId);
+		if (current) return new Date(current.engineEnabledAt);
+		this.items.set(orgId, {
+			settings: copy(DEFAULT_ALERT_SETTINGS),
+			engineEnabledAt: new Date(at),
+		});
+		return new Date(at);
+	}
+}
+
+export class InMemoryClientContactStore implements ClientContactStorePort {
+	private readonly items = new Map<string, { at: Date; userId: string }>();
+
+	private key(orgId: string, clientProfileId: string): string {
+		return JSON.stringify([orgId, clientProfileId]);
+	}
+
+	async record(
+		orgId: string,
+		clientProfileId: string,
+		at: Date,
+		userId: string
+	): Promise<void> {
+		const key = this.key(orgId, clientProfileId);
+		const current = this.items.get(key);
+		if (!current || at.getTime() > current.at.getTime()) {
+			this.items.set(key, { at: new Date(at), userId });
+		}
+	}
+
+	async find(orgId: string, clientProfileId: string): Promise<Date | null> {
+		const found = this.items.get(this.key(orgId, clientProfileId));
+		return found ? new Date(found.at) : null;
+	}
+
+	async deleteByClient(orgId: string, clientProfileId: string): Promise<void> {
+		this.items.delete(this.key(orgId, clientProfileId));
+	}
+}
+
+/** Gatilho que só anota os pedidos (`orgId:clientProfileId`). */
+export class RecordingSnapshotTrigger implements ClientSnapshotTriggerPort {
+	readonly requests: string[] = [];
+
+	request(orgId: string, clientProfileId: string): void {
+		this.requests.push(`${orgId}:${clientProfileId}`);
+	}
+}
+
+/** Purga que só anota os pedidos; `failNext` faz a próxima lançar. */
+export class RecordingAttentionPurge implements ClientAttentionPurgePort {
+	readonly purged: string[] = [];
+	private failures = 0;
+
+	failNext(times = 1): void {
+		this.failures = times;
+	}
+
+	async purgeClient(orgId: string, clientProfileId: string): Promise<void> {
+		if (this.failures > 0) {
+			this.failures -= 1;
+			throw new Error('purge failed');
+		}
+		this.purged.push(`${orgId}:${clientProfileId}`);
+	}
+}
+
+/** Notifier que só anota os avisos; `failNext` faz o próximo lançar. */
+export class RecordingRelationshipNotifier implements RelationshipNotifierPort {
+	readonly sent: RelationshipUpdateInput[] = [];
+	private failures = 0;
+
+	failNext(times = 1): void {
+		this.failures = times;
+	}
+
+	async notify(input: RelationshipUpdateInput): Promise<void> {
+		if (this.failures > 0) {
+			this.failures -= 1;
+			throw new Error('notify failed');
+		}
+		this.sent.push(input);
 	}
 }

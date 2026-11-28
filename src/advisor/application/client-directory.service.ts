@@ -9,6 +9,7 @@ import { AdvisoryRelationship, ClientProfile } from '../domain/entities';
 import { OrgRole, ProfileOrigin, RelationshipStatus } from '../domain/enums';
 import {
 	ADVISOR_ASSIGNMENT_STORE,
+	ADVISOR_ATTENTION_PURGE,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_INVITE_STORE,
 	ADVISOR_RELATIONSHIP_STORE,
@@ -22,6 +23,7 @@ import { AuthorizationService } from './authorization.service';
 import type { AccessContext } from './authorization.service';
 import { ClientProfileService } from './client-profile.service';
 import type { AssignmentStorePort } from './ports/assignment.store.port';
+import type { ClientAttentionPurgePort } from './ports/client-attention-purge.port';
 import type { ClientProfileStorePort } from './ports/client-profile.store.port';
 import type { InviteStorePort } from './ports/invite.store.port';
 import type {
@@ -82,7 +84,9 @@ export class ClientDirectoryService {
 		@Inject(ADVISOR_INVITE_STORE) private readonly invites: InviteStorePort,
 		@Inject(ADVISOR_ASSIGNMENT_STORE)
 		private readonly assignments: AssignmentStorePort,
-		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail
+		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail,
+		@Inject(ADVISOR_ATTENTION_PURGE)
+		private readonly attention: ClientAttentionPurgePort
 	) {}
 
 	/**
@@ -299,6 +303,11 @@ export class ClientDirectoryService {
 		}
 		await this.attempt('delete profile', clientProfileId, () =>
 			this.profiles.deleteById(clientProfileId)
+		);
+		// Depois do perfil: uma recomputação em curso que grave depois disto
+		// relê o perfil, não o acha e purga sozinha.
+		await this.attempt('purge attention of', clientProfileId, () =>
+			this.attention.purgeClient(ctx.orgId, clientProfileId)
 		);
 	}
 

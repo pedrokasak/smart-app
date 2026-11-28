@@ -2,7 +2,10 @@ import { Module } from '@nestjs/common';
 import { AdvisorModule } from 'src/advisor/advisor.module';
 import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
 import { AdvisorPortalGuard } from './advisor-portal.guard';
+import { AlertSettingsController } from './alert-settings.controller';
+import { AlertsController } from './alerts.controller';
 import { ClientsController } from './clients.controller';
+import { DashboardController } from './dashboard.controller';
 import { InvitesController } from './invites.controller';
 import { MeMemberInvitesController } from './me-member-invites.controller';
 import { MeMembershipController } from './me-membership.controller';
@@ -28,6 +31,9 @@ import { WealthSummaryAssembler } from './wealth-summary.assembler';
 		MeMembershipController,
 		MemberInvitesController,
 		MeMemberInvitesController,
+		DashboardController,
+		AlertsController,
+		AlertSettingsController,
 	],
 	providers: [
 		AdvisorPortalGuard,

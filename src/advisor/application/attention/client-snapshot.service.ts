@@ -1,0 +1,569 @@
+import { Inject, Injectable } from '@nestjs/common';
+import { reconcileAlerts } from '../../domain/alert-reconcile';
+import {
+	evaluateAlerts,
+	unavailableRuleInputs,
+} from '../../domain/alert-rules';
+import { DEFAULT_ALERT_SETTINGS } from '../../domain/alert-settings';
+import {
+	Alert,
+	AlertCandidate,
+	ClientSnapshot,
+	conditionKeyOf,
+	SellWindow,
+	SOURCE_METRICS_FAILED,
+	SOURCE_READ_FAILED,
+	SourceSnapshot,
+} from '../../domain/attention.entities';
+import { addIsoDays, businessDate } from '../../domain/business-date';
+import { isErasedClientProfile } from '../../domain/entities';
+import {
+	AlertRule,
+	AlertStatus,
+	Provenance,
+	RelationshipStatus,
+	SnapshotSource,
+	TransactionSide,
+} from '../../domain/enums';
+import {
+	ADVISOR_ALERT_SETTINGS_STORE,
+	ADVISOR_ALERT_STORE,
+	ADVISOR_CLIENT_CONTACT_STORE,
+	ADVISOR_CLIENT_PROFILE_STORE,
+	ADVISOR_CLIENT_SNAPSHOT_STORE,
+	ADVISOR_RELATIONSHIP_STORE,
+	ADVISOR_TRANSACTION_STORE,
+	ADVISOR_WEALTH_DAILY_STORE,
+} from '../advisor.tokens';
+import type { ClientPortfolioMetrics } from '../metrics/build-portfolio-metrics';
+import { PortfolioMetricsService } from '../metrics/portfolio-metrics.service';
+import type { AlertSettingsStorePort } from '../ports/alert-settings.store.port';
+import type { AlertStorePort, NewAlert } from '../ports/alert.store.port';
+import type { ClientAttentionPurgePort } from '../ports/client-attention-purge.port';
+import type { ClientContactStorePort } from '../ports/client-contact.store.port';
+import type { ClientProfileStorePort } from '../ports/client-profile.store.port';
+import type { ClientSnapshotStorePort } from '../ports/client-snapshot.store.port';
+import type { RelationshipStorePort } from '../ports/relationship.store.port';
+import type { TransactionStorePort } from '../ports/transaction.store.port';
+import type {
+	WealthDailyRow,
+	WealthDailyStorePort,
+} from '../ports/wealth-daily.store.port';
+import {
+	NoActiveConsentError,
+	SharedPortfolioService,
+} from '../shared-portfolio.service';
+import { KeyedSerializer } from './keyed-serializer';
+
+export interface RecomputeResult {
+	opened: number;
+	updated: number;
+	resolved: number;
+}
+
+export { SOURCE_METRICS_FAILED, SOURCE_READ_FAILED };
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+/** `previous` das regras: alertas do cliente dos últimos 365 dias. */
+const PREVIOUS_ALERTS_DAYS = 365;
+/** `LARGE_SELLS`: 30 dias corridos, hoje incluído. */
+const SELLS_WINDOW_DAYS = 30;
+
+interface BuiltSources {
+	sources: SourceSnapshot[];
+	/**
+	 * Fontes que falharam (`sourceKeyOf`): os alertas delas ficam como estão
+	 * nesta rodada. `B2C_SHARED/*` congela todas as carteiras do B2C.
+	 */
+	frozen: Set<string>;
+	/**
+	 * Carteiras B2C desta rodada: `none` sem consentimento ativo, `unknown`
+	 * quando nem o consentimento pôde ser lido.
+	 */
+	b2c:
+		| { kind: 'none' }
+		| { kind: 'unknown' }
+		| { kind: 'shared'; portfolioIds: string[] };
+}
+
+/** O que fazer com o cliente: seguir, aposentar ou apagar tudo. */
+type ClientState = 'ACTIVE' | 'RETIRE' | 'PURGE';
+
+const ALL_SHARED = `${SnapshotSource.B2cShared}/*`;
+
+const sourceKeyOf = (source: SnapshotSource, portfolioId?: string): string =>
+	portfolioId ? `${source}/${portfolioId}` : source;
+
+/**
+ * Read model de atenção de um cliente: monta o snapshot por fonte, grava a
+ * linha diária e reconcilia os alertas. Roda como sistema (job diário e
+ * gatilho): não é um acesso de assessor, então não autoriza nem audita
+ * `advisor.client.accessed`. Idempotente: recomputar o mesmo cliente de novo
+ * não abre, muda nem resolve nada. R26: duas recomputações do mesmo cliente
+ * (job diário e gatilho) nunca rodam juntas; a segunda espera a primeira.
+ */
+@Injectable()
+export class ClientSnapshotService implements ClientAttentionPurgePort {
+	private readonly perClient = new KeyedSerializer();
+
+	constructor(
+		@Inject(ADVISOR_RELATIONSHIP_STORE)
+		private readonly relationships: RelationshipStorePort,
+		@Inject(ADVISOR_CLIENT_PROFILE_STORE)
+		private readonly profiles: ClientProfileStorePort,
+		@Inject(ADVISOR_TRANSACTION_STORE)
+		private readonly transactions: TransactionStorePort,
+		private readonly metrics: PortfolioMetricsService,
+		private readonly shared: SharedPortfolioService,
+		@Inject(ADVISOR_CLIENT_SNAPSHOT_STORE)
+		private readonly snapshots: ClientSnapshotStorePort,
+		@Inject(ADVISOR_WEALTH_DAILY_STORE)
+		private readonly wealth: WealthDailyStorePort,
+		@Inject(ADVISOR_ALERT_STORE) private readonly alerts: AlertStorePort,
+		@Inject(ADVISOR_ALERT_SETTINGS_STORE)
+		private readonly settings: AlertSettingsStorePort,
+		@Inject(ADVISOR_CLIENT_CONTACT_STORE)
+		private readonly contacts: ClientContactStorePort
+	) {}
+
+	async recompute(
+		orgId: string,
+		clientProfileId: string,
+		now: Date
+	): Promise<RecomputeResult> {
+		return this.perClient.run(`${orgId}\u0000${clientProfileId}`, () =>
+			this.recomputeNow(orgId, clientProfileId, now)
+		);
+	}
+
+	private async recomputeNow(
+		orgId: string,
+		clientProfileId: string,
+		now: Date
+	): Promise<RecomputeResult> {
+		const relationship = await this.relationships.findByOrgAndClient(
+			orgId,
+			clientProfileId
+		);
+		const state = await this.stateOf(orgId, clientProfileId, relationship);
+		if (!relationship || state !== 'ACTIVE') {
+			return this.leave(orgId, clientProfileId, state, now);
+		}
+
+		// R24: data de negócio de São Paulo (chave da linha diária e do `asOf`).
+		const today = businessDate(now);
+		const built = await this.buildSources(orgId, clientProfileId, now);
+		await this.dropStaleSharedRows(orgId, clientProfileId, built);
+
+		const [startedAt, lastContactAt] = await Promise.all([
+			this.relationships.findCreatedAt(relationship.id),
+			this.contacts.find(orgId, clientProfileId),
+		]);
+		const relationshipStartedAt = startedAt ?? now;
+		const snapshot = this.snapshotOf(
+			orgId,
+			clientProfileId,
+			today,
+			built.sources,
+			relationshipStartedAt,
+			lastContactAt,
+			now
+		);
+		await this.snapshots.upsert(snapshot);
+		for (const row of this.dailyRowsOf(snapshot)) {
+			await this.wealth.upsert(row);
+		}
+
+		const engineEnabledAt = await this.settings.ensureEngineEnabled(orgId, now);
+		const stored = await this.settings.find(orgId);
+		const contactBaseline = new Date(
+			Math.max(
+				relationshipStartedAt.getTime(),
+				engineEnabledAt.getTime(),
+				lastContactAt?.getTime() ?? 0
+			)
+		);
+		const sells = await this.sellsOf(orgId, clientProfileId, today);
+
+		const candidates = evaluateAlerts({
+			snapshot,
+			sells,
+			settings: stored?.settings ?? DEFAULT_ALERT_SETTINGS,
+			contactBaseline,
+			today,
+		}).filter((c) => !isFrozen(c, built.frozen));
+		// R27: entrada da regra indisponível sem erro vale como fonte congelada.
+		const isUnavailable = unavailableRuleInputs(snapshot);
+		const existing = (
+			await this.alerts.listForClient(
+				orgId,
+				clientProfileId,
+				new Date(now.getTime() - PREVIOUS_ALERTS_DAYS * MS_PER_DAY)
+			)
+		).filter(
+			(a) => !isFrozen(a, built.frozen) && !isUnavailable(a.conditionKey)
+		);
+
+		const result = await this.apply(
+			orgId,
+			clientProfileId,
+			candidates,
+			existing,
+			today,
+			now
+		);
+
+		// R13: o vínculo ou o perfil pode ter acabado durante o cálculo (LGPD,
+		// revogação). Relido depois de gravar, para nada sobreviver à purga.
+		const after = await this.stateOf(orgId, clientProfileId);
+		if (after === 'ACTIVE') return result;
+		const left = await this.leave(orgId, clientProfileId, after, now);
+		return {
+			opened: result.opened,
+			updated: result.updated,
+			resolved: result.resolved + left.resolved,
+		};
+	}
+
+	/**
+	 * LGPD: tudo do cliente, inclusive os alertas manuais. O snapshot sai por
+	 * último: enquanto existir, o job diário revisita o cliente (R28).
+	 */
+	async purgeClient(orgId: string, clientProfileId: string): Promise<void> {
+		await this.wealth.deleteClient(orgId, clientProfileId);
+		await this.contacts.deleteByClient(orgId, clientProfileId);
+		await this.alerts.deleteByClient(orgId, clientProfileId);
+		await this.snapshots.delete(orgId, clientProfileId);
+	}
+
+	/**
+	 * Perfil apagado ou anonimizado (LGPD): PURGE. Sem relação ACTIVE: RETIRE.
+	 * `relationship` já lida evita reler no começo da recomputação.
+	 */
+	private async stateOf(
+		orgId: string,
+		clientProfileId: string,
+		relationship?: Awaited<
+			ReturnType<RelationshipStorePort['findByOrgAndClient']>
+		>
+	): Promise<ClientState> {
+		const profile = await this.profiles.findById(clientProfileId);
+		if (!profile || profile.orgId !== orgId || isErasedClientProfile(profile)) {
+			return 'PURGE';
+		}
+		const current =
+			relationship === undefined
+				? await this.relationships.findByOrgAndClient(orgId, clientProfileId)
+				: relationship;
+		return current?.status === RelationshipStatus.Active ? 'ACTIVE' : 'RETIRE';
+	}
+
+	private async leave(
+		orgId: string,
+		clientProfileId: string,
+		state: ClientState,
+		now: Date
+	): Promise<RecomputeResult> {
+		if (state === 'PURGE') {
+			await this.purgeClient(orgId, clientProfileId);
+			return { opened: 0, updated: 0, resolved: 0 };
+		}
+		return this.retire(orgId, clientProfileId, now);
+	}
+
+	/**
+	 * Sem relação ACTIVE: some o read model, os alertas das carteiras B2C são
+	 * apagados (R23, LGPD) e os do livro do assessor ativos viram RESOLVED.
+	 * Os manuais ficam com o assessor. O snapshot sai por último: se algo
+	 * falhar no meio, o job diário revisita o cliente (R28).
+	 */
+	private async retire(
+		orgId: string,
+		clientProfileId: string,
+		now: Date
+	): Promise<RecomputeResult> {
+		await this.wealth.deleteClient(orgId, clientProfileId);
+		await this.contacts.deleteByClient(orgId, clientProfileId);
+		await this.alerts.deleteSharedExcept(orgId, clientProfileId, []);
+		const active = (
+			await this.alerts.listForClient(orgId, clientProfileId, now)
+		).filter((a) => a.rule !== AlertRule.Manual && isActive(a));
+		const resolved =
+			active.length === 0
+				? 0
+				: await this.alerts.resolveMany(
+						active.map((a) => a.id),
+						now
+					);
+		await this.snapshots.delete(orgId, clientProfileId);
+		return { opened: 0, updated: 0, resolved };
+	}
+
+	private async buildSources(
+		orgId: string,
+		clientProfileId: string,
+		now: Date
+	): Promise<BuiltSources> {
+		const frozen = new Set<string>();
+		const sources: SourceSnapshot[] = [];
+
+		try {
+			sources.push({
+				source: SnapshotSource.AdvisorLedger,
+				metrics: await this.metrics.computeForSystem(
+					orgId,
+					clientProfileId,
+					now
+				),
+			});
+		} catch {
+			frozen.add(SnapshotSource.AdvisorLedger);
+			sources.push({
+				source: SnapshotSource.AdvisorLedger,
+				metrics: null,
+				unavailableReason: SOURCE_METRICS_FAILED,
+			});
+		}
+
+		try {
+			const portfolios = await this.shared.getSharedMetricsForSystem(
+				orgId,
+				clientProfileId,
+				now
+			);
+			for (const p of portfolios) {
+				if (p.metrics === null) {
+					frozen.add(sourceKeyOf(SnapshotSource.B2cShared, p.portfolioId));
+				}
+				sources.push({
+					source: SnapshotSource.B2cShared,
+					portfolioId: p.portfolioId,
+					metrics: p.metrics,
+					...(p.unavailableReason !== undefined && {
+						unavailableReason: p.unavailableReason,
+					}),
+				});
+			}
+			const portfolioIds = portfolios.map((p) => p.portfolioId);
+			return { sources, frozen, b2c: { kind: 'shared', portfolioIds } };
+		} catch (error) {
+			if (error instanceof NoActiveConsentError) {
+				return { sources, frozen, b2c: { kind: 'none' } };
+			}
+			frozen.add(ALL_SHARED);
+			sources.push({
+				source: SnapshotSource.B2cShared,
+				metrics: null,
+				unavailableReason: SOURCE_READ_FAILED,
+			});
+			return { sources, frozen, b2c: { kind: 'unknown' } };
+		}
+	}
+
+	/**
+	 * Sem consentimento ativo, todas as linhas B2C saem. Com ele, saem as das
+	 * carteiras fora do consentimento atual (inclusive as de leituras que
+	 * falharam). Se nem o consentimento pôde ser lido, nada sai. R23 (LGPD):
+	 * os alertas dessas carteiras saem junto, em qualquer status.
+	 */
+	private async dropStaleSharedRows(
+		orgId: string,
+		clientProfileId: string,
+		built: BuiltSources
+	): Promise<void> {
+		const { b2c } = built;
+		if (b2c.kind === 'unknown') return;
+		if (b2c.kind === 'none') {
+			await this.wealth.deleteSource(
+				orgId,
+				clientProfileId,
+				SnapshotSource.B2cShared
+			);
+			await this.alerts.deleteSharedExcept(orgId, clientProfileId, []);
+			return;
+		}
+		await this.wealth.deleteSourceExcept(
+			orgId,
+			clientProfileId,
+			SnapshotSource.B2cShared,
+			b2c.portfolioIds
+		);
+		await this.alerts.deleteSharedExcept(
+			orgId,
+			clientProfileId,
+			b2c.portfolioIds
+		);
+	}
+
+	private snapshotOf(
+		orgId: string,
+		clientProfileId: string,
+		today: string,
+		sources: SourceSnapshot[],
+		relationshipStartedAt: Date,
+		lastContactAt: Date | null,
+		now: Date
+	): ClientSnapshot {
+		const parts = sources
+			.filter((s) => s.metrics !== null)
+			.map((s) => partsOf(s.metrics as ClientPortfolioMetrics));
+		return {
+			orgId,
+			clientProfileId,
+			asOf: today,
+			sources,
+			totalMinor: sum(parts.map((p) => p.totalMinor)),
+			verifiedMinor: sum(parts.map((p) => p.verifiedMinor)),
+			manualMinor: sum(parts.map((p) => p.manualMinor)),
+			relationshipStartedAt,
+			lastContactAt,
+			computedAt: now,
+		};
+	}
+
+	/** Uma linha por fonte com métricas; a fonte que falhou não grava. */
+	private dailyRowsOf(snapshot: ClientSnapshot): WealthDailyRow[] {
+		return snapshot.sources
+			.filter((s) => s.metrics !== null)
+			.map((s) => ({
+				orgId: snapshot.orgId,
+				clientProfileId: snapshot.clientProfileId,
+				date: snapshot.asOf,
+				source: s.source,
+				...(s.portfolioId !== undefined && { portfolioId: s.portfolioId }),
+				...partsOf(s.metrics as ClientPortfolioMetrics),
+			}));
+	}
+
+	/** Vendas do livro do assessor nos últimos 30 dias corridos. */
+	private async sellsOf(
+		orgId: string,
+		clientProfileId: string,
+		today: string
+	): Promise<SellWindow> {
+		const from = addIsoDays(today, -(SELLS_WINDOW_DAYS - 1));
+		const ledger = await this.transactions.listByClient(orgId, clientProfileId);
+		const sellsMinor30d = ledger
+			.filter(
+				(t) =>
+					t.side === TransactionSide.Sell &&
+					t.tradeDate >= from &&
+					t.tradeDate <= today
+			)
+			.reduce(
+				(total, t) => total + t.quantity * t.unitPriceMinor - t.feesMinor,
+				0
+			);
+		return { sellsMinor30d: Math.round(sellsMinor30d) };
+	}
+
+	private async apply(
+		orgId: string,
+		clientProfileId: string,
+		candidates: AlertCandidate[],
+		existing: Alert[],
+		today: string,
+		now: Date
+	): Promise<RecomputeResult> {
+		const plan = reconcileAlerts({ candidates, existing, today });
+		const byId = new Map(existing.map((a) => [a.id, a]));
+
+		let updated = 0;
+		for (const { id, patch } of plan.update) {
+			const current = byId.get(id);
+			const changed = current ? changesOf(current, patch) : patch;
+			if (Object.keys(changed).length === 0) continue;
+			// Só mexe no que segue ativo: o assessor pode ter fechado no meio.
+			const result = await this.alerts.patch(id, changed, [
+				AlertStatus.Open,
+				AlertStatus.Snoozed,
+			]);
+			if (result) updated += 1;
+		}
+
+		const resolved =
+			plan.resolve.length === 0
+				? 0
+				: await this.alerts.resolveMany(plan.resolve, now);
+
+		// R22: a condição sumiu; o fechado deixa de bloquear a reabertura. Só
+		// se ainda estiver fechado pelo assessor (não conta como `updated`).
+		for (const id of plan.clear) {
+			await this.alerts.patch(id, { clearedAt: now }, [
+				AlertStatus.Handled,
+				AlertStatus.Dismissed,
+			]);
+		}
+
+		const opened =
+			plan.open.length === 0
+				? []
+				: await this.alerts.insertMany(
+						plan.open.map(
+							(c): NewAlert => ({
+								...c,
+								orgId,
+								clientProfileId,
+								conditionKey: conditionKeyOf(c),
+								status: AlertStatus.Open,
+							})
+						)
+					);
+
+		return { opened: opened.length, updated, resolved };
+	}
+}
+
+const isActive = (a: Alert): boolean =>
+	a.status === AlertStatus.Open || a.status === AlertStatus.Snoozed;
+
+const isFrozen = (
+	item: Pick<AlertCandidate, 'source' | 'portfolioId'>,
+	frozen: Set<string>
+): boolean =>
+	item.source !== null &&
+	(frozen.has(sourceKeyOf(item.source, item.portfolioId)) ||
+		(item.source === SnapshotSource.B2cShared && frozen.has(ALL_SHARED)));
+
+const sum = (values: number[]): number =>
+	values.reduce((total, v) => total + v, 0);
+
+function partsOf(m: ClientPortfolioMetrics): {
+	totalMinor: number;
+	verifiedMinor: number;
+	manualMinor: number;
+} {
+	let verifiedMinor = 0;
+	let manualMinor = 0;
+	for (const p of m.positions) {
+		if (p.provenance === Provenance.Verified)
+			verifiedMinor += p.marketValueMinor;
+		else manualMinor += p.marketValueMinor;
+	}
+	return { totalMinor: m.totalValueMinor, verifiedMinor, manualMinor };
+}
+
+/** Só as chaves que mudam de fato; `undefined` remove um campo presente. */
+function changesOf(current: Alert, patch: Partial<Alert>): Partial<Alert> {
+	const record = current as unknown as Record<string, unknown>;
+	const changed: Record<string, unknown> = {};
+	for (const [key, value] of Object.entries(patch)) {
+		if (stableJson(record[key]) !== stableJson(value)) {
+			changed[key] = value;
+		}
+	}
+	return changed as Partial<Alert>;
+}
+
+/** JSON com as chaves dos objetos em ordem: a ordem de gravação não conta. */
+export function stableJson(value: unknown): string | undefined {
+	return JSON.stringify(value, (_key, v: unknown) =>
+		v !== null && typeof v === 'object' && !Array.isArray(v)
+			? Object.fromEntries(
+					Object.entries(v as Record<string, unknown>).sort(([a], [b]) =>
+						a < b ? -1 : a > b ? 1 : 0
+					)
+				)
+			: v
+	);
+}

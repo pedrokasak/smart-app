@@ -14,6 +14,7 @@ import {
 	InMemoryInviteStore,
 	InMemoryMembershipStore,
 	InMemoryRelationshipStore,
+	RecordingAttentionPurge,
 } from './in-memory-stores.fixture';
 import { RelationshipService } from './relationship.service';
 
@@ -38,6 +39,7 @@ describe('ClientDirectoryService', () => {
 	let assignments: InMemoryAssignmentStore;
 	let audit: FakeAuditTrail;
 	let svc: ClientDirectoryService;
+	let purge: RecordingAttentionPurge;
 
 	beforeEach(async () => {
 		memberships = new InMemoryMembershipStore();
@@ -60,7 +62,8 @@ describe('ClientDirectoryService', () => {
 			profiles,
 			invites,
 			assignments,
-			audit
+			audit,
+			(purge = new RecordingAttentionPurge())
 		);
 		await memberships.create({
 			userId: ctx.userId,
@@ -325,6 +328,13 @@ describe('ClientDirectoryService', () => {
 			expect(profiles.size).toBe(0);
 			expect(relationships.size).toBe(0);
 			expect(assignments.size).toBe(0);
+		});
+
+		it('apaga o read model de atenção do perfil desfeito', async () => {
+			audit.failWith = new Error('audit down');
+			await expect(svc.createClient(ctx, { name: 'Maria' })).rejects.toThrow();
+			expect(purge.purged).toHaveLength(1);
+			expect(purge.purged[0]).toMatch(/^orgA:/);
 		});
 
 		it('nasce atribuído ao ADVISOR que criou', async () => {

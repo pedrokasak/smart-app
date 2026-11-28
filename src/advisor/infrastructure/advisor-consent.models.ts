@@ -87,6 +87,11 @@ clientInviteSchema.index(
 );
 // `deleteByEmail` (LGPD).
 clientInviteSchema.index({ email: 1 }, { name: 'advisor_invite_email' });
+// `findAcceptedByRelationship` e `deleteByRelationshipIds`.
+clientInviteSchema.index(
+	{ relationshipId: 1, status: 1 },
+	{ name: 'advisor_invite_relationship_status' }
+);
 
 const consentSchema = new Schema<AdvisorConsentDoc>(
 	{

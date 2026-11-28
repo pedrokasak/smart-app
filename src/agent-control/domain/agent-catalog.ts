@@ -265,6 +265,13 @@ export const AGENT_DEFINITIONS: readonly AgentDefinition[] = [
 		defaultEnabled: true,
 	}),
 	toggleable({
+		id: 'advisor-attention',
+		name: 'Atenção do Advisor',
+		kind: 'data_job',
+		schedule: 'dias úteis, 20h00',
+		defaultEnabled: true,
+	}),
+	toggleable({
 		id: 'report-delivery',
 		name: 'Entrega de relatórios',
 		kind: 'data_job',

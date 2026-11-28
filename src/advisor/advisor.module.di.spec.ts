@@ -1,5 +1,7 @@
 import { AppModule } from 'src/app.module';
 import { AdvisorModule } from './advisor.module';
+import { AlertSettingsService } from './application/attention/alert-settings.service';
+import { AlertService } from './application/attention/alert.service';
 import {
 	ADVISOR_ALLOCATION_TARGET_STORE,
 	ADVISOR_BENCHMARK_SERIES,
@@ -195,6 +197,18 @@ describe('AdvisorModule wiring', () => {
 		);
 		const exported: unknown[] = Reflect.getMetadata('exports', AdvisorModule);
 		for (const service of [TeamService, AssignmentService]) {
+			expect(providers).toContain(service);
+			expect(exported).toContain(service);
+		}
+	});
+
+	it('provides and exports AlertService and AlertSettingsService', () => {
+		const providers: unknown[] = Reflect.getMetadata(
+			'providers',
+			AdvisorModule
+		);
+		const exported: unknown[] = Reflect.getMetadata('exports', AdvisorModule);
+		for (const service of [AlertService, AlertSettingsService]) {
 			expect(providers).toContain(service);
 			expect(exported).toContain(service);
 		}

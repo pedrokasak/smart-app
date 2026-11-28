@@ -5,9 +5,13 @@ import {
 } from '@nestjs/common';
 import { AssetClass } from '../domain/enums';
 import { AllocationTarget } from '../domain/portfolio.entities';
-import { ADVISOR_ALLOCATION_TARGET_STORE } from './advisor.tokens';
+import {
+	ADVISOR_ALLOCATION_TARGET_STORE,
+	ADVISOR_SNAPSHOT_TRIGGER,
+} from './advisor.tokens';
 import { AccessContext, AuthorizationService } from './authorization.service';
 import type { AllocationTargetStorePort } from './ports/allocation-target.store.port';
+import type { ClientSnapshotTriggerPort } from './ports/client-snapshot-trigger.port';
 
 const SUM_TOLERANCE = 0.01;
 
@@ -22,7 +26,9 @@ export class AllocationTargetService {
 	constructor(
 		private readonly authorization: AuthorizationService,
 		@Inject(ADVISOR_ALLOCATION_TARGET_STORE)
-		private readonly targets: AllocationTargetStorePort
+		private readonly targets: AllocationTargetStorePort,
+		@Inject(ADVISOR_SNAPSHOT_TRIGGER)
+		private readonly snapshotTrigger: ClientSnapshotTriggerPort
 	) {}
 
 	async setTarget(
@@ -36,12 +42,14 @@ export class AllocationTargetService {
 			'EDIT_POSITION'
 		);
 		const clean = this.validate(targets);
-		return this.targets.upsert({
+		const saved = await this.targets.upsert({
 			orgId: ctx.orgId,
 			clientProfileId,
 			targets: clean,
 			updatedByUserId: ctx.userId,
 		});
+		this.snapshotTrigger.request(ctx.orgId, clientProfileId);
+		return saved;
 	}
 
 	async getTarget(

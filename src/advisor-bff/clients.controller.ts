@@ -26,6 +26,7 @@ import {
 } from '@nestjs/swagger';
 import { AllocationTargetService } from 'src/advisor/application/allocation-target.service';
 import { AssignmentService } from 'src/advisor/application/assignment.service';
+import { AlertService } from 'src/advisor/application/attention/alert.service';
 import { ClientDirectoryService } from 'src/advisor/application/client-directory.service';
 import { CsvImportService } from 'src/advisor/application/csv/csv-import.service';
 import { PortfolioMetricsService } from 'src/advisor/application/metrics/portfolio-metrics.service';
@@ -157,7 +158,8 @@ export class ClientsController {
 		private readonly metrics: PortfolioMetricsService,
 		private readonly shared: SharedPortfolioService,
 		private readonly wealth: WealthSummaryAssembler,
-		private readonly assignments: AssignmentService
+		private readonly assignments: AssignmentService,
+		private readonly alerts: AlertService
 	) {}
 
 	@Get()
@@ -449,6 +451,23 @@ export class ClientsController {
 			clientId
 		);
 		return items.map(SharedPortfolioMetricsResponseDto.of);
+	}
+
+	@Post(':clientId/reviewed')
+	@HttpCode(HttpStatus.NO_CONTENT)
+	@ApiOperation({
+		summary:
+			'Marca o cliente como revisado: registra o contato e fecha o NO_CONTACT aberto',
+	})
+	@ApiResponse({ status: 204 })
+	@ApiClientErrors({
+		notFound: 'Cliente inexistente, de outra org ou fora do alcance',
+	})
+	async markReviewed(
+		@Req() req: any,
+		@Param('clientId', new ParseUUIDPipe()) clientId: string
+	): Promise<void> {
+		await this.alerts.markReviewed(accessContextOf(req), clientId);
 	}
 
 	@Get(':clientId/assignees')

@@ -8,10 +8,15 @@ import { PortfolioSharingReadModule } from 'src/portfolio/sharing/portfolio-shar
 import { SubscriptionModule } from 'src/subscription/subscription.module';
 import { UsersModule } from 'src/users/users.module';
 import {
+	ADVISOR_ALERT_SETTINGS_STORE,
+	ADVISOR_ALERT_STORE,
 	ADVISOR_ALLOCATION_TARGET_STORE,
 	ADVISOR_ASSIGNMENT_STORE,
+	ADVISOR_ATTENTION_PURGE,
 	ADVISOR_BENCHMARK_SERIES,
+	ADVISOR_CLIENT_CONTACT_STORE,
 	ADVISOR_CLIENT_PROFILE_STORE,
+	ADVISOR_CLIENT_SNAPSHOT_STORE,
 	ADVISOR_CONSENT_STORE,
 	ADVISOR_INVITE_STORE,
 	ADVISOR_MEMBER_INVITE_STORE,
@@ -20,8 +25,15 @@ import {
 	ADVISOR_PORTAL_GRANT_STORE,
 	ADVISOR_PRICE_HISTORY,
 	ADVISOR_RELATIONSHIP_STORE,
+	ADVISOR_SNAPSHOT_TRIGGER,
 	ADVISOR_TRANSACTION_STORE,
+	ADVISOR_WEALTH_DAILY_STORE,
 } from './application/advisor.tokens';
+import { AttentionScheduler } from './application/attention/attention.scheduler';
+import { AlertSettingsService } from './application/attention/alert-settings.service';
+import { AlertService } from './application/attention/alert.service';
+import { ClientSnapshotService } from './application/attention/client-snapshot.service';
+import { DashboardService } from './application/attention/dashboard.service';
 import { AllocationTargetService } from './application/allocation-target.service';
 import { AuthorizationService } from './application/authorization.service';
 import { ClientDirectoryService } from './application/client-directory.service';
@@ -52,6 +64,14 @@ import {
 	advisorSchemas,
 } from './infrastructure/advisor.models';
 import {
+	ADVISOR_ALERT_MODEL,
+	ADVISOR_ALERT_SETTINGS_MODEL,
+	ADVISOR_CLIENT_CONTACT_MODEL,
+	ADVISOR_CLIENT_SNAPSHOT_MODEL,
+	ADVISOR_WEALTH_DAILY_MODEL,
+	advisorAttentionSchemas,
+} from './infrastructure/advisor-attention.models';
+import {
 	ADVISOR_ALLOCATION_TARGET_MODEL,
 	ADVISOR_IMPORT_BATCH_MODEL,
 	ADVISOR_TRANSACTION_MODEL,
@@ -73,13 +93,21 @@ import {
 } from './infrastructure/advisor-team.models';
 import { B2cSharedPortfolioSourceAdapter } from './infrastructure/b2c-shared-portfolio-source.adapter';
 import { EmailInviteNotifierAdapter } from './infrastructure/email-invite-notifier.adapter';
+import { EmailRelationshipNotifier } from './infrastructure/email-relationship-notifier';
+import { ADVISOR_RELATIONSHIP_NOTIFIER } from './application/ports/relationship-notifier.port';
+import { InProcessSnapshotTrigger } from './infrastructure/in-process-snapshot-trigger';
 import {
 	ADVISOR_WEB_URL,
 	EmailMemberInviteNotifierAdapter,
 } from './infrastructure/email-member-invite-notifier.adapter';
 import { MacroBenchmarkSeriesAdapter } from './infrastructure/macro-benchmark-series.adapter';
 import { MarketPriceHistoryAdapter } from './infrastructure/market-price-history.adapter';
+import { MongoAlertSettingsStore } from './infrastructure/mongo-alert-settings.store';
+import { MongoAlertStore } from './infrastructure/mongo-alert.store';
 import { MongoAllocationTargetStore } from './infrastructure/mongo-allocation-target.store';
+import { MongoClientContactStore } from './infrastructure/mongo-client-contact.store';
+import { MongoClientSnapshotStore } from './infrastructure/mongo-client-snapshot.store';
+import { MongoWealthDailyStore } from './infrastructure/mongo-wealth-daily.store';
 import { MongoAssignmentStore } from './infrastructure/mongo-assignment.store';
 import { MongoClientProfileStore } from './infrastructure/mongo-client-profile.store';
 import { MongoConsentStore } from './infrastructure/mongo-consent.store';
@@ -126,6 +154,23 @@ import { OrgContextGuard } from './interface/org-context.guard';
 			{
 				name: ADVISOR_ALLOCATION_TARGET_MODEL,
 				schema: advisorPortfolioSchemas.allocationTarget,
+			},
+			{
+				name: ADVISOR_CLIENT_SNAPSHOT_MODEL,
+				schema: advisorAttentionSchemas.clientSnapshot,
+			},
+			{
+				name: ADVISOR_WEALTH_DAILY_MODEL,
+				schema: advisorAttentionSchemas.wealthDaily,
+			},
+			{ name: ADVISOR_ALERT_MODEL, schema: advisorAttentionSchemas.alert },
+			{
+				name: ADVISOR_ALERT_SETTINGS_MODEL,
+				schema: advisorAttentionSchemas.alertSettings,
+			},
+			{
+				name: ADVISOR_CLIENT_CONTACT_MODEL,
+				schema: advisorAttentionSchemas.clientContact,
 			},
 			{
 				name: ADVISOR_CLIENT_INVITE_MODEL,
@@ -180,6 +225,25 @@ import { OrgContextGuard } from './interface/org-context.guard';
 			provide: ADVISOR_BENCHMARK_SERIES,
 			useExisting: MacroBenchmarkSeriesAdapter,
 		},
+		MongoClientSnapshotStore,
+		MongoWealthDailyStore,
+		MongoAlertStore,
+		MongoAlertSettingsStore,
+		MongoClientContactStore,
+		{
+			provide: ADVISOR_CLIENT_SNAPSHOT_STORE,
+			useExisting: MongoClientSnapshotStore,
+		},
+		{ provide: ADVISOR_WEALTH_DAILY_STORE, useExisting: MongoWealthDailyStore },
+		{ provide: ADVISOR_ALERT_STORE, useExisting: MongoAlertStore },
+		{
+			provide: ADVISOR_ALERT_SETTINGS_STORE,
+			useExisting: MongoAlertSettingsStore,
+		},
+		{
+			provide: ADVISOR_CLIENT_CONTACT_STORE,
+			useExisting: MongoClientContactStore,
+		},
 		MongoInviteStore,
 		MongoConsentStore,
 		EmailInviteNotifierAdapter,
@@ -213,6 +277,11 @@ import { OrgContextGuard } from './interface/org-context.guard';
 			provide: ADVISOR_MEMBER_INVITE_NOTIFIER,
 			useExisting: EmailMemberInviteNotifierAdapter,
 		},
+		EmailRelationshipNotifier,
+		{
+			provide: ADVISOR_RELATIONSHIP_NOTIFIER,
+			useExisting: EmailRelationshipNotifier,
+		},
 		MongoPortalGrantStore,
 		UserPortalAccountDirectoryAdapter,
 		{ provide: ADVISOR_PORTAL_GRANT_STORE, useExisting: MongoPortalGrantStore },
@@ -237,6 +306,17 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		AssignmentService,
 		ConsentService,
 		SharedPortfolioService,
+		ClientSnapshotService,
+		{ provide: ADVISOR_ATTENTION_PURGE, useExisting: ClientSnapshotService },
+		InProcessSnapshotTrigger,
+		{
+			provide: ADVISOR_SNAPSHOT_TRIGGER,
+			useExisting: InProcessSnapshotTrigger,
+		},
+		AttentionScheduler,
+		AlertService,
+		AlertSettingsService,
+		DashboardService,
 		OrgContextGuard,
 	],
 	exports: [
@@ -256,6 +336,9 @@ import { OrgContextGuard } from './interface/org-context.guard';
 		AssignmentService,
 		ConsentService,
 		SharedPortfolioService,
+		AlertService,
+		AlertSettingsService,
+		DashboardService,
 		OrgContextGuard,
 		PortalAccessService,
 	],

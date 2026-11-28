@@ -193,6 +193,13 @@ export class EndpointRateLimitMiddleware implements NestMiddleware {
 			pattern: /^\/advisor\/v1\/clients\/[^/]+\/imports\/?$/,
 			rule: { limit: 20, windowMs: 10 * 60_000 },
 		},
+		// Lote de alertas: até 500 alertas e uma auditoria por chamada.
+		{
+			key: 'POST:/advisor/v1/alerts/bulk',
+			method: 'POST',
+			pattern: /^\/advisor\/v1\/alerts\/bulk\/?$/,
+			rule: { limit: 20, windowMs: 60_000 },
+		},
 	];
 
 	private readonly store: RateLimitStore;

@@ -17,8 +17,12 @@ import {
 	TransactionRuleError,
 	validateTransactionInput,
 } from '../domain/transaction-rules';
-import { ADVISOR_TRANSACTION_STORE } from './advisor.tokens';
+import {
+	ADVISOR_SNAPSHOT_TRIGGER,
+	ADVISOR_TRANSACTION_STORE,
+} from './advisor.tokens';
 import { AccessContext, AuthorizationService } from './authorization.service';
+import type { ClientSnapshotTriggerPort } from './ports/client-snapshot-trigger.port';
 import type { TransactionStorePort } from './ports/transaction.store.port';
 
 export class InvalidTransactionError extends UnprocessableEntityException {
@@ -38,7 +42,9 @@ export class TransactionService {
 	constructor(
 		private readonly authorization: AuthorizationService,
 		@Inject(ADVISOR_TRANSACTION_STORE)
-		private readonly transactions: TransactionStorePort
+		private readonly transactions: TransactionStorePort,
+		@Inject(ADVISOR_SNAPSHOT_TRIGGER)
+		private readonly snapshotTrigger: ClientSnapshotTriggerPort
 	) {}
 
 	async addManual(
@@ -95,6 +101,7 @@ export class TransactionService {
 				createdByUserId: ctx.userId,
 			},
 		]);
+		this.snapshotTrigger.request(ctx.orgId, clientProfileId);
 		return created;
 	}
 
@@ -130,6 +137,7 @@ export class TransactionService {
 		if (oversell) throw new OversellError(oversell);
 
 		await this.transactions.deleteById(ctx.orgId, clientProfileId, target.id);
+		this.snapshotTrigger.request(ctx.orgId, clientProfileId);
 	}
 
 	async listTransactions(

@@ -94,6 +94,9 @@ describe('contrato OpenAPI do Advisor', () => {
 					'/members',
 					'/member-invites',
 					'/me/membership',
+					'/dashboard',
+					'/alerts',
+					'/alert-settings',
 				].some((scoped) => path.startsWith(`${ADVISOR_PATH_PREFIX}${scoped}`));
 				const header = (operation.parameters ?? []).find(
 					(p: any) => p.in === 'header' && p.name === 'x-org-id'

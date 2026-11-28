@@ -1,4 +1,16 @@
 import { ClientInvite, Consent } from '../domain/consent.entities';
+import { DEFAULT_ALERT_SETTINGS } from '../domain/alert-settings';
+import {
+	Alert,
+	ClientSnapshot,
+	SourceSnapshot,
+} from '../domain/attention.entities';
+import { StoredAlertSettings } from '../application/ports/alert-settings.store.port';
+import {
+	AdvisorAlertDoc,
+	AdvisorAlertSettingsDoc,
+	AdvisorClientSnapshotDoc,
+} from './advisor-attention.models';
 import {
 	AdvisoryRelationship,
 	ClientProfile,
@@ -180,5 +192,75 @@ export function toMemberInvite(doc: AdvisorMemberInviteDoc): MemberInvite {
 		invitedByUserId: doc.invitedByUserId,
 		createdAt: doc.createdAt,
 		...(doc.respondedAt != null && { respondedAt: doc.respondedAt }),
+	};
+}
+
+export function toClientSnapshot(
+	doc: AdvisorClientSnapshotDoc
+): ClientSnapshot {
+	return {
+		orgId: doc.orgId,
+		clientProfileId: doc.clientProfileId,
+		asOf: doc.asOf,
+		sources: doc.sources as SourceSnapshot[],
+		totalMinor: doc.totalMinor,
+		verifiedMinor: doc.verifiedMinor,
+		manualMinor: doc.manualMinor,
+		relationshipStartedAt: doc.relationshipStartedAt,
+		lastContactAt: doc.lastContactAt ?? null,
+		computedAt: doc.computedAt,
+	};
+}
+
+/** `priorityRank` e `active` são derivados e não saem do store. */
+export function toAlert(doc: AdvisorAlertDoc): Alert {
+	return {
+		id: doc._id,
+		orgId: doc.orgId,
+		clientProfileId: doc.clientProfileId,
+		rule: doc.rule,
+		source: doc.source ?? null,
+		...(doc.portfolioId != null && { portfolioId: doc.portfolioId }),
+		key: doc.key,
+		conditionKey: doc.conditionKey,
+		band: doc.band,
+		priority: doc.priority,
+		messageKey: doc.messageKey,
+		params: doc.params,
+		evidence: doc.evidence,
+		dataAsOf: doc.dataAsOf,
+		provenance: doc.provenance ?? null,
+		lowConfidence: doc.lowConfidence,
+		status: doc.status,
+		createdAt: doc.createdAt,
+		updatedAt: doc.updatedAt,
+		...(doc.createdByUserId != null && {
+			createdByUserId: doc.createdByUserId,
+		}),
+		...(doc.title != null && { title: doc.title }),
+		...(doc.note != null && { note: doc.note }),
+		...(doc.dueDate != null && { dueDate: doc.dueDate }),
+		...(doc.snoozedUntil != null && { snoozedUntil: doc.snoozedUntil }),
+		...(doc.handledVia != null && { handledVia: doc.handledVia }),
+		...(doc.handledByUserId != null && {
+			handledByUserId: doc.handledByUserId,
+		}),
+		...(doc.handledNote != null && { handledNote: doc.handledNote }),
+		...(doc.dismissReason != null && { dismissReason: doc.dismissReason }),
+		...(doc.closedAt != null && { closedAt: doc.closedAt }),
+		...(doc.clearedAt != null && { clearedAt: doc.clearedAt }),
+	};
+}
+
+export function toStoredAlertSettings(
+	doc: AdvisorAlertSettingsDoc
+): StoredAlertSettings {
+	return {
+		settings: doc.settings ?? structuredClone(DEFAULT_ALERT_SETTINGS),
+		engineEnabledAt: doc.engineEnabledAt,
+		...(doc.updatedByUserId != null && {
+			updatedByUserId: doc.updatedByUserId,
+		}),
+		...(doc.updatedAt != null && { updatedAt: doc.updatedAt }),
 	};
 }

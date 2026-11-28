@@ -97,6 +97,17 @@ export class MongoInviteStore implements InviteStorePort {
 		return doc ? toClientInvite(doc) : null;
 	}
 
+	async findAcceptedByRelationship(
+		relationshipId: string
+	): Promise<ClientInvite | null> {
+		const doc = await this.invites
+			.findOne({ relationshipId, status: InviteStatus.Accepted })
+			.sort({ respondedAt: -1, createdAt: -1, _id: -1 })
+			.lean<AdvisorClientInviteDoc>()
+			.exec();
+		return doc ? toClientInvite(doc) : null;
+	}
+
 	async deleteByEmail(email: string): Promise<number> {
 		const result = await this.invites.deleteMany({ email }).exec();
 		return result.deletedCount ?? 0;

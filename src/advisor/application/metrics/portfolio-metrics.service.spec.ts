@@ -167,6 +167,19 @@ describe('PortfolioMetricsService', () => {
 		expect(prices.calls).toHaveLength(0);
 	});
 
+	it('computeForSystem gives the same metrics without authorization or audit', async () => {
+		await transactions.createMany([newTx(), newTx({ symbol: 'VALE3' })]);
+		const viaAdvisor = await service.getMetrics(ctxA, 'client-1');
+		audit.recorded.length = 0;
+		// Nenhum membro precisa existir nem estar atribuído.
+		await assignments.unassign('orgA', 'client-1', userId);
+
+		const viaSystem = await service.computeForSystem('orgA', 'client-1');
+
+		expect(viaSystem).toEqual(viaAdvisor);
+		expect(audit.recorded).toHaveLength(0);
+	});
+
 	it('returns the metrics and audits VIEW_PORTFOLIO once', async () => {
 		await transactions.createMany([newTx(), newTx({ symbol: 'VALE3' })]);
 		await targets.upsert({

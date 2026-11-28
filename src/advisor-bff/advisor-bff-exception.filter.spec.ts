@@ -25,6 +25,13 @@ import {
 } from 'src/advisor/application/transaction.service';
 import { CsvRejectedError } from 'src/advisor/application/csv/csv-import.service';
 import { InvalidInviteError } from 'src/advisor/application/invite.service';
+import {
+	AlertNotActiveError,
+	AlertNotFoundError,
+	BulkLimitExceededError,
+	InvalidAlertInputError,
+	InvalidAlertSettingsError,
+} from 'src/advisor/application/attention/attention-errors';
 import { planCapabilityDenied } from 'src/subscription/capabilities/plan-capability.guard';
 import { AdvisorBffExceptionFilter } from './advisor-bff-exception.filter';
 
@@ -290,5 +297,57 @@ describe('AdvisorBffExceptionFilter', () => {
 
 	it('handles a thrown non-Error value as a 500', () => {
 		expect(run('boom').status).toBe(500);
+	});
+
+	describe('attention engine errors', () => {
+		it('turns AlertNotFoundError into the same bare 404 as a missing client', () => {
+			expect(run(new AlertNotFoundError())).toEqual(
+				run(new ClientNotAccessibleError())
+			);
+			expect(run(new AlertNotFoundError())).toEqual({
+				status: 404,
+				body: { statusCode: 404, error: 'NOT_FOUND' },
+			});
+		});
+
+		it('keeps ALERT_NOT_ACTIVE as a 409', () => {
+			expect(run(new AlertNotActiveError())).toEqual({
+				status: 409,
+				body: {
+					statusCode: 409,
+					error: 'CONFLICT',
+					reason: 'ALERT_NOT_ACTIVE',
+				},
+			});
+		});
+
+		it('maps invalid alert input and settings to 400 VALIDATION_FAILED with the field', () => {
+			for (const error of [
+				new InvalidAlertInputError('until'),
+				new InvalidAlertSettingsError('until'),
+			]) {
+				expect(run(error)).toEqual({
+					status: 400,
+					body: {
+						statusCode: 400,
+						error: 'BAD_REQUEST',
+						reason: 'VALIDATION_FAILED',
+						details: { field: 'until' },
+					},
+				});
+			}
+		});
+
+		it('maps a bulk over the limit to 400 VALIDATION_FAILED with the maximum', () => {
+			expect(run(new BulkLimitExceededError(500))).toEqual({
+				status: 400,
+				body: {
+					statusCode: 400,
+					error: 'BAD_REQUEST',
+					reason: 'VALIDATION_FAILED',
+					details: { max: 500 },
+				},
+			});
+		});
 	});
 });

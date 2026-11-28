@@ -11,6 +11,7 @@ import {
 	ConsentStatus,
 	InviteStatus,
 	OrgRole,
+	ProfileOrigin,
 	RelationshipStatus,
 } from '../domain/enums';
 import { ERASED_CLIENT_NAME } from '../domain/entities';
@@ -37,6 +38,9 @@ import {
 	InMemoryOrganizationStore,
 	InMemoryRelationshipStore,
 	InMemorySharedPortfolioSource,
+	RecordingAttentionPurge,
+	RecordingRelationshipNotifier,
+	RecordingSnapshotTrigger,
 } from './in-memory-stores.fixture';
 import { InviteService } from './invite.service';
 import { RelationshipService } from './relationship.service';
@@ -75,6 +79,9 @@ describe('ConsentService', () => {
 	let inviteService: InviteService;
 	let service: ConsentService;
 	let assignments: InMemoryAssignmentStore;
+	let trigger: RecordingSnapshotTrigger;
+	let purge: RecordingAttentionPurge;
+	let relNotifier: RecordingRelationshipNotifier;
 	let ctxA: { userId: string; orgId: string };
 	let ctxB: { userId: string; orgId: string };
 
@@ -139,8 +146,12 @@ describe('ConsentService', () => {
 			profiles,
 			notifier,
 			assignments,
-			audit
+			audit,
+			new RecordingAttentionPurge()
 		);
+		trigger = new RecordingSnapshotTrigger();
+		purge = new RecordingAttentionPurge();
+		relNotifier = new RecordingRelationshipNotifier();
 		service = new ConsentService(
 			invites,
 			consents,
@@ -150,7 +161,10 @@ describe('ConsentService', () => {
 			orgs,
 			identity,
 			source,
-			audit
+			audit,
+			trigger,
+			purge,
+			relNotifier
 		);
 	});
 
@@ -208,6 +222,103 @@ describe('ConsentService', () => {
 		const grant = await service.acceptInvite(INVESTOR, inv.token, portfolioIds);
 		return { inv, grant };
 	};
+
+	describe('attention read model', () => {
+		const keyOf = (inv: Invited) => `${inv.orgId}:${inv.clientProfileId}`;
+
+		it('asks for a recompute after accept, scope change and revoke, without purging', async () => {
+			const { inv, grant } = await accept(['p1']);
+			expect(trigger.requests).toEqual([keyOf(inv)]);
+
+			await service.changeSharedPortfolios(INVESTOR, grant.relationshipId, [
+				'p1',
+				'p2',
+			]);
+			expect(trigger.requests).toEqual([keyOf(inv), keyOf(inv)]);
+
+			await service.revoke(INVESTOR, grant.relationshipId);
+			expect(trigger.requests).toEqual([keyOf(inv), keyOf(inv), keyOf(inv)]);
+			expect(purge.purged).toEqual([]);
+		});
+
+		it('does not ask for a recompute when the accept fails', async () => {
+			const inv = await invited();
+			audit.failWith = new Error('audit down');
+			await expect(
+				service.acceptInvite(INVESTOR, inv.token, ['p1'])
+			).rejects.toThrow();
+			expect(trigger.requests).toEqual([]);
+		});
+
+		it('revokeAllForUser purges each ended link before returning', async () => {
+			const { inv } = await accept(['p1']);
+			const fromB = await invited('joao@exemplo.com', ctxB);
+			await service.acceptInvite(INVESTOR, fromB.token, ['p2']);
+
+			await service.revokeAllForUser(INVESTOR);
+
+			expect(purge.purged.sort()).toEqual([keyOf(inv), keyOf(fromB)].sort());
+		});
+
+		it('revokeAllForUser rethrows a failed purge so the erasure is retried', async () => {
+			await accept(['p1']);
+			purge.failNext();
+			const logged = jest
+				.spyOn(Logger.prototype, 'error')
+				.mockImplementation(() => undefined);
+
+			await expect(service.revokeAllForUser(INVESTOR)).rejects.toThrow(
+				'purge failed'
+			);
+			logged.mockRestore();
+		});
+
+		it('eraseUser purges every client of the user, owned profiles without consent included', async () => {
+			const { inv } = await accept(['p1']);
+			profiles.seed({
+				id: 'orphan',
+				orgId: ctxB.orgId,
+				name: 'Joao',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: INVESTOR,
+			});
+			await relationships.create({
+				orgId: ctxB.orgId,
+				clientProfileId: 'orphan',
+				status: RelationshipStatus.Active,
+			});
+
+			await service.eraseUser(INVESTOR, 'joao@exemplo.com');
+
+			expect(new Set(purge.purged)).toEqual(
+				new Set([keyOf(inv), `${ctxB.orgId}:orphan`])
+			);
+		});
+
+		it('eraseUser stops before deleting consents when a purge fails', async () => {
+			await accept(['p1']);
+			profiles.seed({
+				id: 'orphan',
+				orgId: ctxB.orgId,
+				name: 'Joao',
+				origin: ProfileOrigin.ClientCreated,
+				ownerUserId: INVESTOR,
+			});
+			// revokeAllForUser purges the consented client; the orphan fails.
+			const original = purge.purgeClient.bind(purge);
+			jest
+				.spyOn(purge, 'purgeClient')
+				.mockImplementation(async (orgId: string, clientId: string) => {
+					if (clientId === 'orphan') throw new Error('purge failed');
+					return original(orgId, clientId);
+				});
+
+			await expect(
+				service.eraseUser(INVESTOR, 'joao@exemplo.com')
+			).rejects.toThrow('purge failed');
+			expect(await consents.listByUser(INVESTOR)).toHaveLength(1);
+		});
+	});
 
 	describe('previewInvite', () => {
 		it('shows the org, the masked e-mail and the user portfolios without changing anything', async () => {
@@ -917,6 +1028,115 @@ describe('ConsentService', () => {
 					consentVersion: 1,
 				}),
 			]);
+		});
+	});
+
+	describe('relationship notifications', () => {
+		it('notifies ACCEPTED with the org and client after a successful accept', async () => {
+			const { inv } = await accept();
+
+			expect(relNotifier.sent).toEqual([
+				{
+					orgId: inv.orgId,
+					clientProfileId: inv.clientProfileId,
+					kind: 'ACCEPTED',
+				},
+			]);
+		});
+
+		it('notifies DECLINED after a successful decline', async () => {
+			const inv = await invited();
+
+			await service.declineInvite(INVESTOR, inv.token);
+
+			expect(relNotifier.sent).toEqual([
+				{
+					orgId: inv.orgId,
+					clientProfileId: inv.clientProfileId,
+					kind: 'DECLINED',
+				},
+			]);
+		});
+
+		it('notifies REVOKED after the plain revoke', async () => {
+			const { inv } = await accept();
+			relNotifier.sent.length = 0;
+
+			await service.revoke(INVESTOR, inv.relationshipId);
+
+			expect(relNotifier.sent).toEqual([
+				{
+					orgId: inv.orgId,
+					clientProfileId: inv.clientProfileId,
+					kind: 'REVOKED',
+				},
+			]);
+		});
+
+		it('does not notify when the accept fails', async () => {
+			const inv = await invited();
+
+			await expect(
+				service.acceptInvite(INVESTOR, inv.token, ['nope'])
+			).rejects.toBeDefined();
+			await expect(
+				service.declineInvite(OTHER_INVESTOR, inv.token)
+			).rejects.toBeInstanceOf(InviteNotFoundError);
+			await expect(
+				service.revoke(OTHER_INVESTOR, inv.relationshipId)
+			).rejects.toBeDefined();
+
+			expect(relNotifier.sent).toEqual([]);
+		});
+
+		it('does not notify on account erasure (revokeAllForUser)', async () => {
+			await accept();
+			relNotifier.sent.length = 0;
+
+			await service.revokeAllForUser(INVESTOR);
+
+			expect(relNotifier.sent).toEqual([]);
+		});
+
+		it('a failing notifier never changes the result of accept, decline or revoke', async () => {
+			const error = jest.spyOn(Logger.prototype, 'error').mockImplementation();
+			relNotifier.failNext();
+			const { inv, grant } = await accept();
+			expect(grant.relationshipId).toBe(inv.relationshipId);
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Active);
+
+			relNotifier.failNext();
+			await expect(
+				service.revoke(INVESTOR, inv.relationshipId)
+			).resolves.toBeUndefined();
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Revoked);
+
+			const other = await invited('maria@exemplo.com');
+			identity.set(INVESTOR, {
+				email: 'maria@exemplo.com',
+				emailVerified: true,
+			});
+			relNotifier.failNext();
+			await expect(
+				service.declineInvite(INVESTOR, other.token)
+			).resolves.toBeUndefined();
+
+			await new Promise((resolve) => setImmediate(resolve));
+			const logged = JSON.stringify(error.mock.calls);
+			expect(logged).toContain('Error');
+			expect(logged).not.toContain('exemplo.com');
+			expect(logged).not.toContain('notify failed');
+		});
+
+		it('a notifier that throws synchronously never changes the result', async () => {
+			jest.spyOn(Logger.prototype, 'error').mockImplementation();
+			jest.spyOn(relNotifier, 'notify').mockImplementation(() => {
+				throw new Error('sync boom');
+			});
+
+			const { inv } = await accept();
+
+			expect(relationshipOf(inv).status).toBe(RelationshipStatus.Active);
 		});
 	});
 

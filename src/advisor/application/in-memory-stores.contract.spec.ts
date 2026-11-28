@@ -1,7 +1,11 @@
 import {
+	InMemoryAlertSettingsStore,
+	InMemoryAlertStore,
 	InMemoryAllocationTargetStore,
 	InMemoryAssignmentStore,
+	InMemoryClientContactStore,
 	InMemoryClientProfileStore,
+	InMemoryClientSnapshotStore,
 	InMemoryConsentStore,
 	InMemoryInviteStore,
 	InMemoryMemberInviteStore,
@@ -10,8 +14,10 @@ import {
 	InMemoryPortalGrantStore,
 	InMemoryRelationshipStore,
 	InMemoryTransactionStore,
+	InMemoryWealthDailyStore,
 } from './in-memory-stores.fixture';
 import {
+	describeAdvisorAttentionStoreContract,
 	describeAdvisorConsentStoreContract,
 	describeAdvisorPortalGrantStoreContract,
 	describeAdvisorPortfolioStoreContract,
@@ -51,3 +57,11 @@ describeAdvisorTeamStoreContract('in-memory', () => {
 		profiles: new InMemoryClientProfileStore(),
 	};
 });
+
+describeAdvisorAttentionStoreContract('in-memory', () => ({
+	snapshots: new InMemoryClientSnapshotStore(),
+	wealth: new InMemoryWealthDailyStore(),
+	alerts: new InMemoryAlertStore(),
+	settings: new InMemoryAlertSettingsStore(),
+	contacts: new InMemoryClientContactStore(),
+}));

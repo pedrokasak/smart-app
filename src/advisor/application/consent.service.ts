@@ -30,18 +30,27 @@ import {
 	validatePortfolioSelection,
 } from '../domain/invite-rules';
 import {
+	ADVISOR_ATTENTION_PURGE,
 	ADVISOR_CLIENT_PROFILE_STORE,
 	ADVISOR_CONSENT_STORE,
 	ADVISOR_INVITE_STORE,
 	ADVISOR_ORG_STORE,
 	ADVISOR_RELATIONSHIP_STORE,
+	ADVISOR_SNAPSHOT_TRIGGER,
 } from './advisor.tokens';
+import type { ClientAttentionPurgePort } from './ports/client-attention-purge.port';
 import type { ClientProfileStorePort } from './ports/client-profile.store.port';
+import type { ClientSnapshotTriggerPort } from './ports/client-snapshot-trigger.port';
 import type { ConsentStorePort } from './ports/consent.store.port';
 import type { InviteStorePort } from './ports/invite.store.port';
 import { ADVISOR_INVITEE_IDENTITY } from './ports/invitee-identity.port';
 import type { InviteeIdentityPort } from './ports/invitee-identity.port';
 import type { OrganizationStorePort } from './ports/organization.store.port';
+import { ADVISOR_RELATIONSHIP_NOTIFIER } from './ports/relationship-notifier.port';
+import type {
+	RelationshipNotifierPort,
+	RelationshipUpdateKind,
+} from './ports/relationship-notifier.port';
 import type { RelationshipStorePort } from './ports/relationship.store.port';
 import { ADVISOR_SHARED_PORTFOLIO_SOURCE } from './ports/shared-portfolio-source.port';
 import type {
@@ -141,7 +150,13 @@ export class ConsentService {
 		private readonly identity: InviteeIdentityPort,
 		@Inject(ADVISOR_SHARED_PORTFOLIO_SOURCE)
 		private readonly portfolios: SharedPortfolioSourcePort,
-		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail
+		@Inject(AUDIT_TRAIL) private readonly audit: AuditTrail,
+		@Inject(ADVISOR_SNAPSHOT_TRIGGER)
+		private readonly snapshotTrigger: ClientSnapshotTriggerPort,
+		@Inject(ADVISOR_ATTENTION_PURGE)
+		private readonly attention: ClientAttentionPurgePort,
+		@Inject(ADVISOR_RELATIONSHIP_NOTIFIER)
+		private readonly notifier: RelationshipNotifierPort
 	) {}
 
 	async previewInvite(userId: string, token: string): Promise<InvitePreview> {
@@ -217,6 +232,8 @@ export class ConsentService {
 			await this.undoAccept(accepted, userId, consent, audited);
 			throw error;
 		}
+		this.snapshotTrigger.request(accepted.orgId, accepted.clientProfileId);
+		this.notifyAdvisors(accepted, 'ACCEPTED');
 		await this.proveInviteeEmail(userId, accepted.email);
 		return toGrant(consent, org);
 	}
@@ -250,6 +267,7 @@ export class ConsentService {
 		if (!declined) throw new InviteNotFoundError();
 		await this.relationships.revokePending(declined.relationshipId);
 		await this.recordEnding(INVITE_DECLINED_EVENT, userId, declined);
+		this.notifyAdvisors(declined, 'DECLINED');
 	}
 
 	async listMyGrants(userId: string): Promise<AccessGrant[]> {
@@ -331,6 +349,7 @@ export class ConsentService {
 			}
 			throw new NotFoundException('Advisory relationship not found');
 		}
+		this.snapshotTrigger.request(consent.orgId, consent.clientProfileId);
 		return toGrant(consent, org);
 	}
 
@@ -345,9 +364,17 @@ export class ConsentService {
 			anyRelationshipStatus: true,
 		});
 		await this.endLink(userId, consent);
+		// Sem relação ACTIVE, a recomputação resolve os alertas do sistema e
+		// mantém os manuais do assessor.
+		this.snapshotTrigger.request(consent.orgId, consent.clientProfileId);
+		this.notifyAdvisors(consent, 'REVOKED');
 	}
 
-	/** LGPD: ends every active link of the user. Used by account erasure. */
+	/**
+	 * LGPD: ends every active link of the user and purges the advisor's
+	 * attention read model of each client right away (not on the daily job).
+	 * Used by account erasure.
+	 */
 	async revokeAllForUser(userId: string): Promise<{ revoked: number }> {
 		const active = await this.consents.listActiveByUser(userId);
 		let revoked = 0;
@@ -357,6 +384,7 @@ export class ConsentService {
 		for (const consent of active) {
 			try {
 				if (await this.endLink(userId, consent)) revoked += 1;
+				await this.purgeAttention(consent.orgId, consent.clientProfileId);
 			} catch (error) {
 				this.logFailure('revoke link', consent.relationshipId, error);
 				firstError ??= error;
@@ -384,17 +412,76 @@ export class ConsentService {
 	): Promise<UserErasure> {
 		const { revoked: byConsent } = await this.revokeAllForUser(userId);
 		const orphans = await this.revokeOwnedRelationships(userId);
+		const userConsents = await this.consents.listByUser(userId);
+		const clients = await this.purgeAttentionOfUser(userId, userConsents);
 		const relationshipIds = [
-			...new Set(
-				(await this.consents.listByUser(userId)).map((c) => c.relationshipId)
-			),
+			...new Set(userConsents.map((c) => c.relationshipId)),
 		];
 		const consents = await this.consents.deleteByUser(userId);
 		const invites =
 			(await this.invites.deleteByRelationshipIds(relationshipIds)) +
 			(await this.deleteInvitesOf(userId, email));
 		const profiles = await this.profiles.anonymizeByOwner(userId);
+		await this.purgeAgainAfterAnonymizing(clients);
 		return { revoked: byConsent + orphans, consents, invites, profiles };
+	}
+
+	/**
+	 * A recomputation that was running during the first purge may have
+	 * written again before the profiles were anonymized (after that, its own
+	 * re-check purges). Best effort: the profile is already erased, so the
+	 * requested recompute purges anyway if this one fails (ids-only log).
+	 */
+	private async purgeAgainAfterAnonymizing(
+		clients: Array<{ orgId: string; clientProfileId: string }>
+	): Promise<void> {
+		for (const { orgId, clientProfileId } of clients) {
+			try {
+				await this.attention.purgeClient(orgId, clientProfileId);
+			} catch (error) {
+				this.logFailure('purge attention of client', clientProfileId, error);
+			}
+			this.snapshotTrigger.request(orgId, clientProfileId);
+		}
+	}
+
+	/**
+	 * LGPD: purges the attention read model of every client of the user: the
+	 * ones of any consent version and the profiles the user owns. Runs before
+	 * the consents are deleted, so a failure aborts and a retry finds them.
+	 */
+	private async purgeAttentionOfUser(
+		userId: string,
+		userConsents: Consent[]
+	): Promise<Array<{ orgId: string; clientProfileId: string }>> {
+		const clients = new Map<
+			string,
+			{ orgId: string; clientProfileId: string }
+		>();
+		const add = (orgId: string, clientProfileId: string) =>
+			clients.set(`${orgId}:${clientProfileId}`, { orgId, clientProfileId });
+		for (const c of userConsents) add(c.orgId, c.clientProfileId);
+		for (const id of await this.profiles.listIdsByOwner(userId)) {
+			const profile = await this.profiles.findById(id);
+			if (profile) add(profile.orgId, profile.id);
+		}
+		for (const { orgId, clientProfileId } of clients.values()) {
+			await this.purgeAttention(orgId, clientProfileId);
+		}
+		return [...clients.values()];
+	}
+
+	/**
+	 * Synchronous purge, then a recompute request: a recompute already in
+	 * flight could write the snapshot back after the purge, and the next one
+	 * (no ACTIVE relationship) removes it again.
+	 */
+	private async purgeAttention(
+		orgId: string,
+		clientProfileId: string
+	): Promise<void> {
+		await this.attention.purgeClient(orgId, clientProfileId);
+		this.snapshotTrigger.request(orgId, clientProfileId);
 	}
 
 	/** LGPD export: every consent version of the user, any status. */
@@ -705,6 +792,34 @@ export class ConsentService {
 			return 0;
 		}
 		return this.invites.deleteByEmail(normalized);
+	}
+
+	/**
+	 * E-mail aos assessores do cliente, depois que a ação do investidor já
+	 * valeu. Não espera o envio e nunca muda o resultado: uma falha (síncrona
+	 * ou não) registra só a classe do erro.
+	 */
+	private notifyAdvisors(
+		target: { orgId: string; clientProfileId: string },
+		kind: RelationshipUpdateKind
+	): void {
+		const failed = (error: unknown) =>
+			this.logFailure(
+				`notify advisors of ${kind} client`,
+				target.clientProfileId,
+				error
+			);
+		try {
+			void this.notifier
+				.notify({
+					orgId: target.orgId,
+					clientProfileId: target.clientProfileId,
+					kind,
+				})
+				.catch(failed);
+		} catch (error) {
+			failed(error);
+		}
 	}
 
 	private logFailure(step: string, id: string, error: unknown): void {

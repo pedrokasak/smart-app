@@ -34,6 +34,10 @@ export interface InviteStorePort {
 		expiresAt: Date,
 		max: number
 	): Promise<ClientInvite | null>;
+	/** O convite ACCEPTED mais recente (por `respondedAt`) da relação. */
+	findAcceptedByRelationship(
+		relationshipId: string
+	): Promise<ClientInvite | null>;
 	/** LGPD: apaga os convites do e-mail e devolve a contagem. */
 	deleteByEmail(email: string): Promise<number>;
 	/**

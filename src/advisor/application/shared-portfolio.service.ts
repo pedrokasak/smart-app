@@ -1,5 +1,10 @@
 import { ForbiddenException, Inject, Injectable } from '@nestjs/common';
 import {
+	SOURCE_METRICS_FAILED,
+	SOURCE_READ_FAILED,
+} from '../domain/attention.entities';
+import { businessDate } from '../domain/business-date';
+import {
 	ConsentStatus,
 	ProfileOrigin,
 	RelationshipStatus,
@@ -42,6 +47,13 @@ export interface SharedPortfolioMetrics {
 	name: string;
 	metrics: ClientPortfolioMetrics;
 	unreconciledSymbols: string[];
+}
+
+/** Resultado do caminho de sistema: `metrics: null` quando a carteira falhou. */
+export interface SharedPortfolioSystemMetrics {
+	portfolioId: string;
+	metrics: ClientPortfolioMetrics | null;
+	unavailableReason?: string;
 }
 
 /** Janela para achar o último fechamento de um ativo sem histórico. */
@@ -116,9 +128,60 @@ export class SharedPortfolioService {
 	}
 
 	/**
-	 * Acesso do assessor, relação ACTIVE da org com o cliente, consentimento
-	 * ACTIVE dessa relação e dono do perfil, nessa ordem, sem cache.
+	 * Caminho de sistema (job de atenção): sem contexto de usuário, sem
+	 * `ensureCanAccessClient` e sem auditoria, mas com as mesmas checagens de
+	 * relação ACTIVE, consentimento ACTIVE e dono do perfil
+	 * (`NoActiveConsentError` sem elas). Uma carteira que falha volta com
+	 * `metrics: null` e não derruba as outras; se a leitura do B2C falha,
+	 * todas as consentidas voltam assim (`SOURCE_READ_FAILED`).
 	 */
+	async getSharedMetricsForSystem(
+		orgId: string,
+		clientProfileId: string,
+		now: Date = new Date()
+	): Promise<SharedPortfolioSystemMetrics[]> {
+		const { ownerUserId, portfolioIds } = await this.consentedShare(
+			orgId,
+			clientProfileId
+		);
+		let data: SharedPortfolioData[];
+		try {
+			data = await this.source.read(ownerUserId, portfolioIds);
+		} catch {
+			return portfolioIds.map((portfolioId) => ({
+				portfolioId,
+				metrics: null,
+				unavailableReason: SOURCE_READ_FAILED,
+			}));
+		}
+		const byId = new Map(data.map((p) => [p.portfolioId, p]));
+		// R24: a data de negócio de São Paulo, a mesma do motor de atenção.
+		const asOf = businessDate(now);
+
+		const result: SharedPortfolioSystemMetrics[] = [];
+		for (const id of portfolioIds) {
+			const portfolio = byId.get(id);
+			if (!portfolio) continue;
+			try {
+				const { metrics } = await this.metricsOf(
+					portfolio,
+					asOf,
+					orgId,
+					clientProfileId
+				);
+				result.push({ portfolioId: id, metrics });
+			} catch {
+				result.push({
+					portfolioId: id,
+					metrics: null,
+					unavailableReason: SOURCE_METRICS_FAILED,
+				});
+			}
+		}
+		return result;
+	}
+
+	/** Acesso do assessor e depois as checagens de `consentedShare`. */
 	private async activeShare(
 		ctx: AccessContext,
 		clientProfileId: string
@@ -128,8 +191,19 @@ export class SharedPortfolioService {
 			clientProfileId,
 			'VIEW_PORTFOLIO'
 		);
+		return this.consentedShare(ctx.orgId, clientProfileId);
+	}
+
+	/**
+	 * Relação ACTIVE da org com o cliente, consentimento ACTIVE dessa relação
+	 * e dono do perfil, nessa ordem, sem cache.
+	 */
+	private async consentedShare(
+		orgId: string,
+		clientProfileId: string
+	): Promise<{ ownerUserId: string; portfolioIds: string[] }> {
 		const relationship = await this.relationships.findByOrgAndClient(
-			ctx.orgId,
+			orgId,
 			clientProfileId
 		);
 		if (!relationship || relationship.status !== RelationshipStatus.Active) {
@@ -142,7 +216,7 @@ export class SharedPortfolioService {
 			!consent ||
 			consent.status !== ConsentStatus.Active ||
 			consent.relationshipId !== relationship.id ||
-			consent.orgId !== ctx.orgId ||
+			consent.orgId !== orgId ||
 			consent.clientProfileId !== clientProfileId
 		) {
 			throw new NoActiveConsentError();
@@ -150,7 +224,7 @@ export class SharedPortfolioService {
 		const profile = await this.profiles.findById(clientProfileId);
 		if (
 			!profile ||
-			profile.orgId !== ctx.orgId ||
+			profile.orgId !== orgId ||
 			profile.origin !== ProfileOrigin.ClientCreated ||
 			!profile.ownerUserId ||
 			profile.ownerUserId !== consent.userId

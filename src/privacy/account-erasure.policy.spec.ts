@@ -2,6 +2,12 @@ import { readdirSync, statSync } from 'fs';
 import { join } from 'path';
 import mongoose from 'mongoose';
 import {
+	ADVISOR_ALERT_MODEL,
+	ADVISOR_CLIENT_CONTACT_MODEL,
+	ADVISOR_CLIENT_SNAPSHOT_MODEL,
+	ADVISOR_WEALTH_DAILY_MODEL,
+} from 'src/advisor/infrastructure/advisor-attention.models';
+import {
 	ADVISOR_CLIENT_INVITE_MODEL,
 	ADVISOR_CONSENT_MODEL,
 } from 'src/advisor/infrastructure/advisor-consent.models';
@@ -91,6 +97,10 @@ describe('Política de exclusão de conta (TRA-127)', () => {
 			ADVISOR_CLIENT_ASSIGNMENT_MODEL,
 			ADVISOR_MEMBER_INVITE_MODEL,
 			ADVISOR_PORTAL_GRANT_MODEL,
+			ADVISOR_CLIENT_SNAPSHOT_MODEL,
+			ADVISOR_WEALTH_DAILY_MODEL,
+			ADVISOR_ALERT_MODEL,
+			ADVISOR_CLIENT_CONTACT_MODEL,
 		]) {
 			expect(classified.has(model)).toBe(true);
 		}
@@ -107,6 +117,10 @@ describe('Política de exclusão de conta (TRA-127)', () => {
 			[ADVISOR_CLIENT_ASSIGNMENT_MODEL, 'userId'],
 			[ADVISOR_MEMBER_INVITE_MODEL, 'email'],
 			[ADVISOR_PORTAL_GRANT_MODEL, 'userId'],
+			[ADVISOR_CLIENT_SNAPSHOT_MODEL, 'clientProfileId'],
+			[ADVISOR_WEALTH_DAILY_MODEL, 'clientProfileId'],
+			[ADVISOR_ALERT_MODEL, 'clientProfileId'],
+			[ADVISOR_CLIENT_CONTACT_MODEL, 'clientProfileId'],
 		]);
 	});
 });

@@ -89,3 +89,39 @@ export enum MemberInviteStatus {
 	Cancelled = 'CANCELLED',
 	Expired = 'EXPIRED',
 }
+
+export enum AlertRule {
+	PositionDrop = 'POSITION_DROP',
+	PortfolioDrawdown = 'PORTFOLIO_DRAWDOWN',
+	Concentration = 'CONCENTRATION',
+	TargetDrift = 'TARGET_DRIFT',
+	LargeSells = 'LARGE_SELLS',
+	NoContact = 'NO_CONTACT',
+	Manual = 'MANUAL',
+}
+
+/** Rank 0-3: menor é mais grave. */
+export enum AlertPriority {
+	P0 = 'P0',
+	P1 = 'P1',
+	P2 = 'P2',
+	P3 = 'P3',
+}
+
+export enum AlertStatus {
+	Open = 'OPEN',
+	Snoozed = 'SNOOZED',
+	Handled = 'HANDLED',
+	Dismissed = 'DISMISSED',
+	Resolved = 'RESOLVED',
+}
+
+export enum AlertHandledVia {
+	Email = 'EMAIL',
+	Reviewed = 'REVIEWED',
+}
+
+export enum SnapshotSource {
+	AdvisorLedger = 'ADVISOR_LEDGER',
+	B2cShared = 'B2C_SHARED',
+}

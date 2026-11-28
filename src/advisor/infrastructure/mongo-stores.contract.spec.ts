@@ -1,11 +1,13 @@
 import { randomUUID } from 'crypto';
-import { Connection, createConnection } from 'mongoose';
+import { Connection, Model, createConnection } from 'mongoose';
 import {
+	describeAdvisorAttentionStoreContract,
 	describeAdvisorConsentStoreContract,
 	describeAdvisorPortalGrantStoreContract,
 	describeAdvisorPortfolioStoreContract,
 	describeAdvisorStoreContract,
 	describeAdvisorTeamStoreContract,
+	AdvisorAttentionStores,
 	AdvisorTeamStores,
 } from '../application/store-contract.fixture';
 import {
@@ -15,13 +17,32 @@ import {
 } from '../application/ports/store-errors';
 import {
 	AdvisorType,
+	AlertPriority,
+	AlertRule,
+	AlertStatus,
 	ConsentStatus,
 	InviteStatus,
 	MemberInviteStatus,
 	OrgRole,
 	ProfileOrigin,
 	RelationshipStatus,
+	SnapshotSource,
 } from '../domain/enums';
+import {
+	ADVISOR_ALERT_MODEL,
+	ADVISOR_ALERT_SETTINGS_MODEL,
+	ADVISOR_CLIENT_CONTACT_MODEL,
+	ADVISOR_CLIENT_SNAPSHOT_MODEL,
+	ADVISOR_WEALTH_DAILY_MODEL,
+	AdvisorAlertDoc,
+	AdvisorAlertSettingsDoc,
+	AdvisorClientContactDoc,
+	AdvisorClientSnapshotDoc,
+	AdvisorWealthDailyDoc,
+	advisorAttentionSchemas,
+	WEALTH_DAILY_TTL_INDEX,
+	WEALTH_DAILY_TTL_SECONDS,
+} from './advisor-attention.models';
 import {
 	ADVISOR_CLIENT_INVITE_MODEL,
 	ADVISOR_CONSENT_MODEL,
@@ -63,7 +84,12 @@ import {
 } from './advisor-team.models';
 import { MongoAssignmentStore } from './mongo-assignment.store';
 import { MongoMemberInviteStore } from './mongo-member-invite.store';
+import { MongoAlertSettingsStore } from './mongo-alert-settings.store';
+import { MongoAlertStore } from './mongo-alert.store';
 import { MongoAllocationTargetStore } from './mongo-allocation-target.store';
+import { MongoClientContactStore } from './mongo-client-contact.store';
+import { MongoClientSnapshotStore } from './mongo-client-snapshot.store';
+import { MongoWealthDailyStore } from './mongo-wealth-daily.store';
 import { MongoPortalGrantStore } from './mongo-portal-grant.store';
 import { MongoTransactionStore } from './mongo-transaction.store';
 import { assertDisposableDb, buildTestDbName } from './mongo-test-database';
@@ -99,6 +125,12 @@ describeMongo('advisor mongo stores', () => {
 		transactions: MongoTransactionStore;
 		targets: MongoAllocationTargetStore;
 	};
+	let attentionStores: AdvisorAttentionStores;
+	let alertModel: Model<AdvisorAlertDoc>;
+	let wealthModel: Model<AdvisorWealthDailyDoc>;
+	let settingsModel: Model<AdvisorAlertSettingsDoc>;
+	let snapshotModel: Model<AdvisorClientSnapshotDoc>;
+	let contactModel: Model<AdvisorClientContactDoc>;
 	let portalGrants: MongoPortalGrantStore;
 	let teamStores: AdvisorTeamStores;
 
@@ -155,6 +187,26 @@ describeMongo('advisor mongo stores', () => {
 			ADVISOR_MEMBER_INVITE_MODEL,
 			advisorTeamSchemas.memberInvite
 		);
+		snapshotModel = conn.model<AdvisorClientSnapshotDoc>(
+			ADVISOR_CLIENT_SNAPSHOT_MODEL,
+			advisorAttentionSchemas.clientSnapshot
+		);
+		wealthModel = conn.model<AdvisorWealthDailyDoc>(
+			ADVISOR_WEALTH_DAILY_MODEL,
+			advisorAttentionSchemas.wealthDaily
+		);
+		alertModel = conn.model<AdvisorAlertDoc>(
+			ADVISOR_ALERT_MODEL,
+			advisorAttentionSchemas.alert
+		);
+		settingsModel = conn.model<AdvisorAlertSettingsDoc>(
+			ADVISOR_ALERT_SETTINGS_MODEL,
+			advisorAttentionSchemas.alertSettings
+		);
+		contactModel = conn.model<AdvisorClientContactDoc>(
+			ADVISOR_CLIENT_CONTACT_MODEL,
+			advisorAttentionSchemas.clientContact
+		);
 		// `syncIndexes` garante que os índices únicos existem antes dos testes.
 		await Promise.all(
 			[
@@ -170,8 +222,20 @@ describeMongo('advisor mongo stores', () => {
 				portalGrantModel,
 				assignmentModel,
 				memberInviteModel,
+				snapshotModel,
+				wealthModel,
+				alertModel,
+				settingsModel,
+				contactModel,
 			].map((m) => m.syncIndexes())
 		);
+		attentionStores = {
+			snapshots: new MongoClientSnapshotStore(snapshotModel),
+			wealth: new MongoWealthDailyStore(wealthModel),
+			alerts: new MongoAlertStore(alertModel),
+			settings: new MongoAlertSettingsStore(settingsModel),
+			contacts: new MongoClientContactStore(contactModel),
+		};
 		portalGrants = new MongoPortalGrantStore(portalGrantModel);
 		consentStores = {
 			invites: new MongoInviteStore(inviteModel),
@@ -212,6 +276,7 @@ describeMongo('advisor mongo stores', () => {
 	describeAdvisorConsentStoreContract('mongo', () => consentStores);
 	describeAdvisorPortalGrantStoreContract('mongo', () => portalGrants);
 	describeAdvisorTeamStoreContract('mongo', () => teamStores);
+	describeAdvisorAttentionStoreContract('mongo', () => attentionStores);
 
 	describe('indexes', () => {
 		it('rejects a duplicate membership for the same user and org', async () => {
@@ -459,6 +524,170 @@ describeMongo('advisor mongo stores', () => {
 			expect(
 				await consentStores.consents.listActiveByUser(userId)
 			).toHaveLength(1);
+		});
+
+		const alertDoc = (
+			overrides: Partial<AdvisorAlertDoc> = {}
+		): Partial<AdvisorAlertDoc> => ({
+			orgId: 'o',
+			clientProfileId: 'c',
+			rule: AlertRule.Concentration,
+			source: null,
+			key: 'k',
+			conditionKey: 'CONCENTRATION:-:k',
+			band: 1,
+			priority: AlertPriority.P2,
+			priorityRank: 2,
+			messageKey: 'm',
+			params: {},
+			evidence: {},
+			dataAsOf: '2026-11-20',
+			provenance: null,
+			lowConfidence: false,
+			status: AlertStatus.Open,
+			active: true,
+			...overrides,
+		});
+
+		it('rejects a second active alert for the same condition at the index level; a closed one does not count', async () => {
+			const orgId = randomUUID();
+			const clientProfileId = randomUUID();
+			const base = alertDoc({ orgId, clientProfileId });
+			await alertModel.create(base);
+
+			await expect(alertModel.create(base)).rejects.toMatchObject({
+				code: 11000,
+			});
+			await alertModel.create({
+				...base,
+				status: AlertStatus.Handled,
+				active: false,
+			});
+			await alertModel.create({
+				...base,
+				status: AlertStatus.Dismissed,
+				active: false,
+			});
+		});
+
+		it('stores the priority rank derived from the priority on insert and on patch', async () => {
+			const orgId = randomUUID();
+			const [alert] = await attentionStores.alerts.insertMany([
+				{
+					orgId,
+					clientProfileId: randomUUID(),
+					rule: AlertRule.Concentration,
+					source: null,
+					key: 'k',
+					conditionKey: 'CONCENTRATION:-:k',
+					band: 2,
+					priority: AlertPriority.P1,
+					messageKey: 'm',
+					params: {},
+					evidence: {},
+					dataAsOf: '2026-11-20',
+					provenance: null,
+					lowConfidence: false,
+					status: AlertStatus.Open,
+				},
+			]);
+			const rank = async (): Promise<number | undefined> =>
+				(await alertModel.findById(alert.id).lean<AdvisorAlertDoc>().exec())
+					?.priorityRank;
+			expect(await rank()).toBe(1);
+
+			await attentionStores.alerts.patch(alert.id, {
+				priority: AlertPriority.P3,
+			});
+
+			expect(await rank()).toBe(3);
+		});
+
+		it('rejects a second wealth row for the same key, and a second snapshot, settings or contact for one client', async () => {
+			const orgId = randomUUID();
+			const clientProfileId = randomUUID();
+			const wealth = {
+				orgId,
+				clientProfileId,
+				date: '2026-11-20',
+				source: SnapshotSource.AdvisorLedger,
+				portfolioId: '',
+				totalMinor: 1,
+				verifiedMinor: 0,
+				manualMinor: 1,
+			};
+			await wealthModel.create(wealth);
+			await expect(wealthModel.create(wealth)).rejects.toMatchObject({
+				code: 11000,
+			});
+			await wealthModel.create({ ...wealth, portfolioId: 'p-1' });
+
+			await contactModel.create({
+				orgId,
+				clientProfileId,
+				lastContactAt: new Date(),
+				recordedByUserId: 'u',
+			});
+			await expect(
+				contactModel.create({
+					orgId,
+					clientProfileId,
+					lastContactAt: new Date(),
+					recordedByUserId: 'u',
+				})
+			).rejects.toMatchObject({ code: 11000 });
+
+			await settingsModel.create({ orgId, engineEnabledAt: new Date() });
+			await expect(
+				settingsModel.create({ orgId, engineEnabledAt: new Date() })
+			).rejects.toMatchObject({ code: 11000 });
+		});
+
+		it('creates the unique index of the snapshot, the alert queue index and the 400-day TTL', async () => {
+			const names = async (
+				model: Model<never>
+			): Promise<
+				Array<{ name?: string; unique?: boolean; expireAfterSeconds?: number }>
+			> => model.collection.indexes();
+
+			const snapshotIndexes = await names(snapshotModel as Model<never>);
+			expect(snapshotIndexes).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: 'advisor_client_snapshot_client',
+						unique: true,
+					}),
+				])
+			);
+			const alertIndexes = await names(alertModel as Model<never>);
+			expect(alertIndexes).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: 'advisor_alert_client',
+						key: { orgId: 1, clientProfileId: 1, createdAt: 1 },
+					}),
+					expect.objectContaining({
+						name: 'advisor_alert_queue',
+						key: { orgId: 1, status: 1, priorityRank: 1, createdAt: 1 },
+					}),
+					expect.objectContaining({
+						name: 'advisor_alert_active_condition',
+						unique: true,
+						partialFilterExpression: { active: true },
+					}),
+				])
+			);
+			const wealthIndexes = await names(wealthModel as Model<never>);
+			expect(WEALTH_DAILY_TTL_SECONDS).toBe(400 * 24 * 60 * 60);
+			expect(wealthIndexes).toEqual(
+				expect.arrayContaining([
+					expect.objectContaining({
+						name: WEALTH_DAILY_TTL_INDEX,
+						key: { createdAt: 1 },
+						expireAfterSeconds: 34560000,
+					}),
+				])
+			);
 		});
 	});
 });

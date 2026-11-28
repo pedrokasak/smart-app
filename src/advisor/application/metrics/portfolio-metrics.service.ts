@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { businessDate } from '../../domain/business-date';
 import {
 	ADVISOR_ALLOCATION_TARGET_STORE,
 	ADVISOR_BENCHMARK_SERIES,
@@ -44,13 +45,35 @@ export class PortfolioMetricsService {
 			clientProfileId,
 			'VIEW_PORTFOLIO'
 		);
+		return this.compute(
+			ctx.orgId,
+			clientProfileId,
+			new Date().toISOString().slice(0, 10)
+		);
+	}
 
+	/**
+	 * Caminho de sistema (job de atenção): o mesmo cálculo, sem autorização
+	 * e sem auditoria. Não é um acesso de assessor; nunca exponha por rota.
+	 * `asOf` é a data de negócio de São Paulo, a mesma do motor (R24).
+	 */
+	async computeForSystem(
+		orgId: string,
+		clientProfileId: string,
+		now: Date = new Date()
+	): Promise<ClientPortfolioMetrics> {
+		return this.compute(orgId, clientProfileId, businessDate(now));
+	}
+
+	private async compute(
+		orgId: string,
+		clientProfileId: string,
+		asOf: string
+	): Promise<ClientPortfolioMetrics> {
 		const [ledger, target] = await Promise.all([
-			this.transactions.listByClient(ctx.orgId, clientProfileId),
-			this.targets.find(ctx.orgId, clientProfileId),
+			this.transactions.listByClient(orgId, clientProfileId),
+			this.targets.find(orgId, clientProfileId),
 		]);
-		const asOf = new Date().toISOString().slice(0, 10);
-
 		const closes =
 			ledger.length === 0
 				? new Map()
