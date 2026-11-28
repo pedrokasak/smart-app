@@ -558,11 +558,23 @@ describe('unavailableRuleInputs (R27)', () => {
 		).toBe(false);
 	});
 
-	it('no target or a null driftPp makes every TARGET_DRIFT of the source unavailable', () => {
-		const isUnavailable = unavailableRuleInputs(snapshot(source(metrics())));
-		expect(isUnavailable(key(AlertRule.TargetDrift, AssetClass.Stock))).toBe(
-			true
+	it('R29: a null driftPp with a target freezes TARGET_DRIFT; no target means the condition is gone', () => {
+		const noTarget = unavailableRuleInputs(snapshot(source(metrics())));
+		expect(noTarget(key(AlertRule.TargetDrift, AssetClass.Stock))).toBe(false);
+		const nullDrift = unavailableRuleInputs(
+			snapshot(
+				source(
+					metrics({
+						allocation: {
+							current: zeroClasses(),
+							target: { [AssetClass.Stock]: 50 },
+							driftPp: null,
+						},
+					})
+				)
+			)
 		);
+		expect(nullDrift(key(AlertRule.TargetDrift, AssetClass.Stock))).toBe(true);
 		const withTarget = unavailableRuleInputs(
 			snapshot(
 				source(

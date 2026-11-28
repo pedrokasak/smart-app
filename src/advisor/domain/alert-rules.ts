@@ -346,8 +346,10 @@ const SOURCE_RULES = [
  * - métricas `null`: todas as condições da fonte;
  * - POSITION_DROP: posição presente sem `change5dPct` (sem preço);
  * - PORTFOLIO_DRAWDOWN: `currentDrawdown` `null` ou risco indisponível;
- * - TARGET_DRIFT: sem meta ou `driftPp` `null` (todas as classes da fonte).
- * Uma posição que saiu da carteira não está indisponível: a condição sumiu.
+ * - TARGET_DRIFT: meta presente com `driftPp` `null` (todas as classes da
+ *   fonte).
+ * Uma posição que saiu da carteira ou uma meta removida (R29) não está
+ * indisponível: a condição sumiu, então resolve e limpa.
  */
 export function unavailableRuleInputs(
 	snapshot: ClientSnapshot
@@ -371,7 +373,7 @@ export function unavailableRuleInputs(
 		if (m.risk.unavailable !== null || m.risk.currentDrawdown === null) {
 			exact.add(keyOf(s, AlertRule.PortfolioDrawdown, 'portfolio'));
 		}
-		if (m.allocation.target === null || m.allocation.driftPp === null) {
+		if (m.allocation.target !== null && m.allocation.driftPp === null) {
 			prefixes.push(keyOf(s, AlertRule.TargetDrift, ''));
 		}
 	}

@@ -103,6 +103,7 @@ describe('ClientSnapshotService', () => {
 	let settings: InMemoryAlertSettingsStore;
 	let contacts: InMemoryClientContactStore;
 	let metrics: PortfolioMetricsService;
+	let targets: InMemoryAllocationTargetStore;
 	let service: ClientSnapshotService;
 	let alertService: AlertService;
 	let inviteService: InviteService;
@@ -174,7 +175,7 @@ describe('ClientSnapshotService', () => {
 		metrics = new PortfolioMetricsService(
 			authz,
 			transactions,
-			new InMemoryAllocationTargetStore(),
+			(targets = new InMemoryAllocationTargetStore()),
 			prices,
 			benchmarks
 		);
@@ -497,6 +498,33 @@ describe('ClientSnapshotService', () => {
 			expect(
 				(await dropAlertsOf(clientProfileId)).map((a) => a.status)
 			).toEqual([AlertStatus.Handled]);
+		});
+
+		it('R29: removing the allocation target resolves the open TARGET_DRIFT', async () => {
+			const { clientProfileId } = await advisorClient(400);
+			await concentratedLedger(clientProfileId);
+			await targets.upsert({
+				orgId,
+				clientProfileId,
+				targets: { [AssetClass.Stock]: 50, [AssetClass.FixedIncome]: 50 },
+				updatedByUserId: ADVISOR,
+			});
+			await service.recompute(orgId, clientProfileId, NOW);
+			const drift = (await alertsOf(clientProfileId)).filter(
+				(a) => a.rule === AlertRule.TargetDrift
+			);
+			expect(drift.length).toBeGreaterThan(0);
+			expect(drift.every((a) => a.status === AlertStatus.Open)).toBe(true);
+
+			// Sem meta: a condição sumiu (não é entrada indisponível).
+			jest.spyOn(targets, 'find').mockResolvedValue(null);
+			await service.recompute(orgId, clientProfileId, NOW);
+
+			for (const a of drift) {
+				expect((await alerts.findById(orgId, a.id))?.status).toBe(
+					AlertStatus.Resolved
+				);
+			}
 		});
 
 		it('an OPEN POSITION_DROP is not resolved on a day with no price', async () => {
