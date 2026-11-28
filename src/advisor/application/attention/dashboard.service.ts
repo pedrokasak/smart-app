@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import type { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { Alert } from '../../domain/attention.entities';
+import { addIsoDays, businessDate } from '../../domain/business-date';
 import { AlertRule, AlertStatus } from '../../domain/enums';
 import { deadlineInWindow } from '../alert-deadline';
 import {
@@ -66,13 +67,7 @@ export interface Dashboard {
 	series: Array<{ date: string; totalMinor: number }>;
 }
 
-const isoDate = (d: Date): string => d.toISOString().slice(0, 10);
-
-const addDays = (iso: string, days: number): string => {
-	const date = new Date(`${iso}T00:00:00.000Z`);
-	date.setUTCDate(date.getUTCDate() + days);
-	return isoDate(date);
-};
+const addDays = addIsoDays;
 
 /** O último dia da série (crescente) em `date` ou antes dele. */
 const latestOnOrBefore = (
@@ -115,7 +110,7 @@ export class DashboardService {
 			throw new InvalidAlertInputError('days');
 		}
 		const clientIds = await this.alertService.scopeClientIds(ctx);
-		const today = isoDate(new Date());
+		const today = businessDate(new Date());
 
 		const [snapshots, series, openAlerts, top, due] = await Promise.all([
 			this.snapshots.listByOrg(ctx.orgId, clientIds),

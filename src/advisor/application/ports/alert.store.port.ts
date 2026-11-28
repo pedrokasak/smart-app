@@ -1,7 +1,13 @@
 import { Alert } from '../../domain/attention.entities';
 import { AlertPriority, AlertRule, AlertStatus } from '../../domain/enums';
 
-export type NewAlert = Omit<Alert, 'id' | 'createdAt' | 'updatedAt'>;
+/**
+ * `id` opcional: o store gera um quando falta. O MANUAL passa o seu, para
+ * auditar `advisor.alert.created` com o id gravado antes de gravar (R25).
+ */
+export type NewAlert = Omit<Alert, 'id' | 'createdAt' | 'updatedAt'> & {
+	id?: string;
+};
 
 export interface AlertFilter {
 	/** Lista vazia => nenhum resultado. */
@@ -83,4 +89,14 @@ export interface AlertStorePort {
 	/** Ids que casam com o filtro, na ordem de `list`; até `max` (teto 1000). */
 	idsByFilter(orgId: string, q: AlertFilter, max: number): Promise<string[]>;
 	deleteByClient(orgId: string, clientProfileId: string): Promise<void>;
+	/**
+	 * R23 (LGPD): apaga, em qualquer status, os alertas `B2C_SHARED` do
+	 * cliente cuja carteira não está em `portfolioIds` (lista vazia: todos).
+	 * Os do livro do assessor e os manuais ficam. Devolve quantos apagou.
+	 */
+	deleteSharedExcept(
+		orgId: string,
+		clientProfileId: string,
+		portfolioIds: string[]
+	): Promise<number>;
 }

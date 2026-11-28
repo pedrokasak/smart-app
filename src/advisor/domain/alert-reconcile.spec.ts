@@ -65,7 +65,7 @@ describe('reconcileAlerts', () => {
 	it('abre candidato sem registro da condição', () => {
 		const c = candidate();
 		const r = reconcileAlerts({ candidates: [c], existing: [], today: TODAY });
-		expect(r).toEqual({ open: [c], update: [], resolve: [] });
+		expect(r).toEqual({ open: [c], update: [], resolve: [], clear: [] });
 	});
 
 	it('banda maior em alerta ativo: sobe banda, prioridade e evidência', () => {
@@ -155,7 +155,7 @@ describe('reconcileAlerts', () => {
 				existing: [alert({ status, band: 1, closedAt: new Date() })],
 				today: TODAY,
 			});
-			expect(r).toEqual({ open: [], update: [], resolve: [] });
+			expect(r).toEqual({ open: [], update: [], resolve: [], clear: [] });
 		}
 	);
 
@@ -165,7 +165,7 @@ describe('reconcileAlerts', () => {
 			existing: [alert({ status: AlertStatus.Handled, band: 2 })],
 			today: TODAY,
 		});
-		expect(r).toEqual({ open: [], update: [], resolve: [] });
+		expect(r).toEqual({ open: [], update: [], resolve: [], clear: [] });
 	});
 
 	it('banda maior que a do último fechado abre', () => {
@@ -249,7 +249,7 @@ describe('reconcileAlerts', () => {
 			existing: [manual],
 			today: TODAY,
 		});
-		expect(r).toEqual({ open: [], update: [], resolve: [] });
+		expect(r).toEqual({ open: [], update: [], resolve: [], clear: [] });
 	});
 
 	it('R14: MANUAL adiado acorda na data e não muda mais nada', () => {
@@ -277,6 +277,7 @@ describe('reconcileAlerts', () => {
 		});
 		expect(r).toEqual({
 			open: [],
+			clear: [],
 			resolve: [],
 			update: [
 				{
@@ -323,5 +324,86 @@ describe('reconcileAlerts', () => {
 		expect(r.update.map((u) => u.id)).toEqual(['new']);
 		expect(r.resolve).toEqual(['old']);
 		expect(r.open).toEqual([]);
+	});
+
+	describe('R22: fechado só bloqueia enquanto a condição segue presente', () => {
+		it('sem candidato, o fechado mais recente da condição vai para clear', () => {
+			const r = reconcileAlerts({
+				candidates: [],
+				existing: [
+					alert({
+						id: 'old',
+						status: AlertStatus.Dismissed,
+						closedAt: new Date('2026-06-01T00:00:00Z'),
+					}),
+					alert({
+						id: 'new',
+						status: AlertStatus.Handled,
+						closedAt: new Date('2026-10-01T00:00:00Z'),
+					}),
+				],
+				today: TODAY,
+			});
+			expect(r.clear).toEqual(['new']);
+			expect(r.resolve).toEqual([]);
+		});
+
+		it('fechado já com clearedAt não vai de novo para clear', () => {
+			const r = reconcileAlerts({
+				candidates: [],
+				existing: [
+					alert({
+						status: AlertStatus.Handled,
+						clearedAt: new Date('2026-11-10T00:00:00Z'),
+					}),
+				],
+				today: TODAY,
+			});
+			expect(r.clear).toEqual([]);
+		});
+
+		it('RESOLVED e MANUAL não vão para clear', () => {
+			const r = reconcileAlerts({
+				candidates: [],
+				existing: [
+					alert({ id: 'r', status: AlertStatus.Resolved }),
+					alert({
+						id: 'm',
+						rule: AlertRule.Manual,
+						source: null,
+						key: 'm',
+						status: AlertStatus.Handled,
+					}),
+				],
+				today: TODAY,
+			});
+			expect(r.clear).toEqual([]);
+		});
+
+		it('fechado com clearedAt não bloqueia: a mesma banda abre de novo', () => {
+			const c = candidate({ band: 1 });
+			const r = reconcileAlerts({
+				candidates: [c],
+				existing: [
+					alert({
+						status: AlertStatus.Handled,
+						band: 2,
+						clearedAt: new Date('2026-11-10T00:00:00Z'),
+					}),
+				],
+				today: TODAY,
+			});
+			expect(r.open).toEqual([c]);
+		});
+
+		it('condição presente: candidato não limpa o fechado e segue bloqueado', () => {
+			const r = reconcileAlerts({
+				candidates: [candidate({ band: 1 })],
+				existing: [alert({ status: AlertStatus.Handled, band: 1 })],
+				today: TODAY,
+			});
+			expect(r.open).toEqual([]);
+			expect(r.clear).toEqual([]);
+		});
 	});
 });

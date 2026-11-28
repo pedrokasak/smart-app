@@ -4,6 +4,7 @@ import { AUDIT_TRAIL } from 'src/audit/application/audit-trail.port';
 import type { AuditTrail } from 'src/audit/application/audit-trail.port';
 import { actorRefOf } from 'src/audit/infrastructure/actor-ref';
 import { Alert, conditionKeyOf } from '../../domain/attention.entities';
+import { addIsoDays, businessDate } from '../../domain/business-date';
 import { Membership } from '../../domain/entities';
 import {
 	AlertHandledVia,
@@ -102,6 +103,7 @@ export interface BulkInput {
 	reason?: string;
 }
 
+/** Formato e calendário (UTC só para validar a data, não para "hoje"). */
 const isoDate = (d: Date): string => d.toISOString().slice(0, 10);
 
 const isIsoDate = (value: unknown): value is string => {
@@ -110,12 +112,6 @@ const isIsoDate = (value: unknown): value is string => {
 	}
 	const parsed = new Date(`${value}T00:00:00.000Z`);
 	return !Number.isNaN(parsed.getTime()) && isoDate(parsed) === value;
-};
-
-const addDays = (iso: string, days: number): string => {
-	const date = new Date(`${iso}T00:00:00.000Z`);
-	date.setUTCDate(date.getUTCDate() + days);
-	return isoDate(date);
 };
 
 /** Texto aparado entre `min` e `max`; `null` se inválido. */
@@ -134,13 +130,13 @@ const optionalNote = (value: unknown): string | undefined => {
 	return trimmed.length > 0 ? trimmed : undefined;
 };
 
-/** `until` estritamente depois de hoje e até hoje + 90 (UTC, como o job). */
+/** `until` estritamente depois de hoje e até hoje + 90 (data de São Paulo, R24). */
 const checkedUntil = (until: unknown, now: Date): string => {
-	const today = isoDate(now);
+	const today = businessDate(now);
 	if (
 		!isIsoDate(until) ||
 		until <= today ||
-		until > addDays(today, SNOOZE_MAX_DAYS)
+		until > addIsoDays(today, SNOOZE_MAX_DAYS)
 	) {
 		throw new InvalidAlertInputError('until');
 	}
@@ -230,16 +226,18 @@ export class AlertService {
 			'VIEW_PORTFOLIO'
 		);
 
+		// R25: o id gravado é a própria chave, já conhecido na auditoria.
 		const key = randomUUID();
 		const base = { rule: AlertRule.Manual, source: null, key };
 		const alert: NewAlert = {
+			id: key,
 			...base,
 			band: 1,
 			priority: input.priority,
 			messageKey: 'advisor.alert.manual',
 			params: {},
 			evidence: {},
-			dataAsOf: isoDate(new Date()),
+			dataAsOf: businessDate(new Date()),
 			provenance: null,
 			lowConfidence: false,
 			orgId: ctx.orgId,
@@ -254,12 +252,14 @@ export class AlertService {
 		await this.record(ctx, ALERT_CREATED_EVENT, input.clientProfileId, {
 			orgId: ctx.orgId,
 			clientProfileId: input.clientProfileId,
-			alertKey: key,
+			alertId: key,
 			rule: AlertRule.Manual,
 			priority: input.priority,
 		});
 		const [stored] = await this.alerts.insertMany([alert]);
-		if (!stored) throw new Error('Manual alert was not stored');
+		if (!stored || stored.id !== key) {
+			throw new Error('Manual alert was not stored');
+		}
 		return stored;
 	}
 

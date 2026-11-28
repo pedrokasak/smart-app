@@ -3749,6 +3749,84 @@ export function describeAdvisorAttentionStoreContract(
 					await s.alerts.findById(elsewhere.orgId, elsewhere.id)
 				).not.toBeNull();
 			});
+
+			it('R25: insertMany keeps a caller-provided id', async () => {
+				const orgId = randomUUID();
+				const id = randomUUID();
+
+				const [stored] = await s.alerts.insertMany([
+					{ ...newAlert(orgId, randomUUID()), id },
+				]);
+
+				expect(stored.id).toBe(id);
+				expect((await s.alerts.findById(orgId, id))?.id).toBe(id);
+			});
+
+			it('R22: patch stores clearedAt on a closed alert and reads it back', async () => {
+				const orgId = randomUUID();
+				const [alert] = await s.alerts.insertMany([
+					newAlert(orgId, randomUUID()),
+				]);
+				await s.alerts.patch(alert.id, {
+					status: AlertStatus.Handled,
+					closedAt: new Date('2026-11-20T10:00:00Z'),
+				});
+
+				const cleared = await s.alerts.patch(
+					alert.id,
+					{ clearedAt: new Date('2026-11-21T10:00:00Z') },
+					[AlertStatus.Handled, AlertStatus.Dismissed]
+				);
+
+				expect(cleared?.clearedAt).toEqual(new Date('2026-11-21T10:00:00Z'));
+				expect((await s.alerts.findById(orgId, alert.id))?.clearedAt).toEqual(
+					new Date('2026-11-21T10:00:00Z')
+				);
+			});
+
+			it('R23: deleteSharedExcept deletes B2C alerts of unlisted portfolios, any status, and keeps the rest', async () => {
+				const orgId = randomUUID();
+				const clientId = randomUUID();
+				const shared = (portfolioId: string, key: string) =>
+					newAlert(orgId, clientId, {
+						source: SnapshotSource.B2cShared,
+						portfolioId,
+						key,
+					});
+				const [gone, goneResolved, kept, ledger, manual] =
+					await s.alerts.insertMany([
+						shared('p-1', 'A'),
+						shared('p-1', 'B'),
+						shared('p-2', 'A'),
+						newAlert(orgId, clientId),
+						newAlert(orgId, clientId, {
+							rule: AlertRule.Manual,
+							source: null,
+							key: 'manual-1',
+						}),
+					]);
+				await s.alerts.resolveMany([goneResolved.id], new Date());
+				const [otherClient] = await s.alerts.insertMany([
+					newAlert(orgId, randomUUID(), {
+						source: SnapshotSource.B2cShared,
+						portfolioId: 'p-1',
+					}),
+				]);
+
+				expect(
+					await s.alerts.deleteSharedExcept(orgId, clientId, ['p-2'])
+				).toBe(2);
+
+				expect(await s.alerts.findById(orgId, gone.id)).toBeNull();
+				expect(await s.alerts.findById(orgId, goneResolved.id)).toBeNull();
+				for (const id of [kept.id, ledger.id, manual.id, otherClient.id]) {
+					expect(await s.alerts.findById(orgId, id)).not.toBeNull();
+				}
+
+				expect(await s.alerts.deleteSharedExcept(orgId, clientId, [])).toBe(1);
+				expect(await s.alerts.findById(orgId, kept.id)).toBeNull();
+				expect(await s.alerts.findById(orgId, ledger.id)).not.toBeNull();
+			});
 		});
 
 		describe('alert settings', () => {

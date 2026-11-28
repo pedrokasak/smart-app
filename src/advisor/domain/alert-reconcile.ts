@@ -13,6 +13,11 @@ export interface ReconcileResult {
 	open: AlertCandidate[];
 	update: Array<{ id: string; patch: Partial<Alert> }>;
 	resolve: string[];
+	/**
+	 * R22: fechados (HANDLED/DISMISSED) cuja condição sumiu nesta rodada; a
+	 * aplicação grava `clearedAt` e eles deixam de bloquear a reabertura.
+	 */
+	clear: string[];
 }
 
 const isActive = (a: Alert): boolean =>
@@ -22,6 +27,11 @@ const isClosedByAdvisor = (a: Alert): boolean =>
 	a.status === AlertStatus.Handled || a.status === AlertStatus.Dismissed;
 
 const closedTime = (a: Alert): number => (a.closedAt ?? a.updatedAt).getTime();
+
+const lastClosedOf = (alerts: Alert[]): Alert | undefined =>
+	alerts
+		.filter(isClosedByAdvisor)
+		.sort((a, b) => closedTime(b) - closedTime(a))[0];
 
 const group = <T>(items: T[], keyOf: (item: T) => string): Map<string, T[]> => {
 	const map = new Map<string, T[]>();
@@ -86,7 +96,8 @@ const updateActive = (
 /**
  * Decide, a cada recomputação, quais alertas abrir, atualizar ou resolver.
  * Uma condição tem no máximo um alerta ativo; depois de tratada ou
- * descartada, só reabre quando a banda piora. Um alerta `MANUAL` nunca é
+ * descartada, só reabre quando a banda piora ou depois que a condição sumiu
+ * numa rodada (R22: `clear`, que grava `clearedAt`). Um alerta `MANUAL` nunca é
  * resolvido nem atualizado; só acorda (R14): adiado com `snoozedUntil` até
  * hoje volta a OPEN.
  */
@@ -95,7 +106,12 @@ export const reconcileAlerts = ({
 	existing,
 	today,
 }: ReconcileInput): ReconcileResult => {
-	const result: ReconcileResult = { open: [], update: [], resolve: [] };
+	const result: ReconcileResult = {
+		open: [],
+		update: [],
+		resolve: [],
+		clear: [],
+	};
 	const byCondition = group(
 		existing.filter((a) => a.rule !== AlertRule.Manual),
 		(a) => a.conditionKey
@@ -115,6 +131,10 @@ export const reconcileAlerts = ({
 		const candidate = candidateByKey.get(conditionKey);
 		if (!candidate) {
 			result.resolve.push(...active.map((a) => a.id));
+			const lastClosed = lastClosedOf(alerts);
+			if (lastClosed && !lastClosed.clearedAt) {
+				result.clear.push(lastClosed.id);
+			}
 			continue;
 		}
 		if (active.length === 0) continue;
@@ -129,10 +149,12 @@ export const reconcileAlerts = ({
 	for (const [conditionKey, candidate] of candidateByKey) {
 		const alerts = byCondition.get(conditionKey) ?? [];
 		if (alerts.some(isActive)) continue;
-		const lastClosed = alerts
-			.filter(isClosedByAdvisor)
-			.sort((a, b) => closedTime(b) - closedTime(a))[0];
-		if (!lastClosed || candidate.band > lastClosed.band) {
+		const lastClosed = lastClosedOf(alerts);
+		if (
+			!lastClosed ||
+			lastClosed.clearedAt !== undefined ||
+			candidate.band > lastClosed.band
+		) {
 			result.open.push(candidate);
 		}
 	}

@@ -3,6 +3,7 @@ import {
 	SOURCE_METRICS_FAILED,
 	SOURCE_READ_FAILED,
 } from '../domain/attention.entities';
+import { businessDate } from '../domain/business-date';
 import {
 	ConsentStatus,
 	ProfileOrigin,
@@ -154,7 +155,8 @@ export class SharedPortfolioService {
 			}));
 		}
 		const byId = new Map(data.map((p) => [p.portfolioId, p]));
-		const asOf = now.toISOString().slice(0, 10);
+		// R24: a data de negócio de São Paulo, a mesma do motor de atenção.
+		const asOf = businessDate(now);
 
 		const result: SharedPortfolioSystemMetrics[] = [];
 		for (const id of portfolioIds) {

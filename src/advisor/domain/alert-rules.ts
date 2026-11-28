@@ -1,5 +1,6 @@
 import type { ClientPortfolioMetrics } from '../application/metrics/build-portfolio-metrics';
 import type { AlertSettings } from './alert-settings';
+import { businessDate } from './business-date';
 import type {
 	AlertCandidate,
 	ClientSnapshot,
@@ -293,7 +294,7 @@ function noContact(
 			band,
 			priority: BANDS[AlertRule.NoContact][band - 1],
 			params: { days },
-			evidence: { days, since: contactBaseline.toISOString().slice(0, 10) },
+			evidence: { days, since: businessDate(contactBaseline) },
 			dataAsOf: today,
 			provenance: null,
 			lowConfidence: false,

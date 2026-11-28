@@ -52,6 +52,7 @@ import type { NewAlert } from '../ports/alert.store.port';
 import type { DailyCloseMinor } from '../ports/price-history.port';
 import { RelationshipService } from '../relationship.service';
 import { SharedPortfolioService } from '../shared-portfolio.service';
+import { AlertService } from './alert.service';
 import {
 	ClientSnapshotService,
 	SOURCE_METRICS_FAILED,
@@ -102,6 +103,7 @@ describe('ClientSnapshotService', () => {
 	let contacts: InMemoryClientContactStore;
 	let metrics: PortfolioMetricsService;
 	let service: ClientSnapshotService;
+	let alertService: AlertService;
 	let inviteService: InviteService;
 	let consentService: ConsentService;
 	let notifier: InMemoryInviteNotifier;
@@ -195,6 +197,15 @@ describe('ClientSnapshotService', () => {
 			alerts,
 			settings,
 			contacts
+		);
+		alertService = new AlertService(
+			authz,
+			alerts,
+			assignments,
+			relationships,
+			invites,
+			contacts,
+			audit
 		);
 		inviteService = new InviteService(
 			authz,
@@ -436,6 +447,114 @@ describe('ClientSnapshotService', () => {
 		).toEqual(new Date(NOW.getTime() - DAY_MS));
 	});
 
+	/** O que o AlertService grava ao tratar: HANDLED e closedAt. */
+	const handle = async (id: string, at: Date) => {
+		await alerts.patch(
+			id,
+			{ status: AlertStatus.Handled, closedAt: at, handledByUserId: ADVISOR },
+			[AlertStatus.Open, AlertStatus.Snoozed]
+		);
+	};
+
+	describe('R22: a closed alert blocks only while its condition stays present', () => {
+		it('NO_CONTACT second cycle: handled at day 0, cleared next recompute, P3 again after noContactDays', async () => {
+			await settings.ensureEngineEnabled(
+				orgId,
+				new Date(NOW.getTime() - 100 * DAY_MS)
+			);
+			const { clientProfileId } = await advisorClient(400);
+			await service.recompute(orgId, clientProfileId, NOW);
+			const [first] = await alertsOf(clientProfileId);
+			expect([first.rule, first.priority]).toEqual([
+				AlertRule.NoContact,
+				AlertPriority.P3,
+			]);
+
+			// Dia 0: o assessor trata e o contato move a base.
+			await handle(first.id, NOW);
+			await contacts.record(orgId, clientProfileId, NOW, ADVISOR);
+			await service.recompute(orgId, clientProfileId, NOW);
+			expect((await alerts.findById(orgId, first.id))?.clearedAt).toEqual(NOW);
+
+			const later = new Date(NOW.getTime() + 92 * DAY_MS);
+			const result = await service.recompute(orgId, clientProfileId, later);
+
+			expect(result.opened).toBe(1);
+			const reopened = (await alertsOf(clientProfileId)).filter(
+				(a) => a.status === AlertStatus.Open
+			);
+			expect(reopened.map((a) => [a.rule, a.priority])).toEqual([
+				[AlertRule.NoContact, AlertPriority.P3],
+			]);
+			expect(reopened[0].id).not.toBe(first.id);
+		});
+
+		const largeSellsOf = async (clientProfileId: string) =>
+			(await alertsOf(clientProfileId)).filter(
+				(a) => a.rule === AlertRule.LargeSells
+			);
+
+		/** 25 000 de 100 000 vendidos ontem: LARGE_SELLS P1. */
+		const sellingClient = async () => {
+			const { clientProfileId } = await advisorClient(400);
+			await concentratedLedger(clientProfileId);
+			await transactions.createMany([
+				tx(clientProfileId, { symbol: 'VALE3', quantity: 25 }),
+				tx(clientProfileId, {
+					symbol: 'VALE3',
+					side: TransactionSide.Sell,
+					quantity: 25,
+					tradeDate: DAYS[DAYS.length - 2],
+				}),
+			]);
+			await service.recompute(orgId, clientProfileId, NOW);
+			const [sells] = await largeSellsOf(clientProfileId);
+			expect(sells.status).toBe(AlertStatus.Open);
+			return { clientProfileId, sells };
+		};
+
+		it('LARGE_SELLS whose condition never left stays blocked', async () => {
+			const { clientProfileId, sells } = await sellingClient();
+			await handle(sells.id, NOW);
+
+			const result = await service.recompute(orgId, clientProfileId, NOW);
+
+			expect(result.opened).toBe(0);
+			const all = await largeSellsOf(clientProfileId);
+			expect(all.map((a) => a.status)).toEqual([AlertStatus.Handled]);
+			expect(all[0].clearedAt).toBeUndefined();
+		});
+
+		it('LARGE_SELLS handled, condition gone, then back: a new alert opens', async () => {
+			const { clientProfileId, sells } = await sellingClient();
+			await handle(sells.id, NOW);
+
+			// Um aporte grande dilui a venda: 25 000 de 300 000, abaixo do limite.
+			await transactions.createMany([
+				tx(clientProfileId, { symbol: 'BBAS3', quantity: 200 }),
+			]);
+			await service.recompute(orgId, clientProfileId, NOW);
+			expect((await alerts.findById(orgId, sells.id))?.clearedAt).toEqual(NOW);
+
+			// Nova venda grande: a condição volta.
+			await transactions.createMany([
+				tx(clientProfileId, {
+					symbol: 'BBAS3',
+					side: TransactionSide.Sell,
+					quantity: 200,
+					tradeDate: DAYS[DAYS.length - 2],
+				}),
+			]);
+			await service.recompute(orgId, clientProfileId, NOW);
+
+			const all = await largeSellsOf(clientProfileId);
+			expect(all.map((a) => a.status)).toEqual([
+				AlertStatus.Handled,
+				AlertStatus.Open,
+			]);
+		});
+	});
+
 	it('R14: a recompute on the wake date reopens a snoozed manual alert', async () => {
 		const { clientProfileId } = await advisorClient(10);
 		const [due] = await alerts.insertMany([
@@ -468,6 +587,49 @@ describe('ClientSnapshotService', () => {
 		expect((await alerts.findById(orgId, notYet.id))?.status).toBe(
 			AlertStatus.Snoozed
 		);
+	});
+
+	it('R24: at 23:30 BRT (02:30 UTC next day) rows, asOf and dataAsOf use the BRT date', async () => {
+		const { clientProfileId } = await advisorClient(400);
+		await concentratedLedger(clientProfileId);
+		const late = new Date('2025-06-18T02:30:00.000Z');
+
+		await service.recompute(orgId, clientProfileId, late);
+
+		expect((await snapshots.find(orgId, clientProfileId))?.asOf).toBe(TODAY);
+		expect(wealth.all.map((r) => r.date)).toEqual([TODAY]);
+		expect((await alertsOf(clientProfileId)).map((a) => a.dataAsOf)).toEqual([
+			TODAY,
+		]);
+	});
+
+	it('R26: two recomputes of the same client (job and trigger) never overlap', async () => {
+		const { clientProfileId } = await advisorClient(400);
+		await concentratedLedger(clientProfileId);
+		const real = metrics.computeForSystem.bind(metrics);
+		let running = 0;
+		let maxRunning = 0;
+		jest
+			.spyOn(metrics, 'computeForSystem')
+			.mockImplementation(async (...args) => {
+				running += 1;
+				maxRunning = Math.max(maxRunning, running);
+				await new Promise((r) => setImmediate(r));
+				try {
+					return await real(...args);
+				} finally {
+					running -= 1;
+				}
+			});
+
+		const results = await Promise.all([
+			service.recompute(orgId, clientProfileId, NOW),
+			service.recompute(orgId, clientProfileId, NOW),
+		]);
+
+		expect(maxRunning).toBe(1);
+		expect(results.map((r) => r.opened).sort()).toEqual([0, 1]);
+		expect(await alertsOf(clientProfileId)).toHaveLength(1);
 	});
 
 	it('recomputing twice changes nothing', async () => {
@@ -543,7 +705,7 @@ describe('ClientSnapshotService', () => {
 		});
 	});
 
-	it('Review Focus 4: after the consent is revoked, B2C alerts are RESOLVED, B2C rows go and ledger rows stay', async () => {
+	it('Review Focus 4 + R23: after the consent is revoked, B2C alerts are deleted, B2C rows go and ledger rows stay', async () => {
 		const { clientProfileId, relationshipId } = await sharingClient();
 		await concentratedLedger(clientProfileId);
 		await service.recompute(orgId, clientProfileId, NOW);
@@ -566,14 +728,16 @@ describe('ClientSnapshotService', () => {
 		await consents.revokeActive(relationshipId, INVESTOR, NOW);
 		const result = await service.recompute(orgId, clientProfileId, NOW);
 
-		expect(result).toEqual({ opened: 0, updated: 0, resolved: 1 });
+		expect(result).toEqual({ opened: 0, updated: 0, resolved: 0 });
 		const after = await alertsOf(clientProfileId);
-		expect(
-			after.find((a) => a.source === SnapshotSource.B2cShared)?.status
-		).toBe(AlertStatus.Resolved);
-		expect(
-			after.find((a) => a.source === SnapshotSource.AdvisorLedger)?.status
-		).toBe(AlertStatus.Open);
+		expect(after.map((a) => [a.source, a.status])).toEqual([
+			[SnapshotSource.AdvisorLedger, AlertStatus.Open],
+		]);
+		const resolvedQueue = await alertService.list(
+			{ userId: ADVISOR, orgId },
+			{ statuses: [AlertStatus.Resolved], limit: 50 }
+		);
+		expect(resolvedQueue.items).toEqual([]);
 		expect(wealth.all.map((r) => r.source)).toEqual([
 			SnapshotSource.AdvisorLedger,
 		]);
@@ -608,6 +772,71 @@ describe('ClientSnapshotService', () => {
 				.filter((r) => r.source === SnapshotSource.B2cShared)
 				.map((r) => r.portfolioId)
 		).toEqual(['p2']);
+	});
+
+	describe('R23: B2C alerts go as soon as their portfolio is no longer consented', () => {
+		it('unsharing a portfolio deletes its alerts, handled ones included', async () => {
+			petrPortfolio('p2');
+			const { clientProfileId, relationshipId } = await sharingClient();
+			await consentService.changeSharedPortfolios(INVESTOR, relationshipId, [
+				'p1',
+				'p2',
+			]);
+			await service.recompute(orgId, clientProfileId, NOW);
+			const p1 = (await alertsOf(clientProfileId)).find(
+				(a) => a.portfolioId === 'p1'
+			);
+			await alerts.patch(p1!.id, {
+				status: AlertStatus.Handled,
+				closedAt: NOW,
+			});
+
+			await consentService.changeSharedPortfolios(INVESTOR, relationshipId, [
+				'p2',
+			]);
+			await service.recompute(orgId, clientProfileId, NOW);
+
+			const left = await alertsOf(clientProfileId);
+			expect(left.map((a) => a.portfolioId)).toEqual(['p2']);
+			const queue = await alertService.list(
+				{ userId: ADVISOR, orgId },
+				{
+					statuses: [
+						AlertStatus.Resolved,
+						AlertStatus.Handled,
+						AlertStatus.Dismissed,
+					],
+					limit: 50,
+				}
+			);
+			expect(queue.items).toEqual([]);
+		});
+
+		it('a relationship that is no longer ACTIVE deletes B2C alerts and only resolves ledger ones', async () => {
+			const { clientProfileId, relationshipId } = await sharingClient();
+			await concentratedLedger(clientProfileId);
+			await service.recompute(orgId, clientProfileId, NOW);
+			const relationship = await relationships.findById(relationshipId);
+			await relationships.save({
+				...relationship!,
+				status: RelationshipStatus.Revoked,
+			});
+
+			const result = await service.recompute(orgId, clientProfileId, NOW);
+
+			expect(result).toEqual({ opened: 0, updated: 0, resolved: 1 });
+			const left = await alertsOf(clientProfileId);
+			expect(left.map((a) => [a.source, a.status])).toEqual([
+				[SnapshotSource.AdvisorLedger, AlertStatus.Resolved],
+			]);
+			const resolvedQueue = await alertService.list(
+				{ userId: ADVISOR, orgId },
+				{ statuses: [AlertStatus.Resolved], limit: 50 }
+			);
+			expect(
+				resolvedQueue.items.some((a) => a.source === SnapshotSource.B2cShared)
+			).toBe(false);
+		});
 	});
 
 	it('a revoked relationship deletes the read model, resolves system alerts and keeps manual ones', async () => {

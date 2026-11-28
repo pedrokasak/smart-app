@@ -12,6 +12,7 @@ import {
 	SOURCE_READ_FAILED,
 	SourceSnapshot,
 } from '../../domain/attention.entities';
+import { addIsoDays, businessDate } from '../../domain/business-date';
 import { isErasedClientProfile } from '../../domain/entities';
 import {
 	AlertRule,
@@ -49,6 +50,7 @@ import {
 	NoActiveConsentError,
 	SharedPortfolioService,
 } from '../shared-portfolio.service';
+import { KeyedSerializer } from './keyed-serializer';
 
 export interface RecomputeResult {
 	opened: number;
@@ -63,14 +65,6 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const PREVIOUS_ALERTS_DAYS = 365;
 /** `LARGE_SELLS`: 30 dias corridos, hoje incluído. */
 const SELLS_WINDOW_DAYS = 30;
-
-const isoDate = (d: Date): string => d.toISOString().slice(0, 10);
-
-const daysBefore = (iso: string, days: number): string => {
-	const date = new Date(`${iso}T00:00:00.000Z`);
-	date.setUTCDate(date.getUTCDate() - days);
-	return isoDate(date);
-};
 
 interface BuiltSources {
 	sources: SourceSnapshot[];
@@ -102,10 +96,13 @@ const sourceKeyOf = (source: SnapshotSource, portfolioId?: string): string =>
  * linha diária e reconcilia os alertas. Roda como sistema (job diário e
  * gatilho): não é um acesso de assessor, então não autoriza nem audita
  * `advisor.client.accessed`. Idempotente: recomputar o mesmo cliente de novo
- * não abre, muda nem resolve nada.
+ * não abre, muda nem resolve nada. R26: duas recomputações do mesmo cliente
+ * (job diário e gatilho) nunca rodam juntas; a segunda espera a primeira.
  */
 @Injectable()
 export class ClientSnapshotService implements ClientAttentionPurgePort {
+	private readonly perClient = new KeyedSerializer();
+
 	constructor(
 		@Inject(ADVISOR_RELATIONSHIP_STORE)
 		private readonly relationships: RelationshipStorePort,
@@ -131,6 +128,16 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 		clientProfileId: string,
 		now: Date
 	): Promise<RecomputeResult> {
+		return this.perClient.run(`${orgId}\u0000${clientProfileId}`, () =>
+			this.recomputeNow(orgId, clientProfileId, now)
+		);
+	}
+
+	private async recomputeNow(
+		orgId: string,
+		clientProfileId: string,
+		now: Date
+	): Promise<RecomputeResult> {
 		const relationship = await this.relationships.findByOrgAndClient(
 			orgId,
 			clientProfileId
@@ -140,7 +147,8 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 			return this.leave(orgId, clientProfileId, state, now);
 		}
 
-		const today = isoDate(now);
+		// R24: data de negócio de São Paulo (chave da linha diária e do `asOf`).
+		const today = businessDate(now);
 		const built = await this.buildSources(orgId, clientProfileId, now);
 		await this.dropStaleSharedRows(orgId, clientProfileId, built);
 
@@ -254,8 +262,9 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 	}
 
 	/**
-	 * Sem relação ACTIVE: some o read model e os alertas não manuais ativos
-	 * viram RESOLVED. Os manuais ficam com o assessor.
+	 * Sem relação ACTIVE: some o read model, os alertas das carteiras B2C são
+	 * apagados (R23, LGPD) e os do livro do assessor ativos viram RESOLVED.
+	 * Os manuais ficam com o assessor.
 	 */
 	private async retire(
 		orgId: string,
@@ -265,6 +274,7 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 		await this.snapshots.delete(orgId, clientProfileId);
 		await this.wealth.deleteClient(orgId, clientProfileId);
 		await this.contacts.deleteByClient(orgId, clientProfileId);
+		await this.alerts.deleteSharedExcept(orgId, clientProfileId, []);
 		const active = (
 			await this.alerts.listForClient(orgId, clientProfileId, now)
 		).filter((a) => a.rule !== AlertRule.Manual && isActive(a));
@@ -342,7 +352,8 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 	/**
 	 * Sem consentimento ativo, todas as linhas B2C saem. Com ele, saem as das
 	 * carteiras fora do consentimento atual (inclusive as de leituras que
-	 * falharam). Se nem o consentimento pôde ser lido, nada sai.
+	 * falharam). Se nem o consentimento pôde ser lido, nada sai. R23 (LGPD):
+	 * os alertas dessas carteiras saem junto, em qualquer status.
 	 */
 	private async dropStaleSharedRows(
 		orgId: string,
@@ -357,12 +368,18 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 				clientProfileId,
 				SnapshotSource.B2cShared
 			);
+			await this.alerts.deleteSharedExcept(orgId, clientProfileId, []);
 			return;
 		}
 		await this.wealth.deleteSourceExcept(
 			orgId,
 			clientProfileId,
 			SnapshotSource.B2cShared,
+			b2c.portfolioIds
+		);
+		await this.alerts.deleteSharedExcept(
+			orgId,
+			clientProfileId,
 			b2c.portfolioIds
 		);
 	}
@@ -413,7 +430,7 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 		clientProfileId: string,
 		today: string
 	): Promise<SellWindow> {
-		const from = daysBefore(today, SELLS_WINDOW_DAYS - 1);
+		const from = addIsoDays(today, -(SELLS_WINDOW_DAYS - 1));
 		const ledger = await this.transactions.listByClient(orgId, clientProfileId);
 		const sellsMinor30d = ledger
 			.filter(
@@ -457,6 +474,15 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 			plan.resolve.length === 0
 				? 0
 				: await this.alerts.resolveMany(plan.resolve, now);
+
+		// R22: a condição sumiu; o fechado deixa de bloquear a reabertura. Só
+		// se ainda estiver fechado pelo assessor (não conta como `updated`).
+		for (const id of plan.clear) {
+			await this.alerts.patch(id, { clearedAt: now }, [
+				AlertStatus.Handled,
+				AlertStatus.Dismissed,
+			]);
+		}
 
 		const opened =
 			plan.open.length === 0

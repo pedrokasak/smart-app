@@ -50,6 +50,11 @@ export interface Alert extends AlertCandidate {
 	handledNote?: string;
 	dismissReason?: string;
 	closedAt?: Date;
+	/**
+	 * R22: a condição de um alerta fechado pelo assessor sumiu depois do
+	 * fechamento. Com ela, o alerta não bloqueia mais a reabertura.
+	 */
+	clearedAt?: Date;
 }
 
 export interface SourceSnapshot {

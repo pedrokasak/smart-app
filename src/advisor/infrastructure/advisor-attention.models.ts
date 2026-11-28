@@ -103,6 +103,7 @@ export interface AdvisorAlertDoc {
 	handledNote?: string;
 	dismissReason?: string;
 	closedAt?: Date;
+	clearedAt?: Date;
 	createdAt: Date;
 	updatedAt: Date;
 }
@@ -255,6 +256,7 @@ const alertSchema = new Schema<AdvisorAlertDoc>(
 		handledNote: { type: String },
 		dismissReason: { type: String },
 		closedAt: { type: Date },
+		clearedAt: { type: Date },
 	},
 	{ ...baseOptions, collection: 'advisor_alerts' }
 );

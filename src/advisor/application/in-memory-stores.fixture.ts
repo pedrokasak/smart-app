@@ -1678,7 +1678,7 @@ export class InMemoryAlertStore implements AlertStorePort {
 			const stamp = this.nextStamp();
 			const alert: Alert = {
 				...copy(input),
-				id: randomUUID(),
+				id: input.id ?? randomUUID(),
 				createdAt: stamp,
 				updatedAt: stamp,
 			};
@@ -1839,6 +1839,26 @@ export class InMemoryAlertStore implements AlertStorePort {
 				this.items.delete(id);
 			}
 		}
+	}
+
+	async deleteSharedExcept(
+		orgId: string,
+		clientProfileId: string,
+		portfolioIds: string[]
+	): Promise<number> {
+		let deleted = 0;
+		for (const [id, a] of this.items) {
+			if (
+				a.orgId === orgId &&
+				a.clientProfileId === clientProfileId &&
+				a.source === SnapshotSource.B2cShared &&
+				!(a.portfolioId !== undefined && portfolioIds.includes(a.portfolioId))
+			) {
+				this.items.delete(id);
+				deleted += 1;
+			}
+		}
+		return deleted;
 	}
 }
 

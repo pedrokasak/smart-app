@@ -398,7 +398,7 @@ describe('AlertService', () => {
 			expect(created.payload).toEqual({
 				orgId,
 				clientProfileId: mine.clientProfileId,
-				alertKey: alert.key,
+				alertId: alert.id,
 				rule: AlertRule.Manual,
 				priority: AlertPriority.P2,
 			});
@@ -679,6 +679,27 @@ describe('AlertService', () => {
 	});
 
 	describe('snooze', () => {
+		it('R24: at 23:30 BRT (02:30 UTC next day), local tomorrow at 22:00 BRT is accepted', async () => {
+			// 2025-06-17 23:30 BRT; em UTC já é 2025-06-18.
+			jest.setSystemTime(new Date('2025-06-18T02:30:00.000Z'));
+			try {
+				const alert = await seed(ruleAlert(mine.clientProfileId));
+
+				const snoozed = await service.snooze(advisor(), alert.id, '2025-06-18');
+
+				expect(snoozed.snoozedUntil).toBe('2025-06-18');
+				await expect(
+					service.snooze(
+						advisor(),
+						(await seed(ruleAlert(mine.clientProfileId, { key: 'X' }))).id,
+						'2025-06-17'
+					)
+				).rejects.toBeInstanceOf(InvalidAlertInputError);
+			} finally {
+				jest.setSystemTime(NOW);
+			}
+		});
+
 		it('snoozes up to today + 90 days and audits', async () => {
 			const alert = await seed(ruleAlert(mine.clientProfileId));
 			const until = addDays(TODAY, 90);

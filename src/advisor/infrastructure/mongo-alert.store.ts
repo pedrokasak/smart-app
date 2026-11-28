@@ -23,7 +23,12 @@ import {
 } from '../application/ports/alert.store.port';
 import { alertPriorityRank } from '../domain/alert-priority';
 import { Alert } from '../domain/attention.entities';
-import { AlertPriority, AlertRule, AlertStatus } from '../domain/enums';
+import {
+	AlertPriority,
+	AlertRule,
+	AlertStatus,
+	SnapshotSource,
+} from '../domain/enums';
 import {
 	ADVISOR_ALERT_MODEL,
 	ALERT_ACTIVE_CONDITION_INDEX,
@@ -62,10 +67,11 @@ export class MongoAlertStore implements AlertStorePort {
 	 */
 	async insertMany(alerts: NewAlert[]): Promise<Alert[]> {
 		const stored: Alert[] = [];
-		for (const alert of alerts) {
+		for (const { id, ...alert } of alerts) {
 			try {
 				const created = await this.alerts.create({
 					...alert,
+					...(id !== undefined && { _id: id }),
 					priorityRank: alertPriorityRank(alert.priority),
 					active: isActiveStatus(alert.status),
 				});
@@ -275,6 +281,22 @@ export class MongoAlertStore implements AlertStorePort {
 
 	async deleteByClient(orgId: string, clientProfileId: string): Promise<void> {
 		await this.alerts.deleteMany({ orgId, clientProfileId }).exec();
+	}
+
+	async deleteSharedExcept(
+		orgId: string,
+		clientProfileId: string,
+		portfolioIds: string[]
+	): Promise<number> {
+		const result = await this.alerts
+			.deleteMany({
+				orgId,
+				clientProfileId,
+				source: SnapshotSource.B2cShared,
+				portfolioId: { $nin: portfolioIds },
+			})
+			.exec();
+		return result.deletedCount;
 	}
 
 	/** `null` quando o filtro de clientes é uma lista vazia (nada casa). */
