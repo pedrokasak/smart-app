@@ -1504,6 +1504,13 @@ export class InMemoryClientSnapshotStore implements ClientSnapshotStorePort {
 			.map(copy);
 	}
 
+	async listClientIds(orgId: string): Promise<string[]> {
+		return [...this.items.values()]
+			.filter((s) => s.orgId === orgId)
+			.map((s) => s.clientProfileId)
+			.sort((a, b) => (a < b ? -1 : a > b ? 1 : 0));
+	}
+
 	async delete(orgId: string, clientProfileId: string): Promise<void> {
 		this.items.delete(this.key(orgId, clientProfileId));
 	}

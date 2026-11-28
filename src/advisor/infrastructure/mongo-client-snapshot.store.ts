@@ -58,6 +58,15 @@ export class MongoClientSnapshotStore implements ClientSnapshotStorePort {
 		return docs.map(toClientSnapshot);
 	}
 
+	async listClientIds(orgId: string): Promise<string[]> {
+		const docs = await this.snapshots
+			.find({ orgId }, { clientProfileId: 1, _id: 0 })
+			.sort({ clientProfileId: 1 })
+			.lean<Array<{ clientProfileId: string }>>()
+			.exec();
+		return docs.map((d) => d.clientProfileId);
+	}
+
 	async delete(orgId: string, clientProfileId: string): Promise<void> {
 		await this.snapshots.deleteOne({ orgId, clientProfileId }).exec();
 	}

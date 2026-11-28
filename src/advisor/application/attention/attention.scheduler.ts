@@ -8,9 +8,11 @@ import { reportAgentRun } from 'src/agent-control/application/agent-run-context'
 import { AgentRun } from 'src/agent-control/application/agent-run.decorator';
 import { RelationshipStatus } from '../../domain/enums';
 import {
+	ADVISOR_CLIENT_SNAPSHOT_STORE,
 	ADVISOR_ORG_STORE,
 	ADVISOR_RELATIONSHIP_STORE,
 } from '../advisor.tokens';
+import type { ClientSnapshotStorePort } from '../ports/client-snapshot.store.port';
 import type { OrganizationStorePort } from '../ports/organization.store.port';
 import type { RelationshipStorePort } from '../ports/relationship.store.port';
 import { ClientSnapshotService } from './client-snapshot.service';
@@ -31,8 +33,10 @@ export interface AttentionRunCounts {
 /**
  * Recomputação diária da atenção (spec P3b §8): todo dia útil às 20h00
  * (America/Sao_Paulo), depois do fechamento. Percorre as organizações e os
- * clientes de relação ACTIVE; a falha de um cliente (ou de uma organização)
- * não para os outros. Job de sistema: registrado pelo `@AgentRun`, sem
+ * clientes de relação ACTIVE e, depois, os que ainda têm snapshot sem relação
+ * ACTIVE (R28: o gatilho da revogação pode ter se perdido; a recomputação
+ * aposenta o cliente e apaga o que veio do B2C). A falha de um cliente (ou
+ * de uma organização) não para os outros. Job de sistema: registrado pelo `@AgentRun`, sem
  * auditoria de acesso. Sem trava: com mais de uma réplica, precisa de uma
  * trava no Redis.
  */
@@ -45,6 +49,8 @@ export class AttentionScheduler {
 		@Inject(ADVISOR_RELATIONSHIP_STORE)
 		private readonly relationships: RelationshipStorePort,
 		private readonly snapshots: ClientSnapshotService,
+		@Inject(ADVISOR_CLIENT_SNAPSHOT_STORE)
+		private readonly readModel: ClientSnapshotStorePort,
 		@Optional() @Inject(AGENT_GATE) private readonly agentGate?: AgentGate
 	) {}
 
@@ -87,6 +93,7 @@ export class AttentionScheduler {
 		now: Date,
 		counts: AttentionRunCounts
 	): Promise<void> {
+		const visited = new Set<string>();
 		let cursor: string | undefined;
 		do {
 			const page = await this.relationships.listByOrg(orgId, {
@@ -94,26 +101,50 @@ export class AttentionScheduler {
 				cursor,
 				limit: RELATIONSHIP_PAGE,
 			});
-			const results = await settleWithConcurrency(
-				page.items,
-				ATTENTION_JOB_CONCURRENCY,
-				(r) => this.snapshots.recompute(orgId, r.clientProfileId, now)
-			);
-			for (const result of results) {
-				if (result.status === 'fulfilled') {
-					counts.clients += 1;
-					counts.opened += result.value.opened;
-					counts.updated += result.value.updated;
-					counts.resolved += result.value.resolved;
-				} else {
-					counts.failed += 1;
-					this.logger.error(
-						`Attention recompute failed in org ${orgId}: ${nameOf(result.reason)}`
-					);
-				}
-			}
+			const clientIds = page.items.map((r) => r.clientProfileId);
+			for (const id of clientIds) visited.add(id);
+			await this.recomputeAll(orgId, clientIds, now, counts);
 			cursor = page.nextCursor ?? undefined;
 		} while (cursor);
+
+		// R28: read model de quem não tem mais relação ACTIVE.
+		const leftovers = (await this.readModel.listClientIds(orgId)).filter(
+			(id) => !visited.has(id)
+		);
+		for (let i = 0; i < leftovers.length; i += RELATIONSHIP_PAGE) {
+			await this.recomputeAll(
+				orgId,
+				leftovers.slice(i, i + RELATIONSHIP_PAGE),
+				now,
+				counts
+			);
+		}
+	}
+
+	private async recomputeAll(
+		orgId: string,
+		clientIds: string[],
+		now: Date,
+		counts: AttentionRunCounts
+	): Promise<void> {
+		const results = await settleWithConcurrency(
+			clientIds,
+			ATTENTION_JOB_CONCURRENCY,
+			(clientProfileId) => this.snapshots.recompute(orgId, clientProfileId, now)
+		);
+		for (const result of results) {
+			if (result.status === 'fulfilled') {
+				counts.clients += 1;
+				counts.opened += result.value.opened;
+				counts.updated += result.value.updated;
+				counts.resolved += result.value.resolved;
+			} else {
+				counts.failed += 1;
+				this.logger.error(
+					`Attention recompute failed in org ${orgId}: ${nameOf(result.reason)}`
+				);
+			}
+		}
 	}
 }
 

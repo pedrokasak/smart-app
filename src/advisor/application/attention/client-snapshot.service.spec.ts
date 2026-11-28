@@ -53,6 +53,7 @@ import type { DailyCloseMinor } from '../ports/price-history.port';
 import { RelationshipService } from '../relationship.service';
 import { SharedPortfolioService } from '../shared-portfolio.service';
 import { AlertService } from './alert.service';
+import { AttentionScheduler } from './attention.scheduler';
 import {
 	ClientSnapshotService,
 	SOURCE_METRICS_FAILED,
@@ -456,6 +457,60 @@ describe('ClientSnapshotService', () => {
 		);
 	};
 
+	describe('R27: an unavailable rule input neither clears nor resolves', () => {
+		/** PETR4 cai 15% nos últimos 5 pregões: POSITION_DROP banda 1. */
+		const dropping = (): DailyCloseMinor[] =>
+			DAYS.map((date, i) => ({
+				date,
+				closeMinor: i >= DAYS.length - 5 ? 850 : 1000,
+			}));
+
+		const dropAlertsOf = async (clientProfileId: string) =>
+			(await alertsOf(clientProfileId)).filter(
+				(a) => a.rule === AlertRule.PositionDrop
+			);
+
+		const droppingClient = async () => {
+			const { clientProfileId } = await advisorClient(400);
+			await concentratedLedger(clientProfileId);
+			prices.set('PETR4', dropping());
+			await service.recompute(orgId, clientProfileId, NOW);
+			const [drop] = await dropAlertsOf(clientProfileId);
+			expect(drop?.status).toBe(AlertStatus.Open);
+			return { clientProfileId, drop };
+		};
+
+		it('a handled POSITION_DROP stays handled and uncleared across a day with no price, and does not reopen after', async () => {
+			const { clientProfileId, drop } = await droppingClient();
+			await handle(drop.id, NOW);
+
+			prices.set('PETR4', []);
+			await service.recompute(orgId, clientProfileId, NOW);
+			const during = await alerts.findById(orgId, drop.id);
+			expect(during?.status).toBe(AlertStatus.Handled);
+			expect(during?.clearedAt).toBeUndefined();
+
+			prices.set('PETR4', dropping());
+			const result = await service.recompute(orgId, clientProfileId, NOW);
+
+			expect(result.opened).toBe(0);
+			expect(
+				(await dropAlertsOf(clientProfileId)).map((a) => a.status)
+			).toEqual([AlertStatus.Handled]);
+		});
+
+		it('an OPEN POSITION_DROP is not resolved on a day with no price', async () => {
+			const { clientProfileId, drop } = await droppingClient();
+
+			prices.set('PETR4', []);
+			await service.recompute(orgId, clientProfileId, NOW);
+
+			expect((await alerts.findById(orgId, drop.id))?.status).toBe(
+				AlertStatus.Open
+			);
+		});
+	});
+
 	describe('R22: a closed alert blocks only while its condition stays present', () => {
 		it('NO_CONTACT second cycle: handled at day 0, cleared next recompute, P3 again after noContactDays', async () => {
 			await settings.ensureEngineEnabled(
@@ -810,6 +865,37 @@ describe('ClientSnapshotService', () => {
 				}
 			);
 			expect(queue.items).toEqual([]);
+		});
+
+		it('R28: with the trigger lost, the next daily run deletes the B2C alerts and rows of a revoked relationship', async () => {
+			const { clientProfileId, relationshipId } = await sharingClient();
+			await service.recompute(orgId, clientProfileId, NOW);
+			expect(
+				(await alertsOf(clientProfileId)).some(
+					(a) => a.source === SnapshotSource.B2cShared
+				)
+			).toBe(true);
+			// Revogado direto no store: nenhum gatilho roda.
+			const relationship = await relationships.findById(relationshipId);
+			await relationships.save({
+				...relationship!,
+				status: RelationshipStatus.Revoked,
+			});
+
+			await new AttentionScheduler(
+				orgs,
+				relationships,
+				service,
+				snapshots
+			).run();
+
+			expect(
+				(await alertsOf(clientProfileId)).some(
+					(a) => a.source === SnapshotSource.B2cShared
+				)
+			).toBe(false);
+			expect(wealth.all).toEqual([]);
+			expect(await snapshots.find(orgId, clientProfileId)).toBeNull();
 		});
 
 		it('a relationship that is no longer ACTIVE deletes B2C alerts and only resolves ledger ones', async () => {

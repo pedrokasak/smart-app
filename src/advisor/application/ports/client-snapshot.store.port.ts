@@ -9,5 +9,10 @@ export interface ClientSnapshotStorePort {
 	 * `clientIds`, só esses clientes (lista vazia => nenhum).
 	 */
 	listByOrg(orgId: string, clientIds?: string[]): Promise<ClientSnapshot[]>;
+	/**
+	 * R28: só os ids dos clientes com snapshot na organização, ordenados. O
+	 * job diário revisita os que não têm mais relação ACTIVE.
+	 */
+	listClientIds(orgId: string): Promise<string[]>;
 	delete(orgId: string, clientProfileId: string): Promise<void>;
 }

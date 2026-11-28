@@ -1,6 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { reconcileAlerts } from '../../domain/alert-reconcile';
-import { evaluateAlerts } from '../../domain/alert-rules';
+import {
+	evaluateAlerts,
+	unavailableRuleInputs,
+} from '../../domain/alert-rules';
 import { DEFAULT_ALERT_SETTINGS } from '../../domain/alert-settings';
 import {
 	Alert,
@@ -189,13 +192,17 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 			contactBaseline,
 			today,
 		}).filter((c) => !isFrozen(c, built.frozen));
+		// R27: entrada da regra indisponível sem erro vale como fonte congelada.
+		const isUnavailable = unavailableRuleInputs(snapshot);
 		const existing = (
 			await this.alerts.listForClient(
 				orgId,
 				clientProfileId,
 				new Date(now.getTime() - PREVIOUS_ALERTS_DAYS * MS_PER_DAY)
 			)
-		).filter((a) => !isFrozen(a, built.frozen));
+		).filter(
+			(a) => !isFrozen(a, built.frozen) && !isUnavailable(a.conditionKey)
+		);
 
 		const result = await this.apply(
 			orgId,
@@ -218,12 +225,15 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 		};
 	}
 
-	/** LGPD: tudo do cliente, inclusive os alertas manuais. */
+	/**
+	 * LGPD: tudo do cliente, inclusive os alertas manuais. O snapshot sai por
+	 * último: enquanto existir, o job diário revisita o cliente (R28).
+	 */
 	async purgeClient(orgId: string, clientProfileId: string): Promise<void> {
-		await this.snapshots.delete(orgId, clientProfileId);
 		await this.wealth.deleteClient(orgId, clientProfileId);
 		await this.contacts.deleteByClient(orgId, clientProfileId);
 		await this.alerts.deleteByClient(orgId, clientProfileId);
+		await this.snapshots.delete(orgId, clientProfileId);
 	}
 
 	/**
@@ -264,14 +274,14 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 	/**
 	 * Sem relação ACTIVE: some o read model, os alertas das carteiras B2C são
 	 * apagados (R23, LGPD) e os do livro do assessor ativos viram RESOLVED.
-	 * Os manuais ficam com o assessor.
+	 * Os manuais ficam com o assessor. O snapshot sai por último: se algo
+	 * falhar no meio, o job diário revisita o cliente (R28).
 	 */
 	private async retire(
 		orgId: string,
 		clientProfileId: string,
 		now: Date
 	): Promise<RecomputeResult> {
-		await this.snapshots.delete(orgId, clientProfileId);
 		await this.wealth.deleteClient(orgId, clientProfileId);
 		await this.contacts.deleteByClient(orgId, clientProfileId);
 		await this.alerts.deleteSharedExcept(orgId, clientProfileId, []);
@@ -285,6 +295,7 @@ export class ClientSnapshotService implements ClientAttentionPurgePort {
 						active.map((a) => a.id),
 						now
 					);
+		await this.snapshots.delete(orgId, clientProfileId);
 		return { opened: 0, updated: 0, resolved };
 	}
 

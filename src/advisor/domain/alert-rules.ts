@@ -1,11 +1,12 @@
 import type { ClientPortfolioMetrics } from '../application/metrics/build-portfolio-metrics';
 import type { AlertSettings } from './alert-settings';
 import { businessDate } from './business-date';
-import type {
-	AlertCandidate,
-	ClientSnapshot,
-	SellWindow,
-	SourceSnapshot,
+import {
+	conditionKeyOf,
+	type AlertCandidate,
+	type ClientSnapshot,
+	type SellWindow,
+	type SourceSnapshot,
 } from './attention.entities';
 import {
 	AlertPriority,
@@ -327,4 +328,53 @@ export function evaluateAlerts(input: EvaluateAlertsInput): AlertCandidate[] {
 	}
 	out.push(...noContact(contactBaseline, today, settings));
 	return out;
+}
+
+/** Regras que dependem das métricas de uma fonte (todas menos NO_CONTACT). */
+const SOURCE_RULES = [
+	AlertRule.PositionDrop,
+	AlertRule.Concentration,
+	AlertRule.PortfolioDrawdown,
+	AlertRule.TargetDrift,
+	AlertRule.LargeSells,
+] as const;
+
+/**
+ * R27: condições cuja entrada da regra está indisponível nesta rodada, sem
+ * que a fonte tenha lançado erro. Valem como fonte congelada: a ausência do
+ * candidato não resolve nem limpa (`clear`) o alerta dessa condição.
+ * - métricas `null`: todas as condições da fonte;
+ * - POSITION_DROP: posição presente sem `change5dPct` (sem preço);
+ * - PORTFOLIO_DRAWDOWN: `currentDrawdown` `null` ou risco indisponível;
+ * - TARGET_DRIFT: sem meta ou `driftPp` `null` (todas as classes da fonte).
+ * Uma posição que saiu da carteira não está indisponível: a condição sumiu.
+ */
+export function unavailableRuleInputs(
+	snapshot: ClientSnapshot
+): (conditionKey: string) => boolean {
+	const exact = new Set<string>();
+	const prefixes: string[] = [];
+	const keyOf = (s: SourceSnapshot, rule: AlertRule, key: string): string =>
+		conditionKeyOf({ rule, source: s.source, portfolioId: s.portfolioId, key });
+
+	for (const s of snapshot.sources) {
+		const m = s.metrics;
+		if (m === null) {
+			for (const rule of SOURCE_RULES) prefixes.push(keyOf(s, rule, ''));
+			continue;
+		}
+		for (const p of m.positions) {
+			if (p.change5dPct === null) {
+				exact.add(keyOf(s, AlertRule.PositionDrop, p.symbol));
+			}
+		}
+		if (m.risk.unavailable !== null || m.risk.currentDrawdown === null) {
+			exact.add(keyOf(s, AlertRule.PortfolioDrawdown, 'portfolio'));
+		}
+		if (m.allocation.target === null || m.allocation.driftPp === null) {
+			prefixes.push(keyOf(s, AlertRule.TargetDrift, ''));
+		}
+	}
+	return (conditionKey) =>
+		exact.has(conditionKey) || prefixes.some((p) => conditionKey.startsWith(p));
 }

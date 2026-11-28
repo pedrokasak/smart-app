@@ -1,6 +1,6 @@
 import type { ClientPortfolioMetrics } from '../application/metrics/build-portfolio-metrics';
 import { DEFAULT_ALERT_SETTINGS } from './alert-settings';
-import { evaluateAlerts } from './alert-rules';
+import { evaluateAlerts, unavailableRuleInputs } from './alert-rules';
 import {
 	ClientSnapshot,
 	conditionKeyOf,
@@ -507,5 +507,109 @@ describe('evaluateAlerts', () => {
 		}
 		const sellsAlert = list.find((a) => a.rule === AlertRule.LargeSells)!;
 		expect(Object.keys(sellsAlert.params)).toEqual(['windowPct']);
+	});
+});
+
+describe('unavailableRuleInputs (R27)', () => {
+	const key = (
+		rule: AlertRule,
+		k: string,
+		src = SnapshotSource.AdvisorLedger,
+		portfolioId?: string
+	) => conditionKeyOf({ rule, source: src, key: k, portfolioId });
+
+	it('a position without change5dPct makes its POSITION_DROP unavailable, only that one', () => {
+		const isUnavailable = unavailableRuleInputs(
+			snapshot(
+				source(
+					metrics({
+						positions: [
+							position({ symbol: 'PETR4', change5dPct: null, priced: false }),
+							position({ symbol: 'VALE3', change5dPct: -3 }),
+						],
+					})
+				)
+			)
+		);
+		expect(isUnavailable(key(AlertRule.PositionDrop, 'PETR4'))).toBe(true);
+		expect(isUnavailable(key(AlertRule.PositionDrop, 'VALE3'))).toBe(false);
+		expect(isUnavailable(key(AlertRule.Concentration, 'PETR4'))).toBe(false);
+		// Posição que saiu da carteira: a condição sumiu de fato.
+		expect(isUnavailable(key(AlertRule.PositionDrop, 'ITUB4'))).toBe(false);
+	});
+
+	it('a null currentDrawdown (or risk unavailable) makes PORTFOLIO_DRAWDOWN unavailable', () => {
+		const base = metrics().risk;
+		for (const risk of [
+			{ ...base, currentDrawdown: null },
+			{ ...base, unavailable: 'INSUFFICIENT_HISTORY' },
+		]) {
+			const isUnavailable = unavailableRuleInputs(
+				snapshot(source(metrics({ risk } as Partial<ClientPortfolioMetrics>)))
+			);
+			expect(isUnavailable(key(AlertRule.PortfolioDrawdown, 'portfolio'))).toBe(
+				true
+			);
+		}
+		expect(
+			unavailableRuleInputs(snapshot(source(metrics())))(
+				key(AlertRule.PortfolioDrawdown, 'portfolio')
+			)
+		).toBe(false);
+	});
+
+	it('no target or a null driftPp makes every TARGET_DRIFT of the source unavailable', () => {
+		const isUnavailable = unavailableRuleInputs(snapshot(source(metrics())));
+		expect(isUnavailable(key(AlertRule.TargetDrift, AssetClass.Stock))).toBe(
+			true
+		);
+		const withTarget = unavailableRuleInputs(
+			snapshot(
+				source(
+					metrics({
+						allocation: {
+							current: zeroClasses(),
+							target: { [AssetClass.Stock]: 50 },
+							driftPp: zeroClasses(),
+						},
+					})
+				)
+			)
+		);
+		expect(withTarget(key(AlertRule.TargetDrift, AssetClass.Stock))).toBe(
+			false
+		);
+	});
+
+	it('null metrics make every condition of that source unavailable, and only that source', () => {
+		const isUnavailable = unavailableRuleInputs(
+			snapshot(
+				{ source: SnapshotSource.B2cShared, portfolioId: 'p1', metrics: null },
+				{
+					source: SnapshotSource.B2cShared,
+					portfolioId: 'p2',
+					metrics: metrics(),
+				}
+			)
+		);
+		const b2c = SnapshotSource.B2cShared;
+		expect(
+			isUnavailable(key(AlertRule.Concentration, 'PETR4', b2c, 'p1'))
+		).toBe(true);
+		expect(
+			isUnavailable(key(AlertRule.LargeSells, 'portfolio', b2c, 'p1'))
+		).toBe(true);
+		expect(
+			isUnavailable(key(AlertRule.Concentration, 'PETR4', b2c, 'p2'))
+		).toBe(false);
+		expect(
+			isUnavailable(
+				conditionKeyOf({
+					rule: AlertRule.NoContact,
+					source: null,
+					key: 'client',
+				})
+			)
+		).toBe(false);
 	});
 });

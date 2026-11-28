@@ -2766,6 +2766,19 @@ export function describeAdvisorAttentionStoreContract(
 		});
 
 		describe('client snapshots', () => {
+			it('R28: listClientIds returns the clients with a snapshot in that org, sorted', async () => {
+				const orgId = randomUUID();
+				const [x, y] = [randomUUID(), randomUUID()].sort();
+				await s.snapshots.upsert(newSnapshot(orgId, y));
+				await s.snapshots.upsert(newSnapshot(orgId, x));
+				await s.snapshots.upsert(newSnapshot(randomUUID(), randomUUID()));
+
+				expect(await s.snapshots.listClientIds(orgId)).toEqual([x, y]);
+				await s.snapshots.delete(orgId, x);
+				expect(await s.snapshots.listClientIds(orgId)).toEqual([y]);
+				expect(await s.snapshots.listClientIds(randomUUID())).toEqual([]);
+			});
+
 			it('upsert/find round trip keeps the Mixed metrics, null contact and dates', async () => {
 				const orgId = randomUUID();
 				const clientId = randomUUID();

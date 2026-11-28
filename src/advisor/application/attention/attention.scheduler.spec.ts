@@ -5,6 +5,7 @@ import { collectAgentReport } from 'src/agent-control/application/agent-run-cont
 import { findAgentDefinition } from 'src/agent-control/domain/agent-catalog';
 import { AdvisorType, RelationshipStatus } from '../../domain/enums';
 import {
+	InMemoryClientSnapshotStore,
 	InMemoryOrganizationStore,
 	InMemoryRelationshipStore,
 } from '../in-memory-stores.fixture';
@@ -47,16 +48,19 @@ describe('AttentionScheduler', () => {
 	let orgs: InMemoryOrganizationStore;
 	let relationships: InMemoryRelationshipStore;
 	let snapshots: FakeSnapshots;
+	let readModel: InMemoryClientSnapshotStore;
 	let scheduler: AttentionScheduler;
 
 	beforeEach(() => {
 		orgs = new InMemoryOrganizationStore();
 		relationships = new InMemoryRelationshipStore();
 		snapshots = new FakeSnapshots();
+		readModel = new InMemoryClientSnapshotStore();
 		scheduler = new AttentionScheduler(
 			orgs,
 			relationships,
-			snapshots as unknown as ClientSnapshotService
+			snapshots as unknown as ClientSnapshotService,
+			readModel
 		);
 	});
 
@@ -89,6 +93,39 @@ describe('AttentionScheduler', () => {
 			cronTime: '0 20 * * 1-5',
 			timeZone: 'America/Sao_Paulo',
 		});
+	});
+
+	it('R28: also recomputes clients left in the read model without an ACTIVE relationship, once', async () => {
+		const a = await org();
+		await relationships.create({
+			orgId: a,
+			clientProfileId: 'active-1',
+			status: RelationshipStatus.Active,
+		});
+		await relationships.create({
+			orgId: a,
+			clientProfileId: 'revoked-1',
+			status: RelationshipStatus.Revoked,
+		});
+		for (const clientProfileId of ['active-1', 'revoked-1']) {
+			await readModel.upsert({
+				orgId: a,
+				clientProfileId,
+				asOf: '2026-11-23',
+				sources: [],
+				totalMinor: 0,
+				verifiedMinor: 0,
+				manualMinor: 0,
+				relationshipStartedAt: new Date(),
+				lastContactAt: null,
+				computedAt: new Date(),
+			});
+		}
+
+		const counts = await scheduler.run();
+
+		expect(snapshots.calls).toEqual([`${a}:active-1`, `${a}:revoked-1`]);
+		expect(counts.clients).toBe(2);
 	});
 
 	it('recomputes every ACTIVE client of every org and returns the counts', async () => {
@@ -190,6 +227,7 @@ describe('AttentionScheduler', () => {
 			orgs,
 			relationships,
 			snapshots as unknown as ClientSnapshotService,
+			readModel,
 			gate
 		);
 
